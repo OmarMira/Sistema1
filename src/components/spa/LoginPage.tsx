@@ -96,7 +96,7 @@ export function LoginPage() {
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">{t('auth.welcomeBack')}</CardTitle>
             <CardDescription>
-              {t('login.subtitle')}
+              {t('landing.loginSubtitle')}
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleSubmit}>

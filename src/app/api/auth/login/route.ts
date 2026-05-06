@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { verifyPassword } from '@/lib/auth';
+import { createSession } from '@/lib/sessions';
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────
 export async function POST(request: NextRequest) {
@@ -51,12 +52,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create session token (stored in-memory)
-    const token = crypto.randomUUID();
-    // Dynamically import the session store from the me route
-    // We import lazily to avoid circular dependency
-    const { sessionStore } = await import('@/app/api/auth/me/route');
-    sessionStore.set(token, { userId: user.id, createdAt: Date.now() });
+    // Create session token using shared module
+    const token = createSession(user.id);
 
     const companies = user.companyMemberships.map((m) => m.company);
 

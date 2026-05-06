@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
+import { sessionStore } from '@/lib/sessions';
 
 // ─── POST /api/auth/register ──────────────────────────────────────────
 export async function POST(request: NextRequest) {
@@ -80,7 +81,6 @@ export async function POST(request: NextRequest) {
 
     // Create session token
     const token = crypto.randomUUID();
-    const { sessionStore } = await import('@/app/api/auth/me/route');
     sessionStore.set(token, { userId: result.user.id, createdAt: Date.now() });
 
     const response = NextResponse.json({

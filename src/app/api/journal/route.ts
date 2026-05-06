@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getSessionUserId } from '@/app/api/auth/me/route';
+import { getSessionUserId } from '@/lib/sessions';
 
 // ─── GET /api/journal ───────────────────────────────────────────────
 // List journal entries for a company.

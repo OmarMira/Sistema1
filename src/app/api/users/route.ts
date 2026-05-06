@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { hashPassword } from '@/lib/auth';
-import { sessionStore } from '@/app/api/auth/me/route';
+import { getSessionUserId } from '@/lib/sessions';
 
 /**
  * GET /api/users?companyId=xxx — List users in a company
@@ -241,19 +241,3 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * Get session user ID from the shared session store.
- */
-function getSessionUserId(request: NextRequest): string | null {
-  const token =
-    request.cookies.get('session')?.value ??
-    request.headers.get('authorization')?.replace('Bearer ', '');
-  if (!token) return null;
-  const session = sessionStore.get(token);
-  if (!session) return null;
-  if (Date.now() - session.createdAt > 7 * 24 * 60 * 60 * 1000) {
-    sessionStore.delete(token);
-    return null;
-  }
-  return session.userId;
-}

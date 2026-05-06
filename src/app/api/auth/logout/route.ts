@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { destroySession, getSessionToken } from '@/lib/sessions';
 
 // ─── POST /api/auth/logout ────────────────────────────────────────────
 export async function POST(request: NextRequest) {
-  const token =
-    request.cookies.get('session')?.value ??
-    request.headers.get('authorization')?.replace('Bearer ', '');
-
+  const token = getSessionToken(request);
   if (token) {
-    const { sessionStore } = await import('@/app/api/auth/me/route');
-    sessionStore.delete(token);
+    destroySession(token);
   }
 
   const response = NextResponse.json({ success: true });

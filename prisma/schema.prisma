@@ -1,0 +1,214 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  firstName    String
+  lastName     String
+  role         String   @default("company_admin") // super_admin | company_admin
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  companyMemberships CompanyMember[]
+  auditLogs         AuditLog[]
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  legalName String
+  taxId     String?
+  address   String?
+  phone     String?
+  email     String?
+  logo      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members        CompanyMember[]
+  glAccounts     GlAccount[]
+  bankAccounts   BankAccount[]
+  bankRules      BankRule[]
+  journalEntries JournalEntry[]
+  fiscalPeriods  FiscalPeriod[]
+  statements     BankStatement[]
+  auditLogs      AuditLog[]
+}
+
+model CompanyMember {
+  id        String   @id @default(cuid())
+  userId    String
+  companyId String
+  role      String   @default("company_admin") // company_admin
+  joinedAt  DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, companyId])
+}
+
+model GlAccount {
+  id            String   @id @default(cuid())
+  companyId     String
+  code          String
+  name          String
+  accountType   String   // asset | liability | equity | revenue | expense
+  normalBalance String   // debit | credit
+  parentId      String?
+  isActive      Boolean  @default(true)
+  isSystem      Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company      Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent       GlAccount?      @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children     GlAccount[]     @relation("AccountHierarchy")
+  journalLines JournalLine[]
+  bankAccounts BankAccount[]
+  bankRules    BankRule[]
+  transactions BankTransaction[]
+
+  @@unique([companyId, code])
+}
+
+model BankAccount {
+  id          String   @id @default(cuid())
+  companyId   String
+  accountName String
+  bankName    String
+  accountNo   String?
+  routingNo   String?
+  glAccountId String
+  balance     Float    @default(0)
+  currency    String   @default("USD")
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  glAccount  GlAccount       @relation(fields: [glAccountId], references: [id])
+  statements BankStatement[]
+}
+
+model BankStatement {
+  id            String   @id @default(cuid())
+  companyId     String
+  bankAccountId String
+  startDate     DateTime
+  endDate       DateTime
+  openingBalance Float
+  closingBalance Float
+  totalCredits  Float    @default(0)
+  totalDebits   Float    @default(0)
+  format        String   // csv | ofx | qfx | pdf
+  fileName      String?
+  createdAt     DateTime @default(now())
+
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount     @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  transactions BankTransaction[]
+}
+
+model BankTransaction {
+  id            String   @id @default(cuid())
+  statementId   String
+  date          DateTime
+  description   String
+  amount        Float
+  reference     String?
+  isReconciled  Boolean  @default(false)
+  glAccountId   String?
+  matchedRuleId String?
+  createdAt     DateTime @default(now())
+
+  statement   BankStatement   @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  glAccount   GlAccount?      @relation(fields: [glAccountId], references: [id])
+  matchedRule BankRule?        @relation(fields: [matchedRuleId], references: [id])
+}
+
+model BankRule {
+  id                 String   @id @default(cuid())
+  companyId          String
+  name               String
+  conditionType      String   // contains | starts_with | ends_with | equals | amount_greater | amount_less
+  conditionValue     String
+  transactionDirection String @default("any") // debit | credit | any
+  glAccountId        String
+  priority           Int      @default(10)
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  glAccount   GlAccount         @relation(fields: [glAccountId], references: [id])
+  transactions BankTransaction[]
+}
+
+model JournalEntry {
+  id          String   @id @default(cuid())
+  companyId   String
+  date        DateTime
+  description String
+  reference   String?
+  status      String   @default("draft") // draft | posted | void
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines   JournalLine[]
+
+  @@index([companyId, date])
+}
+
+model JournalLine {
+  id          String   @id @default(cuid())
+  entryId     String
+  glAccountId String
+  description String?
+  debit       Float    @default(0)
+  credit      Float    @default(0)
+
+  entry     JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  glAccount GlAccount    @relation(fields: [glAccountId], references: [id])
+}
+
+model FiscalPeriod {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  startDate DateTime
+  endDate   DateTime
+  isLocked  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  companyId String?
+  userId    String?
+  action    String
+  entity    String
+  entityId  String?
+  details   String?
+  createdAt DateTime @default(now())
+
+  company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([companyId])
+  @@index([createdAt])
+}

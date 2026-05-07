@@ -126,7 +126,7 @@ export function BackupPage() {
   const fetchBackups = useCallback(async () => {
     if (!companyId || !mountedRef.current) return;
     try {
-      const res = await fetch(`/api/backup?companyId=${companyId}`);
+      const res = await fetch(`/api/backup?companyId=${companyId}`, { credentials: 'include' });
       if (res.ok && mountedRef.current) {
         const data = await res.json();
         setBackups(data.backups || []);
@@ -151,6 +151,7 @@ export function BackupPage() {
     try {
       const res = await fetch('/api/backup', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId }),
       });
@@ -194,7 +195,8 @@ export function BackupPage() {
     setDownloading(backup.id);
     try {
       const res = await fetch(
-        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`
+        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
+        { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();
@@ -224,6 +226,7 @@ export function BackupPage() {
     try {
       const res = await fetch('/api/backup', {
         method: 'DELETE',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, filename }),
       });
@@ -256,6 +259,7 @@ export function BackupPage() {
       setRestoreProgress(50);
       const res = await fetch('/api/backup/restore', {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       });
 

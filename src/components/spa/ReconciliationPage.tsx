@@ -230,6 +230,7 @@ export function ReconciliationPage() {
     try {
       const res = await fetch('/api/dashboard', {
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
       });
       if (res.ok) {
         const data = await res.json();
@@ -256,7 +257,7 @@ export function ReconciliationPage() {
   const fetchAccounts = useCallback(async () => {
     if (!activeCompany?.id) return;
     try {
-      const res = await fetch(`/api/journal/accounts?companyId=${activeCompany.id}`);
+      const res = await fetch(`/api/journal/accounts?companyId=${activeCompany.id}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setAccounts(data.data ?? data);
@@ -271,7 +272,7 @@ export function ReconciliationPage() {
     setSelectedTxIds(new Set());
     setTxGlAssignments({});
     try {
-      const res = await fetch(`/api/reconciliation?${queryParams}`);
+      const res = await fetch(`/api/reconciliation?${queryParams}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setBankAccountInfo(data.bankAccount);
@@ -344,6 +345,7 @@ export function ReconciliationPage() {
     try {
       const res = await fetch('/api/reconciliation/auto', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: activeCompany.id,
@@ -375,6 +377,7 @@ export function ReconciliationPage() {
       }));
       const res = await fetch('/api/reconciliation', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: activeCompany.id,
@@ -405,6 +408,7 @@ export function ReconciliationPage() {
     try {
       const res = await fetch('/api/reconciliation/unreconcile', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: activeCompany.id,
@@ -430,6 +434,7 @@ export function ReconciliationPage() {
     try {
       const res = await fetch('/api/reconciliation/adjustment', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: activeCompany.id,
@@ -455,6 +460,7 @@ export function ReconciliationPage() {
     try {
       const res = await fetch('/api/reconciliation/periods', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: activeCompany.id,
@@ -473,7 +479,7 @@ export function ReconciliationPage() {
   const fetchHistory = async () => {
     if (!activeCompany?.id || !selectedAccountId) return;
     try {
-      const res = await fetch(`/api/reconciliation/periods?bankAccountId=${selectedAccountId}&companyId=${activeCompany.id}`);
+      const res = await fetch(`/api/reconciliation/periods?bankAccountId=${selectedAccountId}&companyId=${activeCompany.id}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setHistoryPeriods(data.periods ?? []);

@@ -63,6 +63,7 @@ export function AIRulesGeneratorTab() {
     try {
       const res = await fetch('/api/ai-assistant', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'detect-patterns',

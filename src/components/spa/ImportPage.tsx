@@ -203,7 +203,7 @@ export function ImportPage() {
   async function fetchBankAccounts() {
     if (!activeCompany) return;
     try {
-      const res = await fetch(`/api/banks?companyId=${activeCompany.id}`);
+      const res = await fetch(`/api/banks?companyId=${activeCompany.id}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         const active = (data.accounts || []).filter(
@@ -228,7 +228,8 @@ export function ImportPage() {
     setLoadingHistory(true);
     try {
       const res = await fetch(
-        `/api/import/history?companyId=${activeCompany.id}`
+        `/api/import/history?companyId=${activeCompany.id}`,
+        { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();
@@ -337,6 +338,7 @@ export function ImportPage() {
 
       const res = await fetch('/api/import', {
         method: 'POST',
+        credentials: 'include',
         body: formData,
       });
 

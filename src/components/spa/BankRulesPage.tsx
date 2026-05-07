@@ -213,7 +213,8 @@ export function BankRulesPage() {
     if (!activeCompany?.id) return;
     try {
       const res = await fetch(
-        `/api/journal/accounts?companyId=${activeCompany.id}`
+        `/api/journal/accounts?companyId=${activeCompany.id}`,
+        { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();
@@ -229,9 +230,7 @@ export function BankRulesPage() {
     if (!activeCompany?.id) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        `/api/bank-rules?companyId=${activeCompany.id}`
-      );
+      const res = await fetch(`/api/bank-rules?companyId=${activeCompany.id}`, { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setRules(data.data ?? []);
@@ -293,6 +292,7 @@ export function BankRulesPage() {
 
       const res = await fetch(url, {
         method,
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
@@ -314,6 +314,7 @@ export function BankRulesPage() {
     try {
       await fetch(`/api/bank-rules/${rule.id}`, {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isActive: !rule.isActive }),
       });
@@ -330,6 +331,7 @@ export function BankRulesPage() {
     try {
       const res = await fetch(`/api/bank-rules/${deletingRule.id}`, {
         method: 'DELETE',
+        credentials: 'include',
       });
       if (res.ok) {
         setDeleteDialogOpen(false);
@@ -351,6 +353,7 @@ export function BankRulesPage() {
     try {
       const res = await fetch('/api/bank-rules/apply-all', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: activeCompany.id }),
       });

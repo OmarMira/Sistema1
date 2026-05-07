@@ -204,7 +204,8 @@ export function BanksPage() {
     setLoading(true);
     try {
       const res = await fetch(
-        `/api/banks?companyId=${activeCompany.id}`
+        `/api/banks?companyId=${activeCompany.id}`,
+        { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();
@@ -221,7 +222,8 @@ export function BanksPage() {
     if (!activeCompany) return;
     try {
       const res = await fetch(
-        `/api/journal/accounts?companyId=${activeCompany.id}`
+        `/api/journal/accounts?companyId=${activeCompany.id}`,
+        { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();
@@ -304,6 +306,7 @@ export function BanksPage() {
 
       const res = await fetch(url, {
         method,
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
@@ -339,6 +342,7 @@ export function BanksPage() {
     try {
       const res = await fetch(`/api/banks/${deleteTarget.id}`, {
         method: 'DELETE',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId: activeCompany!.id }),
       });
@@ -372,7 +376,8 @@ export function BanksPage() {
   async function fetchAccountDetail(accountId: string) {
     try {
       const res = await fetch(
-        `/api/banks/${accountId}?companyId=${activeCompany!.id}`
+        `/api/banks/${accountId}?companyId=${activeCompany!.id}`,
+        { credentials: 'include' }
       );
       if (res.ok) {
         const data = await res.json();

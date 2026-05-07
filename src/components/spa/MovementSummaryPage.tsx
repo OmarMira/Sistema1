@@ -182,7 +182,8 @@ export function MovementSummaryPage() {
     void (async () => {
       try {
         const res = await fetch(
-          `/api/journal/accounts?companyId=${activeCompany.id}`
+          `/api/journal/accounts?companyId=${activeCompany.id}`,
+          { credentials: 'include' }
         );
         if (res.ok && !cancelled) {
           const json = await res.json();
@@ -219,6 +220,7 @@ export function MovementSummaryPage() {
         }
         const res = await fetch(`/api/movement-summary?${params}`, {
           signal: controller.signal,
+          credentials: 'include',
         });
         if (!controller.signal.aborted) {
           if (res.ok) {

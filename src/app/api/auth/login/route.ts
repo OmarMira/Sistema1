@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create session token using shared module
-    const token = createSession(user.id);
+    const token = await createSession(user.id);
 
     const companies = user.companyMemberships.map((m) => m.company);
 

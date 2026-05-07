@@ -112,7 +112,7 @@ export function CompanyDataTab() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/settings?companyId=${companyId}`);
+        const res = await fetch(`/api/settings?companyId=${companyId}`, { credentials: 'include' });
         if (res.ok && !cancelled) {
           const data = await res.json();
           if (data.company) {
@@ -137,7 +137,7 @@ export function CompanyDataTab() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/companies');
+        const res = await fetch('/api/companies', { credentials: 'include' });
         if (res.ok && !cancelled) {
           const data = await res.json();
           setCompanies(data.companies || []);
@@ -154,6 +154,7 @@ export function CompanyDataTab() {
     try {
       const res = await fetch('/api/settings', {
         method: 'PUT',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, ...companyData }),
       });
@@ -178,6 +179,7 @@ export function CompanyDataTab() {
     try {
       const res = await fetch('/api/companies', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newCompany),
       });

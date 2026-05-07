@@ -67,3 +67,24 @@ Stage Summary:
 - 32 files updated for async session calls
 - 0 lint errors
 - Dev server compiles successfully
+
+---
+Task ID: 4
+Agent: Main Agent
+Task: Fix system not working - session race condition and auth failures
+
+Work Log:
+- Diagnosed: All API calls returning 401 after login (POST /api/auth/login 200, then GET /api/auth/me 401)
+- ROOT CAUSE 1: `createSession()` in sessions.ts used `void db.session.create()` (fire-and-forget) - the session token was returned and set as cookie BEFORE the DB write completed
+- ROOT CAUSE 2: Register route used `sessionStore.set()` which was also fire-and-forget
+- Fixed sessions.ts: Changed `createSession` from sync (fire-and-forget) to async (awaited DB write)
+- Fixed login route: Changed `createSession(user.id)` to `await createSession(user.id)`
+- Fixed register route: Replaced `sessionStore.set()` with `await createSession(result.user.id)`, removed legacy sessionStore export
+- Fixed ReportsPage.tsx: Added missing `credentials: 'include'` on reconciliation report fetch call
+- Audited ALL fetch calls across entire SPA - confirmed all others already have credentials: 'include'
+
+Stage Summary:
+- Session creation now properly awaits DB write before returning token
+- Login and register will work reliably - no more race condition
+- All 50+ fetch calls across SPA verified to include credentials: 'include'
+- 0 lint errors

@@ -217,7 +217,7 @@ function TrialBalanceTab({ companyId }: { companyId?: string }) {
     void (async () => {
       try {
         const params = new URLSearchParams({ companyId, asOfDate });
-        const res = await fetch(`/api/reports/trial-balance?${params}`);
+        const res = await fetch(`/api/reports/trial-balance?${params}`, { credentials: 'include' });
         if (res.ok && !cancelled) setData(await res.json());
       } catch { /* ignore */ }
       if (!cancelled) setLoading(false);
@@ -361,7 +361,7 @@ function TransactionListingTab({ companyId }: { companyId?: string }) {
   // Fetch GL accounts for filter
   useEffect(() => {
     if (!companyId) return;
-    fetch(`/api/journal/accounts?companyId=${companyId}`)
+    fetch(`/api/journal/accounts?companyId=${companyId}`, { credentials: 'include' })
       .then((r) => r.ok ? r.json() : [])
       .then((accounts) => setGlAccounts(accounts))
       .catch(() => {});
@@ -381,7 +381,7 @@ function TransactionListingTab({ companyId }: { companyId?: string }) {
           limit: '25',
         });
         if (glAccountId) params.set('glAccountId', glAccountId);
-        const res = await fetch(`/api/reports/transactions?${params}`);
+        const res = await fetch(`/api/reports/transactions?${params}`, { credentials: 'include' });
         if (res.ok && !cancelled) setData(await res.json());
       } catch { /* ignore */ }
       if (!cancelled) setLoading(false);
@@ -561,7 +561,7 @@ function ReconciliationTab({ companyId }: { companyId?: string }) {
   // Fetch bank accounts
   useEffect(() => {
     if (!companyId) return;
-    fetch(`/api/dashboard?companyId=${companyId}`)
+    fetch(`/api/dashboard?companyId=${companyId}`, { credentials: 'include' })
       .then((r) => r.ok ? r.json() : null)
       .then((dash) => {
         if (dash?.bankAccounts) setBankAccounts(dash.bankAccounts);
@@ -576,7 +576,7 @@ function ReconciliationTab({ companyId }: { companyId?: string }) {
     setLoading(true);
     (async () => {
       try {
-        const res = await fetch(`/api/reports/reconciliation?bankAccountId=${bankAccountId}`);
+        const res = await fetch(`/api/reports/reconciliation?bankAccountId=${bankAccountId}`, { credentials: 'include' });
         if (res.ok && !cancelled) setData(await res.json());
       } catch { /* ignore */ }
       if (!cancelled) setLoading(false);

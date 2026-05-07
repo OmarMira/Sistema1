@@ -136,6 +136,7 @@ export function AIAssistantModal() {
     try {
       const res = await fetch('/api/ai-assistant', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed, mode: 'chat' }),
       });
@@ -175,6 +176,7 @@ export function AIAssistantModal() {
     try {
       const res = await fetch('/api/ai-assistant', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: trimmed, mode: 'create-rule' }),
       });
@@ -207,7 +209,8 @@ export function AIAssistantModal() {
     try {
       // First, find the GL account by name
       const accountsRes = await fetch(
-        `/api/accounts?companyId=${activeCompany.id}`
+        `/api/accounts?companyId=${activeCompany.id}`,
+        { credentials: 'include' }
       );
       if (!accountsRes.ok) {
         setError(t('aiAssistant.error'));
@@ -233,6 +236,7 @@ export function AIAssistantModal() {
       // Create the rule via bank-rules API
       const ruleRes = await fetch('/api/bank-rules', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId: activeCompany.id,

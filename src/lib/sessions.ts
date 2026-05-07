@@ -8,9 +8,9 @@ const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
  * Sessions persist across server restarts.
  */
 
-export function createSession(userId: string): string {
+export async function createSession(userId: string): Promise<string> {
   const token = crypto.randomUUID();
-  void db.session.create({
+  await db.session.create({
     data: { token, userId },
   });
   return token;
@@ -53,14 +53,3 @@ export function getToken(request: NextRequest): string | null {
     request.headers.get('authorization')?.replace('Bearer ', '')
   );
 }
-
-/**
- * Legacy export for register route (which creates session manually).
- */
-export const sessionStore = {
-  set(token: string, data: { userId: string; createdAt: number }) {
-    void db.session.create({
-      data: { token, userId: data.userId },
-    });
-  },
-};

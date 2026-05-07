@@ -101,7 +101,7 @@ export function UsersTab() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/users?companyId=${companyId}`);
+        const res = await fetch(`/api/users?companyId=${companyId}`, { credentials: 'include' });
         if (res.ok && !cancelled) {
           const data = await res.json();
           setUsers(data.users || []);
@@ -118,6 +118,7 @@ export function UsersTab() {
     try {
       const res = await fetch('/api/users', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, ...inviteForm }),
       });

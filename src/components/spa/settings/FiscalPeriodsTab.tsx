@@ -101,7 +101,7 @@ export function FiscalPeriodsTab() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`/api/settings?companyId=${companyId}`);
+        const res = await fetch(`/api/settings?companyId=${companyId}`, { credentials: 'include' });
         if (res.ok && !cancelled) {
           const data = await res.json();
           setPeriods(data.periods || []);
@@ -118,6 +118,7 @@ export function FiscalPeriodsTab() {
     try {
       const res = await fetch('/api/fiscal-periods', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, ...newPeriod }),
       });
@@ -143,6 +144,7 @@ export function FiscalPeriodsTab() {
     try {
       const res = await fetch(`/api/fiscal-periods/${period.id}`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ companyId, isLocked: !period.isLocked }),
       });

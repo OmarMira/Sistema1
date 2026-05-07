@@ -101,7 +101,7 @@ export function BackupTab() {
     }, 300);
 
     try {
-      const res = await fetch('/api/backup', { method: 'POST' });
+      const res = await fetch('/api/backup', { method: 'POST', credentials: 'include' });
       if (res.ok) {
         toast.success(t('settings.backup.backupCreated'));
       } else {
@@ -145,6 +145,7 @@ export function BackupTab() {
         formData.append('file', file);
         const res = await fetch('/api/backup/restore', {
           method: 'POST',
+          credentials: 'include',
           body: formData,
         });
         if (res.ok) {

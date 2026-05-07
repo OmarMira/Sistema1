@@ -178,7 +178,7 @@ export function ExportPage() {
   // Fetch bank accounts for reconciliation export
   useEffect(() => {
     if (!activeCompany?.id) return;
-    fetch(`/api/dashboard?companyId=${activeCompany.id}`)
+    fetch(`/api/dashboard?companyId=${activeCompany.id}`, { credentials: 'include' })
       .then((r) => r.ok ? r.json() : null)
       .then((dash) => {
         if (dash?.bankAccounts) setBankAccounts(dash.bankAccounts);

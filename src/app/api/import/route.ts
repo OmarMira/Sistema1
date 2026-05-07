@@ -3,10 +3,11 @@ import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
 import { parseCSV } from '@/lib/csv-parser';
 import { parseOFX } from '@/lib/ofx-parser';
+import { parsePDF } from '@/lib/pdf-parser';
 
 // ─── POST /api/import ─────────────────────────────────────────────────
 // Accepts multipart/form-data with a file field.
-// Supports CSV, OFX, QFX formats. PDF returns a placeholder message.
+// Supports CSV, OFX, QFX, and PDF formats.
 export async function POST(request: NextRequest) {
   const userId = await getSessionUserId(request);
   if (!userId) {
@@ -55,16 +56,52 @@ export async function POST(request: NextRequest) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const content = buffer.toString('utf-8');
 
-    // ─── PDF: not fully implemented ──────────────────────────────────
+    // ─── PDF parsing ──────────────────────────────────────────────
     if (extension === 'pdf') {
-      return NextResponse.json(
-        {
-          error:
-            'PDF import requires OCR processing and is not yet fully implemented. Please export your bank statement as CSV or OFX format.',
-          supportedFormats: ['csv', 'ofx', 'qfx'],
-        },
-        { status: 400 }
-      );
+      try {
+        const parsed = await parsePDF(buffer, fileName);
+
+        const bankName = parsed.bankName;
+
+        // Find or create bank account
+        const bankAccount = await findOrCreateBankAccount(
+          companyId,
+          bankAccountId,
+          bankName,
+          parsed.transactions
+        );
+        const newAccountCreated = !bankAccountId;
+
+        // Create statement + transactions
+        const result = await importTransactions(
+          companyId,
+          bankAccount.id,
+          parsed.transactions,
+          'pdf',
+          fileName,
+          {
+            startDate: parsed.startDate,
+            endDate: parsed.endDate,
+            openingBalance: parsed.openingBalance,
+            closingBalance: parsed.closingBalance,
+          }
+        );
+
+        return NextResponse.json({
+          statementId: result.statementId,
+          transactionCount: result.transactionCount,
+          autoCategorizedCount: result.autoCategorizedCount,
+          duplicatesSkipped: result.duplicatesSkipped,
+          newAccountCreated,
+          bankAccountName: bankAccount.accountName,
+        });
+      } catch (parseError) {
+        const msg =
+          parseError instanceof Error
+            ? parseError.message
+            : 'Failed to parse PDF file. The statement may contain only images (scanned). Please export as CSV or OFX.';
+        return NextResponse.json({ error: msg }, { status: 400 });
+      }
     }
 
     // ─── CSV parsing ─────────────────────────────────────────────────
@@ -166,7 +203,7 @@ export async function POST(request: NextRequest) {
     // ─── Unsupported format ──────────────────────────────────────────
     return NextResponse.json(
       {
-        error: `Unsupported file format: .${extension}. Supported formats: .csv, .ofx, .qfx`,
+        error: `Unsupported file format: .${extension}. Supported formats: .csv, .ofx, .qfx, .pdf`,
       },
       { status: 400 }
     );

@@ -107,3 +107,38 @@ Stage Summary:
 - Fixed critical import error that prevented production build
 - logout/route.ts updated to use new sessions.ts API
 - Build passes: all 32+ API routes compile successfully
+
+---
+Task ID: 6
+Agent: Main Agent
+Task: Implement PDF bank statement import functionality
+
+Work Log:
+- Installed pdf-parse v2.4.5 (npm package for PDF text extraction)
+- Created src/lib/pdf-parser.ts with full PDF parsing pipeline:
+  - Uses pdf-parse v2 class-based API (PDFParse) for text extraction
+  - Text normalization: removes PDF artifacts, page headers/footers
+  - 4 extraction strategies (tried in order until sufficient results):
+    1. Tabular extraction: date + description + amount columns
+    2. Line-by-line extraction: lines starting with date + amounts
+    3. Right-aligned extraction: amounts at end of line + date prefix
+    4. Aggressive extraction: any line with date + number
+  - Flexible date parsing: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY, DD Mon YYYY, Spanish months
+  - Flexible amount parsing: US/European formats, parentheses for negatives, currency symbols
+  - Bank name extraction from PDF text and filename
+  - Balance extraction (opening/closing) from text
+  - Transaction deduplication by date+amount+description key
+- Updated src/app/api/import/route.ts:
+  - Replaced PDF "not implemented" error with full PDF import handler
+  - PDF files now go through parsePDF → findOrCreateBankAccount → importTransactions
+  - Updated supported formats message to include .pdf
+- Removed @types/pdf-parse (v2 ships its own types)
+- ESLint: 0 errors
+- Dev server: compiles successfully (GET / 200)
+
+Stage Summary:
+- PDF import fully implemented - users can now upload PDF bank statements
+- 4-strategy extraction engine handles various bank statement formats
+- Supports English and Spanish bank names and date formats
+- Proper error messages for scanned/image-only PDFs
+- Frontend already accepts .pdf files (no changes needed)

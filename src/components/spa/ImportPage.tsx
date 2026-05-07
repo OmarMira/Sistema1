@@ -6,17 +6,16 @@ import {
   FileSpreadsheet,
   FileText,
   File,
-  Download,
   Loader2,
   CheckCircle2,
   AlertCircle,
-  ArrowRight,
   X,
   Clock,
   BarChart3,
   Landmark,
   ArrowLeftRight,
   RefreshCcw,
+  FileUp,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -25,7 +24,6 @@ import { Progress } from '@/components/ui/progress';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
@@ -45,13 +43,6 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Popover,
   PopoverContent,
@@ -104,29 +95,6 @@ interface ImportResult {
 
 // ─── Helpers ──────────────────────────────────────────────────────────
 
-function fmtCurrency(amount: number): string {
-  const formatted = Math.abs(amount).toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-  return amount < 0 ? `-$${formatted}` : `$${formatted}`;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function formatDateShort(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
-}
-
 function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -152,39 +120,69 @@ function getFileIcon(fileName: string) {
 function getFormatBadge(format: string) {
   const config: Record<string, { className: string; label: string }> = {
     csv: {
-      className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+      className:
+        'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
       label: 'CSV',
     },
     ofx: {
-      className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+      className:
+        'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
       label: 'OFX',
     },
     qfx: {
-      className: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+      className:
+        'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
       label: 'QFX',
     },
     pdf: {
-      className: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+      className:
+        'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
       label: 'PDF',
     },
   };
   const c = config[format] || config.csv;
   return (
-    <Badge variant="outline" className={cn('text-[10px] font-semibold uppercase', c.className)}>
+    <Badge
+      variant="outline"
+      className={cn('text-[10px] font-semibold uppercase', c.className)}
+    >
       {c.label}
     </Badge>
   );
 }
 
-const ACCEPTED_TYPES = [
-  '.csv',
-  '.tsv',
-  '.txt',
-  '.ofx',
-  '.qfx',
-  '.pdf',
-];
+function formatDateShort(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+const ACCEPTED_TYPES = ['.csv', '.tsv', '.txt', '.ofx', '.qfx', '.pdf'];
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+
+const FORMAT_BADGES: { label: string; className: string }[] = [
+  {
+    label: 'CSV',
+    className:
+      'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  },
+  {
+    label: 'OFX',
+    className:
+      'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+  },
+  {
+    label: 'QFX',
+    className:
+      'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
+  },
+  {
+    label: 'PDF',
+    className:
+      'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
+  },
+];
 
 // ─── Main Component ───────────────────────────────────────────────────
 
@@ -195,7 +193,9 @@ export function ImportPage() {
 
   // State
   const [bankAccounts, setBankAccounts] = useState<BankAccountOption[]>([]);
-  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>(
+    ''
+  );
   const [history, setHistory] = useState<ImportStatement[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
@@ -297,13 +297,15 @@ export function ImportPage() {
     const ext = '.' + (file.name.split('.').pop()?.toLowerCase() || '');
     if (!ACCEPTED_TYPES.includes(ext)) {
       setUploadError(
-        `Unsupported file type "${ext}". Supported: .csv, .ofx, .qfx, .pdf`
+        `${t('common.type')}: "${ext}" — ${t('banks.supportedFormats')}`
       );
       setSelectedFile(null);
       return;
     }
     if (file.size > MAX_FILE_SIZE) {
-      setUploadError('File is too large. Maximum size is 10 MB.');
+      setUploadError(
+        `${t('common.type')}: ${formatFileSize(file.size)} — ${t('banks.supportedFormats')}`
+      );
       setSelectedFile(null);
       return;
     }
@@ -364,16 +366,19 @@ export function ImportPage() {
         fetchHistory();
       } else {
         const err = await res.json();
-        setUploadError(err.error || 'Import failed');
+        setUploadError(err.error || t('banks.importFailed'));
       }
-    } catch (err) {
-      console.error('Upload error:', err);
-      setUploadError('An unexpected error occurred during import');
+    } catch {
+      setUploadError(t('banks.importFailed'));
     } finally {
       setUploading(false);
       setUploadProgress(0);
     }
   }
+
+  // ─── Determine wizard step ────────────────────────────────────────
+
+  const currentStep = !selectedFile ? 1 : selectedFile && !uploading ? 2 : 0;
 
   // ─── Render ──────────────────────────────────────────────────────
 
@@ -382,17 +387,56 @@ export function ImportPage() {
       {/* Header */}
       <div>
         <h2 className="text-xl font-semibold tracking-tight">
-          {t('banks.uploadStatement')}
+          {t('banks.importStatement')}
         </h2>
         <p className="text-sm text-muted-foreground">
-          Import bank statements from CSV, OFX, or QFX files
+          {t('banks.importStatement')}
         </p>
       </div>
 
-      {/* Upload Area */}
+      {/* Wizard Steps Indicator */}
+      <div className="flex items-center gap-2">
+        {[
+          { num: 1, label: t('banks.dragDrop').split(',')[0] },
+          { num: 2, label: t('banks.selectBankAccount') },
+        ].map((step, i) => (
+          <React.Fragment key={step.num}>
+            <div
+              className={cn(
+                'flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+                currentStep >= step.num
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground'
+              )}
+            >
+              <span
+                className={cn(
+                  'flex size-5 items-center justify-center rounded-full text-[10px] font-bold',
+                  currentStep >= step.num
+                    ? 'bg-primary-foreground text-primary'
+                    : 'bg-muted-foreground/20 text-muted-foreground'
+                )}
+              >
+                {step.num}
+              </span>
+              <span className="hidden sm:inline">{step.label}</span>
+            </div>
+            {i < 1 && (
+              <div
+                className={cn(
+                  'h-px flex-1',
+                  currentStep > step.num ? 'bg-primary' : 'bg-muted'
+                )}
+              />
+            )}
+          </React.Fragment>
+        ))}
+      </div>
+
+      {/* Upload Card (Wizard Step 1 & 2) */}
       <Card>
         <CardContent className="pt-6">
-          <div className="space-y-4">
+          <div className="space-y-5">
             {/* Drop zone */}
             <div
               className={cn(
@@ -407,7 +451,9 @@ export function ImportPage() {
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
-              onClick={() => !selectedFile && !uploading && fileInputRef.current?.click()}
+              onClick={() =>
+                !selectedFile && !uploading && fileInputRef.current?.click()
+              }
             >
               <input
                 ref={fileInputRef}
@@ -438,35 +484,45 @@ export function ImportPage() {
                       }}
                     >
                       <X className="size-3.5 mr-1" />
-                      Remove
+                      {t('common.delete')}
                     </Button>
                   )}
                 </div>
               ) : (
                 /* Empty drop zone */
                 <div className="flex flex-col items-center gap-3">
-                  <div className={cn(
-                    'flex size-14 items-center justify-center rounded-full transition-colors',
-                    isDragging
-                      ? 'bg-primary/10 text-primary'
-                      : 'bg-muted text-muted-foreground'
-                  )}>
+                  <div
+                    className={cn(
+                      'flex size-14 items-center justify-center rounded-full transition-colors',
+                      isDragging
+                        ? 'bg-primary/10 text-primary'
+                        : 'bg-muted text-muted-foreground'
+                    )}
+                  >
                     <Upload className="size-6" />
                   </div>
                   <div>
                     <p className="text-sm font-medium">
                       {isDragging
-                        ? 'Drop your file here'
-                        : 'Drag & drop a file here, or click to browse'}
+                        ? t('banks.dragDrop')
+                        : t('banks.dragDrop')}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Supported formats: .csv, .ofx, .qfx, .pdf (max 10 MB)
+                      {t('banks.supportedFormats')}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    {['CSV', 'OFX', 'QFX'].map((fmt) => (
-                      <Badge key={fmt} variant="outline" className="text-[10px]">
-                        {fmt}
+                  {/* Prominent format badges */}
+                  <div className="flex items-center gap-2 mt-2">
+                    {FORMAT_BADGES.map((fmt) => (
+                      <Badge
+                        key={fmt.label}
+                        variant="outline"
+                        className={cn(
+                          'text-xs font-bold px-3 py-1',
+                          fmt.className
+                        )}
+                      >
+                        {fmt.label}
                       </Badge>
                     ))}
                   </div>
@@ -480,7 +536,7 @@ export function ImportPage() {
                 <div className="flex items-center justify-between text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Loader2 className="size-3 animate-spin" />
-                    Processing...
+                    {t('banks.processing')}
                   </span>
                   <span>{Math.round(uploadProgress)}%</span>
                 </div>
@@ -492,15 +548,17 @@ export function ImportPage() {
             {uploadError && (
               <div className="flex items-start gap-2 rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3">
                 <AlertCircle className="size-4 text-red-500 shrink-0 mt-0.5" />
-                <p className="text-sm text-red-700 dark:text-red-400">{uploadError}</p>
+                <p className="text-sm text-red-700 dark:text-red-400">
+                  {uploadError}
+                </p>
               </div>
             )}
 
-            {/* Bank account selector */}
+            {/* Bank account selector + Import button */}
             <div className="flex flex-col sm:flex-row gap-3 items-end">
               <div className="space-y-1.5 flex-1 w-full sm:max-w-[300px]">
                 <label className="text-sm font-medium">
-                  Import to Bank Account
+                  {t('banks.selectBankAccount')}
                 </label>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -513,17 +571,25 @@ export function ImportPage() {
                       )}
                     >
                       {selectedBankAccountId
-                        ? bankAccounts.find((a) => a.id === selectedBankAccountId)
-                            ?.accountName
-                        : 'Auto-detect or select...'}
+                        ? bankAccounts.find(
+                            (a) => a.id === selectedBankAccountId
+                          )?.accountName
+                        : t('banks.autoDetect')}
                       <ChevronsUpDown className="ml-1 size-3 shrink-0 opacity-50" />
                     </Button>
                   </PopoverTrigger>
-                  <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+                  <PopoverContent
+                    className="w-[--radix-popover-trigger-width] p-0"
+                    align="start"
+                  >
                     <Command>
-                      <CommandInput placeholder="Search bank accounts..." />
+                      <CommandInput
+                        placeholder={`${t('common.search')}...`}
+                      />
                       <CommandList className="max-h-[250px]">
-                        <CommandEmpty>No bank accounts found</CommandEmpty>
+                        <CommandEmpty>
+                          {t('banks.noBankAccounts')}
+                        </CommandEmpty>
                         <CommandGroup>
                           <CommandItem
                             value="__auto"
@@ -539,7 +605,7 @@ export function ImportPage() {
                             />
                             <span className="flex items-center gap-2">
                               <Landmark className="size-3.5 text-muted-foreground" />
-                              Auto-detect from file
+                              {t('banks.autoDetect')}
                             </span>
                           </CommandItem>
                           {bankAccounts.map((account) => (
@@ -576,17 +642,18 @@ export function ImportPage() {
               <Button
                 onClick={handleUpload}
                 disabled={!selectedFile || uploading}
-                className="w-full sm:w-auto"
+                className="w-full sm:w-auto h-10 px-6 text-sm font-semibold"
+                size="lg"
               >
                 {uploading ? (
                   <>
-                    <Loader2 className="size-4 mr-1 animate-spin" />
-                    Processing...
+                    <Loader2 className="size-4 mr-2 animate-spin" />
+                    {t('banks.processing')}
                   </>
                 ) : (
                   <>
-                    <Upload className="size-4 mr-1" />
-                    Import Statement
+                    <FileUp className="size-4 mr-2" />
+                    {t('banks.importStatement')}
                   </>
                 )}
               </Button>
@@ -596,94 +663,108 @@ export function ImportPage() {
       </Card>
 
       {/* Import History */}
-      <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold">Import History</h3>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={fetchHistory}
-            className="text-muted-foreground"
-          >
-            <RefreshCcw className="size-3.5 mr-1" />
-            {t('common.refresh')}
-          </Button>
-        </div>
-
-        {loadingHistory ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <Card>
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base font-semibold">
+              {t('banks.importHistory')}
+            </CardTitle>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={fetchHistory}
+              className="text-muted-foreground"
+            >
+              <RefreshCcw className="size-3.5 mr-1" />
+              {t('common.refresh')}
+            </Button>
           </div>
-        ) : history.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+        </CardHeader>
+        <CardContent>
+          {loadingHistory ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : history.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
               <Clock className="size-10 text-muted-foreground/50 mb-3" />
               <p className="text-sm text-muted-foreground">
-                No import history yet. Upload your first bank statement above.
+                {t('banks.noImportHistory')}
               </p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="rounded-lg border bg-card overflow-hidden">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>{t('common.date')}</TableHead>
-                  <TableHead>File</TableHead>
-                  <TableHead>Format</TableHead>
-                  <TableHead className="hidden sm:table-cell">Bank Account</TableHead>
-                  <TableHead className="text-center">Transactions</TableHead>
-                  <TableHead className="text-center hidden md:table-cell">Auto-cat.</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {history.map((stmt) => (
-                  <TableRow key={stmt.id}>
-                    <TableCell className="font-medium text-sm whitespace-nowrap">
-                      {formatDateShort(stmt.createdAt)}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {getFileIcon(stmt.fileName || 'file.csv')}
-                        <span className="text-sm truncate max-w-[150px]">
-                          {stmt.fileName || 'Unknown'}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>{getFormatBadge(stmt.format)}</TableCell>
-                    <TableCell className="hidden sm:table-cell text-sm">
-                      <span className="flex items-center gap-1">
-                        <Landmark className="size-3 text-muted-foreground" />
-                        {stmt.bankAccount.accountName}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-center">
-                      <Badge variant="outline" className="font-mono text-xs">
-                        {stmt.transactionCount}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center hidden md:table-cell">
-                      <div className="flex items-center justify-center gap-1">
-                        <BarChart3 className="size-3 text-muted-foreground" />
-                        <span className={cn(
-                          'text-xs font-medium',
-                          stmt.autoCategorizedPercent >= 70
-                            ? 'text-emerald-600 dark:text-emerald-400'
-                            : stmt.autoCategorizedPercent >= 40
-                              ? 'text-amber-600 dark:text-amber-400'
-                              : 'text-muted-foreground'
-                        )}>
-                          {stmt.autoCategorizedPercent}%
-                        </span>
-                      </div>
-                    </TableCell>
+            </div>
+          ) : (
+            <div className="rounded-lg border overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>{t('common.date')}</TableHead>
+                    <TableHead>{t('common.name')}</TableHead>
+                    <TableHead>{t('common.type')}</TableHead>
+                    <TableHead className="hidden sm:table-cell">
+                      {t('banks.title')}
+                    </TableHead>
+                    <TableHead className="text-center">
+                      {t('banks.transactionsImported')}
+                    </TableHead>
+                    <TableHead className="text-center hidden md:table-cell">
+                      {t('banks.autoCategorized')}
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        )}
-      </div>
+                </TableHeader>
+                <TableBody>
+                  {history.map((stmt) => (
+                    <TableRow key={stmt.id}>
+                      <TableCell className="font-medium text-sm whitespace-nowrap">
+                        {formatDateShort(stmt.createdAt)}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {getFileIcon(stmt.fileName || 'file.csv')}
+                          <span className="text-sm truncate max-w-[150px]">
+                            {stmt.fileName || '—'}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>{getFormatBadge(stmt.format)}</TableCell>
+                      <TableCell className="hidden sm:table-cell text-sm">
+                        <span className="flex items-center gap-1">
+                          <Landmark className="size-3 text-muted-foreground" />
+                          {stmt.bankAccount.accountName}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-center">
+                        <Badge
+                          variant="outline"
+                          className="font-mono text-xs"
+                        >
+                          {stmt.transactionCount}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-center hidden md:table-cell">
+                        <div className="flex items-center justify-center gap-1">
+                          <BarChart3 className="size-3 text-muted-foreground" />
+                          <span
+                            className={cn(
+                              'text-xs font-medium',
+                              stmt.autoCategorizedPercent >= 70
+                                ? 'text-emerald-600 dark:text-emerald-400'
+                                : stmt.autoCategorizedPercent >= 40
+                                  ? 'text-amber-600 dark:text-amber-400'
+                                  : 'text-muted-foreground'
+                            )}
+                          >
+                            {stmt.autoCategorizedPercent}%
+                          </span>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ─── Import Result Dialog ───────────────────────────────────── */}
       <Dialog open={resultOpen} onOpenChange={setResultOpen}>
@@ -693,11 +774,9 @@ export function ImportPage() {
               <div className="flex size-8 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40">
                 <CheckCircle2 className="size-5 text-emerald-600 dark:text-emerald-400" />
               </div>
-              Import Successful
+              {t('banks.importSuccess')}
             </DialogTitle>
-            <DialogDescription>
-              Your bank statement has been imported and transactions have been created.
-            </DialogDescription>
+            <DialogDescription>{t('banks.importSuccessMessage')}</DialogDescription>
           </DialogHeader>
 
           {importResult && (
@@ -709,7 +788,7 @@ export function ImportPage() {
                     {importResult.transactionCount}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Transactions Imported
+                    {t('banks.transactionsImported')}
                   </p>
                 </div>
                 <div className="rounded-lg border p-3 text-center">
@@ -724,7 +803,7 @@ export function ImportPage() {
                     %
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    Auto-Categorized
+                    {t('banks.autoCategorized')}
                   </p>
                 </div>
               </div>
@@ -733,14 +812,17 @@ export function ImportPage() {
               <div className="rounded-lg border p-3 space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">
-                    Auto-categorized transactions
+                    {t('banks.autoCategorized')}
                   </span>
                   <span className="font-medium">
-                    {importResult.autoCategorizedCount} / {importResult.transactionCount}
+                    {importResult.autoCategorizedCount} /{' '}
+                    {importResult.transactionCount}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Bank Account</span>
+                  <span className="text-muted-foreground">
+                    {t('banks.title')}
+                  </span>
                   <span className="font-medium">
                     {importResult.bankAccountName}
                   </span>
@@ -749,7 +831,7 @@ export function ImportPage() {
                   <div className="flex items-center gap-2 rounded-md bg-teal-50 dark:bg-teal-950/30 p-2 text-sm">
                     <Landmark className="size-4 text-teal-600 dark:text-teal-400" />
                     <span className="text-teal-700 dark:text-teal-300">
-                      A new bank account was auto-created
+                      {t('banks.newAccountCreated')}
                     </span>
                   </div>
                 )}
@@ -759,24 +841,29 @@ export function ImportPage() {
               {importResult.transactionCount > 0 && (
                 <div className="space-y-1.5">
                   <p className="text-xs text-muted-foreground">
-                    Categorization Progress
+                    {t('banks.categorizationProgress')}
                   </p>
                   <div className="h-2 rounded-full bg-muted overflow-hidden">
                     <div
                       className="h-full rounded-full bg-emerald-500 transition-all duration-500"
                       style={{
-                        width: `${importResult.transactionCount > 0
-                          ? (importResult.autoCategorizedCount / importResult.transactionCount) * 100
-                          : 0
-                          }%`,
+                        width: `${
+                          importResult.transactionCount > 0
+                            ? (importResult.autoCategorizedCount /
+                                importResult.transactionCount) *
+                              100
+                            : 0
+                        }%`,
                       }}
                     />
                   </div>
-                  {importResult.autoCategorizedCount < importResult.transactionCount && (
+                  {importResult.autoCategorizedCount <
+                    importResult.transactionCount && (
                     <p className="text-xs text-amber-600 dark:text-amber-400">
-                      {importResult.transactionCount - importResult.autoCategorizedCount} transaction
-                      {importResult.transactionCount - importResult.autoCategorizedCount !== 1 ? 's' : ''} need
-                      manual categorization. Set up bank rules to improve auto-categorization.
+                      {importResult.transactionCount -
+                        importResult.autoCategorizedCount}{' '}
+                      {t('banks.transactions').toLowerCase()}{' '}
+                      {t('banks.uncategorizedNote')}
                     </p>
                   )}
                 </div>
@@ -790,7 +877,7 @@ export function ImportPage() {
               onClick={() => setResultOpen(false)}
               className="w-full sm:w-auto"
             >
-              Close
+              {t('common.cancel')}
             </Button>
             <Button
               onClick={() => {
@@ -800,7 +887,7 @@ export function ImportPage() {
               className="w-full sm:w-auto"
             >
               <ArrowLeftRight className="size-4 mr-1" />
-              Go to Reconciliation
+              {t('banks.goToReconciliation')}
             </Button>
           </DialogFooter>
         </DialogContent>

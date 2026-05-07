@@ -114,3 +114,50 @@ Stage Summary:
 - Sidebar matches reference exactly with all 9 nav items + AI Assistant + Settings + Logout
 - Header shows company badge and AES encryption badge
 - All 130+ source files compile without errors
+
+---
+Task ID: 21
+Agent: full-stack-developer (subagent)
+Task: i18n rewrite for ImportPage.tsx
+
+Work Log:
+- Rewrote /src/components/spa/ImportPage.tsx to replace ALL hardcoded English text with i18n keys via useLanguageStore
+- Mapped 20+ text strings to existing i18n keys (banks.importStatement, banks.dragDrop, banks.supportedFormats, banks.processing, banks.selectBankAccount, banks.autoDetect, common.search, banks.noBankAccounts, banks.importHistory, banks.noImportHistory, banks.importSuccess, banks.transactionsImported, banks.autoCategorized, banks.newAccountCreated, banks.categorizationProgress, common.cancel, banks.goToReconciliation, common.name, common.type, common.date, common.delete, banks.importFailed, banks.importSuccessMessage, banks.uncategorizedNote)
+- Added missing i18n key `importSuccessMessage` to both es.ts and en.ts
+- Updated `noImportHistory` values in both locales to include full sentence text
+- Added visual improvements: wizard step indicator (Step 1: Upload, Step 2: Select Account), prominent format badges (CSV, OFX, QFX, PDF) with color coding, larger import button with FileUp icon, improved Card structure for import history section
+- Kept all existing functionality: drag & drop, file validation, upload progress, result dialog with transaction count and auto-categorization, reconciliation navigation
+- ESLint passes clean, dev server compiles successfully
+
+Stage Summary:
+- ImportPage fully i18n-compliant with zero hardcoded English strings
+- New i18n key added: banks.importSuccessMessage (ES + EN)
+- Visual wizard step indicator and prominent format badges added
+
+---
+Task ID: 20
+Agent: full-stack-developer (subagent)
+Task: Rewrite AccountsPage with US GAAP hierarchical grouping by account type
+
+Work Log:
+- Rewrote /src/components/spa/AccountsPage.tsx to display accounts organized in US GAAP hierarchy
+- Created 5 collapsible type sections: ACTIVOS (Assets/teal), PASIVOS (Liabilities/amber), CAPITAL (Equity/violet), INGRESOS (Revenue/emerald), GASTOS (Expenses/rose)
+- Each type section has: colored header bar with icon + type name + account count badge, expand/collapse toggle with animated chevron
+- Within each section: tree rendering with root accounts (bold, folder icons) and indented children (24px per level, border-left connection lines per type color)
+- Leaf accounts (no children) do NOT show expand arrows
+- Accounts sorted by code ascending within each type section
+- Added clickable summary badges row above sections for quick type filtering (toggle on click)
+- Replaced flat Table layout with card-based sections (no more single flat table)
+- Kept ALL existing features: search filter, type filter dropdown, Expand All / Collapse All, Create Account dialog, Edit Account dialog, Delete confirmation
+- Used framer-motion for section entrance animations and row animations
+- Used shadcn/ui: Collapsible, Badge, Button, Dialog, AlertDialog, Input, Select, Label, Skeleton
+- Removed Table component imports (no longer used)
+- Removed AccountTypeBadge import (type is now shown by section header)
+- All text through i18n keys (accounts.asset, accounts.liability, etc.)
+- ESLint passes clean, dev server compiles successfully
+
+Stage Summary:
+- Accounts page now shows proper US GAAP hierarchical grouping by account type
+- 5 color-coded collapsible sections with icons and account counts
+- Tree rendering preserved within each section with proper indentation and connection lines
+- All CRUD operations and search/filter functionality fully retained

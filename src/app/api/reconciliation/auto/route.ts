@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { recalculateBankAccountBalance } from '@/lib/reconciliation';
 
 // Helper: check if a transaction matches a rule
 function transactionMatchesRule(
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
       where: {
         statementId: { in: statementIds },
         isReconciled: false,
+        isIgnored: false,
       },
     });
 
@@ -234,7 +236,7 @@ export async function POST(request: NextRequest) {
 
           const description = `Auto-reconcile: ${transaction.description} (Rule: ${match.ruleName})`;
 
-          await tx.journalEntry.create({
+          const journalEntry = await tx.journalEntry.create({
             data: {
               companyId,
               date: transaction.date,
@@ -248,6 +250,13 @@ export async function POST(request: NextRequest) {
               },
             },
           });
+
+          // Save journal entry ID back to the transaction
+          await tx.bankTransaction.update({
+            where: { id: txId },
+            data: { journalEntryId: journalEntry.id },
+          });
+
           journalEntriesCreated++;
         }
       }
@@ -263,6 +272,9 @@ export async function POST(request: NextRequest) {
         });
       }
     });
+
+    // Recalculate bank account balance after auto-reconciliation
+    await recalculateBankAccountBalance(bankAccountId);
 
     // Audit log
     await db.auditLog.create({

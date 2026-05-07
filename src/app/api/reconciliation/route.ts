@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { recalculateBankAccountBalance } from '@/lib/reconciliation';
+
+// Balance validation tolerance
+const BALANCE_TOLERANCE = 0.01;
 
 // ─── GET /api/reconciliation ───────────────────────────────────────
 // Get reconciliation data for a bank account with filters.
@@ -76,10 +80,14 @@ export async function GET(request: NextRequest) {
   // Status filter
   if (statusFilter === 'unreconciled') {
     txWhere.isReconciled = false;
+    txWhere.isIgnored = false;
   } else if (statusFilter === 'reconciled') {
     txWhere.isReconciled = true;
+    txWhere.isIgnored = false;
+  } else if (statusFilter === 'ignored') {
+    txWhere.isIgnored = true;
   }
-  // 'all' = no filter
+  // 'all' = no filter (shows everything including ignored)
 
   // Statement filter
   if (statementId) {
@@ -118,12 +126,15 @@ export async function GET(request: NextRequest) {
     },
   });
 
-  // Get overall counts (all statements, no date/search filter)
+  // Get overall counts (all statements, no date/search filter, excluding ignored)
   const reconciledCount = await db.bankTransaction.count({
-    where: { statementId: { in: statementIds }, isReconciled: true },
+    where: { statementId: { in: statementIds }, isReconciled: true, isIgnored: false },
+  });
+  const ignoredCount = await db.bankTransaction.count({
+    where: { statementId: { in: statementIds }, isIgnored: true },
   });
   const totalTransactions = await db.bankTransaction.count({
-    where: { statementId: { in: statementIds } },
+    where: { statementId: { in: statementIds }, isIgnored: false },
   });
 
   // Calculate book balance from GL account journal lines
@@ -145,8 +156,17 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Statement balance
-  const statementBalance = latestStatement?.closingBalance ?? bankAccount.balance;
+  // Recalculate bank account balance from reconciled transactions
+  await recalculateBankAccountBalance(bankAccountId);
+
+  // Re-fetch bank account to get updated balance
+  const updatedBankAccount = await db.bankAccount.findUnique({
+    where: { id: bankAccountId },
+    select: { balance: true },
+  });
+
+  // Statement balance = bank account balance (running balance of reconciled transactions)
+  const statementBalance = updatedBankAccount?.balance ?? 0;
   const difference = statementBalance - bookBalance;
 
   // Categorize transactions
@@ -176,7 +196,7 @@ export async function GET(request: NextRequest) {
       id: bankAccount.id,
       accountName: bankAccount.accountName,
       bankName: bankAccount.bankName,
-      balance: bankAccount.balance,
+      balance: updatedBankAccount?.balance ?? bankAccount.balance,
       currency: bankAccount.currency,
       glAccount: bankAccount.glAccount,
     },
@@ -200,6 +220,7 @@ export async function GET(request: NextRequest) {
       difference,
       totalTransactions,
       reconciledCount,
+      ignoredCount,
       unreconciledCount: totalTransactions - reconciledCount,
       depositsTotal,
       paymentsTotal,
@@ -325,9 +346,14 @@ export async function POST(request: NextRequest) {
               ? targetGlId
               : bankAccount.glAccountId;
 
+            // Validate debits = credits
+            if (Math.abs(amount - amount) > BALANCE_TOLERANCE) {
+              throw new Error(`Journal entry balance mismatch: debit=${amount}, credit=${amount}`);
+            }
+
             const description = `Reconciliation: ${bankTx.description}`;
 
-            await tx.journalEntry.create({
+            const journalEntry = await tx.journalEntry.create({
               data: {
                 companyId,
                 date: bankTx.date,
@@ -341,6 +367,13 @@ export async function POST(request: NextRequest) {
                 },
               },
             });
+
+            // Save journal entry ID back to the transaction
+            await tx.bankTransaction.update({
+              where: { id: txn.id },
+              data: { journalEntryId: journalEntry.id },
+            });
+
             journalEntriesCreated++;
           }
         }
@@ -359,6 +392,9 @@ export async function POST(request: NextRequest) {
         });
       }
     });
+
+    // Recalculate bank account balance after reconciliation
+    await recalculateBankAccountBalance(bankAccountId);
 
     // Audit log
     await db.auditLog.create({

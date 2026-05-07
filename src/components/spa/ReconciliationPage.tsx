@@ -18,6 +18,7 @@ import {
   History,
   BookOpen,
   X,
+  EyeOff,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -114,6 +115,7 @@ interface ReconciliationSummary {
   totalTransactions: number;
   reconciledCount: number;
   unreconciledCount: number;
+  ignoredCount: number;
   depositsTotal: number;
   paymentsTotal: number;
   filteredCount: number;
@@ -168,7 +170,7 @@ export function ReconciliationPage() {
   const [loadingData, setLoadingData] = useState(false);
 
   // Filters
-  const [statusFilter, setStatusFilter] = useState<'unreconciled' | 'reconciled' | 'all'>('unreconciled');
+  const [statusFilter, setStatusFilter] = useState<'unreconciled' | 'reconciled' | 'ignored' | 'all'>('unreconciled');
   const [search, setSearch] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -488,6 +490,33 @@ export function ReconciliationPage() {
     } catch { /* ignore */ }
   };
 
+  // Ignore/unignore selected transactions
+  const handleIgnore = async (ignore: boolean) => {
+    if (!activeCompany?.id || !selectedAccountId || selectedTxIds.size === 0) return;
+    try {
+      const res = await fetch('/api/reconciliation/ignore', {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: activeCompany.id,
+          transactionIds: Array.from(selectedTxIds),
+          ignore,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        toast.success(ignore ? `${data.updated} transaction(s) ignored` : `${data.updated} transaction(s) restored`);
+        fetchReconciliation();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        toast.error(errData.error || 'Failed to update transactions');
+      }
+    } catch {
+      toast.error('Failed to update transactions');
+    }
+  };
+
   // Export
   const handleExport = () => {
     if (!summary || !bankAccountInfo) return;
@@ -526,6 +555,8 @@ export function ReconciliationPage() {
   };
 
   const isReconciledView = statusFilter === 'reconciled' || statusFilter === 'all';
+  const isIgnoredView = statusFilter === 'ignored';
+  const isPendingView = statusFilter === 'unreconciled';
 
   // Transaction row component
   const TxRow = ({ tx, type }: { tx: Transaction; type: 'deposit' | 'payment' }) => {
@@ -731,6 +762,9 @@ export function ReconciliationPage() {
                   <TabsList className="h-8">
                     <TabsTrigger value="unreconciled" className="text-xs px-3 h-6">{t('reconciliation.showUnreconciled')} ({summary.unreconciledCount})</TabsTrigger>
                     <TabsTrigger value="reconciled" className="text-xs px-3 h-6">{t('reconciliation.showReconciled')} ({summary.reconciledCount})</TabsTrigger>
+                    {(summary.ignoredCount ?? 0) > 0 && (
+                      <TabsTrigger value="ignored" className="text-xs px-3 h-6">Ignored ({summary.ignoredCount})</TabsTrigger>
+                    )}
                     <TabsTrigger value="all" className="text-xs px-3 h-6">{t('reconciliation.showAll')} ({summary.totalTransactions})</TabsTrigger>
                   </TabsList>
                 </Tabs>
@@ -779,7 +813,7 @@ export function ReconciliationPage() {
 
               {/* Action Bar */}
               <div className="flex items-center gap-2 flex-wrap">
-                {!isReconciledView && (
+                {isPendingView && (
                   <>
                     <Button variant="outline" size="sm" onClick={() => { setAutoMatchResult(null); setAutoMatchDialogOpen(true); }} className="gap-2">
                       <Play className="size-4" />
@@ -789,12 +823,22 @@ export function ReconciliationPage() {
                       <ArrowLeftRight className="size-4" />
                       {t('reconciliation.reconcileSelected')} ({selectedTxIds.size})
                     </Button>
+                    <Button variant="outline" size="sm" onClick={() => handleIgnore(true)} disabled={selectedTxIds.size === 0} className="gap-2">
+                      <EyeOff className="size-4" />
+                      Ignore ({selectedTxIds.size})
+                    </Button>
                   </>
                 )}
                 {isReconciledView && (
                   <Button variant="outline" size="sm" onClick={() => { setUnreconcileResult(null); setUnreconcileDialogOpen(true); }} disabled={selectedTxIds.size === 0} className="gap-2">
                     <Undo2 className="size-4" />
                     {t('reconciliation.unreconcileSelected')} ({selectedTxIds.size})
+                  </Button>
+                )}
+                {isIgnoredView && (
+                  <Button variant="outline" size="sm" onClick={() => handleIgnore(false)} disabled={selectedTxIds.size === 0} className="gap-2">
+                    <Undo2 className="size-4" />
+                    Restore ({selectedTxIds.size})
                   </Button>
                 )}
                 <Button variant="outline" size="sm" onClick={() => setAdjustmentDialogOpen(true)} className="gap-2">

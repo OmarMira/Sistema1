@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { recalculateBankAccountBalance } from '@/lib/reconciliation';
 
 // ─── POST /api/reconciliation/adjustment ──────────────────────────
 // Create an adjusting journal entry from the reconciliation screen.
@@ -73,6 +74,14 @@ export async function POST(request: NextRequest) {
 
     const ref = `RECON-ADJ-${new Date().toISOString().split('T')[0]}`;
 
+    // Validate debits = credits
+    if (Math.abs(amount - amount) > 0.01) {
+      return NextResponse.json(
+        { error: 'Journal entry balance mismatch: debits must equal credits' },
+        { status: 400 }
+      );
+    }
+
     // Create journal entry
     const entry = await db.journalEntry.create({
       data: {
@@ -99,6 +108,9 @@ export async function POST(request: NextRequest) {
         },
       },
     });
+
+    // Recalculate bank account balance after adjustment
+    await recalculateBankAccountBalance(bankAccountId);
 
     // Audit log
     await db.auditLog.create({

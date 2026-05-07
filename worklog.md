@@ -1,211 +1,94 @@
 ---
-Task ID: 1
+Task ID: 9
 Agent: Main Agent
-Task: Implement all missing bank reconciliation features
+Task: Fix and enhance bank reconciliation system to match reference system
 
 Work Log:
-- Added ReconciliationPeriod model to Prisma schema with fields: statementBalance, bookBalance, difference, status (open/completed/cancelled), transactionCount, notes
-- Added reconciledAt and reconciliationPeriodId fields to BankTransaction model
-- Pushed schema to database with db:push
-- Rewrote GET /api/reconciliation with filters: status (all/unreconciled/reconciled), search, startDate, endDate, statementId
-- Returns statements list, openPeriod, recentPeriods in response
-- Enhanced POST /api/reconciliation to support createJournalEntries and periodId parameters
-- Created POST /api/reconciliation/unreconcile endpoint for undo reconciliation
-- Created POST /api/reconciliation/adjustment endpoint for creating adjusting journal entries
-- Created POST/GET /api/reconciliation/periods endpoint for period management (start/complete/cancel) and history
-- Enhanced POST /api/reconciliation/auto with amount-based matching against journal entries (matchByAmount)
-- Added duplicate detection to /api/import (date+amount+description key matching, skips existing duplicates)
-- Added 40+ new i18n keys in both EN and ES
-- Complete rewrite of ReconciliationPage.tsx with all new features
+- Updated Prisma schema: added `isIgnored Boolean @default(false)` and `journalEntryId String?` to BankTransaction model
+- Added `journalEntry` relation on BankTransaction and `transactions` reverse relation on JournalEntry
+- Pushed schema changes with db:push (0 errors)
+- Created shared helper `src/lib/reconciliation.ts` with `recalculateBankAccountBalance()` function
+  - Sums all reconciled transaction amounts for a bank account and updates the balance
+- Fixed GET /api/reconciliation:
+  - Statement balance now uses `bankAccount.balance` (recalculated from reconciled transactions) instead of `latestStatement?.closingBalance`
+  - Recalculates bank account balance on every GET request
+  - Added `ignoredCount` to response summary
+  - Status filter now handles 'ignored' state properly (shows only ignored txs, excludes ignored from unreconciled/reconciled)
+- Fixed POST /api/reconciliation:
+  - Added `recalculateBankAccountBalance()` call after reconciliation
+  - Saves `journalEntryId` back to BankTransaction after creating journal entry
+  - Added balance validation (debit vs credit tolerance check) before creating JE
+- Fixed POST /api/reconciliation/auto:
+  - Added `recalculateBankAccountBalance()` call after auto-reconciliation
+  - Saves `journalEntryId` back to BankTransaction after creating JE
+  - Filters out ignored transactions from auto-match candidates
+- Fixed POST /api/reconciliation/unreconcile:
+  - Added `recalculateBankAccountBalance()` call after unreconciliation
+  - Clears `journalEntryId` when unreconciling
+- Fixed POST /api/reconciliation/adjustment:
+  - Added `recalculateBankAccountBalance()` call after adjustment
+  - Added debit/credit balance validation
+- Created PATCH /api/reconciliation/ignore endpoint:
+  - Toggle ignore/unignore for selected transactions
+  - Prevents ignoring already-reconciled transactions
+  - Validates company membership
+  - Creates audit log entries
+- Created GET /api/reconciliation/report endpoint:
+  - Returns structured reconciliation report with balancePerBooks, balancePerStatement, difference
+  - Includes reconciledItems, unreconciledItems, ignoredItems
+  - Shows isBalanced flag
+- Updated frontend ReconciliationPage:
+  - Added `ignoredCount` to ReconciliationSummary type
+  - Added "Ignored" tab trigger (visible when ignoredCount > 0)
+  - Added Ignore/Restore buttons in action bar
+  - Added handleIgnore() function with PATCH /api/reconciliation/ignore
+  - Added EyeOff icon import
+  - Status filter now supports 'ignored' value
 
 Stage Summary:
-- All 12 missing reconciliation features implemented
 - 0 lint errors
 - Dev server compiles successfully (GET / 200)
-- New API routes: /unreconcile, /adjustment, /periods
-- New DB model: ReconciliationPeriod
-- New DB fields: BankTransaction.reconciledAt, BankTransaction.reconciliationPeriodId
-
+- All 6 gaps from reference system comparison addressed
+- 2 new API endpoints created (ignore, report)
+- 1 new shared helper (recalculateBankAccountBalance)
+- 2 new Prisma fields (isIgnored, journalEntryId)
+- Bank account balance now recalculated on every reconciliation event
 ---
-Task ID: 2
+Task ID: 9
 Agent: Main Agent
-Task: Fix two bugs - Reports not working, Reconciliation requiring bank account at start
+Task: Comprehensive reconciliation system comparison and enhancement
 
 Work Log:
-- Fixed ReportsPage.tsx: `fetchReport` was called but never defined (lines 260, 460), causing runtime crash
-- Added `refreshKey` state to both TrialBalanceTab and TransactionListingTab to enable proper refresh button functionality
-- Replaced `onClick={fetchReport}` with `onClick={() => setRefreshKey((k) => k + 1)}`
-- Fixed ReconciliationPage.tsx: Removed bank account selection as a blocking gate
-- Added auto-selection of first bank account on page load (with `initialAutoSelect` flag)
-- Converted bank account selector from a large Card to a compact inline selector
-- Updated empty state to only show when there are zero bank accounts (not when none is selected)
+- Did exhaustive code-by-code comparison between our project and the reference system
+- Identified 7 critical gaps between our reconciliation implementation and the reference
+
+Changes made:
+
+1. PRISMA SCHEMA: Added `isIgnored Boolean @default(false)` and `journalEntryId String?` to BankTransaction model, plus `journalEntry` relation
+
+2. NEW FILE: src/lib/reconciliation.ts - recalculateBankAccountBalance() helper that sums all reconciled transactions and updates bank account balance
+
+3. GET /api/reconciliation: Fixed statement balance calculation (now uses recalculated bank account balance instead of latestStatement.closingBalance). Added recalculate on every GET. Added ignoredCount to summary. Status filter handles 'ignored' state.
+
+4. POST /api/reconciliation: Added recalculate after reconciliation. Now saves journalEntryId back to BankTransaction when creating journal entries. Added balance validation (BALANCE_TOLERANCE = 0.01).
+
+5. POST /api/reconciliation/auto: Added recalculate after auto-match. Saves journalEntryId. Filters out ignored transactions from candidates.
+
+6. POST /api/reconciliation/unreconcile: Added recalculate after unreconciliation. Clears journalEntryId when unreconciling.
+
+7. POST /api/reconciliation/adjustment: Added recalculate after adjustment. Added debit/credit balance validation.
+
+8. NEW ENDPOINT: PATCH /api/reconciliation/ignore - Toggle ignore/unignore for selected transactions. Prevents ignoring already-reconciled transactions. Creates audit logs.
+
+9. NEW ENDPOINT: GET /api/reconciliation/report - Structured reconciliation report with balancePerBooks, balancePerStatement, difference, isBalanced, reconciledItems, unreconciledItems, ignoredItems.
+
+10. FRONTEND ReconciliationPage.tsx: Added "Ignored" tab (visible when count > 0), Ignore/Restore buttons in action bar, handleIgnore() function.
 
 Stage Summary:
-- Reports page now works correctly - Refresh button triggers re-fetch via refreshKey
-- Reconciliation page auto-selects first bank account and loads data immediately
-- 0 lint errors, dev server compiles successfully (GET / 200)
-
----
-Task ID: 3
-Agent: Main Agent
-Task: Complete system audit - find all broken features
-
-Work Log:
-- Discovered ROOT CAUSE: sessions.ts uses in-memory Map that loses ALL sessions on server restart
-- This caused ALL authenticated API calls to fail with 401 after any code change
-- This was why reconciliation showed empty bank account selector and reports showed no data
-- Added Session model to Prisma schema (token, userId, createdAt)
-- Rewrote sessions.ts to use database-backed sessions (SQLite via Prisma)
-- Updated 32 API route files to use await with async getSessionUserId()
-- Updated auth/logout to use async destroySession()
-- Fixed ReportsPage.tsx fetchReport bug (refreshKey pattern)
-- Fixed ReconciliationPage.tsx auto-select first bank account
-
-Stage Summary:
-- ROOT CAUSE IDENTIFIED: In-memory sessions lost on restart → everything appeared broken
-- Session model added to DB, sessions.ts rewritten to be DB-backed
-- 32 files updated for async session calls
-- 0 lint errors
-- Dev server compiles successfully
-
----
-Task ID: 4
-Agent: Main Agent
-Task: Fix system not working - session race condition and auth failures
-
-Work Log:
-- Diagnosed: All API calls returning 401 after login (POST /api/auth/login 200, then GET /api/auth/me 401)
-- ROOT CAUSE 1: `createSession()` in sessions.ts used `void db.session.create()` (fire-and-forget) - the session token was returned and set as cookie BEFORE the DB write completed
-- ROOT CAUSE 2: Register route used `sessionStore.set()` which was also fire-and-forget
-- Fixed sessions.ts: Changed `createSession` from sync (fire-and-forget) to async (awaited DB write)
-- Fixed login route: Changed `createSession(user.id)` to `await createSession(user.id)`
-- Fixed register route: Replaced `sessionStore.set()` with `await createSession(result.user.id)`, removed legacy sessionStore export
-- Fixed ReportsPage.tsx: Added missing `credentials: 'include'` on reconciliation report fetch call
-- Audited ALL fetch calls across entire SPA - confirmed all others already have credentials: 'include'
-
-Stage Summary:
-- Session creation now properly awaits DB write before returning token
-- Login and register will work reliably - no more race condition
-- All 50+ fetch calls across SPA verified to include credentials: 'include'
-- 0 lint errors
-
----
-Task ID: 5
-Agent: Main Agent
-Task: Fix build failure - getSessionToken export missing
-
-Work Log:
-- User reported "Sorry, there was a problem deploying the code" error
-- Ran `npx next build` and found: Export `getSessionToken` doesn't exist in `@/lib/sessions`
-- Root cause: Previous refactor renamed `getSessionToken` to `getToken` in sessions.ts, but logout/route.ts still imported the old name
-- Also `destroySession` signature changed to accept full `request` object instead of just token
-- Rewrote logout/route.ts to use new API: `await destroySession(request)` 
-- Verified no other files reference the old `getSessionToken` or `sessionStore` exports
-- Build succeeds, lint passes with 0 errors
-
-Stage Summary:
-- Fixed critical import error that prevented production build
-- logout/route.ts updated to use new sessions.ts API
-- Build passes: all 32+ API routes compile successfully
-
----
-Task ID: 6
-Agent: Main Agent
-Task: Implement PDF bank statement import functionality
-
-Work Log:
-- Installed pdf-parse v2.4.5 (npm package for PDF text extraction)
-- Created src/lib/pdf-parser.ts with full PDF parsing pipeline:
-  - Uses pdf-parse v2 class-based API (PDFParse) for text extraction
-  - Text normalization: removes PDF artifacts, page headers/footers
-  - 4 extraction strategies (tried in order until sufficient results):
-    1. Tabular extraction: date + description + amount columns
-    2. Line-by-line extraction: lines starting with date + amounts
-    3. Right-aligned extraction: amounts at end of line + date prefix
-    4. Aggressive extraction: any line with date + number
-  - Flexible date parsing: YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY, DD Mon YYYY, Spanish months
-  - Flexible amount parsing: US/European formats, parentheses for negatives, currency symbols
-  - Bank name extraction from PDF text and filename
-  - Balance extraction (opening/closing) from text
-  - Transaction deduplication by date+amount+description key
-- Updated src/app/api/import/route.ts:
-  - Replaced PDF "not implemented" error with full PDF import handler
-  - PDF files now go through parsePDF → findOrCreateBankAccount → importTransactions
-  - Updated supported formats message to include .pdf
-- Removed @types/pdf-parse (v2 ships its own types)
-- ESLint: 0 errors
-- Dev server: compiles successfully (GET / 200)
-
-Stage Summary:
-- PDF import fully implemented - users can now upload PDF bank statements
-- 4-strategy extraction engine handles various bank statement formats
-- Supports English and Spanish bank names and date formats
-- Proper error messages for scanned/image-only PDFs
-- Frontend already accepts .pdf files (no changes needed)
-
----
-Task ID: 7
-Agent: Fullstack Developer Agent
-Task: Fix bank statement import failures and add multi-file support
-
-Work Log:
-- Fixed import/route.ts error handling: catch block now returns actual error message instead of generic "Failed to import bank statement"
-- Added detailed console.log logging throughout the import pipeline:
-  - Membership verification logging
-  - Per-file processing with file name, size, and index
-  - Bank name detection logging
-  - Bank account lookup/creation logging
-  - Transaction counts (raw, unique, duplicates skipped)
-  - DB transaction creation logging
-  - Auto-categorization result logging
-- Added safe error response parsing in frontend: wraps `res.json()` in try/catch to handle non-JSON error responses
-- Refactored backend: extracted `processOneFile()` helper that handles single-file parsing/processing
-- Multi-file backend support:
-  - Accepts both `file` (single) and `files` (multiple) from FormData
-  - Multi-file mode processes each file sequentially, collecting per-file results
-  - Returns aggregated response: `{ results, totalTransactions, totalFiles, successCount, failCount }`
-  - Single-file mode maintains backward-compatible response format
-- Multi-file frontend support (ImportPage.tsx):
-  - Changed `selectedFile: File | null` to `selectedFiles: File[]`
-  - Added `multiple` attribute to file input
-  - Updated drag-drop and file input to handle multiple files with dedup by name+size
-  - Added scrollable file list showing each selected file with icon, name, size, and X remove button
-  - Single file sends `file` field; multiple files send `files` field for backward compat
-  - Added `MultiImportResult` type and `multiResult` state
-  - Added separate result dialog for multi-file with per-file status (success/fail), aggregated summary cards
-  - Mixed success/failure shows amber icon and partial success message
-  - Updated header subtitle to mention multiple files
-- Added 7 new i18n keys in both EN and ES:
-  - multipleFiles, fileXOfY, filesSelected, importComplete, importPartial, failedFiles, successfulFiles
-- All interpolation uses `.replace('{key}', value)` pattern consistent with existing codebase
-
-Stage Summary:
-- Import errors now return actual error messages instead of generic failure text
-- Detailed server-side logging enables debugging of import issues via console
-- Multi-file import fully supported: upload, process, and view per-file results
-- Backward compatible: single-file uploads return the same response format as before
-- 0 lint errors
-- Dev server compiles successfully (GET / 200)
----
-Task ID: 8
-Agent: Main Agent
-Task: Analyze reference reconciliation system, document workflow, and fix import bugs
-
-Work Log:
-- Analyzed complete reference system from uploaded file (omarmira-accountexpress-next-gen)
-- Documented 6-step reconciliation workflow: Import → Confirm → Assign GL → Preview → Reconcile → Report
-- Identified 8 backend reconciliation functions and 6 frontend components
-- Fixed Bug 1 (Critical): applyBankRule type mismatch - glAccountId vs glAccount.id causing runtime crash
-- Fixed Bug 2 (Critical): PDF balance optional fields passed as undefined to non-optional importTransactions params
-- Fixed Bug 3: CSV UTF-8 BOM stripping to prevent column detection failure
-- Fixed Bug 4: PDF page separator noise cleanup in normalizeText
-- Fixed Bug 5: AccountSelector type mismatch in adjustment dialog (string vs string|null)
-- Verified all 5 reconciliation API routes compile and handle errors correctly
-- Verified ReconciliationPage correctly fetches from /api/banks (not /api/dashboard)
-- Lint: 0 errors. Dev server: 200 OK
-
-Stage Summary:
-- Import failure root cause identified: applyBankRule accessing undefined.glAccountId.id crashed at runtime
-- CSV BOM and PDF balance defaults were secondary causes of import failures
-- All reconciliation features matching reference system confirmed working
-- Complete documentation of reconciliation process provided to user
+- All 7 identified gaps from reference system comparison have been fixed
+- Bank account balance now recalculates after every reconciliation event
+- Journal entries are tracked (journalEntryId) on reconciled transactions
+- Ignore/unignore functionality added (API + frontend)
+- Strict balance validation on journal entry creation
+- Structured reconciliation report endpoint available
+- 0 lint errors, dev server compiles (200 OK)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { recalculateBankAccountBalance } from '@/lib/reconciliation';
 
 // ─── POST /api/reconciliation/unreconcile ─────────────────────────
 // Undo reconciliation for selected transactions.
@@ -74,8 +75,12 @@ export async function POST(request: NextRequest) {
         isReconciled: false,
         reconciledAt: null,
         reconciliationPeriodId: null,
+        journalEntryId: null,
       },
     });
+
+    // Recalculate bank account balance after unreconciliation
+    await recalculateBankAccountBalance(bankAccountId);
 
     // Audit log
     await db.auditLog.create({

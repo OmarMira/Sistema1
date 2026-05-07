@@ -131,8 +131,10 @@ model BankTransaction {
   amount          Float
   reference       String?
   isReconciled    Boolean   @default(false)
+  isIgnored       Boolean   @default(false)
   glAccountId     String?
   matchedRuleId   String?
+  journalEntryId  String?
   reconciledAt    DateTime?
   reconciliationPeriodId String?
   createdAt       DateTime  @default(now())
@@ -141,6 +143,7 @@ model BankTransaction {
   statement             BankStatement          @relation(fields: [statementId], references: [id], onDelete: Cascade)
   glAccount             GlAccount?             @relation(fields: [glAccountId], references: [id])
   matchedRule           BankRule?              @relation(fields: [matchedRuleId], references: [id])
+  journalEntry          JournalEntry?          @relation(fields: [journalEntryId], references: [id])
   reconciliationPeriod  ReconciliationPeriod?  @relation(fields: [reconciliationPeriodId], references: [id])
 }
 
@@ -197,6 +200,7 @@ model JournalEntry {
 
   company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   lines   JournalLine[]
+  transactions BankTransaction[]
 
   @@index([companyId, date])
 }

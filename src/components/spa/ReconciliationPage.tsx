@@ -228,24 +228,25 @@ export function ReconciliationPage() {
     if (!activeCompany?.id) return;
     setLoadingAccounts(true);
     try {
-      const res = await fetch('/api/dashboard', {
-        headers: { 'Content-Type': 'application/json' },
+      const res = await fetch(`/api/banks?companyId=${activeCompany.id}`, {
         credentials: 'include',
       });
       if (res.ok) {
         const data = await res.json();
-        if (data.bankAccounts) {
-          const accounts = data.bankAccounts.map((ba: { id: string; accountName: string; bankName: string }) => ({
+        const rawAccounts = data.accounts || [];
+        // Filter to active accounts only
+        const accounts = rawAccounts
+          .filter((ba: { isActive?: boolean }) => ba.isActive !== false)
+          .map((ba: { id: string; accountName: string; bankName: string }) => ({
             id: ba.id,
             accountName: ba.accountName,
             bankName: ba.bankName,
           }));
-          setBankAccounts(accounts);
-          // Auto-select the first bank account if none selected yet
-          if (initialAutoSelect && accounts.length > 0 && !selectedAccountId) {
-            setSelectedAccountId(accounts[0].id);
-            setInitialAutoSelect(false);
-          }
+        setBankAccounts(accounts);
+        // Auto-select the first bank account if none selected yet
+        if (initialAutoSelect && accounts.length > 0 && !selectedAccountId) {
+          setSelectedAccountId(accounts[0].id);
+          setInitialAutoSelect(false);
         }
       }
     } catch { /* ignore */ } finally {

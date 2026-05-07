@@ -33,6 +33,7 @@ const es = {
     all: 'Todos',
     success: 'Éxito',
     error: 'Error',
+    retry: 'Reintentar',
     warning: 'Advertencia',
     yes: 'Sí',
     no: 'No',

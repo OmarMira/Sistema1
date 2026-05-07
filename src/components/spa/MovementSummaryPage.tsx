@@ -9,6 +9,7 @@ import {
   Filter,
   RefreshCw,
   Activity,
+  AlertCircle,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import {
@@ -170,7 +171,8 @@ export function MovementSummaryPage() {
   const [toDate, setToDate] = useState(defaultTo);
   const [accountId, setAccountId] = useState('');
   const [data, setData] = useState<MovementSummaryResponse | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
 
   // Fetch GL accounts for the dropdown
@@ -183,11 +185,12 @@ export function MovementSummaryPage() {
           `/api/journal/accounts?companyId=${activeCompany.id}`
         );
         if (res.ok && !cancelled) {
-          const accounts = await res.json();
-          setGlAccounts(accounts);
+          const json = await res.json();
+          const list: GlAccount[] = Array.isArray(json) ? json : json.data ?? [];
+          setGlAccounts(list);
         }
       } catch {
-        // ignore
+        // non-critical – dropdown will just be empty
       }
     })();
     return () => {
@@ -200,8 +203,11 @@ export function MovementSummaryPage() {
 
   useEffect(() => {
     if (!activeCompany?.id) return;
-    let cancelled = false;
-    void (async () => {
+    const controller = new AbortController();
+
+    const doFetch = async () => {
+      setLoading(true);
+      setError(null);
       try {
         const params = new URLSearchParams({
           companyId: activeCompany.id,
@@ -211,20 +217,39 @@ export function MovementSummaryPage() {
         if (accountId && accountId !== '__all__') {
           params.set('accountId', accountId);
         }
-        const res = await fetch(`/api/movement-summary?${params}`);
-        if (res.ok && !cancelled) {
-          const json = await res.json();
-          setData(json);
+        const res = await fetch(`/api/movement-summary?${params}`, {
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted) {
+          if (res.ok) {
+            const json = await res.json();
+            if (json.error) {
+              setError(json.error);
+              setData(null);
+            } else {
+              setData(json);
+            }
+          } else {
+            setError(t('common.error'));
+            setData(null);
+          }
         }
-      } catch {
-        // ignore
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (!controller.signal.aborted) {
+          setError(err instanceof Error ? err.message : t('common.error'));
+          setData(null);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setLoading(false);
+        }
       }
-      if (!cancelled) setLoading(false);
-    })();
-    return () => {
-      cancelled = true;
     };
-  }, [activeCompany?.id, fromDate, toDate, accountId, refreshKey]);
+
+    void doFetch();
+    return () => controller.abort();
+  }, [activeCompany?.id, fromDate, toDate, accountId, refreshKey, t]);
 
   // Chart data: by type
   const chartData = (data?.byType ?? []).map((item) => ({
@@ -252,6 +277,25 @@ export function MovementSummaryPage() {
           </p>
         </div>
       </motion.div>
+
+      {/* Error Banner */}
+      {error && (
+        <motion.div variants={itemVariants}>
+          <div className="flex items-center gap-3 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+            <AlertCircle className="size-5 text-destructive shrink-0" />
+            <p className="text-sm text-destructive">{error}</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="ml-auto shrink-0"
+              onClick={() => setRefreshKey((k) => k + 1)}
+            >
+              <RefreshCw className="size-3 mr-1" />
+              {t('common.retry')}
+            </Button>
+          </div>
+        </motion.div>
+      )}
 
       {/* Filters Row */}
       <motion.div variants={itemVariants}>
@@ -309,7 +353,7 @@ export function MovementSummaryPage() {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => { setLoading(true); setRefreshKey((k) => k + 1); }}
+                onClick={() => { setRefreshKey((k) => k + 1); }}
                 disabled={loading}
               >
                 <RefreshCw

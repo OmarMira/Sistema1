@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
 
 export async function GET(request: NextRequest) {
   try {
@@ -16,35 +17,36 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Build date filter
-    const dateFilter: Record<string, Date | { gte: Date; lte: Date }> = {};
-    if (fromDate && toDate) {
-      dateFilter.date = {
-        gte: new Date(fromDate + 'T00:00:00.000Z'),
-        lte: new Date(toDate + 'T23:59:59.999Z'),
-      };
-    } else if (fromDate) {
-      dateFilter.date = { gte: new Date(fromDate + 'T00:00:00.000Z') };
-    } else if (toDate) {
-      dateFilter.date = { lte: new Date(toDate + 'T23:59:59.999Z') };
+    // Build where clause
+    const where: Prisma.JournalEntryWhereInput = {
+      companyId,
+      status: 'posted',
+    };
+
+    // Date filter
+    if (fromDate || toDate) {
+      const dateWhere: Prisma.DateTimeFilter = {};
+      if (fromDate) {
+        dateWhere.gte = new Date(fromDate + 'T00:00:00.000Z');
+      }
+      if (toDate) {
+        dateWhere.lte = new Date(toDate + 'T23:59:59.999Z');
+      }
+      where.date = dateWhere;
     }
 
-    // Build line-level account filter
-    const lineFilter: Record<string, unknown> = {};
+    // Line-level account filter
+    const lineWhere: Prisma.JournalLineWhereInput = {};
     if (accountId) {
-      lineFilter.glAccountId = accountId;
+      lineWhere.glAccountId = accountId;
     }
 
     // Fetch journal entries with their lines and GL accounts
     const entries = await db.journalEntry.findMany({
-      where: {
-        companyId,
-        status: 'posted',
-        ...dateFilter,
-      },
+      where,
       include: {
         lines: {
-          where: lineFilter,
+          where: Object.keys(lineWhere).length > 0 ? lineWhere : undefined,
           include: {
             glAccount: true,
           },
@@ -97,6 +99,8 @@ export async function GET(request: NextRequest) {
         transactionCount++;
       }
       for (const line of entry.lines) {
+        if (!line.glAccount) continue;
+
         totalDebits += line.debit;
         totalCredits += line.credit;
 
@@ -157,12 +161,17 @@ export async function GET(request: NextRequest) {
       net: a.debits - a.credits,
     }));
 
-    // Sort by type
+    // Sort by type in logical GAAP order
+    const typeOrder = ['asset', 'liability', 'equity', 'revenue', 'expense'];
     const byType = Array.from(typeMap.values())
-      .sort((a, b) => a.type.localeCompare(b.type))
-      .map((t) => ({
-        ...t,
-        net: t.debits - t.credits,
+      .sort((a, b) => {
+        const aIdx = typeOrder.indexOf(a.type);
+        const bIdx = typeOrder.indexOf(b.type);
+        return (aIdx === -1 ? 99 : aIdx) - (bIdx === -1 ? 99 : bIdx);
+      })
+      .map((item) => ({
+        ...item,
+        net: item.debits - item.credits,
       }));
 
     // Limit recent movements to 50 and only those with non-zero amounts

@@ -33,6 +33,7 @@ const en = {
     all: 'All',
     success: 'Success',
     error: 'Error',
+    retry: 'Retry',
     warning: 'Warning',
     yes: 'Yes',
     no: 'No',

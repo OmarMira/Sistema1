@@ -161,3 +161,27 @@ Stage Summary:
 - 5 color-coded collapsible sections with icons and account counts
 - Tree rendering preserved within each section with proper indentation and connection lines
 - All CRUD operations and search/filter functionality fully retained
+
+---
+Task ID: 22
+Agent: Main Orchestrator
+Task: Fix "Resumen de Movimientos no funciona" (Movement Summary broken)
+
+Work Log:
+- Diagnosed root cause: `/api/journal/accounts` returns `{ data: [...] }` but frontend did `setGlAccounts(accounts)` instead of `setGlAccounts(accounts.data)` — this caused a TypeError crash when calling `.map()` on an object
+- Fixed GL accounts fetch to handle both array and `{ data: array }` response formats: `Array.isArray(json) ? json : json.data ?? []`
+- Fixed loading state: was initialized as `false` but never set to `true` on initial fetch — now initializes as `true`
+- Added proper error handling with visible error banner (AlertCircle icon + retry button)
+- Added `AbortController` for proper cleanup of in-flight requests on dependency changes
+- Rewrote API route with proper Prisma types (`Prisma.JournalEntryWhereInput`, `Prisma.DateTimeFilter`)
+- Added null-safety check for `line.glAccount` in aggregation loop
+- Sorted "by type" in GAAP order (asset → liability → equity → revenue → expense) instead of alphabetical
+- Added missing i18n key `common.retry` (ES: "Reintentar", EN: "Retry")
+- ESLint passes clean, dev server compiles without errors
+
+Stage Summary:
+- Root cause fixed: GL accounts dropdown no longer crashes the page
+- Proper loading skeletons now show on initial page load
+- Error banner with retry button appears when API fails
+- AbortController prevents stale response state
+- API route uses proper Prisma types and GAAP sorting

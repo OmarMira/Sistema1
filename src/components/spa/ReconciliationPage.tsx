@@ -148,9 +148,10 @@ export function ReconciliationPage() {
   const t = useLanguageStore((s) => s.t);
   const activeCompany = useAuthStore((s) => s.activeCompany);
 
-  // Bank account selector
+  // Bank account selector - auto-select first account
   const [bankAccounts, setBankAccounts] = useState<BankAccountOption[]>([]);
   const [selectedAccountId, setSelectedAccountId] = useState<string>('');
+  const [initialAutoSelect, setInitialAutoSelect] = useState(true);
 
   // Data
   const [bankAccountInfo, setBankAccountInfo] = useState<BankAccountInfo | null>(null);
@@ -222,7 +223,7 @@ export function ReconciliationPage() {
     return params.toString();
   }, [selectedAccountId, activeCompany?.id, statusFilter, search, startDate, endDate, selectedStatementId]);
 
-  // Fetch bank accounts list
+  // Fetch bank accounts list and auto-select first one
   const fetchBankAccounts = useCallback(async () => {
     if (!activeCompany?.id) return;
     setLoadingAccounts(true);
@@ -233,19 +234,23 @@ export function ReconciliationPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.bankAccounts) {
-          setBankAccounts(
-            data.bankAccounts.map((ba: { id: string; accountName: string; bankName: string }) => ({
-              id: ba.id,
-              accountName: ba.accountName,
-              bankName: ba.bankName,
-            }))
-          );
+          const accounts = data.bankAccounts.map((ba: { id: string; accountName: string; bankName: string }) => ({
+            id: ba.id,
+            accountName: ba.accountName,
+            bankName: ba.bankName,
+          }));
+          setBankAccounts(accounts);
+          // Auto-select the first bank account if none selected yet
+          if (initialAutoSelect && accounts.length > 0 && !selectedAccountId) {
+            setSelectedAccountId(accounts[0].id);
+            setInitialAutoSelect(false);
+          }
         }
       }
     } catch { /* ignore */ } finally {
       setLoadingAccounts(false);
     }
-  }, [activeCompany?.id]);
+  }, [activeCompany?.id, initialAutoSelect, selectedAccountId]);
 
   // Fetch GL accounts
   const fetchAccounts = useCallback(async () => {
@@ -290,14 +295,6 @@ export function ReconciliationPage() {
   useEffect(() => {
     if (selectedAccountId) {
       fetchReconciliation();
-    } else {
-      setBankAccountInfo(null);
-      setSummary(null);
-      setDeposits([]);
-      setPayments([]);
-      setStatements([]);
-      setOpenPeriod(null);
-      setRecentPeriods([]);
     }
   }, [selectedAccountId, fetchReconciliation]);
 
@@ -618,34 +615,27 @@ export function ReconciliationPage() {
         </div>
       </div>
 
-      {/* Bank Account Selector */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center gap-3">
-            <Landmark className="size-5 text-muted-foreground shrink-0" />
-            <div className="flex-1">
-              <Label className="text-sm font-medium mb-1 block">{t('reconciliation.selectAccount')}</Label>
-              {loadingAccounts ? (
-                <Skeleton className="h-9 w-full max-w-sm" />
-              ) : (
-                <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
-                  <SelectTrigger className="max-w-sm">
-                    <SelectValue placeholder={t('reconciliation.selectAccount')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {bankAccounts.length === 0 && (
-                      <SelectItem value="__none" disabled>{t('reconciliation.noAccounts')}</SelectItem>
-                    )}
-                    {bankAccounts.map((ba) => (
-                      <SelectItem key={ba.id} value={ba.id}>{ba.accountName} — {ba.bankName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+      {/* Bank Account Selector - compact inline */}
+      <div className="flex items-center gap-3">
+        <Landmark className="size-4 text-muted-foreground shrink-0" />
+        {loadingAccounts ? (
+          <Skeleton className="h-9 w-64" />
+        ) : (
+          <Select value={selectedAccountId} onValueChange={setSelectedAccountId}>
+            <SelectTrigger className="w-64 sm:w-80">
+              <SelectValue placeholder={t('reconciliation.selectAccount')} />
+            </SelectTrigger>
+            <SelectContent>
+              {bankAccounts.length === 0 && (
+                <SelectItem value="__none" disabled>{t('reconciliation.noAccounts')}</SelectItem>
               )}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+              {bankAccounts.map((ba) => (
+                <SelectItem key={ba.id} value={ba.id}>{ba.accountName} — {ba.bankName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+      </div>
 
       {selectedAccountId && loadingData && (
         <div className="space-y-4">
@@ -953,12 +943,12 @@ export function ReconciliationPage() {
         </>
       )}
 
-      {!selectedAccountId && !loadingAccounts && (
+      {!selectedAccountId && !loadingAccounts && bankAccounts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="flex size-16 items-center justify-center rounded-2xl bg-muted mb-4">
             <ArrowLeftRight className="size-8 text-muted-foreground" />
           </div>
-          <p className="text-sm text-muted-foreground">{t('reconciliation.selectAccountToStart')}</p>
+          <p className="text-sm text-muted-foreground">{t('reconciliation.noAccounts')}</p>
         </div>
       )}
 

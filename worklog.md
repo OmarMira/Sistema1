@@ -25,3 +25,22 @@ Stage Summary:
 - New API routes: /unreconcile, /adjustment, /periods
 - New DB model: ReconciliationPeriod
 - New DB fields: BankTransaction.reconciledAt, BankTransaction.reconciliationPeriodId
+
+---
+Task ID: 2
+Agent: Main Agent
+Task: Fix two bugs - Reports not working, Reconciliation requiring bank account at start
+
+Work Log:
+- Fixed ReportsPage.tsx: `fetchReport` was called but never defined (lines 260, 460), causing runtime crash
+- Added `refreshKey` state to both TrialBalanceTab and TransactionListingTab to enable proper refresh button functionality
+- Replaced `onClick={fetchReport}` with `onClick={() => setRefreshKey((k) => k + 1)}`
+- Fixed ReconciliationPage.tsx: Removed bank account selection as a blocking gate
+- Added auto-selection of first bank account on page load (with `initialAutoSelect` flag)
+- Converted bank account selector from a large Card to a compact inline selector
+- Updated empty state to only show when there are zero bank accounts (not when none is selected)
+
+Stage Summary:
+- Reports page now works correctly - Refresh button triggers re-fetch via refreshKey
+- Reconciliation page auto-selects first bank account and loads data immediately
+- 0 lint errors, dev server compiles successfully (GET / 200)

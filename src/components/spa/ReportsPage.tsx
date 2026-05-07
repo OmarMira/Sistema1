@@ -207,6 +207,7 @@ function TrialBalanceTab({ companyId }: { companyId?: string }) {
   const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [data, setData] = useState<TrialBalanceResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!companyId) return;
@@ -222,7 +223,7 @@ function TrialBalanceTab({ companyId }: { companyId?: string }) {
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [companyId, asOfDate]);
+  }, [companyId, asOfDate, refreshKey]);
 
   function handleExport(format: 'csv' | 'pdf') {
     if (!companyId) return;
@@ -257,7 +258,7 @@ function TrialBalanceTab({ companyId }: { companyId?: string }) {
                   className="w-40"
                 />
               </div>
-              <Button variant="outline" size="sm" onClick={fetchReport} disabled={loading}>
+              <Button variant="outline" size="sm" onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
                 <RefreshCw className={`size-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
                 {t('common.refresh')}
               </Button>
@@ -355,6 +356,7 @@ function TransactionListingTab({ companyId }: { companyId?: string }) {
   const [data, setData] = useState<TransactionResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [glAccounts, setGlAccounts] = useState<GlAccount[]>([]);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   // Fetch GL accounts for filter
   useEffect(() => {
@@ -385,7 +387,7 @@ function TransactionListingTab({ companyId }: { companyId?: string }) {
       if (!cancelled) setLoading(false);
     })();
     return () => { cancelled = true; };
-  }, [companyId, startDate, endDate, glAccountId, page]);
+  }, [companyId, startDate, endDate, glAccountId, page, refreshKey]);
 
   function handleExport(format: 'csv' | 'pdf') {
     if (!companyId) return;
@@ -457,7 +459,7 @@ function TransactionListingTab({ companyId }: { companyId?: string }) {
                 </SelectContent>
               </Select>
             </div>
-            <Button variant="outline" size="sm" onClick={fetchReport} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => setRefreshKey((k) => k + 1)} disabled={loading}>
               <RefreshCw className={`size-4 mr-1 ${loading ? 'animate-spin' : ''}`} />
               {t('common.refresh')}
             </Button>

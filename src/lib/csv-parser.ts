@@ -23,6 +23,11 @@ interface ColumnMapping {
 // ─── Main export ─────────────────────────────────────────────────────
 
 export function parseCSV(content: string): ParsedTransaction[] {
+  // Strip UTF-8 BOM if present (common with Excel exports)
+  if (content.charCodeAt(0) === 0xfeff) {
+    content = content.slice(1);
+  }
+
   const lines = splitIntoLines(content);
   if (lines.length < 2) {
     throw new Error('CSV file must contain at least a header row and one data row');

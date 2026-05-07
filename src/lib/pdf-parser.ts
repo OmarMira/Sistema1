@@ -138,6 +138,9 @@ function normalizeText(text: string): string {
   result = result.replace(/(?:Continuation|Continuación|Confidential|Privado)/gi, '');
   result = result.replace(/(?:Statement\s+of\s+Account|Estado\s+de\s+Cuenta)/gi, '');
 
+  // Remove pdf-parse v2 page separator lines: "-- N of M --"
+  result = result.replace(/^\s*--\s*\d+\s+of\s+\d+\s*--\s*$/gm, '');
+
   return result;
 }
 

@@ -194,10 +194,10 @@ async function processOneFile(
       'pdf',
       fileName,
       {
-        startDate: parsed.startDate,
-        endDate: parsed.endDate,
-        openingBalance: parsed.openingBalance,
-        closingBalance: parsed.closingBalance,
+        startDate: parsed.startDate || new Date(),
+        endDate: parsed.endDate || new Date(),
+        openingBalance: parsed.openingBalance ?? 0,
+        closingBalance: parsed.closingBalance ?? 0,
       }
     );
 
@@ -273,10 +273,10 @@ async function processOneFile(
       extension as 'ofx' | 'qfx',
       fileName,
       {
-        startDate: parsed.startDate,
-        endDate: parsed.endDate,
-        openingBalance: parsed.openingBalance,
-        closingBalance: parsed.closingBalance,
+        startDate: parsed.startDate || new Date(),
+        endDate: parsed.endDate || new Date(),
+        openingBalance: parsed.openingBalance ?? 0,
+        closingBalance: parsed.closingBalance ?? 0,
       }
     );
 
@@ -547,7 +547,7 @@ async function importTransactions(
 function applyBankRule(
   description: string,
   amount: number,
-  rules: { id: string; conditionType: string; conditionValue: string; transactionDirection: string; glAccountId: string; isActive: boolean; priority: number }[]
+  rules: { id: string; conditionType: string; conditionValue: string; transactionDirection: string; glAccount: { id: string }; isActive: boolean; priority: number }[]
 ): { matchedRuleId: string | null; glAccountId: string | null } {
   const desc = description.toUpperCase();
   const isCredit = amount > 0;
@@ -565,7 +565,7 @@ function applyBankRule(
         if (desc.includes(condValue)) {
           return {
             matchedRuleId: rule.id,
-            glAccountId: rule.glAccountId.id,
+            glAccountId: rule.glAccount.id,
           };
         }
         break;
@@ -573,7 +573,7 @@ function applyBankRule(
         if (desc.startsWith(condValue)) {
           return {
             matchedRuleId: rule.id,
-            glAccountId: rule.glAccountId.id,
+            glAccountId: rule.glAccount.id,
           };
         }
         break;
@@ -581,7 +581,7 @@ function applyBankRule(
         if (desc.endsWith(condValue)) {
           return {
             matchedRuleId: rule.id,
-            glAccountId: rule.glAccountId.id,
+            glAccountId: rule.glAccount.id,
           };
         }
         break;
@@ -589,7 +589,7 @@ function applyBankRule(
         if (desc === condValue) {
           return {
             matchedRuleId: rule.id,
-            glAccountId: rule.glAccountId.id,
+            glAccountId: rule.glAccount.id,
           };
         }
         break;
@@ -597,7 +597,7 @@ function applyBankRule(
         if (Math.abs(amount) > parseFloat(rule.conditionValue)) {
           return {
             matchedRuleId: rule.id,
-            glAccountId: rule.glAccountId.id,
+            glAccountId: rule.glAccount.id,
           };
         }
         break;
@@ -605,7 +605,7 @@ function applyBankRule(
         if (Math.abs(amount) < parseFloat(rule.conditionValue)) {
           return {
             matchedRuleId: rule.id,
-            glAccountId: rule.glAccountId.id,
+            glAccountId: rule.glAccount.id,
           };
         }
         break;

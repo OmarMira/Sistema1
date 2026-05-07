@@ -1100,11 +1100,11 @@ export function ReconciliationPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-sm">{t('reconciliation.adjustmentDebitAccount')}</Label>
-                <AccountSelector accounts={accounts} value={adjustForm.debitAccountId} onChange={(id) => setAdjustForm({ ...adjustForm, debitAccountId: id })} placeholder="Select debit account" />
+                <AccountSelector accounts={accounts} value={adjustForm.debitAccountId || null} onChange={(id) => setAdjustForm({ ...adjustForm, debitAccountId: id ?? '' })} placeholder="Select debit account" />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm">{t('reconciliation.adjustmentCreditAccount')}</Label>
-                <AccountSelector accounts={accounts} value={adjustForm.creditAccountId} onChange={(id) => setAdjustForm({ ...adjustForm, creditAccountId: id })} placeholder="Select credit account" />
+                <AccountSelector accounts={accounts} value={adjustForm.creditAccountId || null} onChange={(id) => setAdjustForm({ ...adjustForm, creditAccountId: id ?? '' })} placeholder="Select credit account" />
               </div>
             </div>
             <div className="space-y-1.5">

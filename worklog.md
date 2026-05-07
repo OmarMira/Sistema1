@@ -142,3 +142,47 @@ Stage Summary:
 - Supports English and Spanish bank names and date formats
 - Proper error messages for scanned/image-only PDFs
 - Frontend already accepts .pdf files (no changes needed)
+
+---
+Task ID: 7
+Agent: Fullstack Developer Agent
+Task: Fix bank statement import failures and add multi-file support
+
+Work Log:
+- Fixed import/route.ts error handling: catch block now returns actual error message instead of generic "Failed to import bank statement"
+- Added detailed console.log logging throughout the import pipeline:
+  - Membership verification logging
+  - Per-file processing with file name, size, and index
+  - Bank name detection logging
+  - Bank account lookup/creation logging
+  - Transaction counts (raw, unique, duplicates skipped)
+  - DB transaction creation logging
+  - Auto-categorization result logging
+- Added safe error response parsing in frontend: wraps `res.json()` in try/catch to handle non-JSON error responses
+- Refactored backend: extracted `processOneFile()` helper that handles single-file parsing/processing
+- Multi-file backend support:
+  - Accepts both `file` (single) and `files` (multiple) from FormData
+  - Multi-file mode processes each file sequentially, collecting per-file results
+  - Returns aggregated response: `{ results, totalTransactions, totalFiles, successCount, failCount }`
+  - Single-file mode maintains backward-compatible response format
+- Multi-file frontend support (ImportPage.tsx):
+  - Changed `selectedFile: File | null` to `selectedFiles: File[]`
+  - Added `multiple` attribute to file input
+  - Updated drag-drop and file input to handle multiple files with dedup by name+size
+  - Added scrollable file list showing each selected file with icon, name, size, and X remove button
+  - Single file sends `file` field; multiple files send `files` field for backward compat
+  - Added `MultiImportResult` type and `multiResult` state
+  - Added separate result dialog for multi-file with per-file status (success/fail), aggregated summary cards
+  - Mixed success/failure shows amber icon and partial success message
+  - Updated header subtitle to mention multiple files
+- Added 7 new i18n keys in both EN and ES:
+  - multipleFiles, fileXOfY, filesSelected, importComplete, importPartial, failedFiles, successfulFiles
+- All interpolation uses `.replace('{key}', value)` pattern consistent with existing codebase
+
+Stage Summary:
+- Import errors now return actual error messages instead of generic failure text
+- Detailed server-side logging enables debugging of import issues via console
+- Multi-file import fully supported: upload, process, and view per-file results
+- Backward compatible: single-file uploads return the same response format as before
+- 0 lint errors
+- Dev server compiles successfully (GET / 200)

@@ -199,6 +199,13 @@ const en = {
     transactionsImported: 'Transactions Imported',
     importSuccessMessage: 'Your bank statement has been imported and transactions have been created.',
     uncategorizedNote: 'need manual categorization. Set up bank rules to improve auto-categorization.',
+    multipleFiles: 'Select multiple bank statements at once',
+    fileXOfY: 'File {current} of {total}',
+    filesSelected: '{count} files selected',
+    importComplete: 'Import Complete',
+    importPartial: '{success} of {total} files imported successfully',
+    failedFiles: 'Failed Files',
+    successfulFiles: 'Successful Files',
   },
   bankRules: {
     title: 'Bank Rules',

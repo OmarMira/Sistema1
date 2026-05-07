@@ -199,6 +199,13 @@ const es = {
     transactionsImported: 'Transacciones Importadas',
     importSuccessMessage: 'Tu estado de cuenta ha sido importado y las transacciones han sido creadas.',
     uncategorizedNote: 'necesitan categorización manual. Configura reglas bancarias para mejorar la auto-categorización.',
+    multipleFiles: 'Selecciona múltiples resúmenes bancarios',
+    fileXOfY: 'Archivo {current} de {total}',
+    filesSelected: '{count} archivos seleccionados',
+    importComplete: 'Importación Completa',
+    importPartial: '{success} de {total} archivos importados exitosamente',
+    failedFiles: 'Archivos Fallidos',
+    successfulFiles: 'Archivos Exitosos',
   },
   bankRules: {
     title: 'Reglas Bancarias',

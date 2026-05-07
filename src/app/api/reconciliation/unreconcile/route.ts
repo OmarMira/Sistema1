@@ -6,7 +6,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // Undo reconciliation for selected transactions.
 // Body: { companyId, bankAccountId, transactionIds: string[] }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

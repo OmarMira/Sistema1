@@ -4,7 +4,7 @@ import { getSessionUserId } from '@/lib/sessions';
 
 // ─── GET /api/auth/me ─────────────────────────────────────────────────
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

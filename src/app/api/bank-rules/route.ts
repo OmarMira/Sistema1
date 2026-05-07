@@ -5,7 +5,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // ─── GET /api/bank-rules ───────────────────────────────────────────
 // List bank rules for a company, sorted by priority. Includes GL account info.
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -55,7 +55,7 @@ export async function GET(request: NextRequest) {
 // Create a new bank rule.
 // Body: { companyId, name, conditionType, conditionValue, transactionDirection?, glAccountId, priority?, isActive? }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

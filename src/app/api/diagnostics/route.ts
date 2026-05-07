@@ -9,7 +9,7 @@ import path from 'path';
  */
 export async function GET(request: Request) {
   try {
-    const userId = getSessionUserId(request as unknown as import('next/server').NextRequest);
+    const userId = await getSessionUserId(request as unknown as import('next/server').NextRequest);
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

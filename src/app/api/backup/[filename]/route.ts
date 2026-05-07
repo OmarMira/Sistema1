@@ -11,7 +11,7 @@ export async function GET(
   { params }: { params: Promise<{ filename: string }> }
 ) {
   try {
-    const userId = getSessionUserId(request);
+    const userId = await getSessionUserId(request);
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

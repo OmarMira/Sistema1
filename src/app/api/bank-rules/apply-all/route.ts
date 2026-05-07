@@ -42,7 +42,7 @@ function transactionMatchesRule(
 // First match wins per transaction.
 // Body: { companyId }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

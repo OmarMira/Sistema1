@@ -21,6 +21,7 @@ model User {
   companyMemberships    CompanyMember[]
   reconciliationPeriods ReconciliationPeriod[] @relation("ReconUser")
   auditLogs             AuditLog[]
+  sessions              Session[]
 }
 
 model Company {
@@ -241,4 +242,16 @@ model AuditLog {
 
   @@index([companyId])
   @@index([createdAt])
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
 }

@@ -6,7 +6,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // List journal entries for a company.
 // Query params: companyId, status, startDate, endDate, page, limit, search
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
 // Create a new journal entry with lines.
 // Body: { companyId, date, description, reference?, status?, lines: [{ glAccountId, description?, debit, credit }] }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

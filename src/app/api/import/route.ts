@@ -8,7 +8,7 @@ import { parseOFX } from '@/lib/ofx-parser';
 // Accepts multipart/form-data with a file field.
 // Supports CSV, OFX, QFX formats. PDF returns a placeholder message.
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

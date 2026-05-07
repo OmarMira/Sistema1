@@ -7,7 +7,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // Query params: companyId
 // Returns: id, code, name, accountType, normalBalance
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

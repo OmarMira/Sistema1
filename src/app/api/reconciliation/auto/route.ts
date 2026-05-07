@@ -39,7 +39,7 @@ function transactionMatchesRule(
 // Auto-reconcile using bank rules + amount matching with journal entries.
 // Body: { companyId, bankAccountId, createJournalEntries?, periodId?, matchByAmount? }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

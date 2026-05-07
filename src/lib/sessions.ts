@@ -1,41 +1,66 @@
 import { NextRequest } from 'next/server';
+import { db } from '@/lib/db';
+
+const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /**
- * Shared in-memory session store.
- * In production, replace with Redis or a database-backed session table.
+ * Database-backed session store.
+ * Sessions persist across server restarts.
  */
-const sessions = new Map<string, { userId: string; createdAt: number }>();
-
-export { sessions as sessionStore };
 
 export function createSession(userId: string): string {
   const token = crypto.randomUUID();
-  sessions.set(token, { userId, createdAt: Date.now() });
+  void db.session.create({
+    data: { token, userId },
+  });
   return token;
 }
 
-export function getSessionUserId(request: NextRequest): string | null {
-  const token =
-    request.cookies.get('session')?.value ??
-    request.headers.get('authorization')?.replace('Bearer ', '');
+export async function getSessionUserId(request: NextRequest): Promise<string | null> {
+  const token = getToken(request);
   if (!token) return null;
-  const session = sessions.get(token);
-  if (!session) return null;
-  // Sessions expire after 7 days
-  if (Date.now() - session.createdAt > 7 * 24 * 60 * 60 * 1000) {
-    sessions.delete(token);
+
+  try {
+    const session = await db.session.findUnique({
+      where: { token },
+      select: { userId: true, createdAt: true },
+    });
+    if (!session) return null;
+
+    // Session expired
+    if (Date.now() - session.createdAt.getTime() > SESSION_DURATION_MS) {
+      void db.session.delete({ where: { id: session.id } });
+      return null;
+    }
+
+    return session.userId;
+  } catch {
     return null;
   }
-  return session.userId;
 }
 
-export function destroySession(token: string): void {
-  sessions.delete(token);
+export async function destroySession(request: NextRequest): Promise<void> {
+  const token = getToken(request);
+  if (!token) return;
+  try {
+    await db.session.deleteMany({ where: { token } });
+  } catch { /* ignore */ }
 }
 
-export function getSessionToken(request: NextRequest): string | null {
+export function getToken(request: NextRequest): string | null {
   return (
     request.cookies.get('session')?.value ??
     request.headers.get('authorization')?.replace('Bearer ', '')
   );
 }
+
+/**
+ * Legacy export for register route (which creates session manually).
+ */
+export const sessionStore = {
+  set(token: string, data: { userId: string; createdAt: number }) {
+    void db.session.create({
+      data: { token, userId: data.userId },
+    });
+  },
+};

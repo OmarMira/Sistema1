@@ -5,7 +5,7 @@ import { destroySession, getSessionToken } from '@/lib/sessions';
 export async function POST(request: NextRequest) {
   const token = getSessionToken(request);
   if (token) {
-    destroySession(token);
+    await destroySession(token);
   }
 
   const response = NextResponse.json({ success: true });

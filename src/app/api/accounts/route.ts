@@ -4,7 +4,7 @@ import { getSessionUserId } from '@/lib/sessions';
 
 // ─── GET /api/accounts?companyId=xxx&accountType=xxx&search=xxx ─────────
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
 // ─── POST /api/accounts ────────────────────────────────────────────────
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

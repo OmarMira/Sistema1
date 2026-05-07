@@ -7,7 +7,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // Query params: bankAccountId (required), companyId (required)
 // Optional: startDate, endDate, status (all|unreconciled|reconciled), search, statementId, showReconciled
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -225,7 +225,7 @@ export async function GET(request: NextRequest) {
 // Can optionally create journal entries.
 // Body: { companyId, bankAccountId, transactions: [{ id, glAccountId }], createJournalEntries?: boolean, periodId?: string }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

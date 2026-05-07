@@ -5,7 +5,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // ─── GET /api/import/history?companyId=xxx ────────────────────────────
 // List all bank statements (import history) for a company
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

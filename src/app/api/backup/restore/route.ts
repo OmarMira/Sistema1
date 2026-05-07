@@ -9,7 +9,7 @@ import { restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
  */
 export async function POST(request: NextRequest) {
   try {
-    const userId = getSessionUserId(request);
+    const userId = await getSessionUserId(request);
     if (!userId) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

@@ -6,7 +6,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // Create an adjusting journal entry from the reconciliation screen.
 // Body: { companyId, bankAccountId, date, description, debitAccountId, creditAccountId, amount, notes? }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

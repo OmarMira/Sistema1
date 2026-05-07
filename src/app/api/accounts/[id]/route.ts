@@ -11,7 +11,7 @@ export async function GET(
   _request: NextRequest,
   { params }: RouteParams
 ) {
-  const userId = getSessionUserId(_request);
+  const userId = await getSessionUserId(_request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -64,7 +64,7 @@ export async function PUT(
   request: NextRequest,
   { params }: RouteParams
 ) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -207,7 +207,7 @@ export async function DELETE(
   request: NextRequest,
   { params }: RouteParams
 ) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

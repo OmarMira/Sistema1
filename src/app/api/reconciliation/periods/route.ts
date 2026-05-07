@@ -6,7 +6,7 @@ import { getSessionUserId } from '@/lib/sessions';
 // Create, complete, or cancel a reconciliation period.
 // Body: { companyId, bankAccountId, action: 'start'|'complete'|'cancel', periodId?, notes? }
 export async function POST(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
@@ -225,7 +225,7 @@ export async function POST(request: NextRequest) {
 // ─── GET /api/reconciliation/periods ──────────────────────────────
 // Get reconciliation history for a bank account.
 export async function GET(request: NextRequest) {
-  const userId = getSessionUserId(request);
+  const userId = await getSessionUserId(request);
   if (!userId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

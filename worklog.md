@@ -44,3 +44,26 @@ Stage Summary:
 - Reports page now works correctly - Refresh button triggers re-fetch via refreshKey
 - Reconciliation page auto-selects first bank account and loads data immediately
 - 0 lint errors, dev server compiles successfully (GET / 200)
+
+---
+Task ID: 3
+Agent: Main Agent
+Task: Complete system audit - find all broken features
+
+Work Log:
+- Discovered ROOT CAUSE: sessions.ts uses in-memory Map that loses ALL sessions on server restart
+- This caused ALL authenticated API calls to fail with 401 after any code change
+- This was why reconciliation showed empty bank account selector and reports showed no data
+- Added Session model to Prisma schema (token, userId, createdAt)
+- Rewrote sessions.ts to use database-backed sessions (SQLite via Prisma)
+- Updated 32 API route files to use await with async getSessionUserId()
+- Updated auth/logout to use async destroySession()
+- Fixed ReportsPage.tsx fetchReport bug (refreshKey pattern)
+- Fixed ReconciliationPage.tsx auto-select first bank account
+
+Stage Summary:
+- ROOT CAUSE IDENTIFIED: In-memory sessions lost on restart → everything appeared broken
+- Session model added to DB, sessions.ts rewritten to be DB-backed
+- 32 files updated for async session calls
+- 0 lint errors
+- Dev server compiles successfully

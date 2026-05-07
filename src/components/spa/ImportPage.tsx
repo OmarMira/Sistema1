@@ -43,20 +43,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
-import { Check, ChevronsUpDown } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useAuthStore } from '@/store/auth-store';
 import { useLanguageStore } from '@/store/language-store';
 
@@ -89,6 +76,7 @@ interface ImportResult {
   statementId: string;
   transactionCount: number;
   autoCategorizedCount: number;
+  duplicatesSkipped: number;
   newAccountCreated: boolean;
   bankAccountName: string;
 }
@@ -193,9 +181,7 @@ export function ImportPage() {
 
   // State
   const [bankAccounts, setBankAccounts] = useState<BankAccountOption[]>([]);
-  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>(
-    ''
-  );
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>('');
   const [history, setHistory] = useState<ImportStatement[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
@@ -376,10 +362,6 @@ export function ImportPage() {
     }
   }
 
-  // ─── Determine wizard step ────────────────────────────────────────
-
-  const currentStep = !selectedFile ? 1 : selectedFile && !uploading ? 2 : 0;
-
   // ─── Render ──────────────────────────────────────────────────────
 
   return (
@@ -394,46 +376,7 @@ export function ImportPage() {
         </p>
       </div>
 
-      {/* Wizard Steps Indicator */}
-      <div className="flex items-center gap-2">
-        {[
-          { num: 1, label: t('banks.dragDrop').split(',')[0] },
-          { num: 2, label: t('banks.selectBankAccount') },
-        ].map((step, i) => (
-          <React.Fragment key={step.num}>
-            <div
-              className={cn(
-                'flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium transition-colors',
-                currentStep >= step.num
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground'
-              )}
-            >
-              <span
-                className={cn(
-                  'flex size-5 items-center justify-center rounded-full text-[10px] font-bold',
-                  currentStep >= step.num
-                    ? 'bg-primary-foreground text-primary'
-                    : 'bg-muted-foreground/20 text-muted-foreground'
-                )}
-              >
-                {step.num}
-              </span>
-              <span className="hidden sm:inline">{step.label}</span>
-            </div>
-            {i < 1 && (
-              <div
-                className={cn(
-                  'h-px flex-1',
-                  currentStep > step.num ? 'bg-primary' : 'bg-muted'
-                )}
-              />
-            )}
-          </React.Fragment>
-        ))}
-      </div>
-
-      {/* Upload Card (Wizard Step 1 & 2) */}
+      {/* Upload Card */}
       <Card>
         <CardContent className="pt-6">
           <div className="space-y-5">
@@ -554,91 +497,8 @@ export function ImportPage() {
               </div>
             )}
 
-            {/* Bank account selector + Import button */}
-            <div className="flex flex-col sm:flex-row gap-3 items-end">
-              <div className="space-y-1.5 flex-1 w-full sm:max-w-[300px]">
-                <label className="text-sm font-medium">
-                  {t('banks.selectBankAccount')}
-                </label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      role="combobox"
-                      className={cn(
-                        'w-full justify-between font-normal h-9',
-                        !selectedBankAccountId && 'text-muted-foreground'
-                      )}
-                    >
-                      {selectedBankAccountId
-                        ? bankAccounts.find(
-                            (a) => a.id === selectedBankAccountId
-                          )?.accountName
-                        : t('banks.autoDetect')}
-                      <ChevronsUpDown className="ml-1 size-3 shrink-0 opacity-50" />
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-[--radix-popover-trigger-width] p-0"
-                    align="start"
-                  >
-                    <Command>
-                      <CommandInput
-                        placeholder={`${t('common.search')}...`}
-                      />
-                      <CommandList className="max-h-[250px]">
-                        <CommandEmpty>
-                          {t('banks.noBankAccounts')}
-                        </CommandEmpty>
-                        <CommandGroup>
-                          <CommandItem
-                            value="__auto"
-                            onSelect={() => setSelectedBankAccountId('')}
-                          >
-                            <Check
-                              className={cn(
-                                'mr-2 size-4 shrink-0',
-                                !selectedBankAccountId
-                                  ? 'opacity-100'
-                                  : 'opacity-0'
-                              )}
-                            />
-                            <span className="flex items-center gap-2">
-                              <Landmark className="size-3.5 text-muted-foreground" />
-                              {t('banks.autoDetect')}
-                            </span>
-                          </CommandItem>
-                          {bankAccounts.map((account) => (
-                            <CommandItem
-                              key={account.id}
-                              value={`${account.bankName} ${account.accountName}`}
-                              onSelect={() =>
-                                setSelectedBankAccountId(
-                                  account.id === selectedBankAccountId
-                                    ? ''
-                                    : account.id
-                                )
-                              }
-                            >
-                              <Check
-                                className={cn(
-                                  'mr-2 size-4 shrink-0',
-                                  selectedBankAccountId === account.id
-                                    ? 'opacity-100'
-                                    : 'opacity-0'
-                                )}
-                              />
-                              <span className="truncate">
-                                {account.bankName} — {account.accountName}
-                              </span>
-                            </CommandItem>
-                          ))}
-                        </CommandGroup>
-                      </CommandList>
-                    </Command>
-                  </PopoverContent>
-                </Popover>
-              </div>
+            {/* Import button */}
+            <div className="flex items-center gap-3">
               <Button
                 onClick={handleUpload}
                 disabled={!selectedFile || uploading}
@@ -657,6 +517,9 @@ export function ImportPage() {
                   </>
                 )}
               </Button>
+              <p className="text-xs text-muted-foreground">
+                {t('banks.autoDetect')}
+              </p>
             </div>
           </div>
         </CardContent>
@@ -832,6 +695,14 @@ export function ImportPage() {
                     <Landmark className="size-4 text-teal-600 dark:text-teal-400" />
                     <span className="text-teal-700 dark:text-teal-300">
                       {t('banks.newAccountCreated')}
+                    </span>
+                  </div>
+                )}
+                {importResult.duplicatesSkipped > 0 && (
+                  <div className="flex items-center gap-2 rounded-md bg-amber-50 dark:bg-amber-950/30 p-2 text-sm">
+                    <AlertCircle className="size-4 text-amber-600 dark:text-amber-400" />
+                    <span className="text-amber-700 dark:text-amber-300">
+                      {importResult.duplicatesSkipped} {t('reconciliation.duplicatesSkipped')}
                     </span>
                   </div>
                 )}

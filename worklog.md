@@ -88,3 +88,22 @@ Stage Summary:
 - Login and register will work reliably - no more race condition
 - All 50+ fetch calls across SPA verified to include credentials: 'include'
 - 0 lint errors
+
+---
+Task ID: 5
+Agent: Main Agent
+Task: Fix build failure - getSessionToken export missing
+
+Work Log:
+- User reported "Sorry, there was a problem deploying the code" error
+- Ran `npx next build` and found: Export `getSessionToken` doesn't exist in `@/lib/sessions`
+- Root cause: Previous refactor renamed `getSessionToken` to `getToken` in sessions.ts, but logout/route.ts still imported the old name
+- Also `destroySession` signature changed to accept full `request` object instead of just token
+- Rewrote logout/route.ts to use new API: `await destroySession(request)` 
+- Verified no other files reference the old `getSessionToken` or `sessionStore` exports
+- Build succeeds, lint passes with 0 errors
+
+Stage Summary:
+- Fixed critical import error that prevented production build
+- logout/route.ts updated to use new sessions.ts API
+- Build passes: all 32+ API routes compile successfully

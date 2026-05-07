@@ -31,7 +31,9 @@ export type ViewName =
   | 'export'
   | 'settings'
   | 'users'
-  | 'onboarding';
+  | 'onboarding'
+  | 'movement-summary'
+  | 'backup';
 
 interface AuthState {
   user: User | null;
@@ -39,11 +41,13 @@ interface AuthState {
   activeCompany: Company | null;
   currentView: ViewName;
   sidebarOpen: boolean;
+  aiAssistantOpen: boolean;
   login: (user: User) => void;
   logout: () => void;
   setActiveCompany: (company: Company) => void;
   setCurrentView: (view: ViewName) => void;
   setSidebarOpen: (open: boolean) => void;
+  setAiAssistantOpen: (open: boolean) => void;
   hydrate: () => Promise<void>;
 }
 
@@ -55,6 +59,7 @@ export const useAuthStore = create<AuthState>()(
       activeCompany: null,
       currentView: 'landing' as ViewName,
       sidebarOpen: true,
+      aiAssistantOpen: false,
 
       login: (user: User) =>
         set({
@@ -70,6 +75,7 @@ export const useAuthStore = create<AuthState>()(
           activeCompany: null,
           currentView: 'landing',
           sidebarOpen: true,
+          aiAssistantOpen: false,
         }),
 
       setActiveCompany: (company: Company) =>
@@ -78,6 +84,8 @@ export const useAuthStore = create<AuthState>()(
       setCurrentView: (view: ViewName) => set({ currentView: view }),
 
       setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
+
+      setAiAssistantOpen: (open: boolean) => set({ aiAssistantOpen: open }),
 
       hydrate: async () => {
         try {

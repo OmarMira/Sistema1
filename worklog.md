@@ -1,66 +1,116 @@
+# AccountExpress Next-Gen - Worklog
+
 ---
 Task ID: 1
 Agent: Main Orchestrator
-Task: Build complete AccountExpress accounting CRM
+Task: Analyze reference system and plan complete build
 
 Work Log:
-- Analyzed reference system (AccountExpress Next-Gen) from uploaded file
-- Designed and implemented Prisma schema for accounting (User, Company, CompanyMember, GlAccount, BankAccount, BankStatement, BankTransaction, BankRule, JournalEntry, JournalLine, FiscalPeriod, AuditLog)
-- Set up i18n with English/Spanish translations (300+ keys each)
-- Built Zustand stores for auth and language with persistence
-- Created auth system with login/register/logout/session management
-- Seeded database with US GAAP chart of accounts (52 accounts), demo company, fiscal periods, sample journal entries and bank rules
-- Built professional landing page with hero section, feature cards, trust indicators
-- Built login/register pages with validation
-- Built AppShell with collapsible sidebar, mobile drawer, theme/language selectors
-- Built Dashboard with 4 stat cards, 2 charts (recharts), recent transactions, bank accounts, quick actions
-- Built Chart of Accounts with hierarchical tree view, CRUD operations, type/balance badges
-- Built Journal Entries with double-entry validation, account selector, post/void actions
-- Built Bank Accounts management with card grid and transaction views
-- Built Statement Import supporting CSV, OFX, QFX with auto-account creation and auto-categorization
-- Built Bank Rules with priority-based categorization engine
-- Built Bank Reconciliation with auto-match and manual reconcile
-- Built Reports (Trial Balance, Transactions, Reconciliation) with export to CSV/PDF
-- Built Export page for CPA with multiple export types
-- Built Settings with company info editing, password change, language/theme preferences
-- Built Users management (admin-only)
-- Fixed all lint errors (react-hooks/set-state-in-effect, manual memoization)
-- Generated hero dashboard image with AI
+- Analyzed 4 reference screenshots using VLM
+- Screenshot 1: AI Assistant modal (dark theme, chat + Crear Regla)
+- Screenshot 2: AI Assistant - Crear Regla mode (natural language rule creation)
+- Screenshot 3: Settings page with 7 sub-navigation tabs + Company Management table
+- Screenshot 4: Settings - Generador de Reglas IA tab
+- Verified database persistence: SQLite at /home/z/my-project/db/custom.db (persistent)
+- Mapped all 113 existing source files
+- Identified missing features: AI Assistant, Backup/Restore, AI Rule Generator, Diagnostics, Roles/Permissions, Fiscal Periods, Movement Summary, Company Management, header badges
 
 Stage Summary:
-- Complete accounting CRM with 25 API routes and 18 SPA page components
-- Bilingual (EN/ES) with language selector
-- Dark/light theme with next-themes
-- No clients/suppliers modules (as required)
-- No tax advisory features (as required)
-- US GAAP chart of accounts seeded
-- Demo credentials: admin@accountexpress.com / Admin123!
-- Lint passes cleanly (0 errors)
-- Dev server compiles and runs successfully
+- Database persistence confirmed (already persistent)
+- Complete gap analysis done between reference and current codebase
+- Ready to build all missing modules
 
 ---
-Task ID: 2
-Agent: Main Orchestrator (Continuation Session)
-Task: Fix critical auth bug, improve landing page, enhance i18n
+Task ID: 12
+Agent: full-stack-developer (subagent)
+Task: Build AI Assistant Modal
 
 Work Log:
-- Diagnosed auth system 401 errors after login: session store was defined in `/api/auth/me/route.ts` and login route used dynamic import causing separate module instances in Next.js dev mode
-- Created shared `/lib/sessions.ts` with `sessionStore`, `getSessionUserId()`, `createSession()`, `destroySession()`, `getSessionToken()`
-- Rewrote `/api/auth/me/route.ts` to only handle GET (removed duplicate login/logout)
-- Rewrote `/api/auth/login/route.ts` to use shared session module
-- Rewrote `/api/auth/logout/route.ts` to use shared session module
-- Updated ALL 24 API route files to import from `@/lib/sessions` instead of `@/app/api/auth/me/route`
-- Removed duplicate local `getSessionUserId` functions from 9 files
-- Converted dynamic imports to static imports across all files
-- Improved landing page: added animated gradient hero, stats counters section, "How It Works" 3-step section, social proof/security badges section
-- Added 40+ new i18n keys for landing page (stats, how-it-works, security badges) in both EN and ES
-- Fixed missing translation keys: `landing.loginSubtitle`, `landing.comingSoon`
-- Fixed LoginPage to use correct translation key `landing.loginSubtitle`
-- Verified lint passes with 0 errors
+- Created /src/app/api/ai-assistant/route.ts (POST endpoint with chat + create-rule modes)
+- Created /src/components/spa/AIAssistantModal.tsx (430+ lines, dark theme modal)
+- Added aiAssistantOpen state to auth-store
+- Added 22 i18n keys for AI Assistant (ES + EN)
+- Integrated modal into AppShell sidebar
 
 Stage Summary:
-- Auth system now works correctly - shared session store eliminates module isolation bug
-- Landing page is now production-ready with 7 sections: Nav, Hero (animated), Stats, Features, How It Works, Trust, Security Badges, CTA, Footer
-- All 24 API routes use unified auth via shared sessions module
-- 500+ i18n keys in both EN and ES
-- Lint passes cleanly (0 errors)
+- AI Assistant modal with Chat and Crear Regla modes
+- Uses z-ai-web-dev-sdk for backend AI processing
+- Bilingual system prompt (Spanish default, English auto-detect)
+
+---
+Task ID: 4
+Agent: full-stack-developer (subagent)
+Task: Restructure Settings page with 7 sub-navigation tabs
+
+Work Log:
+- Rewrote SettingsPage.tsx with left sidebar + content layout
+- Created 7 sub-components in /src/components/spa/settings/:
+  - CompanyDataTab.tsx (company data + management table)
+  - UsersTab.tsx (user management)
+  - RolesTab.tsx (roles & permissions display)
+  - FiscalPeriodsTab.tsx (fiscal period management)
+  - BackupTab.tsx (backup/restore interface)
+  - AIRulesGeneratorTab.tsx (AI pattern detection)
+  - DiagnosticsTab.tsx (system diagnostics)
+- Created /src/app/api/diagnostics/route.ts
+- Added ~160 i18n keys for all settings sub-tabs (ES + EN)
+
+Stage Summary:
+- Settings page fully restructured to match reference screenshots
+- All 7 tabs functional with real data and proper UI
+- Diagnostics API returns real database stats
+
+---
+Task ID: 13
+Agent: full-stack-developer (subagent)
+Task: Build Resumen de Movimientos page
+
+Work Log:
+- Created /src/app/api/movement-summary/route.ts (GET with filters)
+- Created /src/components/spa/MovementSummaryPage.tsx (full page with charts)
+- Added 'movement-summary' to ViewName type
+- Added i18n translations (ES + EN)
+- Integrated into AppShell sidebar navigation
+
+Stage Summary:
+- Movement Summary page with 4 stat cards, filters, charts, and tables
+- Properly positioned between Reglas Bancarias and Reportes in sidebar
+
+---
+Task ID: 14
+Agent: full-stack-developer (subagent)
+Task: Build Backup/Restore system
+
+Work Log:
+- Created /src/lib/backup.ts (full backup engine with create/restore/list/delete)
+- Created /src/app/api/backup/route.ts (POST create, GET list, DELETE)
+- Created /src/app/api/backup/restore/route.ts (POST restore from file)
+- Created /src/app/api/backup/[filename]/route.ts (GET download)
+- Created /home/z/my-project/db/backups/ directory for persistent storage
+- Uses file-based storage with manifest.json (no schema changes needed)
+- Atomic restore via db.$transaction with proper ID remapping
+
+Stage Summary:
+- Complete backup/restore system with file-based persistence
+- Atomic restore with foreign key ID remapping
+- Integrated into Settings page as a sub-tab
+
+---
+Task ID: 16
+Agent: Main Orchestrator
+Task: Integrate all changes, fix conflicts, update AppShell
+
+Work Log:
+- Updated AppShell sidebar: correct menu order matching reference
+- Added header elements: EMPRESA ACTIVA badge, Cifrado AES badge, Cambiar link
+- Added Cerrar Sesión button to sidebar bottom
+- Removed backup from main nav (kept as settings sub-tab only)
+- Added i18n keys: common.companyActive, common.change
+- Fixed all import conflicts between parallel agents
+- ESLint passes clean
+- Dev server compiles and renders successfully
+
+Stage Summary:
+- Sidebar matches reference exactly with all 9 nav items + AI Assistant + Settings + Logout
+- Header shows company badge and AES encryption badge
+- All 130+ source files compile without errors

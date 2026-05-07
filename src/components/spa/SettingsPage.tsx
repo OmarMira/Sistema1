@@ -1,197 +1,95 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
-  Save,
-  Key,
-  User,
+  Settings,
   Building2,
+  Users,
   Shield,
-  AlertTriangle,
-  Loader2,
-  CheckCircle2,
+  Calendar,
+  Database,
+  Zap,
+  Activity,
 } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
-import { formatDate } from '@/lib/format';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
+import { cn } from '@/lib/utils';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { CompanyDataTab } from './settings/CompanyDataTab';
+import { UsersTab } from './settings/UsersTab';
+import { RolesTab } from './settings/RolesTab';
+import { FiscalPeriodsTab } from './settings/FiscalPeriodsTab';
+import { BackupTab } from './settings/BackupTab';
+import { AIRulesGeneratorTab } from './settings/AIRulesGeneratorTab';
+import { DiagnosticsTab } from './settings/DiagnosticsTab';
+
+/* ─── Navigation Items ───────────────────────────────────────── */
+
+interface NavItem {
+  id: string;
+  labelKey: string;
+  icon: React.ElementType;
+}
+
+const navItems: NavItem[] = [
+  { id: 'company', labelKey: 'settings.companyData', icon: Building2 },
+  { id: 'users', labelKey: 'settings.userManagement', icon: Users },
+  { id: 'roles', labelKey: 'settings.rolesPermissions', icon: Shield },
+  { id: 'periods', labelKey: 'settings.fiscalPeriodsTab', icon: Calendar },
+  { id: 'backup', labelKey: 'settings.systemBackup', icon: Database },
+  { id: 'ai-rules', labelKey: 'settings.aiRuleGenerator', icon: Zap },
+  { id: 'diagnostics', labelKey: 'settings.diagnosticsTab', icon: Activity },
+];
 
 /* ─── Animation Variants ──────────────────────────────────────── */
 
 const containerVariants = {
   hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.06 } },
+  visible: { opacity: 1, transition: { staggerChildren: 0.04 } },
 };
 const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
+  hidden: { opacity: 0, y: 12 },
   visible: { opacity: 1, y: 0 },
+};
+const contentVariants = {
+  hidden: { opacity: 0, x: 10 },
+  visible: { opacity: 1, x: 0, transition: { duration: 0.2 } },
+  exit: { opacity: 0, x: -10, transition: { duration: 0.15 } },
 };
 
 /* ─── Settings Page ───────────────────────────────────────────── */
 
 export function SettingsPage() {
   const t = useLanguageStore((s) => s.t);
-  const user = useAuthStore((s) => s.user);
   const activeCompany = useAuthStore((s) => s.activeCompany);
-  const language = useLanguageStore((s) => s.language);
-  const setLanguage = useLanguageStore((s) => s.setLanguage);
 
-  const initials = user
-    ? `${user.firstName?.[0] ?? ''}${user.lastName?.[0] ?? ''}`.toUpperCase()
-    : '??';
+  const [activeTab, setActiveTab] = useState('company');
 
-  // Company settings state
-  const [companyData, setCompanyData] = useState({
-    legalName: '',
-    taxId: '',
-    address: '',
-    phone: '',
-    email: '',
-  });
-  const [editingCompany, setEditingCompany] = useState(false);
-  const [savingCompany, setSavingCompany] = useState(false);
-  const [companySaved, setCompanySaved] = useState(false);
+  const subtitle = activeCompany?.legalName
+    ? t('settings.systemSubtitle').replace('{company}', activeCompany.legalName)
+    : '';
 
-  // Password state
-  const [passwords, setPasswords] = useState({
-    current: '',
-    new: '',
-    confirm: '',
-  });
-  const [savingPassword, setSavingPassword] = useState(false);
-  const [passwordError, setPasswordError] = useState('');
-  const [passwordSaved, setPasswordSaved] = useState(false);
-
-  // Stats
-  const [stats, setStats] = useState<{ memberCount: number; accountCount: number; periodCount: number } | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const companyId = activeCompany?.id;
-
-  // Fetch settings
-  useEffect(() => {
-    if (!companyId) return;
-    let cancelled = false;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    (async () => {
-      try {
-        const res = await fetch(`/api/settings?companyId=${companyId}`);
-        if (res.ok && !cancelled) {
-          const data = await res.json();
-          if (data.company) {
-            setCompanyData({
-              legalName: data.company.legalName || '',
-              taxId: data.company.taxId || '',
-              address: data.company.address || '',
-              phone: data.company.phone || '',
-              email: data.company.email || '',
-            });
-          }
-          if (data.stats) {
-            setStats(data.stats);
-          }
-        }
-      } catch { /* ignore */ }
-      if (!cancelled) setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [companyId]);
-
-  async function handleSaveCompany() {
-    if (!activeCompany?.id) return;
-    setSavingCompany(true);
-    setCompanySaved(false);
-    try {
-      const res = await fetch('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId: activeCompany.id, ...companyData }),
-      });
-      if (res.ok) {
-        setCompanySaved(true);
-        setEditingCompany(false);
-        // Update active company name in store if it changed
-        const data = await res.json();
-        if (data.company?.legalName) {
-          useAuthStore.getState().setActiveCompany({
-            ...activeCompany,
-            legalName: data.company.legalName,
-          });
-        }
-        setTimeout(() => setCompanySaved(false), 3000);
-      }
-    } catch { /* ignore */ }
-    setSavingCompany(false);
-  }
-
-  async function handleChangePassword() {
-    setPasswordError('');
-    setPasswordSaved(false);
-
-    if (passwords.new.length < 8) {
-      setPasswordError(t('settings.passwordMinLength'));
-      return;
+  function renderContent() {
+    switch (activeTab) {
+      case 'company':
+        return <CompanyDataTab />;
+      case 'users':
+        return <UsersTab />;
+      case 'roles':
+        return <RolesTab />;
+      case 'periods':
+        return <FiscalPeriodsTab />;
+      case 'backup':
+        return <BackupTab />;
+      case 'ai-rules':
+        return <AIRulesGeneratorTab />;
+      case 'diagnostics':
+        return <DiagnosticsTab />;
+      default:
+        return <CompanyDataTab />;
     }
-    if (passwords.new !== passwords.confirm) {
-      setPasswordError(t('settings.passwordMismatch'));
-      return;
-    }
-
-    setSavingPassword(true);
-    try {
-      const res = await fetch('/api/settings/password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          currentPassword: passwords.current,
-          newPassword: passwords.new,
-        }),
-      });
-      if (res.ok) {
-        setPasswordSaved(true);
-        setPasswords({ current: '', new: '', confirm: '' });
-        setTimeout(() => setPasswordSaved(false), 3000);
-      } else {
-        const data = await res.json();
-        setPasswordError(data.error || t('settings.wrongPassword'));
-      }
-    } catch {
-      setPasswordError(t('common.error'));
-    }
-    setSavingPassword(false);
   }
 
   return (
@@ -203,296 +101,61 @@ export function SettingsPage() {
     >
       {/* Header */}
       <motion.div variants={itemVariants}>
-        <h1 className="text-2xl font-bold tracking-tight">{t('settings.title')}</h1>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center size-10 rounded-lg bg-primary/10">
+            <Settings className="size-5 text-primary" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">{t('settings.systemTitle')}</h1>
+            {subtitle && (
+              <p className="text-sm text-muted-foreground mt-0.5">{subtitle}</p>
+            )}
+          </div>
+        </div>
       </motion.div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
-        {/* Left Column: User Profile */}
-        <motion.div variants={itemVariants} className="lg:col-span-1 space-y-6">
-          {/* User Profile Card */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <User className="size-4" />
-                {t('settings.userProfile')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="flex flex-col items-center text-center space-y-4">
-              <Avatar className="size-20">
-                <AvatarFallback className="bg-primary/10 text-primary text-2xl font-bold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="text-lg font-semibold">{user?.firstName} {user?.lastName}</p>
-                <p className="text-sm text-muted-foreground">{user?.email}</p>
-                <Badge variant="secondary" className="mt-2">
-                  {user?.role === 'super_admin' ? t('users.superAdmin') : t('users.companyAdmin')}
-                </Badge>
-              </div>
-              {stats && (
-                <div className="grid grid-cols-3 gap-3 w-full pt-2 border-t">
-                  <div className="text-center">
-                    <p className="text-lg font-bold text-teal-600 dark:text-teal-400">{stats.memberCount}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.memberCount')}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-lg font-bold text-teal-600 dark:text-teal-400">{stats.accountCount}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.accountCount')}</p>
-                  </div>
-                  <div className="text-center">
-                    <p className="text-lg font-bold text-teal-600 dark:text-teal-400">{stats.periodCount}</p>
-                    <p className="text-xs text-muted-foreground">{t('settings.periodCount')}</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* Right Column: Settings */}
-        <motion.div variants={itemVariants} className="lg:col-span-2 space-y-6">
-          {/* Company Information */}
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <Building2 className="size-4" />
-                    {t('settings.companyInfo')}
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    {activeCompany?.legalName}
-                  </CardDescription>
-                </div>
-                {!editingCompany && (
-                  <Button variant="outline" size="sm" onClick={() => setEditingCompany(true)}>
-                    {t('common.edit')}
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {loading ? (
-                <div className="space-y-3">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Skeleton key={i} className="h-9 w-full" />
-                  ))}
-                </div>
-              ) : editingCompany ? (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="legalName">{t('settings.legalName')}</Label>
-                    <Input
-                      id="legalName"
-                      value={companyData.legalName}
-                      onChange={(e) => setCompanyData((prev) => ({ ...prev, legalName: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="taxId">{t('settings.taxId')}</Label>
-                    <Input
-                      id="taxId"
-                      value={companyData.taxId}
-                      onChange={(e) => setCompanyData((prev) => ({ ...prev, taxId: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="companyEmail">{t('settings.email')}</Label>
-                    <Input
-                      id="companyEmail"
-                      type="email"
-                      value={companyData.email}
-                      onChange={(e) => setCompanyData((prev) => ({ ...prev, email: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="phone">{t('settings.phone')}</Label>
-                    <Input
-                      id="phone"
-                      value={companyData.phone}
-                      onChange={(e) => setCompanyData((prev) => ({ ...prev, phone: e.target.value }))}
-                    />
-                  </div>
-                  <div className="space-y-1.5 sm:col-span-2">
-                    <Label htmlFor="address">{t('settings.address')}</Label>
-                    <Input
-                      id="address"
-                      value={companyData.address}
-                      onChange={(e) => setCompanyData((prev) => ({ ...prev, address: e.target.value }))}
-                    />
-                  </div>
-                  <div className="flex gap-2 sm:col-span-2">
-                    <Button onClick={handleSaveCompany} disabled={savingCompany}>
-                      {savingCompany ? (
-                        <><Loader2 className="size-4 mr-1 animate-spin" /> {t('settings.saving')}</>
-                      ) : (
-                        <><Save className="size-4 mr-1" /> {t('common.save')}</>
-                      )}
-                    </Button>
-                    <Button variant="outline" onClick={() => { setEditingCompany(false); fetchSettings(); }}>
-                      {t('common.cancel')}
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <InfoRow label={t('settings.legalName')} value={companyData.legalName} />
-                  <InfoRow label={t('settings.taxId')} value={companyData.taxId || '—'} />
-                  <InfoRow label={t('settings.email')} value={companyData.email || '—'} />
-                  <InfoRow label={t('settings.phone')} value={companyData.phone || '—'} />
-                  <InfoRow label={t('settings.address')} value={companyData.address || '—'} fullWidth />
-                  {companySaved && (
-                    <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 sm:col-span-2">
-                      <CheckCircle2 className="size-4" />
-                      {t('settings.companyUpdated')}
-                    </div>
+      {/* Layout: Sidebar + Content */}
+      <div className="flex flex-col lg:flex-row gap-6">
+        {/* Left Sidebar */}
+        <motion.div variants={itemVariants} className="lg:w-64 shrink-0">
+          <nav className="rounded-xl border bg-card p-2 space-y-1">
+            {navItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={cn(
+                    'flex items-center gap-3 w-full rounded-lg px-3 py-2.5 text-sm font-medium transition-all text-left',
+                    isActive
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
                   )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Account Settings */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2">
-                <Key className="size-4" />
-                {t('settings.changePassword')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5 sm:col-span-2">
-                  <Label htmlFor="currentPassword">{t('settings.currentPassword')}</Label>
-                  <Input
-                    id="currentPassword"
-                    type="password"
-                    value={passwords.current}
-                    onChange={(e) => setPasswords((prev) => ({ ...prev, current: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="newPassword">{t('settings.newPassword')}</Label>
-                  <Input
-                    id="newPassword"
-                    type="password"
-                    value={passwords.new}
-                    onChange={(e) => setPasswords((prev) => ({ ...prev, new: e.target.value }))}
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="confirmPassword">{t('settings.confirmPassword')}</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    value={passwords.confirm}
-                    onChange={(e) => setPasswords((prev) => ({ ...prev, confirm: e.target.value }))}
-                  />
-                </div>
-                {passwordError && (
-                  <p className="text-sm text-rose-600 dark:text-rose-400">{passwordError}</p>
-                )}
-                {passwordSaved && (
-                  <p className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400">
-                    <CheckCircle2 className="size-4" />
-                    {t('settings.passwordChanged')}
-                  </p>
-                )}
-                <div>
-                  <Button onClick={handleChangePassword} disabled={savingPassword || !passwords.current || !passwords.new || !passwords.confirm}>
-                    {savingPassword ? (
-                      <><Loader2 className="size-4 mr-1 animate-spin" /> {t('settings.saving')}</>
-                    ) : (
-                      <><Key className="size-4 mr-1" /> {t('settings.changePassword')}</>
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Preferences */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">{t('settings.general')}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>{t('settings.language')}</Label>
-                  <Select value={language} onValueChange={(v) => setLanguage(v as 'en' | 'es')}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="en">English</SelectItem>
-                      <SelectItem value="es">Español</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>{t('settings.theme')}</Label>
-                  <Select defaultValue="system">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="light">{t('settings.light')}</SelectItem>
-                      <SelectItem value="dark">{t('settings.dark')}</SelectItem>
-                      <SelectItem value="system">{t('settings.system')}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Danger Zone */}
-          <Card className="border-rose-200 dark:border-rose-900">
-            <CardHeader>
-              <CardTitle className="text-base flex items-center gap-2 text-rose-600 dark:text-rose-400">
-                <AlertTriangle className="size-4" />
-                {t('settings.dangerZone')}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-sm text-muted-foreground mb-3">{t('settings.deactivateWarning')}</p>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" size="sm">
-                    <Shield className="size-4 mr-1" />
-                    {t('settings.deactivateAccount')}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t('settings.deactivateConfirm')}</AlertDialogTitle>
-                    <AlertDialogDescription>{t('settings.deactivateWarning')}</AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                    <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                      {t('settings.deactivateAccount')}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </CardContent>
-          </Card>
+                >
+                  <Icon className={cn('size-4 shrink-0', isActive && 'text-primary')} />
+                  <span>{t(item.labelKey)}</span>
+                </button>
+              );
+            })}
+          </nav>
         </motion.div>
+
+        {/* Right Content */}
+        <div className="flex-1 min-w-0">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              variants={contentVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+            >
+              {renderContent()}
+            </motion.div>
+          </AnimatePresence>
+        </div>
       </div>
     </motion.div>
-  );
-}
-
-/* ─── Helper Component ────────────────────────────────────────── */
-
-function InfoRow({ label, value, fullWidth = false }: { label: string; value: string; fullWidth?: boolean }) {
-  return (
-    <div className={fullWidth ? 'sm:col-span-2' : ''}>
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-medium">{value}</p>
-    </div>
   );
 }

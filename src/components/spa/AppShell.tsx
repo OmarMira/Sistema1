@@ -6,7 +6,6 @@ import {
   BookOpen,
   FileText,
   Landmark,
-  Upload,
   Scale,
   ArrowLeftRight,
   BarChart3,
@@ -16,6 +15,9 @@ import {
   LogOut,
   ChevronLeft,
   Building2,
+  Activity,
+  Sparkles,
+  ShieldCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -48,8 +50,10 @@ import { BankRulesPage } from '@/components/spa/BankRulesPage';
 import { ReconciliationPage } from '@/components/spa/ReconciliationPage';
 import { ReportsPage } from '@/components/spa/ReportsPage';
 import { ExportPage } from '@/components/spa/ExportPage';
+import { MovementSummaryPage } from '@/components/spa/MovementSummaryPage';
 import { SettingsPage } from '@/components/spa/SettingsPage';
 import { UsersPage } from '@/components/spa/UsersPage';
+import { AIAssistantModal } from '@/components/spa/AIAssistantModal';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type ViewName } from '@/store/auth-store';
 
@@ -67,6 +71,7 @@ const navItems: NavItem[] = [
   { view: 'banks', icon: Landmark, labelKey: 'banks.title' },
   { view: 'bank-rules', icon: Scale, labelKey: 'bankRules.title' },
   { view: 'reconciliation', icon: ArrowLeftRight, labelKey: 'reconciliation.title' },
+  { view: 'movement-summary', icon: Activity, labelKey: 'movementSummary.title' },
   { view: 'reports', icon: BarChart3, labelKey: 'reports.title' },
   { view: 'export', icon: Download, labelKey: 'exportData.title' },
 ];
@@ -124,8 +129,15 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
 
       <Separator />
 
-      {/* Settings + Logout */}
+      {/* AI Assistant + Settings + Logout */}
       <div className="p-3 space-y-1">
+        <button
+          onClick={() => useAuthStore.getState().setAiAssistantOpen(true)}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 transition-colors"
+        >
+          <Sparkles className="size-4 shrink-0" />
+          {t('aiAssistant.title')}
+        </button>
         <button
           onClick={() => handleNav('settings')}
           className={cn(
@@ -137,6 +149,13 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         >
           <settingsItem.icon className="size-4 shrink-0" />
           {t(settingsItem.labelKey)}
+        </button>
+        <button
+          onClick={() => { fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }); useAuthStore.getState().logout(); }}
+          className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500 transition-colors"
+        >
+          <LogOut className="size-4 shrink-0" />
+          {t('auth.logout')}
         </button>
       </div>
     </div>
@@ -196,6 +215,7 @@ function DesktopNavItems({ collapsed }: { collapsed: boolean }) {
   const currentView = useAuthStore((s) => s.currentView);
   const setCurrentView = useAuthStore((s) => s.setCurrentView);
 
+  const setAiAssistantOpen = useAuthStore((s) => s.setAiAssistantOpen);
   const allItems = [...navItems, settingsItem];
 
   return (
@@ -220,6 +240,18 @@ function DesktopNavItems({ collapsed }: { collapsed: boolean }) {
           </button>
         );
       })}
+      {/* AI Assistant Button */}
+      <button
+        onClick={() => setAiAssistantOpen(true)}
+        title={t('aiAssistant.title')}
+        className={cn(
+          'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 transition-colors',
+          collapsed ? 'justify-center' : 'w-full'
+        )}
+      >
+        <Sparkles className="size-4 shrink-0" />
+        {!collapsed && t('aiAssistant.title')}
+      </button>
     </>
   );
 }
@@ -240,6 +272,10 @@ export function AppShell() {
     logout();
   }, [logout]);
 
+  const handleChangeCompany = useCallback(() => {
+    useAuthStore.getState().setCurrentView('select-company');
+  }, []);
+
   // Close mobile sidebar on nav change
   useEffect(() => {
     if (window.innerWidth < 1024) {
@@ -253,6 +289,9 @@ export function AppShell() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      {/* AI Assistant Modal */}
+      <AIAssistantModal />
+
       {/* Desktop sidebar */}
       <DesktopSidebar collapsed={!sidebarOpen} onToggle={() => setSidebarOpen(!sidebarOpen)} />
 
@@ -276,12 +315,29 @@ export function AppShell() {
             </SheetContent>
           </Sheet>
 
-          {/* Page title */}
-          <h1 className="text-sm font-semibold truncate hidden sm:block">
-            {pageTitle}
-          </h1>
+          {/* Company badge */}
+          {activeCompany && (
+            <div className="hidden md:flex items-center gap-2 rounded-md border px-2.5 py-1">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                {t('common.companyActive')}
+              </span>
+              <span className="text-sm font-medium truncate max-w-[140px]">{activeCompany.legalName}</span>
+              <button
+                onClick={handleChangeCompany}
+                className="text-xs text-primary hover:underline font-medium"
+              >
+                {t('common.change')}
+              </button>
+            </div>
+          )}
 
           <div className="flex-1" />
+
+          {/* AES Encryption Badge */}
+          <div className="hidden lg:flex items-center gap-1.5 rounded-md border px-2.5 py-1">
+            <ShieldCheck className="size-3.5 text-emerald-600" />
+            <span className="text-[11px] font-medium text-muted-foreground">AES</span>
+          </div>
 
           {/* Right controls */}
           <div className="flex items-center gap-1">
@@ -309,15 +365,7 @@ export function AppShell() {
                   </div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                {activeCompany && (
-                  <>
-                    <DropdownMenuItem disabled className="gap-2">
-                      <Building2 className="size-4" />
-                      <span className="truncate">{activeCompany.legalName}</span>
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                  </>
-                )}
+    
                 <DropdownMenuItem
                   onClick={() => useAuthStore.getState().setCurrentView('settings')}
                   className="gap-2"
@@ -382,6 +430,9 @@ function PlaceholderView({ view }: { view: ViewName }) {
   if (view === 'export') {
     return <ExportPage />;
   }
+  if (view === 'movement-summary') {
+    return <MovementSummaryPage />;
+  }
   if (view === 'settings') {
     return <SettingsPage />;
   }
@@ -400,6 +451,7 @@ function PlaceholderView({ view }: { view: ViewName }) {
     reconciliation: 'reconciliation.title',
     reports: 'reports.title',
     export: 'exportData.title',
+    'movement-summary': 'movementSummary.title',
     settings: 'settings.title',
     users: 'users.title',
     onboarding: 'onboarding.title',

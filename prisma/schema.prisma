@@ -18,8 +18,9 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  companyMemberships CompanyMember[]
-  auditLogs         AuditLog[]
+  companyMemberships    CompanyMember[]
+  reconciliationPeriods ReconciliationPeriod[] @relation("ReconUser")
+  auditLogs             AuditLog[]
 }
 
 model Company {
@@ -40,8 +41,9 @@ model Company {
   bankRules      BankRule[]
   journalEntries JournalEntry[]
   fiscalPeriods  FiscalPeriod[]
-  statements     BankStatement[]
-  auditLogs      AuditLog[]
+  statements           BankStatement[]
+  reconciliationPeriods ReconciliationPeriod[]
+  auditLogs            AuditLog[]
 }
 
 model CompanyMember {
@@ -95,9 +97,10 @@ model BankAccount {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  glAccount  GlAccount       @relation(fields: [glAccountId], references: [id])
+  company    Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  glAccount  GlAccount              @relation(fields: [glAccountId], references: [id])
   statements BankStatement[]
+  reconciliationPeriods ReconciliationPeriod[]
 }
 
 model BankStatement {
@@ -120,20 +123,47 @@ model BankStatement {
 }
 
 model BankTransaction {
-  id            String   @id @default(cuid())
-  statementId   String
-  date          DateTime
-  description   String
-  amount        Float
-  reference     String?
-  isReconciled  Boolean  @default(false)
-  glAccountId   String?
-  matchedRuleId String?
-  createdAt     DateTime @default(now())
+  id              String    @id @default(cuid())
+  statementId     String
+  date            DateTime
+  description     String
+  amount          Float
+  reference       String?
+  isReconciled    Boolean   @default(false)
+  glAccountId     String?
+  matchedRuleId   String?
+  reconciledAt    DateTime?
+  reconciliationPeriodId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  statement   BankStatement   @relation(fields: [statementId], references: [id], onDelete: Cascade)
-  glAccount   GlAccount?      @relation(fields: [glAccountId], references: [id])
-  matchedRule BankRule?        @relation(fields: [matchedRuleId], references: [id])
+  statement             BankStatement          @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  glAccount             GlAccount?             @relation(fields: [glAccountId], references: [id])
+  matchedRule           BankRule?              @relation(fields: [matchedRuleId], references: [id])
+  reconciliationPeriod  ReconciliationPeriod?  @relation(fields: [reconciliationPeriodId], references: [id])
+}
+
+model ReconciliationPeriod {
+  id              String   @id @default(cuid())
+  companyId       String
+  bankAccountId   String
+  userId          String
+  statementBalance Float   @default(0)
+  bookBalance     Float    @default(0)
+  difference      Float    @default(0)
+  status          String   @default("open") // open | completed | cancelled
+  startedAt       DateTime @default(now())
+  completedAt     DateTime?
+  transactionCount  Int    @default(0)
+  notes           String?
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user       User              @relation("ReconUser", fields: [userId], references: [id])
+  bankAccount BankAccount       @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  transactions BankTransaction[]
+
+  @@index([companyId, bankAccountId])
+  @@index([status])
 }
 
 model BankRule {

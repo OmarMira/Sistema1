@@ -36,9 +36,8 @@ function transactionMatchesRule(
 }
 
 // ─── POST /api/reconciliation/auto ─────────────────────────────────
-// Auto-reconcile a bank account using bank rules.
-// Matches unreconciled transactions via rules and creates journal entries.
-// Body: { companyId, bankAccountId, createJournalEntries?: boolean }
+// Auto-reconcile using bank rules + amount matching with journal entries.
+// Body: { companyId, bankAccountId, createJournalEntries?, periodId?, matchByAmount? }
 export async function POST(request: NextRequest) {
   const userId = getSessionUserId(request);
   if (!userId) {
@@ -51,6 +50,8 @@ export async function POST(request: NextRequest) {
       companyId,
       bankAccountId,
       createJournalEntries = false,
+      periodId,
+      matchByAmount = true,
     } = body;
 
     if (!companyId || !bankAccountId) {
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
       orderBy: { priority: 'asc' },
     });
 
-    // Get unreconciled transactions for this bank account
+    // Get unreconciled transactions
     const statements = await db.bankStatement.findMany({
       where: { bankAccountId },
       select: { id: true },
@@ -108,17 +109,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true,
         matched: 0,
+        matchedByRule: 0,
+        matchedByAmount: 0,
         journalEntriesCreated: 0,
         message: 'No unreconciled transactions found.',
       });
     }
 
-    // Match transactions against rules
+    // ── Step 1: Match by rules ──
     const matchedTxIds = new Set<string>();
-    const matchMap = new Map<
-      string,
-      { ruleId: string; ruleName: string; glAccountId: string }
-    >();
+    const matchMap = new Map<string, { ruleId: string; ruleName: string; glAccountId: string }>();
 
     for (const rule of rules) {
       for (const tx of unreconciledTransactions) {
@@ -134,6 +134,68 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let matchedByRule = matchedTxIds.size;
+    let matchedByAmount = 0;
+
+    // ── Step 2: Match by amount with journal entries ──
+    if (matchByAmount && unreconciledTransactions.length > matchedTxIds.size) {
+      // Get posted journal lines for the bank GL account
+      const journalLines = await db.journalLine.findMany({
+        where: {
+          glAccountId: bankAccount.glAccountId,
+          entry: { companyId, status: 'posted' },
+        },
+        include: {
+          entry: {
+            select: { id: true, date: true, description: true, reference: true, lines: true },
+          },
+        },
+        orderBy: { entry: { date: 'asc' } },
+      });
+
+      // Build a map of journal entry amounts (net per entry on bank account)
+      const journalEntryMap = new Map<string, { amount: number; date: string; description: string; counterGlAccountId: string }>();
+
+      for (const jl of journalLines) {
+        const existing = journalEntryMap.get(jl.entryId);
+        const net = jl.debit - jl.credit;
+        if (existing) {
+          existing.amount += net;
+        } else {
+          // Find the counter GL account
+          const counterLine = jl.entry.lines.find((l) => l.glAccountId !== bankAccount.glAccountId);
+          journalEntryMap.set(jl.entryId, {
+            amount: net,
+            date: jl.entry.date.toISOString().split('T')[0],
+            description: jl.entry.description,
+            counterGlAccountId: counterLine?.glAccountId || '',
+          });
+        }
+      }
+
+      // Match remaining transactions by amount
+      for (const tx of unreconciledTransactions) {
+        if (matchedTxIds.has(tx.id)) continue;
+
+        const txDate = tx.date.toISOString().split('T')[0];
+        const txAmount = tx.amount;
+
+        for (const [entryId, jeInfo] of journalEntryMap) {
+          if (Math.abs(jeInfo.amount - txAmount) < 0.01 && jeInfo.date === txDate) {
+            matchedTxIds.add(tx.id);
+            matchMap.set(tx.id, {
+              ruleId: '',
+              ruleName: 'Amount Match',
+              glAccountId: jeInfo.counterGlAccountId,
+            });
+            matchedByAmount++;
+            journalEntryMap.delete(entryId); // Don't reuse this entry
+            break;
+          }
+        }
+      }
+    }
+
     let journalEntriesCreated = 0;
 
     // Process matched transactions
@@ -142,25 +204,33 @@ export async function POST(request: NextRequest) {
         const transaction = unreconciledTransactions.find((t) => t.id === txId);
         if (!transaction) continue;
 
-        // Update the transaction
+        const updateData: Record<string, unknown> = {
+          glAccountId: match.glAccountId,
+          isReconciled: true,
+          reconciledAt: new Date(),
+        };
+
+        if (match.ruleId) {
+          updateData.matchedRuleId = match.ruleId;
+        }
+        if (periodId) {
+          updateData.reconciliationPeriodId = periodId;
+        }
+
         await tx.bankTransaction.update({
           where: { id: txId },
-          data: {
-            glAccountId: match.glAccountId,
-            matchedRuleId: match.ruleId,
-            isReconciled: true,
-          },
+          data: updateData,
         });
 
-        // Optionally create a journal entry
-        if (createJournalEntries) {
+        // Create journal entry only for rule-matched, not amount-matched (those already have entries)
+        if (createJournalEntries && match.ruleId) {
           const amount = Math.abs(transaction.amount);
           const debitAccountId = transaction.amount > 0
-            ? bankAccount.glAccountId // Cash/ bank account (debit for deposits)
-            : match.glAccountId;      // Expense account (debit for payments)
+            ? bankAccount.glAccountId
+            : match.glAccountId;
           const creditAccountId = transaction.amount > 0
-            ? match.glAccountId       // Revenue account (credit for deposits)
-            : bankAccount.glAccountId; // Cash/ bank account (credit for payments)
+            ? match.glAccountId
+            : bankAccount.glAccountId;
 
           const description = `Auto-reconcile: ${transaction.description} (Rule: ${match.ruleName})`;
 
@@ -172,32 +242,52 @@ export async function POST(request: NextRequest) {
               status: 'posted',
               lines: {
                 create: [
-                  {
-                    glAccountId: debitAccountId,
-                    description,
-                    debit: amount,
-                    credit: 0,
-                  },
-                  {
-                    glAccountId: creditAccountId,
-                    description,
-                    debit: 0,
-                    credit: amount,
-                  },
+                  { glAccountId: debitAccountId, description, debit: amount, credit: 0 },
+                  { glAccountId: creditAccountId, description, debit: 0, credit: amount },
                 ],
               },
             },
           });
-
           journalEntriesCreated++;
         }
       }
+
+      // Update period transaction count
+      if (periodId) {
+        const periodTxCount = await tx.bankTransaction.count({
+          where: { reconciliationPeriodId: periodId },
+        });
+        await tx.reconciliationPeriod.update({
+          where: { id: periodId },
+          data: { transactionCount: periodTxCount },
+        });
+      }
+    });
+
+    // Audit log
+    await db.auditLog.create({
+      data: {
+        companyId,
+        userId,
+        action: 'auto_reconcile',
+        entity: 'BankTransaction',
+        details: JSON.stringify({
+          bankAccountId,
+          matchedByRule,
+          matchedByAmount,
+          totalMatched: matchedTxIds.size,
+          journalEntriesCreated,
+          periodId,
+        }),
+      },
     });
 
     return NextResponse.json({
       success: true,
       matched: matchedTxIds.size,
       total: unreconciledTransactions.length,
+      matchedByRule,
+      matchedByAmount,
       journalEntriesCreated,
     });
   } catch (error) {

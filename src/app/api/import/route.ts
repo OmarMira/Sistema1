@@ -106,6 +106,7 @@ export async function POST(request: NextRequest) {
         statementId: result.statementId,
         transactionCount: result.transactionCount,
         autoCategorizedCount: result.autoCategorizedCount,
+        duplicatesSkipped: result.duplicatesSkipped,
         newAccountCreated,
         bankAccountName: bankAccount.accountName,
       });
@@ -156,6 +157,7 @@ export async function POST(request: NextRequest) {
         statementId: result.statementId,
         transactionCount: result.transactionCount,
         autoCategorizedCount: result.autoCategorizedCount,
+        duplicatesSkipped: result.duplicatesSkipped,
         newAccountCreated,
         bankAccountName: bankAccount.accountName,
       });
@@ -256,6 +258,7 @@ interface ImportResult {
   statementId: string;
   transactionCount: number;
   autoCategorizedCount: number;
+  duplicatesSkipped: number;
 }
 
 async function importTransactions(
@@ -285,11 +288,47 @@ async function importTransactions(
   const openingBalance = balanceInfo?.openingBalance ?? 0;
   const closingBalance = balanceInfo?.closingBalance ?? 0;
 
-  // Calculate totals
-  const totalCredits = sorted
+  // ── Duplicate detection ──
+  // Get existing transactions for this bank account (from all its statements)
+  const existingStatements = await db.bankStatement.findMany({
+    where: { bankAccountId },
+    select: { id: true },
+  });
+  const existingStatementIds = existingStatements.map((s) => s.id);
+  const existingTransactions = await db.bankTransaction.findMany({
+    where: { statementId: { in: existingStatementIds } },
+    select: { date: true, amount: true, description: true, reference: true },
+  });
+
+  // Build a set of unique keys for duplicate checking: date+amount+description(first 30 chars)
+  const existingKeys = new Set<string>();
+  for (const et of existingTransactions) {
+    const key = `${et.date.toISOString().split('T')[0]}|${et.amount}|${et.description.substring(0, 30).toUpperCase()}`;
+    existingKeys.add(key);
+  }
+
+  // Filter out duplicates
+  const uniqueTransactions = sorted.filter((txn) => {
+    const key = `${txn.date.toISOString().split('T')[0]}|${txn.amount}|${txn.description.substring(0, 30).toUpperCase()}`;
+    return !existingKeys.has(key);
+  });
+
+  const duplicatesSkipped = sorted.length - uniqueTransactions.length;
+
+  if (uniqueTransactions.length === 0) {
+    return {
+      statementId: '',
+      transactionCount: 0,
+      autoCategorizedCount: 0,
+      duplicatesSkipped,
+    };
+  }
+
+  // Calculate totals (from unique only)
+  const totalCredits = uniqueTransactions
     .filter((t) => t.amount > 0)
     .reduce((s, t) => s + t.amount, 0);
-  const totalDebits = sorted
+  const totalDebits = uniqueTransactions
     .filter((t) => t.amount < 0)
     .reduce((s, t) => s + Math.abs(t.amount), 0);
 
@@ -321,7 +360,7 @@ async function importTransactions(
 
     let autoCategorizedCount = 0;
 
-    for (const txn of sorted) {
+    for (const txn of uniqueTransactions) {
       const { matchedRuleId, glAccountId } = applyBankRule(
         txn.description,
         txn.amount,
@@ -344,7 +383,7 @@ async function importTransactions(
       });
     }
 
-    // Update bank account balance
+    // Update bank account balance (only for unique/new transactions)
     await tx.bankAccount.update({
       where: { id: bankAccountId },
       data: {
@@ -359,8 +398,9 @@ async function importTransactions(
 
   return {
     statementId: result.statementId,
-    transactionCount: sorted.length,
+    transactionCount: uniqueTransactions.length,
     autoCategorizedCount: result.autoCategorizedCount,
+    duplicatesSkipped,
   };
 }
 

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { computeEntryHash } from '@/lib/journal-hash';
+import { verifyCompanyAccess } from '@/lib/verify-access';
 
 // ─── GET /api/journal/[id] ──────────────────────────────────────────
 // Get a single journal entry with all lines and GL account info.
@@ -86,12 +88,10 @@ export async function PUT(
       );
     }
 
-    // Verify access
-    const membership = await db.companyMember.findUnique({
-      where: { userId_companyId: { userId, companyId: existing.companyId } },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // Verify access — Fail-Fast
+    const access = await verifyCompanyAccess(userId, existing.companyId);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: 403 });
     }
 
     const body = await request.json();
@@ -236,12 +236,10 @@ export async function POST(
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
     }
 
-    // Verify access
-    const membership = await db.companyMember.findUnique({
-      where: { userId_companyId: { userId, companyId: entry.companyId } },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // Verify access — Fail-Fast
+    const postAccess = await verifyCompanyAccess(userId, entry.companyId);
+    if (!postAccess.ok) {
+      return NextResponse.json({ error: postAccess.error }, { status: 403 });
     }
 
     const body = await request.json();
@@ -255,24 +253,53 @@ export async function POST(
         );
       }
 
-      const updated = await db.journalEntry.update({
-        where: { id },
-        data: { status: 'posted' },
-        include: {
-          lines: {
-            include: {
-              glAccount: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                  accountType: true,
-                  normalBalance: true,
+      // Post with HMAC in transaction
+      const updated = await db.$transaction(async (tx) => {
+        const lastPosted = await tx.journalEntry.findFirst({
+          where: {
+            companyId: entry.companyId,
+            status: 'posted',
+            createdAt: { lt: entry.createdAt },
+            hash: { not: null },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { hash: true },
+        });
+
+        const totalDebit = entry.lines.reduce((s, l) => s + l.debit, 0);
+        const totalCredit = entry.lines.reduce((s, l) => s + l.credit, 0);
+
+        const hash = computeEntryHash({
+          id: entry.id,
+          companyId: entry.companyId,
+          date: entry.date.toISOString(),
+          description: entry.description,
+          reference: entry.reference,
+          status: 'posted',
+          totalDebit,
+          totalCredit,
+          previousHash: lastPosted?.hash ?? null,
+        });
+
+        return tx.journalEntry.update({
+          where: { id },
+          data: { status: 'posted', hash, previousHash: lastPosted?.hash ?? null },
+          include: {
+            lines: {
+              include: {
+                glAccount: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    accountType: true,
+                    normalBalance: true,
+                  },
                 },
               },
             },
           },
-        },
+        });
       });
 
       return NextResponse.json({

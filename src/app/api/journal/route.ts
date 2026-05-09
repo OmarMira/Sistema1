@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { computeEntryHash } from '@/lib/journal-hash';
+import { verifyCompanyAccess } from '@/lib/verify-access';
 
 // ─── GET /api/journal ───────────────────────────────────────────────
 // List journal entries for a company.
@@ -114,12 +116,10 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Verify user has access
-    const membership = await db.companyMember.findUnique({
-      where: { userId_companyId: { userId, companyId } },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // Fail-Fast: Verify user has access
+    const access = await verifyCompanyAccess(userId, companyId);
+    if (!access.ok) {
+      return NextResponse.json({ error: access.error }, { status: 403 });
     }
 
     // Validate lines
@@ -220,6 +220,43 @@ export async function POST(request: NextRequest) {
           },
         },
       });
+
+      // If posted, compute HMAC hash for audit chain
+      if (status === 'posted') {
+        const lastPosted = await tx.journalEntry.findFirst({
+          where: {
+            companyId,
+            status: 'posted',
+            createdAt: { lt: newEntry.createdAt },
+            hash: { not: null },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { hash: true },
+        });
+
+        const totalDebit = newEntry.lines.reduce((s, l) => s + l.debit, 0);
+        const totalCredit = newEntry.lines.reduce((s, l) => s + l.credit, 0);
+
+        const hash = computeEntryHash({
+          id: newEntry.id,
+          companyId,
+          date: newEntry.date.toISOString(),
+          description,
+          reference: reference || null,
+          status: 'posted',
+          totalDebit,
+          totalCredit,
+          previousHash: lastPosted?.hash ?? null,
+        });
+
+        await tx.journalEntry.update({
+          where: { id: newEntry.id },
+          data: { hash, previousHash: lastPosted?.hash ?? null },
+        });
+
+        newEntry.hash = hash;
+        newEntry.previousHash = lastPosted?.hash ?? null;
+      }
 
       return newEntry;
     });

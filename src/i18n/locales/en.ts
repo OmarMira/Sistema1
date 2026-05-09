@@ -530,6 +530,12 @@ const en = {
       version: 'Version',
       allChecksPassed: 'All checks passed successfully',
       issuesFound: '{count} issues found',
+      integrityTitle: 'Cryptographic Integrity',
+      journalChain: 'Journal Chain',
+      auditChain: 'Audit Chain',
+      chainValid: 'Valid — No tampering detected',
+      chainBroken: 'Broken! — Tampering detected in',
+      entriesChecked: 'Entries verified',
     },
     roles: {
       title: 'Roles & Permissions',

@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Loader2,
+  ShieldCheck,
+  ShieldAlert,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
@@ -38,6 +40,13 @@ const itemVariants = {
 };
 
 /* ─── Types ───────────────────────────────────────────────────── */
+
+interface IntegrityData {
+  journalChainValid: boolean;
+  auditChainValid: boolean;
+  companies: Record<string, { valid: boolean; totalChecked: number; breakEntry: string | null }>;
+  auditLog: { valid: boolean; totalChecked: number; breakEntry: string | null };
+}
 
 interface DiagnosticsData {
   database: {
@@ -70,6 +79,7 @@ interface DiagnosticsData {
     uptime: string;
     version: string;
   };
+  integrity?: IntegrityData;
 }
 
 /* ─── Stat Card ───────────────────────────────────────────────── */
@@ -269,6 +279,86 @@ export function DiagnosticsTab() {
                   <p className="text-xs text-muted-foreground">{t('settings.diag.version')}</p>
                   <p className="text-lg font-bold">{data.system.version}</p>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
+
+      {/* Cryptographic Integrity */}
+      {hasData && data.integrity && (
+        <motion.div variants={itemVariants}>
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base flex items-center gap-2">
+                {data.integrity.journalChainValid && data.integrity.auditChainValid ? (
+                  <ShieldCheck className="size-5 text-emerald-500" />
+                ) : (
+                  <ShieldAlert className="size-5 text-rose-500" />
+                )}
+                {t('settings.diag.integrityTitle')}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Journal Chain */}
+              <div
+                className={`rounded-lg border p-4 ${
+                  data.integrity.journalChainValid
+                    ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                    : 'border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  {data.integrity.journalChainValid ? (
+                    <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="size-4 text-rose-500 shrink-0" />
+                  )}
+                  <p className="text-sm font-medium">
+                    {t('settings.diag.journalChain')}
+                  </p>
+                </div>
+                <p className={`text-xs ${
+                  data.integrity.journalChainValid
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}>
+                  {data.integrity.journalChainValid
+                    ? t('settings.diag.chainValid')
+                    : `${t('settings.diag.chainBroken')} "${Object.values(data.integrity.companies).find(c => !c.valid)?.breakEntry ?? '?'}"`}
+                </p>
+              </div>
+
+              {/* Audit Chain */}
+              <div
+                className={`rounded-lg border p-4 ${
+                  data.integrity.auditChainValid
+                    ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30'
+                    : 'border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30'
+                }`}
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  {data.integrity.auditChainValid ? (
+                    <CheckCircle2 className="size-4 text-emerald-500 shrink-0" />
+                  ) : (
+                    <AlertTriangle className="size-4 text-rose-500 shrink-0" />
+                  )}
+                  <p className="text-sm font-medium">
+                    {t('settings.diag.auditChain')}
+                  </p>
+                </div>
+                <p className={`text-xs ${
+                  data.integrity.auditChainValid
+                    ? 'text-emerald-600 dark:text-emerald-400'
+                    : 'text-rose-600 dark:text-rose-400'
+                }`}>
+                  {data.integrity.auditChainValid
+                    ? t('settings.diag.chainValid')
+                    : `${t('settings.diag.chainBroken')} "${data.integrity.auditLog.breakEntry ?? '?'}"`}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {t('settings.diag.entriesChecked')}: {data.integrity.auditLog.totalChecked}
+                </p>
               </div>
             </CardContent>
           </Card>

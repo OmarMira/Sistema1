@@ -194,9 +194,11 @@ model JournalEntry {
   date        DateTime
   description String
   reference   String?
-  status      String   @default("draft") // draft | posted | void
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status        String   @default("draft") // draft | posted | void
+  hash          String?
+  previousHash  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   lines   JournalLine[]
@@ -238,8 +240,10 @@ model AuditLog {
   action    String
   entity    String
   entityId  String?
-  details   String?
-  createdAt DateTime @default(now())
+  details       String?
+  hash          String?
+  previousHash  String?
+  createdAt     DateTime @default(now())
 
   company Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
   user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)

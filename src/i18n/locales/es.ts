@@ -530,6 +530,12 @@ const es = {
       version: 'Versión',
       allChecksPassed: 'Todos los chequeos pasaron correctamente',
       issuesFound: 'Se encontraron {count} problemas',
+      integrityTitle: 'Integridad Criptográfica',
+      journalChain: 'Cadena de Pólizas',
+      auditChain: 'Cadena de Auditoría',
+      chainValid: 'Válida — Sin alteraciones detectadas',
+      chainBroken: '¡Rota! — Se detectó alteración en',
+      entriesChecked: 'Entradas verificadas',
     },
     roles: {
       title: 'Roles y Permisos',

@@ -704,7 +704,7 @@ const es = {
     ruleCreated: 'Regla creada exitosamente',
     analyzing: 'Analizando...',
     error: 'Error al procesar. Intenta de nuevo.',
-    saveRuleButton: 'Guardar Regla',
+    saveRuleButton: 'Crear en Reglas Bancarias',
     parsedRule: 'Regla Sugerida',
     ruleName: 'Nombre',
     condition: 'Condición',

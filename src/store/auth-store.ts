@@ -35,6 +35,15 @@ export type ViewName =
   | 'movement-summary'
   | 'backup';
 
+export interface PendingRule {
+  name: string;
+  conditionType: string;
+  conditionValue: string;
+  transactionDirection: string;
+  glAccountName: string;
+  priority: number;
+}
+
 interface AuthState {
   user: User | null;
   isAuthenticated: boolean;
@@ -42,12 +51,14 @@ interface AuthState {
   currentView: ViewName;
   sidebarOpen: boolean;
   aiAssistantOpen: boolean;
+  pendingRule: PendingRule | null;
   login: (user: User) => void;
   logout: () => void;
   setActiveCompany: (company: Company) => void;
   setCurrentView: (view: ViewName) => void;
   setSidebarOpen: (open: boolean) => void;
   setAiAssistantOpen: (open: boolean) => void;
+  setPendingRule: (rule: PendingRule | null) => void;
   hydrate: () => Promise<void>;
 }
 
@@ -60,6 +71,7 @@ export const useAuthStore = create<AuthState>()(
       currentView: 'landing' as ViewName,
       sidebarOpen: true,
       aiAssistantOpen: false,
+      pendingRule: null,
 
       login: (user: User) =>
         set({
@@ -76,6 +88,7 @@ export const useAuthStore = create<AuthState>()(
           currentView: 'landing',
           sidebarOpen: true,
           aiAssistantOpen: false,
+          pendingRule: null,
         }),
 
       setActiveCompany: (company: Company) =>
@@ -86,6 +99,8 @@ export const useAuthStore = create<AuthState>()(
       setSidebarOpen: (open: boolean) => set({ sidebarOpen: open }),
 
       setAiAssistantOpen: (open: boolean) => set({ aiAssistantOpen: open }),
+
+      setPendingRule: (rule: PendingRule | null) => set({ pendingRule: rule }),
 
       hydrate: async () => {
         try {

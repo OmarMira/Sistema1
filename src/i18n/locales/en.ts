@@ -704,7 +704,7 @@ const en = {
     ruleCreated: 'Rule created successfully',
     analyzing: 'Analyzing...',
     error: 'Error processing. Please try again.',
-    saveRuleButton: 'Save Rule',
+    saveRuleButton: 'Create in Bank Rules',
     parsedRule: 'Suggested Rule',
     ruleName: 'Name',
     condition: 'Condition',

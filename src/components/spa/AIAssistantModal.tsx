@@ -17,7 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { useAuthStore } from '@/store/auth-store';
+import { useAuthStore, type PendingRule } from '@/store/auth-store';
 import { useLanguageStore } from '@/store/language-store';
 import { cn } from '@/lib/utils';
 
@@ -74,6 +74,8 @@ export function AIAssistantModal() {
   const activeCompany = useAuthStore((s) => s.activeCompany);
   const aiAssistantOpen = useAuthStore((s) => s.aiAssistantOpen);
   const setAiAssistantOpen = useAuthStore((s) => s.setAiAssistantOpen);
+  const setPendingRule = useAuthStore((s) => s.setPendingRule);
+  const setCurrentView = useAuthStore((s) => s.setCurrentView);
 
   const [mode, setMode] = useState<AssistantMode>('chat');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -199,71 +201,23 @@ export function AIAssistantModal() {
     }
   }, [ruleInput, isLoading, t]);
 
-  /* ─── Save Rule ───────────────────────────────────────────────── */
-  const handleSaveRule = useCallback(async () => {
-    if (!parsedRule || !activeCompany) return;
+  /* ─── Save Rule → Navigate to BankRules page with pre-filled data ─── */
+  const handleSaveRule = useCallback(() => {
+    if (!parsedRule) return;
 
-    setIsLoading(true);
-    setError('');
+    const pending: PendingRule = {
+      name: parsedRule.name,
+      conditionType: parsedRule.conditionType,
+      conditionValue: parsedRule.conditionValue,
+      transactionDirection: parsedRule.transactionDirection,
+      glAccountName: parsedRule.glAccountName,
+      priority: parsedRule.priority,
+    };
 
-    try {
-      // First, find the GL account by name
-      const accountsRes = await fetch(
-        `/api/accounts?companyId=${activeCompany.id}`,
-        { credentials: 'include' }
-      );
-      if (!accountsRes.ok) {
-        setError(t('aiAssistant.error'));
-        setIsLoading(false);
-        return;
-      }
-
-      const accountsData = await accountsRes.json();
-      const accounts = accountsData.data ?? accountsData ?? [];
-      const glAccount = accounts.find(
-        (a: { name: string }) =>
-          a.name.toLowerCase() === parsedRule.glAccountName.toLowerCase()
-      );
-
-      if (!glAccount) {
-        setError(
-          `No se encontró la cuenta "${parsedRule.glAccountName}". Por favor, verifica el nombre en tu Plan de Cuentas.`
-        );
-        setIsLoading(false);
-        return;
-      }
-
-      // Create the rule via bank-rules API
-      const ruleRes = await fetch('/api/bank-rules', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId: activeCompany.id,
-          name: parsedRule.name,
-          conditionType: parsedRule.conditionType,
-          conditionValue: parsedRule.conditionValue,
-          transactionDirection: parsedRule.transactionDirection,
-          glAccountId: glAccount.id,
-          priority: parsedRule.priority,
-          isActive: true,
-        }),
-      });
-
-      if (ruleRes.ok || ruleRes.status === 201) {
-        setParsedRule(null);
-        setRuleInput('');
-        setRuleReply(t('aiAssistant.ruleCreated'));
-      } else {
-        const errData = await ruleRes.json();
-        setError(errData.error || t('aiAssistant.error'));
-      }
-    } catch {
-      setError(t('aiAssistant.error'));
-    } finally {
-      setIsLoading(false);
-    }
-  }, [parsedRule, activeCompany, t]);
+    setPendingRule(pending);
+    setAiAssistantOpen(false);
+    setCurrentView('bank-rules');
+  }, [parsedRule, setPendingRule, setAiAssistantOpen, setCurrentView]);
 
   /* ─── Key Handlers ────────────────────────────────────────────── */
   const handleChatKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -673,14 +627,9 @@ function RuleView({
               <div className="border-t border-white/10 px-4 py-3">
                 <Button
                   onClick={handleSaveRule}
-                  disabled={isLoading}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-white gap-2"
                 >
-                  {isLoading ? (
-                    <Loader2 className="size-4 animate-spin mr-2" />
-                  ) : (
-                    <Save className="size-4 mr-2" />
-                  )}
+                  <FilePlus2 className="size-4" />
                   {t('aiAssistant.saveRuleButton')}
                 </Button>
               </div>

@@ -181,9 +181,10 @@ interface StatCardProps {
   iconBg: string;
   trend?: 'up' | 'down';
   loading?: boolean;
+  vsLastPeriodLabel: string;
 }
 
-function StatCard({ title, value, icon, iconBg, trend, loading }: StatCardProps) {
+function StatCard({ title, value, icon, iconBg, trend, loading, vsLastPeriodLabel }: StatCardProps) {
   return (
     <motion.div variants={itemVariants}>
       <Card className="relative overflow-hidden">
@@ -217,7 +218,7 @@ function StatCard({ title, value, icon, iconBg, trend, loading }: StatCardProps)
               >
                 {trend === 'up' ? '+' : '-'}12.5%
               </span>
-              <span className="text-muted-foreground">{t('dashboard.vsLastPeriod')}</span>
+              <span className="text-muted-foreground">{vsLastPeriodLabel}</span>
             </div>
           )}
         </CardContent>
@@ -310,6 +311,7 @@ export function DashboardPage() {
           iconBg="bg-emerald-100 dark:bg-emerald-950"
           trend="up"
           loading={loading}
+          vsLastPeriodLabel={t('dashboard.vsLastPeriod')}
         />
         <StatCard
           title={t('dashboard.totalLiabilities')}
@@ -318,6 +320,7 @@ export function DashboardPage() {
           iconBg="bg-amber-100 dark:bg-amber-950"
           trend="down"
           loading={loading}
+          vsLastPeriodLabel={t('dashboard.vsLastPeriod')}
         />
         <StatCard
           title={t('dashboard.currentRevenue')}
@@ -326,6 +329,7 @@ export function DashboardPage() {
           iconBg="bg-teal-100 dark:bg-teal-950"
           trend="up"
           loading={loading}
+          vsLastPeriodLabel={t('dashboard.vsLastPeriod')}
         />
         <StatCard
           title={t('dashboard.currentExpenses')}
@@ -333,6 +337,7 @@ export function DashboardPage() {
           icon={<ArrowDownRight className="size-5 text-rose-700" />}
           iconBg="bg-rose-100 dark:bg-rose-950"
           loading={loading}
+          vsLastPeriodLabel={t('dashboard.vsLastPeriod')}
         />
       </div>
 

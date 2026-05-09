@@ -155,19 +155,23 @@ const itemVariants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: 'easeOut' } },
 };
 
-/* ─── Chart configs ─── */
-const balanceChartConfig: ChartConfig = {
-  asset: { label: 'Assets', color: 'hsl(160, 60%, 45%)' },
-  liability: { label: 'Liabilities', color: 'hsl(38, 92%, 50%)' },
-  equity: { label: 'Equity', color: 'hsl(170, 60%, 41%)' },
-  revenue: { label: 'Revenue', color: 'hsl(152, 69%, 38%)' },
-  expense: { label: 'Expenses', color: 'hsl(350, 80%, 55%)' },
-};
+/* ─── Chart config helpers (labels set inside component via t()) ─── */
+function makeBalanceChartConfig(t: (k: string) => string): ChartConfig {
+  return {
+    asset: { label: t('accounts.assets'), color: 'hsl(160, 60%, 45%)' },
+    liability: { label: t('accounts.liabilities'), color: 'hsl(38, 92%, 50%)' },
+    equity: { label: t('accounts.equity'), color: 'hsl(170, 60%, 41%)' },
+    revenue: { label: t('accounts.revenue'), color: 'hsl(152, 69%, 38%)' },
+    expense: { label: t('accounts.expense'), color: 'hsl(350, 80%, 55%)' },
+  };
+}
 
-const cashFlowChartConfig: ChartConfig = {
-  inflow: { label: 'Inflow', color: 'hsl(160, 60%, 45%)' },
-  outflow: { label: 'Outflow', color: 'hsl(350, 80%, 55%)' },
-};
+function makeCashFlowChartConfig(t: (k: string) => string): ChartConfig {
+  return {
+    inflow: { label: t('dashboard.inflow'), color: 'hsl(160, 60%, 45%)' },
+    outflow: { label: t('dashboard.outflow'), color: 'hsl(350, 80%, 55%)' },
+  };
+}
 
 /* ─── Stat Card ─── */
 interface StatCardProps {
@@ -213,7 +217,7 @@ function StatCard({ title, value, icon, iconBg, trend, loading }: StatCardProps)
               >
                 {trend === 'up' ? '+' : '-'}12.5%
               </span>
-              <span className="text-muted-foreground">vs last period</span>
+              <span className="text-muted-foreground">{t('dashboard.vsLastPeriod')}</span>
             </div>
           )}
         </CardContent>
@@ -292,7 +296,7 @@ export function DashboardPage() {
         {error && !loading && (
           <Badge variant="secondary" className="w-fit gap-1 text-amber-600 border-amber-300">
             <AlertTriangle className="size-3" />
-            {t('common.warning')} — Demo data
+            {t('common.warning')} — {t('dashboard.demoData')}
           </Badge>
         )}
       </motion.div>
@@ -392,7 +396,7 @@ export function DashboardPage() {
               {loading ? (
                 <Skeleton className="h-[280px] w-full" />
               ) : (
-                <ChartContainer config={balanceChartConfig} className="h-[280px] w-full">
+                <ChartContainer config={makeBalanceChartConfig(t)} className="h-[280px] w-full">
                   <BarChart data={balanceChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
                     <XAxis dataKey="type" tickLine={false} axisLine={false} fontSize={12} />
@@ -417,7 +421,7 @@ export function DashboardPage() {
               <CardTitle>{t('dashboard.monthlyTrend')}</CardTitle>
             </CardHeader>
             <CardContent>
-              <ChartContainer config={cashFlowChartConfig} className="h-[280px] w-full">
+              <ChartContainer config={makeCashFlowChartConfig(t)} className="h-[280px] w-full">
                 <LineChart data={monthlyCashFlowData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="month" tickLine={false} axisLine={false} fontSize={12} />

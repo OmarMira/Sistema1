@@ -1,0 +1,580 @@
+
+skills/stock-analysis-skill/src/dataFetcher.ts(63,39): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+skills/stock-analysis-skill/src/index.ts(310,41): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+skills/stock-analysis-skill/src/index.ts(316,44): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+skills/stock-analysis-skill/src/watchlist.ts(80,41): error TS18048: 'existing' is possibly 'undefined'.
+skills/stock-analysis-skill/src/watchlist.ts(81,39): error TS18048: 'existing' is possibly 'undefined'.
+skills/stock-analysis-skill/src/watchlist.ts(82,43): error TS18048: 'existing' is possibly 'undefined'.
+skills/stock-analysis-skill/src/watchlist.ts(83,35): error TS18048: 'existing' is possibly 'undefined'.
+skills/stock-analysis-skill/src/watchlist.ts(84,5): error TS2322: Type 'WatchlistItem | undefined' is not assignable to type 'WatchlistItem'.
+skills/stock-analysis-skill/src/watchlist.ts(223,7): error TS2322: Type 'Verdict | undefined' is not assignable to type 'Verdict | null'.
+src/app/api/accounts/[id]/route.ts(214,54): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/app/api/accounts/[id]/route.ts(217,31): error TS2322: Type '(string | undefined)[]' is not assignable to type 'string[]'.
+src/app/api/admin/companies/[id]/users/[userId]/route.ts(15,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/admin/companies/[id]/users/[userId]/route.ts(16,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/admin/companies/[id]/users/[userId]/route.ts(31,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/admin/companies/[id]/users/[userId]/route.ts(32,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/admin/companies/[id]/users/[userId]/route.ts(44,41): error TS2339: Property 'user' does not exist on type '{ id: string; role: string; companyId: string; userId: string; joinedAt: Date; }'.
+src/app/api/admin/companies/[id]/users/route.ts(61,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/admin/companies/[id]/users/route.ts(74,7): error TS2322: Type '{ companyId: string | undefined; userId: any; role: any; }' is not assignable to type '(Without<CompanyMemberCreateInput, CompanyMemberUncheckedCreateInput> & CompanyMemberUncheckedCreateInput) | (Without<...> & CompanyMemberCreateInput)'.
+src/app/api/admin/companies/[id]/users/route.ts(98,42): error TS2339: Property 'user' does not exist on type '{ id: string; role: string; companyId: string; userId: string; joinedAt: Date; }'.
+src/app/api/banks/[id]/route.ts(105,35): error TS2532: Object is possibly 'undefined'.
+src/app/api/banks/[id]/route.ts(106,28): error TS2532: Object is possibly 'undefined'.
+src/app/api/config/ai/route.ts(40,34): error TS2532: Object is possibly 'undefined'.
+src/app/api/config/ai/route.ts(43,40): error TS2532: Object is possibly 'undefined'.
+src/app/api/config/ai/route.ts(55,24): error TS2532: Object is possibly 'undefined'.
+src/app/api/config/ai/route.ts(58,38): error TS2532: Object is possibly 'undefined'.
+src/app/api/dashboard/route.ts(67,7): error TS2532: Object is possibly 'undefined'.
+src/app/api/dashboard/route.ts(69,7): error TS2532: Object is possibly 'undefined'.
+src/app/api/dashboard/route.ts(116,7): error TS2532: Object is possibly 'undefined'.
+src/app/api/dashboard/route.ts(118,7): error TS2532: Object is possibly 'undefined'.
+src/app/api/dashboard/route.ts(128,5): error TS18048: 'typeBalances.asset' is possibly 'undefined'.
+src/app/api/dashboard/route.ts(245,35): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/app/api/dashboard/route.ts(259,29): error TS18048: 'typeBalances.asset' is possibly 'undefined'.
+src/app/api/dashboard/route.ts(260,34): error TS18048: 'typeBalances.liability' is possibly 'undefined'.
+src/app/api/dashboard/route.ts(261,29): error TS18048: 'typeBalances.equity' is possibly 'undefined'.
+src/app/api/dashboard/route.ts(262,30): error TS18048: 'typeBalances.revenue' is possibly 'undefined'.
+src/app/api/dashboard/route.ts(263,31): error TS18048: 'typeBalances.expense' is possibly 'undefined'.
+src/app/api/entity-context/[id]/route.ts(50,58): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/app/api/entity-context/[id]/route.ts(75,58): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/app/api/export/csv/route.ts(191,9): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/export/csv/route.ts(244,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/learning/rules/route.ts(117,30): error TS2532: Object is possibly 'undefined'.
+src/app/api/learning/rules/route.ts(120,42): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/app/api/learning/rules/route.ts(133,40): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/app/api/learning/suggest-role/route.ts(300,13): error TS2532: Object is possibly 'undefined'.
+src/app/api/learning/suggest-role/route.ts(301,30): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/app/api/movement-summary/route.ts(52,9): error TS2322: Type 'string | undefined' is not assignable to type 'string | null'.
+src/app/api/movement-summary/route.ts(52,19): error TS2532: Object is possibly 'undefined'.
+src/app/api/movement-summary/route.ts(53,9): error TS2322: Type 'string | undefined' is not assignable to type 'string | null'.
+src/app/api/movement-summary/route.ts(53,19): error TS2532: Object is possibly 'undefined'.
+src/app/api/movement-summary/route.ts(180,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/movement-summary/route.ts(308,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/reconciliation/auto-preview/route.ts(111,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/reconciliation/auto/route.ts(151,13): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/app/api/reconciliation/route.ts(141,28): error TS2532: Object is possibly 'undefined'.
+src/components/app/DesktopNavItems.tsx(61,29): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/app/DesktopNavItems.tsx(81,25): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/app/DesktopSidebar.tsx(53,27): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/app/SidebarNav.tsx(59,27): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/app/SidebarNav.tsx(92,35): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/app/SidebarNav.tsx(115,29): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/app/SidebarNav.tsx(134,29): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/app/SidebarNav.tsx(151,29): error TS2322: Type '{ children: Element; side: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/assistant/ChatView.tsx(72,11): error TS18048: 'url' is possibly 'undefined'.
+src/components/assistant/ChatView.tsx(73,24): error TS18048: 'url' is possibly 'undefined'.
+src/components/assistant/ChatView.tsx(73,24): error TS2532: Object is possibly 'undefined'.
+src/components/assistant/FinancialAssistantPanel.tsx(43,5): error TS2353: Object literal may only specify known properties, and 'refetchInterval' does not exist in type '{ queryKey: unknown[]; queryFn: () => any; enabled?: boolean | undefined; staleTime?: number | undefined; retry?: number | boolean | undefined; refetchOnWindowFocus?: boolean | undefined; select?: ((data: any) => unknown) | undefined; }'.
+src/components/assistant/RuleView.tsx(212,29): error TS2322: Type '{ operator: ConditionV2["operator"]; field?: "description" | "amount" | undefined; value?: string | number | undefined; }' is not assignable to type 'ConditionV2'.
+src/components/assistant/RuleView.tsx(237,29): error TS2322: Type '{ value: string; field?: "description" | "amount" | undefined; operator?: "contains" | "starts_with" | "equals" | "ends_with" | "amount_greater" | "amount_less" | undefined; }' is not assignable to type 'ConditionV2'.
+src/components/dashboard/ChartsGrid.tsx(84,14): error TS7053: Element implicitly has an 'any' type because expression of type 'string' can't be used to index type '{ es: { loadingMetrics: string; noTransactionsTitle: string; noTransactionsDesc: string; goImport: string; demoMode: string; systemData: string; idealForTesting: string; financialDashboard: string; ... 83 more ...; mainIncomeVsOthers: string; }; en: { ...; }; }'.
+src/components/dashboard/DashboardBlocks.tsx(108,20): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/dashboard/DashboardBlocks.tsx(109,20): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/dashboard/DashboardBlocks.tsx(110,20): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/dashboard/DashboardBlocks.tsx(111,20): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/dashboard/DashboardBlocks.tsx(112,20): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/dashboard/DashboardBlocks.tsx(113,20): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/learning/ContextClarificationModal.tsx(258,34): error TS2322: Type '{ children: Element; id: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; asChild?: boolean | undefined; } & { size?: "default" | "sm" | undefined; }'.
+src/components/learning/ConversationalRuleBuilder.tsx(49,47): error TS2532: Object is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(81,29): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/components/learning/ConversationalRuleBuilder.tsx(843,5): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(845,9): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(868,16): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(869,16): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(872,21): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(873,21): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(878,20): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(879,20): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(883,17): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(885,21): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(891,18): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(905,14): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(906,66): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(911,27): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(916,40): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(917,42): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1016,76): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1028,29): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1035,64): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1040,34): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1059,66): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1187,64): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1192,39): error TS2532: Object is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1318,58): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1379,52): error TS18048: 'current' is possibly 'undefined'.
+src/components/learning/ConversationalRuleBuilder.tsx(1423,33): error TS2322: Type '{ field: "description" | "reference" | "amount"; operator: "contains" | "greater_than"; value?: string | undefined; }' is not assignable to type 'RuleCondition'.
+src/components/learning/ConversationalRuleBuilder.tsx(1451,33): error TS2322: Type '{ operator: "contains" | "starts_with" | "equals" | "ends_with" | "amount_greater" | "amount_less" | "greater_than" | "less_than"; field?: "description" | "reference" | "amount" | undefined; value?: string | undefined; }' is not assignable to type 'RuleCondition'.
+src/components/learning/ConversationalRuleBuilder.tsx(1500,33): error TS2322: Type '{ value: string; field?: "description" | "reference" | "amount" | undefined; operator?: "contains" | "starts_with" | "equals" | "ends_with" | "amount_greater" | "amount_less" | "greater_than" | "less_than" | undefined; }' is not assignable to type 'RuleCondition'.
+src/components/learning/EntityOnboardingModal.tsx(873,23): error TS2322: Type '{ children: Element[]; value: string; onValueChange: (v: string) => void; disabled: boolean; }' is not assignable to type 'IntrinsicAttributes & { value?: string | undefined; onValueChange?: ((value: string) => void) | undefined; defaultValue?: string | undefined; children?: ReactNode; }'.
+src/components/onboarding/OnboardingWizard.tsx(346,24): error TS2532: Object is possibly 'undefined'.
+src/components/reconciliation/DualPaneView.tsx(107,21): error TS2322: Type '{ checked: boolean; onCheckedChange: () => void; onClick: (e: any) => any; }' is not assignable to type 'IntrinsicAttributes & { checked?: boolean | "indeterminate" | undefined; onCheckedChange?: ((checked: boolean | "indeterminate") => void) | undefined; ... 4 more ...; required?: boolean | undefined; }'.
+src/components/reconciliation/DualPaneView.tsx(107,31): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/reconciliation/ReconciliationDialogs.tsx(76,23): error TS2532: Object is possibly 'undefined'.
+src/components/reconciliation/ReconciliationDialogs.tsx(90,23): error TS2532: Object is possibly 'undefined'.
+src/components/reconciliation/ReconciliationDialogs.tsx(104,23): error TS2532: Object is possibly 'undefined'.
+src/components/reconciliation/ReconciliationPage.tsx(93,65): error TS2339: Property 'isPending' does not exist on type '{ mutate: (variables: { bankTxIds: string[]; journalEntryId: string; notes?: string | undefined; }) => void; mutateAsync: (variables: { bankTxIds: string[]; journalEntryId: string; notes?: string | undefined; }) => Promise<...>; ... 5 more ...; reset: () => void; }'.
+src/components/reconciliation/ReconciliationPage.tsx(102,27): error TS2339: Property 'isPending' does not exist on type '{ mutate: (variables: { bankTxIds: string[]; journalEntryId: string; notes?: string | undefined; }) => void; mutateAsync: (variables: { bankTxIds: string[]; journalEntryId: string; notes?: string | undefined; }) => Promise<...>; ... 5 more ...; reset: () => void; }'.
+src/components/reports/ReportExportModal.tsx(73,32): error TS2322: Type '{ children: Element; id: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; asChild?: boolean | undefined; } & { size?: "default" | "sm" | undefined; }'.
+src/components/reports/ReportExportModal.tsx(92,32): error TS2322: Type '{ children: Element; id: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; asChild?: boolean | undefined; } & { size?: "default" | "sm" | undefined; }'.
+src/components/reports/TransactionListingTab.tsx(53,44): error TS2345: Argument of type '{ companyId: string; startDate: string | undefined; endDate: string | undefined; page: string; limit: string; }' is not assignable to parameter of type 'string | Record<string, string> | URLSearchParams | string[][] | undefined'.
+src/components/reports/TransactionListingTab.tsx(66,40): error TS2345: Argument of type '{ type: string; companyId: string; startDate: string | undefined; endDate: string | undefined; }' is not assignable to parameter of type 'string | Record<string, string> | URLSearchParams | string[][] | undefined'.
+src/components/reports/TrialBalanceTab.tsx(34,44): error TS2345: Argument of type '{ companyId: string; asOfDate: string | undefined; }' is not assignable to parameter of type 'string | Record<string, string> | URLSearchParams | string[][] | undefined'.
+src/components/reports/TrialBalanceTab.tsx(61,65): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string | Date'.
+src/components/spa/accounts/AccountDeleteClientDialog.tsx(65,17): error TS2322: Type '{ children: (string | false | Element)[]; onClick: () => void; disabled: boolean; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/accounts/AccountDeleteDialog.tsx(58,13): error TS2322: Type '{ children: (string | false | Element)[]; onClick: () => void; disabled: boolean; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(232,55): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(244,17): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(246,15): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(252,12): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(269,10): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(282,37): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(282,55): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(297,12): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(307,16): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(330,24): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(341,16): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(341,16): error TS18048: 'dt.authorizedAccessTitle' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(350,26): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(353,26): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(356,26): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(359,26): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(375,33): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(376,33): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(392,30): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(403,41): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(416,16): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(422,18): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(430,35): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(440,18): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(448,48): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(449,46): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(459,18): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(466,30): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/admin/AdminCompanyDetailPage.tsx(466,48): error TS18048: 'dt' is possibly 'undefined'.
+src/components/spa/AppShell.tsx(192,36): error TS2322: Type '{ children: Element[]; align: string; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; alignOffset?: number | undefined; sideOffset?: number | undefined; }'.
+src/components/spa/AppShell.tsx(204,19): error TS2322: Type '{ children: (string | Element)[]; onClick: () => void; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; disabled?: boolean | undefined; onSelect?: (() => void) | undefined; } & { ...; }'.
+src/components/spa/AppShell.tsx(211,35): error TS2322: Type '{ children: (string | Element)[]; onClick: () => void; variant: "destructive"; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; disabled?: boolean | undefined; onSelect?: (() => void) | undefined; } & { ...; }'.
+src/components/spa/BackupPage.tsx(395,15): error TS2322: Type '{ children: string; onClick: () => Promise<void>; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/BackupPage.tsx(417,15): error TS2322: Type '{ children: (string | Element)[]; onClick: () => "" | Promise<void> | null; disabled: boolean; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/BankRulesPage.tsx(687,27): error TS2322: Type '"contains" | "starts_with" | "equals" | "ends_with" | "amount_greater" | "amount_less" | undefined' is not assignable to type '"contains" | "starts_with" | "equals" | "ends_with" | "amount_greater" | "amount_less"'.
+src/components/spa/BankRulesPage.tsx(687,56): error TS2532: Object is possibly 'undefined'.
+src/components/spa/BankRulesPage.tsx(688,31): error TS2532: Object is possibly 'undefined'.
+src/components/spa/BankRulesPage.tsx(710,25): error TS2322: Type '{ operator: ConditionV2["operator"]; field?: "description" | "amount" | undefined; value?: string | number | undefined; }' is not assignable to type 'ConditionV2'.
+src/components/spa/BankRulesPage.tsx(731,25): error TS2322: Type '{ value: string | number; field?: "description" | "amount" | undefined; operator?: "contains" | "starts_with" | "equals" | "ends_with" | "amount_greater" | "amount_less" | undefined; }' is not assignable to type 'ConditionV2'.
+src/components/spa/BankRulesPage.tsx(912,15): error TS2322: Type '{ children: (string | false | Element)[]; onClick: () => Promise<void>; disabled: boolean; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/BankRulesPage.tsx(935,15): error TS2322: Type '{ children: (string | false | Element)[]; onClick: () => Promise<void>; disabled: boolean; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/banks/DeleteConfirmDialog.tsx(47,30): error TS2322: Type '{ children: string; disabled: boolean; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/banks/DeleteConfirmDialog.tsx(49,13): error TS2322: Type '{ children: (string | false | Element)[]; onClick: () => void; disabled: boolean; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/EntityManagementPage.tsx(375,40): error TS2322: Type '{ children: string; onClick: () => Promise<void>; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/EntityManagementPage.tsx(441,48): error TS2322: Type '{ children: string; onClick: () => Promise<void>; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/spa/ExportPage.tsx(170,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/spa/ExportPage.tsx(171,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/spa/ExportPage.tsx(172,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/spa/FinancialDashboardPage.tsx(1039,71): error TS2339: Property 'myCompany' does not exist on type '{ loadingMetrics: string; noTransactionsTitle: string; noTransactionsDesc: string; goImport: string; demoMode: string; systemData: string; idealForTesting: string; financialDashboard: string; ... 83 more ...; mainIncomeVsOthers: string; } | { ...; }'.
+src/components/spa/ImportPage.tsx(283,33): error TS2769: No overload matches this call.
+src/components/spa/ImportPage.tsx(329,63): error TS18048: 'file' is possibly 'undefined'.
+src/components/spa/ImportPage.tsx(334,45): error TS18048: 'file' is possibly 'undefined'.
+src/components/spa/ImportPage.tsx(336,75): error TS18048: 'file' is possibly 'undefined'.
+src/components/spa/journal/AccountSelector.tsx(78,7): error TS2532: Object is possibly 'undefined'.
+src/components/spa/journal/StatusBadge.tsx(29,67): error TS18048: 'c' is possibly 'undefined'.
+src/components/spa/journal/StatusBadge.tsx(30,8): error TS18048: 'c' is possibly 'undefined'.
+src/components/spa/JournalPage.tsx(239,32): error TS2769: No overload matches this call.
+src/components/spa/JournalPage.tsx(524,9): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/components/spa/LanguageSelector.tsx(29,14): error TS18048: 'current' is possibly 'undefined'.
+src/components/spa/LanguageSelector.tsx(29,29): error TS18048: 'current' is possibly 'undefined'.
+src/components/spa/LanguageSelector.tsx(31,40): error TS18048: 'current' is possibly 'undefined'.
+src/components/spa/LanguageSelector.tsx(34,28): error TS2322: Type '{ children: Element[]; align: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; alignOffset?: number | undefined; sideOffset?: number | undefined; }'.
+src/components/spa/LanguageSelector.tsx(38,13): error TS2322: Type '{ children: string[]; key: Locale; onClick: () => void; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; disabled?: boolean | undefined; onSelect?: (() => void) | undefined; } & { ...; }'.
+src/components/spa/MovementSummaryPage.tsx(79,21): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'SetStateAction<string>'.
+src/components/spa/MovementSummaryPage.tsx(80,19): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'SetStateAction<string>'.
+src/components/spa/ReconciliationPage.tsx(1207,34): error TS18048: 'tx' is possibly 'undefined'.
+src/components/spa/ReconciliationPage.tsx(1208,29): error TS2322: Type 'Transaction | undefined' is not assignable to type 'Transaction'.
+src/components/spa/ReconciliationPage.tsx(1294,34): error TS18048: 'tx' is possibly 'undefined'.
+src/components/spa/ReconciliationPage.tsx(1295,29): error TS2322: Type 'Transaction | undefined' is not assignable to type 'Transaction'.
+src/components/spa/ReconciliationPage.tsx(1415,9): error TS2322: Type '{ date: string | undefined; description: string; debitAccountId: string; creditAccountId: string; amount: string; notes: string; }' is not assignable to type 'AdjustForm'.
+src/components/spa/settings/CompanyDataTab.tsx(805,52): error TS2322: Type '{ children: Element[]; align: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; alignOffset?: number | undefined; sideOffset?: number | undefined; }'.
+src/components/spa/settings/FiscalPeriodsTab.tsx(640,15): error TS2322: Type '{ children: string; onClick: () => Promise<void> | null; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/ui/address-autocomplete.tsx(47,22): error TS2322: Type '{ children: Element; asChild: true; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; }'.
+src/components/ui/address-autocomplete.tsx(98,9): error TS2322: Type '{ children: Element; className: string; align: "start"; onOpenAutoFocus: (e: any) => any; onCloseAutoFocus: (e: any) => any; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; align?: "center" | ... 2 more ... | undefined; }'.
+src/components/ui/address-autocomplete.tsx(98,27): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/ui/address-autocomplete.tsx(99,28): error TS7006: Parameter 'e' implicitly has an 'any' type.
+src/components/ui/checkbox.tsx(11,6): error TS2322: Type '{ children: Element; checked?: boolean | "indeterminate" | undefined; onCheckedChange?: ((checked: boolean | "indeterminate") => void) | undefined; disabled?: boolean | undefined; ... 4 more ...; className: string; }' is not assignable to type 'IntrinsicAttributes & { checked?: boolean | "indeterminate" | undefined; onCheckedChange?: ((checked: boolean | "indeterminate") => void) | undefined; ... 4 more ...; required?: boolean | undefined; }'.
+src/components/ui/progress.tsx(14,6): error TS2322: Type '{ children: Element; max?: number | undefined; "data-slot": string; className: string; }' is not assignable to type 'IntrinsicAttributes & { value?: number | undefined; max?: number | undefined; className?: string | undefined; }'.
+src/components/ui/radio-group.tsx(27,6): error TS2322: Type '{ children: Element; value: string; disabled?: boolean | undefined; id?: string | undefined; "data-slot": string; className: string; }' is not assignable to type 'IntrinsicAttributes & { value: string; disabled?: boolean | undefined; className?: string | undefined; id?: string | undefined; }'.
+src/components/ui/radio-group.tsx(35,8): error TS2322: Type '{ children: Element; "data-slot": string; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; }'.
+src/components/ui/select.tsx(40,29): error TS2322: Type '{ children: Element; asChild: true; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; }'.
+src/components/ui/sidebar.tsx(183,11): error TS2322: Type '{ children: Element[]; "data-sidebar": string; "data-slot": string; "data-mobile": string; className: string; style: CSSProperties; side: "left" | "right"; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; } & { side?: "bottom" | "left" | "right" | "top" | undefined; }'.
+src/components/ui/sidebar.tsx(518,9): error TS2322: Type '{ className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; side: string; align: string; hidden: boolean; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; sideOffset?: number | undefined; alignOffset?: number | undefined; }'.
+src/components/ui/switch.tsx(10,6): error TS2322: Type '{ children: Element; checked?: boolean | undefined; onCheckedChange?: ((checked: boolean) => void) | undefined; disabled?: boolean | undefined; id?: string | undefined; "data-slot": string; className: string; }' is not assignable to type 'IntrinsicAttributes & { checked?: boolean | undefined; onCheckedChange?: ((checked: boolean) => void) | undefined; disabled?: boolean | undefined; className?: string | undefined; id?: string | undefined; }'.
+src/components/ui/toast.tsx(13,20): error TS2344: Type 'FC<{ className?: string | undefined; }>' does not satisfy the constraint 'keyof IntrinsicElements | ForwardRefExoticComponent<any> | (new (props: any, context: any) => Component<any, {}, any>) | ((props: any) => ReactNode)'.
+src/components/ui/toast.tsx(17,5): error TS2322: Type '{ ref: ForwardedRef<never>; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; }'.
+src/components/ui/toast.tsx(44,20): error TS2344: Type 'FC<{ open?: boolean | undefined; onOpenChange?: ((open: boolean) => void) | undefined; className?: string | undefined; children?: ReactNode; duration?: number | undefined; }>' does not satisfy the constraint 'keyof IntrinsicElements | ForwardRefExoticComponent<any> | (new (props: any, context: any) => Component<any, {}, any>) | ((props: any) => ReactNode)'.
+src/components/ui/toast.tsx(49,7): error TS2322: Type '{ open?: boolean | undefined; onOpenChange?: ((open: boolean) => void) | undefined; children?: ReactNode; duration?: number | undefined; ref: ForwardedRef<never>; className: string; }' is not assignable to type 'IntrinsicAttributes & { open?: boolean | undefined; onOpenChange?: ((open: boolean) => void) | undefined; className?: string | undefined; children?: ReactNode; duration?: number | undefined; }'.
+src/components/ui/toast.tsx(58,20): error TS2344: Type 'FC<{ asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; altText: string; }>' does not satisfy the constraint 'keyof IntrinsicElements | ForwardRefExoticComponent<any> | (new (props: any, context: any) => Component<any, {}, any>) | ((props: any) => ReactNode)'.
+src/components/ui/toast.tsx(62,5): error TS2322: Type '{ asChild?: boolean | undefined; children?: ReactNode; altText: string; ref: ForwardedRef<never>; className: string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; altText: string; }'.
+src/components/ui/toast.tsx(73,20): error TS2344: Type 'FC<{ asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }>' does not satisfy the constraint 'keyof IntrinsicElements | ForwardRefExoticComponent<any> | (new (props: any, context: any) => Component<any, {}, any>) | ((props: any) => ReactNode)'.
+src/components/ui/toast.tsx(77,5): error TS2322: Type '{ children: Element; asChild?: boolean | undefined; ref: ForwardedRef<never>; className: string; "toast-close": string; }' is not assignable to type 'IntrinsicAttributes & { asChild?: boolean | undefined; className?: string | undefined; children?: ReactNode; }'.
+src/components/ui/toast.tsx(91,20): error TS2344: Type 'FC<{ className?: string | undefined; children?: ReactNode; }>' does not satisfy the constraint 'keyof IntrinsicElements | ForwardRefExoticComponent<any> | (new (props: any, context: any) => Component<any, {}, any>) | ((props: any) => ReactNode)'.
+src/components/ui/toast.tsx(95,5): error TS2322: Type '{ children?: ReactNode; ref: ForwardedRef<never>; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; }'.
+src/components/ui/toast.tsx(103,20): error TS2344: Type 'FC<{ className?: string | undefined; children?: ReactNode; }>' does not satisfy the constraint 'keyof IntrinsicElements | ForwardRefExoticComponent<any> | (new (props: any, context: any) => Component<any, {}, any>) | ((props: any) => ReactNode)'.
+src/components/ui/toast.tsx(107,5): error TS2322: Type '{ children?: ReactNode; ref: ForwardedRef<never>; className: string; }' is not assignable to type 'IntrinsicAttributes & { className?: string | undefined; children?: ReactNode; }'.
+src/hooks/use-reconciliation-ui.ts(56,35): error TS18046: 'err' is of type 'unknown'.
+src/hooks/useAccountingFlow.ts(39,5): error TS2353: Object literal may only specify known properties, and 'gcTime' does not exist in type '{ queryKey: unknown[]; queryFn: () => AccountingFlowResponse | Promise<AccountingFlowResponse>; enabled?: boolean | undefined; staleTime?: number | undefined; retry?: number | ... 1 more ... | undefined; refetchOnWindowFocus?: boolean | undefined; select?: ((data: AccountingFlowResponse) => unknown) | undefined; }'.
+src/hooks/useFuzzyMatchAudit.ts(63,36): error TS2339: Property 'isPending' does not exist on type '{ mutate: (variables: FuzzyMatchRequest) => void; mutateAsync: (variables: FuzzyMatchRequest) => Promise<any>; isLoading: boolean; ... 4 more ...; reset: () => void; }'.
+src/hooks/useFuzzyMatchAudit.ts(65,40): error TS2339: Property 'isPending' does not exist on type '{ mutate: (variables: LinkTransactionRequest) => void; mutateAsync: (variables: LinkTransactionRequest) => Promise<any>; ... 5 more ...; reset: () => void; }'.
+src/hooks/usePredictiveSuggestions.ts(13,5): error TS2353: Object literal may only specify known properties, and 'refetchInterval' does not exist in type '{ queryKey: unknown[]; queryFn: () => any; enabled?: boolean | undefined; staleTime?: number | undefined; retry?: number | boolean | undefined; refetchOnWindowFocus?: boolean | undefined; select?: ((data: any) => unknown) | undefined; }'.
+src/lib/accounting/date-window.ts(28,3): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/lib/accounting/flow-aggregator.ts(79,17): error TS2532: Object is possibly 'undefined'.
+src/lib/accounting/flow-aggregator.ts(80,17): error TS2532: Object is possibly 'undefined'.
+src/lib/accounting/flow-aggregator.ts(87,17): error TS2532: Object is possibly 'undefined'.
+src/lib/accounting/flow-aggregator.ts(88,17): error TS2532: Object is possibly 'undefined'.
+src/lib/constants/account-types.ts(18,13): error TS2532: Object is possibly 'undefined'.
+src/lib/constants/account-types.ts(18,42): error TS2532: Object is possibly 'undefined'.
+src/lib/csv-parser.ts(31,37): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/csv-parser.ts(32,29): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/csv-parser.ts(49,17): error TS2532: Object is possibly 'undefined'.
+src/lib/csv-parser.ts(145,10): error TS18048: 'best' is possibly 'undefined'.
+src/lib/csv-parser.ts(145,24): error TS18048: 'best' is possibly 'undefined'.
+src/lib/csv-parser.ts(220,19): error TS2532: Object is possibly 'undefined'.
+src/lib/csv-parser.ts(264,41): error TS2532: Object is possibly 'undefined'.
+src/lib/db.ts(39,18): error TS2339: Property 'journal_mode' does not exist on type '{ journal_mode: string; } | undefined'.
+src/lib/fiscal-period/strategies/week52-53.ts(26,43): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/fiscal-period/strategies/week52-53.ts(27,39): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/html-escape.ts(12,37): error TS2769: No overload matches this call.
+src/lib/ofx-parser.ts(66,65): error TS2532: Object is possibly 'undefined'.
+src/lib/ofx-parser.ts(69,7): error TS2532: Object is possibly 'undefined'.
+src/lib/ofx-parser.ts(154,65): error TS2532: Object is possibly 'undefined'.
+src/lib/ofx-parser.ts(157,7): error TS2532: Object is possibly 'undefined'.
+src/lib/ofx-parser.ts(241,21): error TS2532: Object is possibly 'undefined'.
+src/lib/ofx-parser.ts(246,22): error TS2532: Object is possibly 'undefined'.
+src/lib/pagination.ts(48,27): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(507,19): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(516,9): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(527,9): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(665,28): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(671,9): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+src/lib/pdf-parser.ts(672,9): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+src/lib/pdf-parser.ts(711,31): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/pdf-parser.ts(712,31): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/pdf-parser.ts(724,33): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/pdf-parser.ts(728,33): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+src/lib/pdf-parser.ts(915,19): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(929,22): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(994,19): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(1031,41): error TS2532: Object is possibly 'undefined'.
+src/lib/pdf-parser.ts(1039,41): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(10,32): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(11,32): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(14,7): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(14,7): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+src/lib/reconciliation/predictive-engine.ts(16,13): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(17,22): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(17,22): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+src/lib/reconciliation/predictive-engine.ts(17,40): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(17,54): error TS2532: Object is possibly 'undefined'.
+src/lib/reconciliation/predictive-engine.ts(18,3): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+src/lib/reconciliation/predictive-engine.ts(18,10): error TS2532: Object is possibly 'undefined'.
+src/lib/server-i18n.ts(22,14): error TS2345: Argument of type 'Record<string, unknown> | undefined' is not assignable to parameter of type 'Record<string, unknown>'.
+src/lib/services/closing-engine.ts(11,23): error TS2532: Object is possibly 'undefined'.
+src/lib/services/closing-engine.ts(12,21): error TS2532: Object is possibly 'undefined'.
+src/lib/services/entity-detector.ts(378,46): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string | ArrayBufferView<ArrayBufferLike>'.
+src/lib/services/entity-detector.ts(379,7): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+src/lib/services/entity-enricher.ts(92,38): error TS2322: Type 'EntityContextWithGlAccount | undefined' is not assignable to type 'EntityContextWithGlAccount | null'.
+src/lib/services/entity-enricher.ts(96,3): error TS2322: Type 'EntityContextWithGlAccount | undefined' is not assignable to type 'EntityContextWithGlAccount | null'.
+src/lib/services/import.service.ts(341,49): error TS2532: Object is possibly 'undefined'.
+src/lib/services/import.service.ts(342,45): error TS2532: Object is possibly 'undefined'.
+src/lib/services/import.service.ts(382,82): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string | null'.
+src/lib/services/import.service.ts(383,75): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string | null'.
+src/lib/services/import.service.ts(435,26): error TS18048: 'txn' is possibly 'undefined'.
+src/lib/services/import.service.ts(435,51): error TS18048: 'txn' is possibly 'undefined'.
+src/lib/services/import.service.ts(444,17): error TS18048: 'txn' is possibly 'undefined'.
+src/lib/services/import.service.ts(445,24): error TS18048: 'txn' is possibly 'undefined'.
+src/lib/services/import.service.ts(446,19): error TS18048: 'txn' is possibly 'undefined'.
+src/lib/services/import.service.ts(447,22): error TS18048: 'txn' is possibly 'undefined'.
+src/lib/services/import.service.ts(521,25): error TS18048: 'oldest' is possibly 'undefined'.
+src/lib/services/import.service.ts(522,18): error TS18048: 'newest' is possibly 'undefined'.
+src/lib/services/onboarding.service.ts(157,17): error TS2532: Object is possibly 'undefined'.
+src/lib/services/reconciliation.service.ts(79,49): error TS2532: Object is possibly 'undefined'.
+src/lib/services/rule-matching-engine.ts(269,34): error TS2322: Type 'MatchingRule | undefined' is not assignable to type 'MatchingRule'.
+src/lib/services/rule-matching-engine.ts(308,10): error TS2532: Object is possibly 'undefined'.
+src/lib/types/import-page.tsx(133,83): error TS18048: 'c' is possibly 'undefined'.
+src/lib/types/import-page.tsx(134,8): error TS18048: 'c' is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(112,7): error TS2532: Object is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(112,7): error TS2322: Type 'number | undefined' is not assignable to type 'number'.
+src/lib/validation/account-holder-validator.ts(114,13): error TS2532: Object is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(115,26): error TS2532: Object is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(115,26): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+src/lib/validation/account-holder-validator.ts(115,40): error TS2532: Object is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(115,54): error TS2532: Object is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(118,14): error TS2532: Object is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(118,14): error TS2532: Object is possibly 'undefined'.
+src/lib/validation/account-holder-validator.ts(123,49): error TS2345: Argument of type 'string | undefined' is not assignable to parameter of type 'string'.
+tests/api-handler.test.ts(44,31): error TS2345: Argument of type 'RequestInit | undefined' is not assignable to parameter of type 'import("C:/Users/PC Omar/Downloads/sistema/node_modules/next/dist/server/web/spec-extension/request").RequestInit | undefined'.
+tests/api-handler.test.ts(215,12): error TS2532: Object is possibly 'undefined'.
+tests/api-handler.test.ts(226,17): error TS2304: Cannot find name 'ValidationError'.
+tests/api/fiscal-periods-lock.test.ts(55,12): error TS2532: Object is possibly 'undefined'.
+tests/components/batch-otro-classification.test.tsx(277,30): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/batch-otro-classification.test.tsx(294,36): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/batch-otro-classification.test.tsx(305,35): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/batch-otro-classification.test.tsx(320,16): error TS2551: Property 'queryByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/batch-otro-classification.test.tsx(327,36): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/batch-otro-classification.test.tsx(338,35): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/batch-otro-classification.test.tsx(361,36): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/batch-otro-classification.test.tsx(382,36): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/batch-otro-classification.test.tsx(393,35): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/batch-otro-classification.test.tsx(407,36): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/batch-otro-classification.test.tsx(418,35): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/batch-otro-classification.test.tsx(432,16): error TS2551: Property 'queryByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(207,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(211,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(242,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(259,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(282,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(286,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(305,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(325,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(329,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(346,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(367,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(417,32): error TS2551: Property 'getAllByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(458,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(486,32): error TS2551: Property 'getAllByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(519,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(587,32): error TS2551: Property 'getAllByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(615,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(638,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(673,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(709,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(740,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(766,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(770,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(806,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(857,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(903,32): error TS2551: Property 'getAllByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(930,34): error TS2551: Property 'queryAllByText' does not exist on type 'Screen'. Did you mean 'queryByText'?
+tests/components/EntityOnboardingModal.test.tsx(943,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(961,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(979,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(991,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(1005,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/EntityOnboardingModal.test.tsx(1033,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(1051,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(1069,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(1084,38): error TS2353: Object literal may only specify known properties, and 'advanceTimers' does not exist in type 'UserOptions'.
+tests/components/EntityOnboardingModal.test.tsx(1096,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(1130,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(1168,37): error TS2551: Property 'findByPlaceholderText' does not exist on type 'Screen'. Did you mean 'getByPlaceholderText'?
+tests/components/EntityOnboardingModal.test.tsx(1183,32): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/components/FiscalPeriodsTab.test.tsx(112,22): error TS2345: Argument of type 'HTMLElement | undefined' is not assignable to parameter of type 'Element'.
+tests/csv-parser.test.ts(16,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(17,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(18,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(19,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(31,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(32,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(40,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(41,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(54,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(55,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(56,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(66,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(67,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(77,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(78,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(90,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(91,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(92,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(93,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(105,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(115,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(125,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(135,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(146,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(147,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(157,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(167,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(179,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(189,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(202,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(203,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(213,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(273,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(285,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(297,12): error TS2532: Object is possibly 'undefined'.
+tests/csv-parser.test.ts(309,12): error TS2532: Object is possibly 'undefined'.
+tests/integration/invisible-onboarding.test.ts(148,12): error TS2532: Object is possibly 'undefined'.
+tests/integration/invisible-onboarding.test.ts(257,12): error TS2532: Object is possibly 'undefined'.
+tests/integration/invisible-onboarding.test.ts(345,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(201,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(202,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(203,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(204,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(205,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(206,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(207,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(208,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(223,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(256,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(257,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(258,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(304,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(305,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(306,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(307,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(308,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(309,12): error TS18048: 'txn' is possibly 'undefined'.
+tests/ofx-parser.test.ts(366,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(377,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(378,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(379,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(446,18): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(460,18): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(475,18): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(485,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(486,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(495,18): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(507,18): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(561,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(570,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(614,12): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(631,14): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(632,9): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(695,14): error TS2532: Object is possibly 'undefined'.
+tests/ofx-parser.test.ts(696,9): error TS2532: Object is possibly 'undefined'.
+tests/pdf-parser-fail-graceful.test.ts(95,12): error TS2532: Object is possibly 'undefined'.
+tests/pdf-parser-fail-graceful.test.ts(96,12): error TS2532: Object is possibly 'undefined'.
+tests/pdf-parser-fail-graceful.test.ts(97,32): error TS2532: Object is possibly 'undefined'.
+tests/pdf-parser-fail-graceful.test.ts(211,12): error TS2532: Object is possibly 'undefined'.
+tests/pdf-parser-fail-graceful.test.ts(212,12): error TS2532: Object is possibly 'undefined'.
+tests/pdf-parser-fail-graceful.test.ts(213,12): error TS2532: Object is possibly 'undefined'.
+tests/pdf-parser-fail-graceful.test.ts(214,12): error TS2532: Object is possibly 'undefined'.
+tests/security/rate-limiter.test.ts(178,21): error TS2532: Object is possibly 'undefined'.
+tests/services/adaptive-engine-rotation.test.ts(225,12): error TS2532: Object is possibly 'undefined'.
+tests/services/adaptive-engine-rotation.test.ts(226,12): error TS2532: Object is possibly 'undefined'.
+tests/services/auth.service.test.ts(59,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(194,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(195,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(196,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(197,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(198,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(199,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(214,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(215,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(269,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(270,12): error TS2532: Object is possibly 'undefined'.
+tests/services/backup-restore.test.ts(271,12): error TS2532: Object is possibly 'undefined'.
+tests/services/bank-profile-service.test.ts(170,14): error TS2532: Object is possibly 'undefined'.
+tests/services/bank-profile-service.test.ts(171,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(142,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(143,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(144,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(145,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(146,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(147,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(166,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(167,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(169,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(170,12): error TS18048: 'item' is possibly 'undefined'.
+tests/services/budget-engine.test.ts(188,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(189,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(206,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(207,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(224,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(225,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(242,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(243,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(272,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(273,14): error TS2532: Object is possibly 'undefined'.
+tests/services/budget-engine.test.ts(274,14): error TS2532: Object is possibly 'undefined'.
+tests/services/chart-of-accounts.test.ts(110,23): error TS2532: Object is possibly 'undefined'.
+tests/services/chart-of-accounts.test.ts(127,12): error TS18048: 'call1010' is possibly 'undefined'.
+tests/services/chart-of-accounts.test.ts(139,14): error TS18048: 'call' is possibly 'undefined'.
+tests/services/closing-engine.test.ts(107,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(107,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(123,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(123,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(140,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(140,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(177,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(177,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(192,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(192,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(221,23): error TS2532: Object is possibly 'undefined'.
+tests/services/closing-engine.test.ts(221,23): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-classifier.test.ts(242,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-classifier.test.ts(243,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-classifier.test.ts(270,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-context-crud-service.test.ts(63,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-context-crud-service.test.ts(69,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-context-crud-service.test.ts(93,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-context-crud-service.test.ts(102,47): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number | bigint'.
+tests/services/entity-context-crud-service.test.ts(122,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-context-crud-service.test.ts(123,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-context-service.test.ts(111,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-context-service.test.ts(112,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-detector.test.ts(154,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-detector.test.ts(180,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(310,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(311,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(312,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(313,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(314,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(315,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(316,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(317,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(331,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(332,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(333,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(334,12): error TS18048: 'enriched' is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(364,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(391,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-enricher.test.ts(392,12): error TS2532: Object is possibly 'undefined'.
+tests/services/entity-first-flow.test.ts(267,12): error TS18048: 'cond' is possibly 'undefined'.
+tests/services/entity-first-flow.test.ts(268,12): error TS18048: 'cond' is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(24,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(25,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(32,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(52,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(55,14): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(55,51): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(68,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(69,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(70,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(81,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(90,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(99,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(109,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(125,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(126,12): error TS2532: Object is possibly 'undefined'.
+tests/services/fuzzy-matcher.test.ts(135,12): error TS2532: Object is possibly 'undefined'.
+tests/services/onboarding.test.ts(54,12): error TS2532: Object is possibly 'undefined'.
+tests/services/onboarding.test.ts(55,12): error TS2532: Object is possibly 'undefined'.
+tests/services/onboarding.test.ts(80,12): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(64,12): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(66,24): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(67,25): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(216,12): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(218,23): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(219,24): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(267,14): error TS2532: Object is possibly 'undefined'.
+tests/services/reconciliation.service.test.ts(309,14): error TS2532: Object is possibly 'undefined'.
+tests/services/scan-route.test.ts(178,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(179,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(180,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(181,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(182,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(183,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(184,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(185,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(186,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(187,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(188,19): error TS18048: 'pattern' is possibly 'undefined'.
+tests/services/scan-route.test.ts(195,50): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number | bigint'.
+tests/services/scan-route.test.ts(258,12): error TS2532: Object is possibly 'undefined'.
+tests/services/scan-route.test.ts(259,12): error TS2532: Object is possibly 'undefined'.
+tests/services/scan-route.test.ts(260,12): error TS2532: Object is possibly 'undefined'.
+tests/services/suggest-role.test.ts(64,54): error TS2345: Argument of type '(_url: string, opts?: RequestInit) => Promise<Response>' is not assignable to parameter of type '(input: string | Request | URL, init?: RequestInit | undefined) => Promise<Response>'.
+tests/services/suggest-role.test.ts(107,54): error TS2345: Argument of type '(_url: string, opts?: RequestInit) => Promise<Response>' is not assignable to parameter of type '(input: string | Request | URL, init?: RequestInit | undefined) => Promise<Response>'.
+tests/services/suggest-role.test.ts(153,54): error TS2345: Argument of type '(_url: string, opts?: RequestInit) => Promise<Response>' is not assignable to parameter of type '(input: string | Request | URL, init?: RequestInit | undefined) => Promise<Response>'.
+tests/services/suggest-role.test.ts(192,54): error TS2345: Argument of type '(_url: string, opts?: RequestInit) => Promise<Response>' is not assignable to parameter of type '(input: string | Request | URL, init?: RequestInit | undefined) => Promise<Response>'.
+

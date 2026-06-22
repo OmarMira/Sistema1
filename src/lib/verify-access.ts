@@ -48,6 +48,6 @@ export async function verifyCompanyAccess(
 /**
  * Helper to build a 403 response from verifyCompanyAccess.
  */
-export function forbiddenResponse(error: string) {
-  return { status: 403 as const, json: { error: string } };
+export function forbiddenResponse(errorMessage: string) {
+  return { status: 403 as const, json: { error: errorMessage } };
 }

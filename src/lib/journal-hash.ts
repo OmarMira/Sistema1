@@ -141,7 +141,7 @@ export async function verifyJournalChain(
           entryDate: entry.date.toISOString(),
           description: entry.description,
           expectedHash,
-          actualHash: entry.hash,
+          actualHash: entry.hash as string,
         },
       };
     }
@@ -205,7 +205,7 @@ export async function verifyAuditChain(): Promise<IntegrityResult> {
           entryDate: log.action,
           description: `${log.entity}${log.entityId ? `:${log.entityId}` : ''}`,
           expectedHash,
-          actualHash: log.hash,
+          actualHash: log.hash as string,
         },
       };
     }

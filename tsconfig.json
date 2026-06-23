@@ -44,6 +44,7 @@
     "skills",
     "agent-ctx",
     "db",
-    "download"
+    "download",
+    "tests"
   ]
 }

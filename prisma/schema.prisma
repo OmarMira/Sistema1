@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -111,8 +111,8 @@ model BankAccount {
   accountNo             String?
   routingNo             String?
   glAccountId           String
-  balance               Float                  @default(0)
-  initialBalance        Float                  @default(0)
+  balance               Decimal               @default(0) @db.Decimal(18, 2)
+  initialBalance        Decimal               @default(0) @db.Decimal(18, 2)
   currency              String                 @default("USD")
   isActive              Boolean                @default(true)
   createdAt             DateTime               @default(now())
@@ -133,10 +133,10 @@ model BankStatement {
   bankAccountId  String
   startDate      DateTime
   endDate        DateTime
-  openingBalance Float
-  closingBalance Float
-  totalCredits   Float             @default(0)
-  totalDebits    Float             @default(0)
+  openingBalance Decimal            @db.Decimal(18, 2)
+  closingBalance Decimal            @db.Decimal(18, 2)
+  totalCredits   Decimal               @default(0) @db.Decimal(18, 2)
+  totalDebits    Decimal               @default(0) @db.Decimal(18, 2)
   format         String
   fileName       String?
   createdAt      DateTime          @default(now())
@@ -153,7 +153,7 @@ model BankTransaction {
   statementId            String
   date                   DateTime
   description            String
-  amount                 Float
+  amount                 Decimal               @db.Decimal(18, 2)
   reference              String?
   isReconciled           Boolean               @default(false)
   isIgnored              Boolean               @default(false)
@@ -189,9 +189,9 @@ model ReconciliationPeriod {
   companyId        String
   bankAccountId    String
   userId           String
-  statementBalance Float             @default(0)
-  bookBalance      Float             @default(0)
-  difference       Float             @default(0)
+  statementBalance Decimal               @default(0) @db.Decimal(18, 2)
+  bookBalance      Decimal               @default(0) @db.Decimal(18, 2)
+  difference       Decimal               @default(0) @db.Decimal(18, 2)
   status           String            @default("open")
   startedAt        DateTime          @default(now())
   completedAt      DateTime?
@@ -253,8 +253,8 @@ model JournalLine {
   entryId     String
   glAccountId String
   description String?
-  debit       Float        @default(0)
-  credit      Float        @default(0)
+  debit       Decimal        @default(0) @db.Decimal(18, 2)
+  credit      Decimal        @default(0) @db.Decimal(18, 2)
   glAccount   GlAccount    @relation(fields: [glAccountId], references: [id])
   entry       JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
 

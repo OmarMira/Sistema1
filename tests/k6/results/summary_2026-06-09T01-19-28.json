@@ -1,0 +1,674 @@
+{
+  "options": {
+    "summaryTrendStats": [
+      "avg",
+      "min",
+      "med",
+      "max",
+      "p(90)",
+      "p(95)",
+      "p(99)"
+    ],
+    "summaryTimeUnit": "",
+    "noColor": false
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 30649.4848
+  },
+  "metrics": {
+    "dashboard_duration": {
+      "thresholds": {
+        "p(95)<3000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 13.61368541666667,
+        "min": 3.6117,
+        "med": 13.11255,
+        "max": 26.3871,
+        "p(90)": 18.291330000000013,
+        "p(95)": 22.14243,
+        "p(99)": 26.001136000000002
+      }
+    },
+    "http_reqs": {
+      "contains": "default",
+      "values": {
+        "rate": 26.460477404174835,
+        "count": 811
+      },
+      "type": "counter"
+    },
+    "total_requests": {
+      "contains": "default",
+      "values": {
+        "count": 810,
+        "rate": 26.42785042833738
+      },
+      "type": "counter"
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 1,
+        "min": 1,
+        "max": 1
+      }
+    },
+    "login_duration": {
+      "thresholds": {
+        "p(95)<2000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 303.0958,
+        "med": 303.0958,
+        "max": 303.0958,
+        "p(90)": 303.0958,
+        "p(95)": 303.0958,
+        "p(99)": 303.0958,
+        "avg": 303.0958
+      }
+    },
+    "http_req_receiving": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 15.0905,
+        "p(90)": 3.1739,
+        "p(95)": 4.07195,
+        "p(99)": 6.041849999999999,
+        "avg": 1.0419526510480883,
+        "min": 0,
+        "med": 0.5874
+      }
+    },
+    "data_received": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 5124292,
+        "rate": 167190.15126805656
+      }
+    },
+    "group_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 14.995024999999993,
+        "p(99)": 24.441706999999983,
+        "avg": 7.447611679790013,
+        "min": 0.5375,
+        "med": 6.2359,
+        "max": 61.75,
+        "p(90)": 11.82765
+      }
+    },
+    "http_req_tls_handshaking": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0,
+        "min": 0,
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0
+      }
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 48,
+        "rate": 1.5660948401977706
+      }
+    },
+    "http_req_failed": {
+      "contains": "default",
+      "values": {
+        "rate": 0.09617755856966707,
+        "passes": 78,
+        "fails": 733
+      },
+      "thresholds": {
+        "rate<0.02": {
+          "ok": false
+        }
+      },
+      "type": "rate"
+    },
+    "error_rate": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "passes": 69,
+        "fails": 549,
+        "rate": 0.11165048543689321
+      },
+      "thresholds": {
+        "rate<0.02": {
+          "ok": false
+        }
+      }
+    },
+    "http_req_connecting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 0,
+        "avg": 0.0014336621454993836,
+        "min": 0,
+        "med": 0,
+        "max": 1.1627,
+        "p(90)": 0,
+        "p(95)": 0
+      }
+    },
+    "report_duration": {
+      "thresholds": {
+        "p(95)<5000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 6.87455,
+        "max": 18.4347,
+        "p(90)": 10.39085,
+        "p(95)": 10.838650000000001,
+        "p(99)": 13.217204999999986,
+        "avg": 7.220618749999997,
+        "min": 3.4021
+      }
+    },
+    "http_req_duration{expected_response:true}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 0.5375,
+        "med": 6.471,
+        "max": 303.0958,
+        "p(90)": 12.95644,
+        "p(95)": 16.403,
+        "p(99)": 25.545291999999996,
+        "avg": 8.31420818553887
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 8.000375832305787,
+        "min": 0.5375,
+        "med": 6.2216,
+        "max": 303.0958,
+        "p(90)": 12.6806,
+        "p(95)": 16.05795,
+        "p(99)": 25.47001999999999
+      },
+      "thresholds": {
+        "p(95)<3000": {
+          "ok": true
+        }
+      }
+    },
+    "iteration_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 679.62617,
+        "p(95)": 693.072855,
+        "p(99)": 775.9600890000002,
+        "avg": 631.8047541666668,
+        "min": 578.3102,
+        "med": 620.3374,
+        "max": 843.9086
+      }
+    },
+    "http_req_sending": {
+      "values": {
+        "p(95)": 0,
+        "p(99)": 0.6019199999999999,
+        "avg": 0.01670727496917386,
+        "min": 0,
+        "med": 0,
+        "max": 1.008,
+        "p(90)": 0
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "accounts_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 6.6671499999999995,
+        "max": 21.5484,
+        "p(90)": 9.754420000000007,
+        "p(95)": 11.515384999999998,
+        "p(99)": 17.80776400000001,
+        "avg": 7.481731249999998,
+        "min": 5.0145
+      },
+      "thresholds": {
+        "p(95)<2000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_blocked": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 0,
+        "med": 0,
+        "max": 12.0876,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0.4552199999999885,
+        "avg": 0.020266214549938353
+      }
+    },
+    "http_req_waiting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 303.0958,
+        "p(90)": 11.6787,
+        "p(95)": 15.1378,
+        "p(99)": 24.28287999999997,
+        "avg": 6.941715906288523,
+        "min": 0.3375,
+        "med": 5.516
+      }
+    },
+    "data_sent": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 199898,
+        "rate": 6522.0672159552905
+      }
+    },
+    "checks": {
+      "values": {
+        "rate": 0.9453781512605042,
+        "passes": 1350,
+        "fails": 78
+      },
+      "type": "rate",
+      "contains": "default"
+    },
+    "vus": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 1,
+        "min": 1,
+        "max": 1
+      }
+    }
+  },
+  "setup_data": {
+    "cookieStr": "session=1b5d1349-cbda-42f5-86ff-14b4db768311",
+    "companyId": "cmq5uoz8h003zc7r0z8tj9tfe"
+  },
+  "root_group": {
+    "groups": [
+      {
+        "name": "01 Health Check",
+        "path": "::01 Health Check",
+        "id": "472078c6426355db47d75dd79b6cb12a",
+        "groups": [],
+        "checks": [
+            {
+              "fails": 0,
+              "name": "health → status 200",
+              "path": "::01 Health Check::health → status 200",
+              "id": "8092b45e3624c794a3460e9b6dfa3c16",
+              "passes": 48
+            },
+            {
+              "path": "::01 Health Check::health → response < 5s",
+              "id": "a55f1da63842ac31faabd9aca6e15f34",
+              "passes": 48,
+              "fails": 0,
+              "name": "health → response < 5s"
+            }
+          ]
+      },
+      {
+        "groups": [],
+        "checks": [
+            {
+              "id": "a76e3a933c2d41b29b0e8555961c2f30",
+              "passes": 48,
+              "fails": 0,
+              "name": "auth/me → status 200",
+              "path": "::02 Auth — Me::auth/me → status 200"
+            },
+            {
+              "name": "auth/me → response < 5s",
+              "path": "::02 Auth — Me::auth/me → response < 5s",
+              "id": "341d6ab6753f36daf4d514ff8e6351b7",
+              "passes": 48,
+              "fails": 0
+            }
+          ],
+        "name": "02 Auth — Me",
+        "path": "::02 Auth — Me",
+        "id": "7941f70b45bc85aa9dabc4a59001750a"
+      },
+      {
+        "name": "03 Companies",
+        "path": "::03 Companies",
+        "id": "1948b9170e44de8c38a9539c967edf30",
+        "groups": [],
+        "checks": [
+            {
+              "name": "admin/companies → status 200",
+              "path": "::03 Companies::admin/companies → status 200",
+              "id": "f68956e93af7d012e68d552c066b508f",
+              "passes": 48,
+              "fails": 0
+            },
+            {
+              "fails": 0,
+              "name": "admin/companies → response < 5s",
+              "path": "::03 Companies::admin/companies → response < 5s",
+              "id": "243a262ea625e2e8b92f578edd71c15c",
+              "passes": 48
+            }
+          ]
+      },
+      {
+        "name": "04 Dashboard",
+        "path": "::04 Dashboard",
+        "id": "5da932d040618585e2f196ddadfdc76b",
+        "groups": [],
+        "checks": [
+            {
+              "name": "dashboard → status 200",
+              "path": "::04 Dashboard::dashboard → status 200",
+              "id": "e6edf4744bb93a7ea6e11f8fc5a5846f",
+              "passes": 45,
+              "fails": 3
+            },
+            {
+              "fails": 0,
+              "name": "dashboard → response < 5s",
+              "path": "::04 Dashboard::dashboard → response < 5s",
+              "id": "4ea8534bd98b13f9eac8aaffdb02482d",
+              "passes": 48
+            }
+          ]
+      },
+      {
+        "name": "05 GL Accounts",
+        "path": "::05 GL Accounts",
+        "id": "c309d816eeca605ee208232e404be3c3",
+        "groups": [],
+        "checks": [
+            {
+              "name": "accounts/list → status 200",
+              "path": "::05 GL Accounts::accounts/list → status 200",
+              "id": "426ea76dd875d13fbcd3779ae1cb543a",
+              "passes": 48,
+              "fails": 0
+            },
+            {
+              "name": "accounts/list → response < 5s",
+              "path": "::05 GL Accounts::accounts/list → response < 5s",
+              "id": "892f470c1cc5b35be802efad9c5fd8cd",
+              "passes": 48,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "checks": [
+          {
+            "fails": 0,
+            "name": "banks/list → status 200",
+            "path": "::06 Banks::banks/list → status 200",
+            "id": "8f51ecfcbd785d32f00251839db31a4e",
+            "passes": 48
+          },
+          {
+            "path": "::06 Banks::banks/list → response < 5s",
+            "id": "cf486b1dbb21df6a16765bdcf6288530",
+            "passes": 48,
+            "fails": 0,
+            "name": "banks/list → response < 5s"
+          }
+        ],
+        "name": "06 Banks",
+        "path": "::06 Banks",
+        "id": "92d3b00cc2b429e964106f08635ca680",
+        "groups": []
+      },
+      {
+        "groups": [],
+        "checks": [
+            {
+              "fails": 33,
+              "name": "reconciliation/pending_review → status 200",
+              "path": "::07a Reconciliation Pending Review::reconciliation/pending_review → status 200",
+              "id": "66e982eaca3e5dce03b8f54f64939247",
+              "passes": 12
+            },
+            {
+              "path": "::07a Reconciliation Pending Review::reconciliation/pending_review → response < 5s",
+              "id": "2a877006329cacc96217019752029441",
+              "passes": 45,
+              "fails": 0,
+              "name": "reconciliation/pending_review → response < 5s"
+            }
+          ],
+        "name": "07a Reconciliation Pending Review",
+        "path": "::07a Reconciliation Pending Review",
+        "id": "af6606393addf8623e1dc3f4b76042d3"
+      },
+      {
+        "name": "07b Reconciliation Unreconciled",
+        "path": "::07b Reconciliation Unreconciled",
+        "id": "efe2f072657c4ee4219eb05e83ec5f4c",
+        "groups": [],
+        "checks": [
+            {
+              "id": "bb47cebdf1a3750bf2b550d9fb70d38a",
+              "passes": 12,
+              "fails": 33,
+              "name": "reconciliation/unreconciled → status 200",
+              "path": "::07b Reconciliation Unreconciled::reconciliation/unreconciled → status 200"
+            },
+            {
+              "fails": 0,
+              "name": "reconciliation/unreconciled → response < 5s",
+              "path": "::07b Reconciliation Unreconciled::reconciliation/unreconciled → response < 5s",
+              "id": "424560796071031642e3904b4a7cb7ec",
+              "passes": 45
+            }
+          ]
+      },
+      {
+        "name": "08 Journal",
+        "path": "::08 Journal",
+        "id": "69f70d54aba3e7a37307a55a24acf10e",
+        "groups": [],
+        "checks": [
+            {
+              "path": "::08 Journal::journal → status 200",
+              "id": "64e4af5bc027aa0d761f64b3c0837c40",
+              "passes": 48,
+              "fails": 0,
+              "name": "journal → status 200"
+            },
+            {
+              "name": "journal → response < 5s",
+              "path": "::08 Journal::journal → response < 5s",
+              "id": "518501a1e04840d58926b53e00dc77fa",
+              "passes": 48,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "09 Import History",
+        "path": "::09 Import History",
+        "id": "53a0ecd7a9cdd6e802d7f768d5628bbb",
+        "groups": [],
+        "checks": [
+            {
+              "name": "import/history → status 200",
+              "path": "::09 Import History::import/history → status 200",
+              "id": "75052df19f44221172a09bce080f22eb",
+              "passes": 48,
+              "fails": 0
+            },
+            {
+              "fails": 0,
+              "name": "import/history → response < 5s",
+              "path": "::09 Import History::import/history → response < 5s",
+              "id": "df52773170db36018ee4c46c746b9df9",
+              "passes": 48
+            }
+          ]
+      },
+      {
+        "name": "10 Bank Rules",
+        "path": "::10 Bank Rules",
+        "id": "0876cfe88323a5e7c88c33908c159f1d",
+        "groups": [],
+        "checks": [
+            {
+              "name": "bank-rules → status 200",
+              "path": "::10 Bank Rules::bank-rules → status 200",
+              "id": "3eecb96062b77a6c67cde5e5f7f97ea1",
+              "passes": 48,
+              "fails": 0
+            },
+            {
+              "name": "bank-rules → response < 5s",
+              "path": "::10 Bank Rules::bank-rules → response < 5s",
+              "id": "82cf94a57e57edaeb477575b82da4565",
+              "passes": 48,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "11 Fiscal Periods",
+        "path": "::11 Fiscal Periods",
+        "id": "524ed145d14cc94b243ac5b9c81ae938",
+        "groups": [],
+        "checks": [
+            {
+              "passes": 48,
+              "fails": 0,
+              "name": "settings/fiscal-periods → status 200",
+              "path": "::11 Fiscal Periods::settings/fiscal-periods → status 200",
+              "id": "c00bab702073ca25f7952f7de9f0580b"
+            },
+            {
+              "fails": 0,
+              "name": "settings/fiscal-periods → response < 5s",
+              "path": "::11 Fiscal Periods::settings/fiscal-periods → response < 5s",
+              "id": "f9c527b3613df5cc1dae7f01a77f62d6",
+              "passes": 48
+            }
+          ]
+      },
+      {
+        "name": "12 Movement Summary",
+        "path": "::12 Movement Summary",
+        "id": "313aafe03c481dd1dceb42ec1d9b7b8a",
+        "groups": [],
+        "checks": [
+            {
+              "fails": 0,
+              "name": "movement-summary → status 200",
+              "path": "::12 Movement Summary::movement-summary → status 200",
+              "id": "6a86486a0a7a219811b646f8c296afc8",
+              "passes": 48
+            },
+            {
+              "id": "ba78725f9d6ecfcd1beeaafff06ff5d7",
+              "passes": 48,
+              "fails": 0,
+              "name": "movement-summary → response < 5s",
+              "path": "::12 Movement Summary::movement-summary → response < 5s"
+            }
+          ]
+      },
+      {
+        "name": "13 Report Trial Balance PDF",
+        "path": "::13 Report Trial Balance PDF",
+        "id": "c015b449977c030f67457bbfdcb7d2a6",
+        "groups": [],
+        "checks": [
+            {
+              "passes": 45,
+              "fails": 3,
+              "name": "trial_balance pdf → 200",
+              "path": "::13 Report Trial Balance PDF::trial_balance pdf → 200",
+              "id": "35d2e5bbd7de152d4024fae3a9b398ea"
+            },
+            {
+              "id": "eef8ed8ca8f8c159a54ad882c53f08cf",
+              "passes": 45,
+              "fails": 3,
+              "name": "trial_balance pdf → html",
+              "path": "::13 Report Trial Balance PDF::trial_balance pdf → html"
+            }
+          ]
+      },
+      {
+        "name": "14 Report Transactions PDF",
+        "path": "::14 Report Transactions PDF",
+        "id": "98334eaab53abae7ed8e6b8270f22350",
+        "groups": [],
+        "checks": [
+            {
+              "passes": 45,
+              "fails": 3,
+              "name": "transactions pdf → 200",
+              "path": "::14 Report Transactions PDF::transactions pdf → 200",
+              "id": "b792718e7adea5e5b2ebde1aa9b31eeb"
+            }
+          ]
+      },
+      {
+        "name": "15 Report Trial Balance CSV",
+        "path": "::15 Report Trial Balance CSV",
+        "id": "86ea17cf1c4ddf5da93b5bcd34abb885",
+        "groups": [],
+        "checks": [
+            {
+              "id": "6134dae323fffe378b9cb8d3de31ea7a",
+              "passes": 48,
+              "fails": 0,
+              "name": "trial_balance csv → 200",
+              "path": "::15 Report Trial Balance CSV::trial_balance csv → 200"
+            }
+          ]
+      }
+    ],
+    "checks": [],
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e"
+  }
+}

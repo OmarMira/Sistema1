@@ -1,0 +1,612 @@
+{
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 910.4738
+  },
+  "metrics": {
+    "http_req_connecting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 0.07481333333333333,
+        "min": 0,
+        "med": 0,
+        "max": 0.5885,
+        "p(90)": 0.3202199999999998,
+        "p(95)": 0.55014,
+        "p(99)": 0.580828
+      }
+    },
+    "http_req_tls_handshaking": {
+      "contains": "time",
+      "values": {
+        "min": 0,
+        "med": 0,
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "avg": 0
+      },
+      "type": "trend"
+    },
+    "checks": {
+      "values": {
+        "fails": 1,
+        "rate": 0.9615384615384616,
+        "passes": 25
+      },
+      "type": "rate",
+      "contains": "default"
+    },
+    "error_rate": {
+      "values": {
+        "rate": 0.09090909090909091,
+        "passes": 1,
+        "fails": 10
+      },
+      "thresholds": {
+        "rate<0.02": {
+          "ok": false
+        }
+      },
+      "type": "rate",
+      "contains": "default"
+    },
+    "total_requests": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 14,
+        "rate": 15.376609409298762
+      }
+    },
+    "report_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 7.373,
+        "max": 7.719,
+        "p(90)": 7.6498,
+        "p(95)": 7.6844,
+        "p(99)": 7.71208,
+        "avg": 7.373,
+        "min": 7.027
+      },
+      "thresholds": {
+        "p(95)<5000": {
+          "ok": true
+        }
+      }
+    },
+    "data_received": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 61303,
+        "rate": 67330.87761558872
+      }
+    },
+    "dashboard_duration": {
+      "thresholds": {
+        "p(95)<3000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 13.7617,
+        "avg": 13.7617,
+        "min": 13.7617,
+        "med": 13.7617,
+        "max": 13.7617,
+        "p(90)": 13.7617,
+        "p(95)": 13.7617
+      }
+    },
+    "http_req_blocked": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 10.408753999999995,
+        "avg": 0.8397266666666667,
+        "min": 0,
+        "med": 0,
+        "max": 12.0074,
+        "p(90)": 0.3530999999999998,
+        "p(95)": 4.0141699999999885
+      }
+    },
+    "http_req_sending": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "avg": 0,
+        "min": 0,
+        "med": 0
+      }
+    },
+    "data_sent": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 3620,
+        "rate": 3975.9518615472516
+      }
+    },
+    "http_req_receiving": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 0.5601,
+        "max": 1.0337,
+        "p(90)": 0.8997999999999999,
+        "p(95)": 0.97329,
+        "p(99)": 1.021618,
+        "avg": 0.50268,
+        "min": 0
+      }
+    },
+    "iteration_duration": {
+      "values": {
+        "med": 602.6655,
+        "max": 602.6655,
+        "p(90)": 602.6655,
+        "p(95)": 602.6655,
+        "p(99)": 602.6655,
+        "avg": 602.6655,
+        "min": 602.6655
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "login_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 285.9768,
+        "min": 285.9768,
+        "med": 285.9768,
+        "max": 285.9768,
+        "p(90)": 285.9768,
+        "p(95)": 285.9768,
+        "p(99)": 285.9768
+      },
+      "thresholds": {
+        "p(95)<2000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_waiting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 25.325066666666665,
+        "min": 2.6862,
+        "med": 7.027,
+        "max": 284.9431,
+        "p(90)": 11.421879999999998,
+        "p(95)": 94.78942999999971,
+        "p(99)": 246.91236599999982
+      }
+    },
+    "group_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 10.494929999999998,
+        "p(99)": 13.108345999999996,
+        "avg": 7.326542857142856,
+        "min": 2.6862,
+        "med": 7.14465,
+        "max": 13.7617,
+        "p(90)": 8.69879
+      }
+    },
+    "accounts_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 8.6122,
+        "max": 8.6122,
+        "p(90)": 8.6122,
+        "p(95)": 8.6122,
+        "p(99)": 8.6122,
+        "avg": 8.6122,
+        "min": 8.6122
+      },
+      "thresholds": {
+        "p(95)<2000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(90)": 11.751379999999997,
+        "p(95)": 95.42622999999972,
+        "p(99)": 247.86668599999985,
+        "avg": 25.827746666666663,
+        "min": 2.6862,
+        "med": 7.0705,
+        "max": 285.9768
+      },
+      "thresholds": {
+        "p(95)<3000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "fails": 14,
+        "rate": 0.06666666666666667,
+        "passes": 1
+      },
+      "thresholds": {
+        "rate<0.02": {
+          "ok": false
+        }
+      }
+    },
+    "http_reqs": {
+      "contains": "default",
+      "values": {
+        "count": 15,
+        "rate": 16.474938652820104
+      },
+      "type": "counter"
+    },
+    "http_req_duration{expected_response:true}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 27.48071428571428,
+        "min": 5.0827,
+        "med": 7.14465,
+        "max": 285.9768,
+        "p(90)": 12.253960000000005,
+        "p(95)": 109.03698499999992,
+        "p(99)": 250.58883699999978
+      }
+    },
+    "iterations": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 1,
+        "rate": 1.0983292435213403
+      }
+    }
+  },
+  "setup_data": {
+    "companyId": "cmpvaf0yu000uc7sc8myh4ssr",
+    "cookieStr": "session=1235606f-ab13-466c-87ad-85674f672bb8"
+  },
+  "root_group": {
+    "name": "",
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [
+      {
+        "name": "01 Health Check",
+        "path": "::01 Health Check",
+        "id": "472078c6426355db47d75dd79b6cb12a",
+        "groups": [],
+        "checks": [
+            {
+              "fails": 0,
+              "name": "health → status 200",
+              "path": "::01 Health Check::health → status 200",
+              "id": "8092b45e3624c794a3460e9b6dfa3c16",
+              "passes": 1
+            },
+            {
+              "path": "::01 Health Check::health → response < 5s",
+              "id": "a55f1da63842ac31faabd9aca6e15f34",
+              "passes": 1,
+              "fails": 0,
+              "name": "health → response < 5s"
+            }
+          ]
+      },
+      {
+        "name": "02 Auth — Me",
+        "path": "::02 Auth — Me",
+        "id": "7941f70b45bc85aa9dabc4a59001750a",
+        "groups": [],
+        "checks": [
+            {
+              "path": "::02 Auth — Me::auth/me → status 200",
+              "id": "a76e3a933c2d41b29b0e8555961c2f30",
+              "passes": 1,
+              "fails": 0,
+              "name": "auth/me → status 200"
+            },
+            {
+              "id": "341d6ab6753f36daf4d514ff8e6351b7",
+              "passes": 1,
+              "fails": 0,
+              "name": "auth/me → response < 5s",
+              "path": "::02 Auth — Me::auth/me → response < 5s"
+            }
+          ]
+      },
+      {
+        "name": "03 Companies",
+        "path": "::03 Companies",
+        "id": "1948b9170e44de8c38a9539c967edf30",
+        "groups": [],
+        "checks": [
+            {
+              "name": "admin/companies → status 200",
+              "path": "::03 Companies::admin/companies → status 200",
+              "id": "f68956e93af7d012e68d552c066b508f",
+              "passes": 1,
+              "fails": 0
+            },
+            {
+              "path": "::03 Companies::admin/companies → response < 5s",
+              "id": "243a262ea625e2e8b92f578edd71c15c",
+              "passes": 1,
+              "fails": 0,
+              "name": "admin/companies → response < 5s"
+            }
+          ]
+      },
+      {
+        "groups": [],
+        "checks": [
+            {
+              "path": "::04 Dashboard::dashboard → status 200",
+              "id": "e6edf4744bb93a7ea6e11f8fc5a5846f",
+              "passes": 1,
+              "fails": 0,
+              "name": "dashboard → status 200"
+            },
+            {
+              "passes": 1,
+              "fails": 0,
+              "name": "dashboard → response < 5s",
+              "path": "::04 Dashboard::dashboard → response < 5s",
+              "id": "4ea8534bd98b13f9eac8aaffdb02482d"
+            }
+          ],
+        "name": "04 Dashboard",
+        "path": "::04 Dashboard",
+        "id": "5da932d040618585e2f196ddadfdc76b"
+      },
+      {
+        "name": "05 GL Accounts",
+        "path": "::05 GL Accounts",
+        "id": "c309d816eeca605ee208232e404be3c3",
+        "groups": [],
+        "checks": [
+            {
+              "name": "accounts/list → status 200",
+              "path": "::05 GL Accounts::accounts/list → status 200",
+              "id": "426ea76dd875d13fbcd3779ae1cb543a",
+              "passes": 1,
+              "fails": 0
+            },
+            {
+              "name": "accounts/list → response < 5s",
+              "path": "::05 GL Accounts::accounts/list → response < 5s",
+              "id": "892f470c1cc5b35be802efad9c5fd8cd",
+              "passes": 1,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "06 Banks",
+        "path": "::06 Banks",
+        "id": "92d3b00cc2b429e964106f08635ca680",
+        "groups": [],
+        "checks": [
+            {
+              "id": "8f51ecfcbd785d32f00251839db31a4e",
+              "passes": 1,
+              "fails": 0,
+              "name": "banks/list → status 200",
+              "path": "::06 Banks::banks/list → status 200"
+            },
+            {
+              "name": "banks/list → response < 5s",
+              "path": "::06 Banks::banks/list → response < 5s",
+              "id": "cf486b1dbb21df6a16765bdcf6288530",
+              "passes": 1,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "groups": [],
+        "checks": [
+            {
+              "id": "1805a3757c6fea553784855c53117357",
+              "passes": 1,
+              "fails": 0,
+              "name": "journal → status 200",
+              "path": "::07 Journal::journal → status 200"
+            },
+            {
+              "path": "::07 Journal::journal → response < 5s",
+              "id": "5411e254e70185c0915001294736eab2",
+              "passes": 1,
+              "fails": 0,
+              "name": "journal → response < 5s"
+            }
+          ],
+        "name": "07 Journal",
+        "path": "::07 Journal",
+        "id": "c50027a86a823e9d434fdf2659aa9c02"
+      },
+      {
+        "name": "08 Import History",
+        "path": "::08 Import History",
+        "id": "9ac56ba0ae1eb40d15e77d78261cfb15",
+        "groups": [],
+        "checks": [
+            {
+              "fails": 0,
+              "name": "import/history → status 200",
+              "path": "::08 Import History::import/history → status 200",
+              "id": "f0edf878644a035e4fb678fb7f536f74",
+              "passes": 1
+            },
+            {
+              "name": "import/history → response < 5s",
+              "path": "::08 Import History::import/history → response < 5s",
+              "id": "756c20f058d1496bc5724b89c4d8c94b",
+              "passes": 1,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "09 Bank Rules",
+        "path": "::09 Bank Rules",
+        "id": "756c5880b70c8d26e9250dee31e809ff",
+        "groups": [],
+        "checks": [
+            {
+              "name": "bank-rules → status 200",
+              "path": "::09 Bank Rules::bank-rules → status 200",
+              "id": "4ec5713061918972dcab1a2b3e82c3ac",
+              "passes": 1,
+              "fails": 0
+            },
+            {
+              "id": "ca61413822c207f6b209ecdefb0c2666",
+              "passes": 1,
+              "fails": 0,
+              "name": "bank-rules → response < 5s",
+              "path": "::09 Bank Rules::bank-rules → response < 5s"
+            }
+          ]
+      },
+      {
+        "groups": [],
+        "checks": [
+            {
+              "name": "fiscal-periods → status 200",
+              "path": "::10 Fiscal Periods::fiscal-periods → status 200",
+              "id": "ffabb11ae9af6363d3e570c1b3c37d23",
+              "passes": 0,
+              "fails": 1
+            },
+            {
+              "name": "fiscal-periods → response < 5s",
+              "path": "::10 Fiscal Periods::fiscal-periods → response < 5s",
+              "id": "d4b0d86c55856e6a277913b16c489eca",
+              "passes": 1,
+              "fails": 0
+            }
+          ],
+        "name": "10 Fiscal Periods",
+        "path": "::10 Fiscal Periods",
+        "id": "73e1bb619d243db97fb5e7d0da3e5857"
+      },
+      {
+        "checks": [
+          {
+            "passes": 1,
+            "fails": 0,
+            "name": "movement-summary → status 200",
+            "path": "::11 Movement Summary::movement-summary → status 200",
+            "id": "aa2b2d24923385892f1700aad3402ee1"
+          },
+          {
+            "name": "movement-summary → response < 5s",
+            "path": "::11 Movement Summary::movement-summary → response < 5s",
+            "id": "8050bb223893aee607180679b1b8a558",
+            "passes": 1,
+            "fails": 0
+          }
+        ],
+        "name": "11 Movement Summary",
+        "path": "::11 Movement Summary",
+        "id": "f90a43e08f59f6e70096e20f628965f7",
+        "groups": []
+      },
+      {
+        "name": "12 Report Trial Balance PDF",
+        "path": "::12 Report Trial Balance PDF",
+        "id": "f35352d596ccbba90975829df364e2fc",
+        "groups": [],
+        "checks": [
+            {
+              "path": "::12 Report Trial Balance PDF::trial_balance pdf → 200",
+              "id": "0293093500707f7591122a40672efa2f",
+              "passes": 1,
+              "fails": 0,
+              "name": "trial_balance pdf → 200"
+            },
+            {
+              "name": "trial_balance pdf → html",
+              "path": "::12 Report Trial Balance PDF::trial_balance pdf → html",
+              "id": "69972f1c31cf1c8f6f9e348a54afcdaa",
+              "passes": 1,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "13 Report Transactions PDF",
+        "path": "::13 Report Transactions PDF",
+        "id": "26031dbc2a6a8cc2ab4dd6e3b28581af",
+        "groups": [],
+        "checks": [
+            {
+              "path": "::13 Report Transactions PDF::transactions pdf → 200",
+              "id": "7d263f15f7a9b2b62e894e0cf0879621",
+              "passes": 1,
+              "fails": 0,
+              "name": "transactions pdf → 200"
+            }
+          ]
+      },
+      {
+        "groups": [],
+        "checks": [
+            {
+              "path": "::14 Report Trial Balance CSV::trial_balance csv → 200",
+              "id": "93d8e2857ff308c4a59a506eae1683e2",
+              "passes": 1,
+              "fails": 0,
+              "name": "trial_balance csv → 200"
+            }
+          ],
+        "name": "14 Report Trial Balance CSV",
+        "path": "::14 Report Trial Balance CSV",
+        "id": "e1b9dd37867b8a4c2c4f85eeec82df93"
+      }
+    ],
+    "checks": []
+  },
+  "options": {
+    "summaryTrendStats": [
+      "avg",
+      "min",
+      "med",
+      "max",
+      "p(90)",
+      "p(95)",
+      "p(99)"
+    ],
+    "summaryTimeUnit": "",
+    "noColor": false
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "bankId": "boa-standard",
+  "bankName": "Bank of America",
+  "fingerprints": ["Bank of America", "Business Advantage Relationship Banking"],
+  "layoutType": "SINGLE_AMOUNT_COLUMN",
+  "lineGroupingTolerancePx": 5,
+  "numberFormat": {
+    "decimalSeparator": ".",
+    "thousandsSeparator": ",",
+    "negativeIndicator": "MINUS_SIGN",
+    "negativePosition": "PREFIX"
+  },
+  "rules": {
+    "anchor": {
+      "regex": "^\\d{1,2}/\\d{1,2}/\\d{2,4}$",
+      "columnRange": [0.0, 0.18]
+    },
+    "columns": {
+      "date": [0.0, 0.18],
+      "description": [0.12, 0.80],
+      "amount": [0.80, 1.00]
+    },
+    "metadata": {
+      "accountNumber": [
+        { "regex": "(?:Account number|Account\\s*#|Account\\s*no\\.?|Account\\s*Number|Numero de cuenta):?\\s*([0-9\\s\\-]+)", "captureGroup": 1 }
+      ],
+      "initialBalance": [
+        { "regex": "(?:Beginning|Starting|Opening|Saldo\\s+inicial|Saldo\\s+anterior)\\s+(?:balance)?(?:\\s+on\\s+[^$]+)?\\s+\\$?([0-9,.-]+)", "captureGroup": 1 },
+        { "regex": "Beginning\\s+balance\\s+\\$?([0-9,.-]+)", "captureGroup": 1 }
+      ],
+      "finalBalance": [
+        { "regex": "(?:Ending|Closing|New|Saldo\\s+final|Nuevo\\s+saldo)\\s+(?:balance)?(?:\\s+on\\s+[^$]+)?\\s+\\$?([0-9,.-]+)", "captureGroup": 1 },
+        { "regex": "Ending\\s+balance\\s+\\$?([0-9,.-]+)", "captureGroup": 1 }
+      ]
+    },
+    "stopSectionRegex": "Daily ledger balances|Daily Ledger Balances|Daily Ledger"
+  }
+}

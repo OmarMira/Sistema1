@@ -1,0 +1,675 @@
+{
+  "root_group": {
+    "path": "",
+    "id": "d41d8cd98f00b204e9800998ecf8427e",
+    "groups": [
+      {
+        "path": "::01 Health Check",
+        "id": "472078c6426355db47d75dd79b6cb12a",
+        "groups": [],
+        "checks": [
+            {
+              "passes": 2,
+              "fails": 0,
+              "name": "health → status 200",
+              "path": "::01 Health Check::health → status 200",
+              "id": "8092b45e3624c794a3460e9b6dfa3c16"
+            },
+            {
+              "name": "health → response < 5s",
+              "path": "::01 Health Check::health → response < 5s",
+              "id": "a55f1da63842ac31faabd9aca6e15f34",
+              "passes": 2,
+              "fails": 0
+            }
+          ],
+        "name": "01 Health Check"
+      },
+      {
+        "path": "::02 Auth — Me",
+        "id": "7941f70b45bc85aa9dabc4a59001750a",
+        "groups": [],
+        "checks": [
+            {
+              "name": "auth/me → status 200",
+              "path": "::02 Auth — Me::auth/me → status 200",
+              "id": "a76e3a933c2d41b29b0e8555961c2f30",
+              "passes": 2,
+              "fails": 0
+            },
+            {
+              "fails": 0,
+              "name": "auth/me → response < 5s",
+              "path": "::02 Auth — Me::auth/me → response < 5s",
+              "id": "341d6ab6753f36daf4d514ff8e6351b7",
+              "passes": 2
+            }
+          ],
+        "name": "02 Auth — Me"
+      },
+      {
+        "checks": [
+          {
+            "name": "admin/companies → status 200",
+            "path": "::03 Companies::admin/companies → status 200",
+            "id": "f68956e93af7d012e68d552c066b508f",
+            "passes": 2,
+            "fails": 0
+          },
+          {
+            "name": "admin/companies → response < 5s",
+            "path": "::03 Companies::admin/companies → response < 5s",
+            "id": "243a262ea625e2e8b92f578edd71c15c",
+            "passes": 2,
+            "fails": 0
+          }
+        ],
+        "name": "03 Companies",
+        "path": "::03 Companies",
+        "id": "1948b9170e44de8c38a9539c967edf30",
+        "groups": []
+      },
+      {
+        "id": "5da932d040618585e2f196ddadfdc76b",
+        "groups": [],
+        "checks": [
+            {
+              "passes": 2,
+              "fails": 0,
+              "name": "dashboard → status 200",
+              "path": "::04 Dashboard::dashboard → status 200",
+              "id": "e6edf4744bb93a7ea6e11f8fc5a5846f"
+            },
+            {
+              "fails": 0,
+              "name": "dashboard → response < 5s",
+              "path": "::04 Dashboard::dashboard → response < 5s",
+              "id": "4ea8534bd98b13f9eac8aaffdb02482d",
+              "passes": 2
+            }
+          ],
+        "name": "04 Dashboard",
+        "path": "::04 Dashboard"
+      },
+      {
+        "name": "05 GL Accounts",
+        "path": "::05 GL Accounts",
+        "id": "c309d816eeca605ee208232e404be3c3",
+        "groups": [],
+        "checks": [
+            {
+              "passes": 2,
+              "fails": 0,
+              "name": "accounts/list → status 200",
+              "path": "::05 GL Accounts::accounts/list → status 200",
+              "id": "426ea76dd875d13fbcd3779ae1cb543a"
+            },
+            {
+              "name": "accounts/list → response < 5s",
+              "path": "::05 GL Accounts::accounts/list → response < 5s",
+              "id": "892f470c1cc5b35be802efad9c5fd8cd",
+              "passes": 2,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "06 Banks",
+        "path": "::06 Banks",
+        "id": "92d3b00cc2b429e964106f08635ca680",
+        "groups": [],
+        "checks": [
+            {
+              "id": "8f51ecfcbd785d32f00251839db31a4e",
+              "passes": 2,
+              "fails": 0,
+              "name": "banks/list → status 200",
+              "path": "::06 Banks::banks/list → status 200"
+            },
+            {
+              "fails": 0,
+              "name": "banks/list → response < 5s",
+              "path": "::06 Banks::banks/list → response < 5s",
+              "id": "cf486b1dbb21df6a16765bdcf6288530",
+              "passes": 2
+            }
+          ]
+      },
+      {
+        "checks": [
+          {
+            "fails": 0,
+            "name": "reconciliation/pending_review → status 200",
+            "path": "::07a Reconciliation Pending Review::reconciliation/pending_review → status 200",
+            "id": "66e982eaca3e5dce03b8f54f64939247",
+            "passes": 2
+          },
+          {
+            "path": "::07a Reconciliation Pending Review::reconciliation/pending_review → response < 5s",
+            "id": "2a877006329cacc96217019752029441",
+            "passes": 2,
+            "fails": 0,
+            "name": "reconciliation/pending_review → response < 5s"
+          }
+        ],
+        "name": "07a Reconciliation Pending Review",
+        "path": "::07a Reconciliation Pending Review",
+        "id": "af6606393addf8623e1dc3f4b76042d3",
+        "groups": []
+      },
+      {
+        "path": "::07b Reconciliation Unreconciled",
+        "id": "efe2f072657c4ee4219eb05e83ec5f4c",
+        "groups": [],
+        "checks": [
+            {
+              "name": "reconciliation/unreconciled → status 200",
+              "path": "::07b Reconciliation Unreconciled::reconciliation/unreconciled → status 200",
+              "id": "bb47cebdf1a3750bf2b550d9fb70d38a",
+              "passes": 2,
+              "fails": 0
+            },
+            {
+              "fails": 0,
+              "name": "reconciliation/unreconciled → response < 5s",
+              "path": "::07b Reconciliation Unreconciled::reconciliation/unreconciled → response < 5s",
+              "id": "424560796071031642e3904b4a7cb7ec",
+              "passes": 2
+            }
+          ],
+        "name": "07b Reconciliation Unreconciled"
+      },
+      {
+        "name": "08 Journal",
+        "path": "::08 Journal",
+        "id": "69f70d54aba3e7a37307a55a24acf10e",
+        "groups": [],
+        "checks": [
+            {
+              "name": "journal → status 200",
+              "path": "::08 Journal::journal → status 200",
+              "id": "64e4af5bc027aa0d761f64b3c0837c40",
+              "passes": 2,
+              "fails": 0
+            },
+            {
+              "id": "518501a1e04840d58926b53e00dc77fa",
+              "passes": 2,
+              "fails": 0,
+              "name": "journal → response < 5s",
+              "path": "::08 Journal::journal → response < 5s"
+            }
+          ]
+      },
+      {
+        "name": "09 Import History",
+        "path": "::09 Import History",
+        "id": "53a0ecd7a9cdd6e802d7f768d5628bbb",
+        "groups": [],
+        "checks": [
+            {
+              "path": "::09 Import History::import/history → status 200",
+              "id": "75052df19f44221172a09bce080f22eb",
+              "passes": 2,
+              "fails": 0,
+              "name": "import/history → status 200"
+            },
+            {
+              "name": "import/history → response < 5s",
+              "path": "::09 Import History::import/history → response < 5s",
+              "id": "df52773170db36018ee4c46c746b9df9",
+              "passes": 2,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "10 Bank Rules",
+        "path": "::10 Bank Rules",
+        "id": "0876cfe88323a5e7c88c33908c159f1d",
+        "groups": [],
+        "checks": [
+            {
+              "name": "bank-rules → status 200",
+              "path": "::10 Bank Rules::bank-rules → status 200",
+              "id": "3eecb96062b77a6c67cde5e5f7f97ea1",
+              "passes": 2,
+              "fails": 0
+            },
+            {
+              "name": "bank-rules → response < 5s",
+              "path": "::10 Bank Rules::bank-rules → response < 5s",
+              "id": "82cf94a57e57edaeb477575b82da4565",
+              "passes": 2,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "11 Fiscal Periods",
+        "path": "::11 Fiscal Periods",
+        "id": "524ed145d14cc94b243ac5b9c81ae938",
+        "groups": [],
+        "checks": [
+            {
+              "name": "settings/fiscal-periods → status 200",
+              "path": "::11 Fiscal Periods::settings/fiscal-periods → status 200",
+              "id": "c00bab702073ca25f7952f7de9f0580b",
+              "passes": 2,
+              "fails": 0
+            },
+            {
+              "passes": 2,
+              "fails": 0,
+              "name": "settings/fiscal-periods → response < 5s",
+              "path": "::11 Fiscal Periods::settings/fiscal-periods → response < 5s",
+              "id": "f9c527b3613df5cc1dae7f01a77f62d6"
+            }
+          ]
+      },
+      {
+        "id": "313aafe03c481dd1dceb42ec1d9b7b8a",
+        "groups": [],
+        "checks": [
+            {
+              "name": "movement-summary → status 200",
+              "path": "::12 Movement Summary::movement-summary → status 200",
+              "id": "6a86486a0a7a219811b646f8c296afc8",
+              "passes": 2,
+              "fails": 0
+            },
+            {
+              "name": "movement-summary → response < 5s",
+              "path": "::12 Movement Summary::movement-summary → response < 5s",
+              "id": "ba78725f9d6ecfcd1beeaafff06ff5d7",
+              "passes": 2,
+              "fails": 0
+            }
+          ],
+        "name": "12 Movement Summary",
+        "path": "::12 Movement Summary"
+      },
+      {
+        "checks": [
+          {
+            "name": "trial_balance pdf → 200",
+            "path": "::13 Report Trial Balance PDF::trial_balance pdf → 200",
+            "id": "35d2e5bbd7de152d4024fae3a9b398ea",
+            "passes": 2,
+            "fails": 0
+          },
+          {
+            "path": "::13 Report Trial Balance PDF::trial_balance pdf → html",
+            "id": "eef8ed8ca8f8c159a54ad882c53f08cf",
+            "passes": 2,
+            "fails": 0,
+            "name": "trial_balance pdf → html"
+          }
+        ],
+        "name": "13 Report Trial Balance PDF",
+        "path": "::13 Report Trial Balance PDF",
+        "id": "c015b449977c030f67457bbfdcb7d2a6",
+        "groups": []
+      },
+      {
+        "name": "14 Report Transactions PDF",
+        "path": "::14 Report Transactions PDF",
+        "id": "98334eaab53abae7ed8e6b8270f22350",
+        "groups": [],
+        "checks": [
+            {
+              "name": "transactions pdf → 200",
+              "path": "::14 Report Transactions PDF::transactions pdf → 200",
+              "id": "b792718e7adea5e5b2ebde1aa9b31eeb",
+              "passes": 2,
+              "fails": 0
+            }
+          ]
+      },
+      {
+        "name": "15 Report Trial Balance CSV",
+        "path": "::15 Report Trial Balance CSV",
+        "id": "86ea17cf1c4ddf5da93b5bcd34abb885",
+        "groups": [],
+        "checks": [
+            {
+              "passes": 2,
+              "fails": 0,
+              "name": "trial_balance csv → 200",
+              "path": "::15 Report Trial Balance CSV::trial_balance csv → 200",
+              "id": "6134dae323fffe378b9cb8d3de31ea7a"
+            }
+          ]
+      }
+    ],
+    "checks": [],
+    "name": ""
+  },
+  "options": {
+    "summaryTimeUnit": "",
+    "noColor": false,
+    "summaryTrendStats": [
+      "avg",
+      "min",
+      "med",
+      "max",
+      "p(90)",
+      "p(95)",
+      "p(99)"
+    ]
+  },
+  "state": {
+    "isStdOutTTY": false,
+    "isStdErrTTY": false,
+    "testRunDurationMs": 11559.1623
+  },
+  "metrics": {
+    "http_req_waiting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 3463.921127000007,
+        "avg": 274.5021852941176,
+        "min": 25.6261,
+        "med": 108.59145,
+        "max": 4848.782,
+        "p(90)": 315.44407999999993,
+        "p(95)": 475.59392999999943
+      }
+    },
+    "http_req_receiving": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 26.679956,
+        "avg": 4.259170588235294,
+        "min": 0,
+        "med": 2.6820500000000003,
+        "max": 27.0386,
+        "p(90)": 5.0241,
+        "p(95)": 23.10843999999999
+      }
+    },
+    "http_req_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 278.7781705882352,
+        "min": 26.4942,
+        "med": 112.7591,
+        "max": 4852.1593,
+        "p(90)": 319.2590399999999,
+        "p(95)": 476.84489999999937,
+        "p(99)": 3467.363404000007
+      },
+      "thresholds": {
+        "p(95)<5000": {
+          "ok": true
+        }
+      }
+    },
+    "data_sent": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "count": 8463,
+        "rate": 732.1464808916127
+      }
+    },
+    "total_requests": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 32,
+        "rate": 2.7683667007599677
+      }
+    },
+    "vus_max": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 1,
+        "min": 1,
+        "max": 1
+      }
+    },
+    "http_req_failed": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 0,
+        "passes": 0,
+        "fails": 34
+      },
+      "thresholds": {
+        "rate<0.05": {
+          "ok": true
+        }
+      }
+    },
+    "http_reqs": {
+      "type": "counter",
+      "contains": "default",
+      "values": {
+        "count": 34,
+        "rate": 2.9413896195574654
+      }
+    },
+    "http_req_blocked": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "avg": 1.4321558823529412,
+        "min": 0,
+        "med": 0,
+        "max": 47.0356,
+        "p(90)": 0,
+        "p(95)": 0.7490649999999989,
+        "p(99)": 31.87513600000008
+      }
+    },
+    "checks": {
+      "type": "rate",
+      "contains": "default",
+      "values": {
+        "rate": 1,
+        "passes": 60,
+        "fails": 0
+      }
+    },
+    "accounts_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(99)": 152.073163,
+        "avg": 119.37365,
+        "min": 86.0068,
+        "med": 119.37365,
+        "max": 152.7405,
+        "p(90)": 146.06713,
+        "p(95)": 149.403815
+      },
+      "thresholds": {
+        "p(95)<2000": {
+          "ok": true
+        }
+      }
+    },
+    "vus": {
+      "type": "gauge",
+      "contains": "default",
+      "values": {
+        "value": 1,
+        "min": 0,
+        "max": 1
+      }
+    },
+    "iterations": {
+      "contains": "default",
+      "values": {
+        "count": 2,
+        "rate": 0.17302291879749798
+      },
+      "type": "counter"
+    },
+    "report_duration": {
+      "values": {
+        "max": 138.0947,
+        "p(90)": 130.12106,
+        "p(95)": 134.10787999999997,
+        "p(99)": 137.29733599999997,
+        "avg": 90.45845,
+        "min": 33.0192,
+        "med": 95.35995
+      },
+      "thresholds": {
+        "p(95)<10000": {
+          "ok": true
+        }
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "dashboard_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 188.33550000000002,
+        "max": 227.4182,
+        "p(90)": 219.60166,
+        "p(95)": 223.50993,
+        "p(99)": 226.636546,
+        "avg": 188.33550000000002,
+        "min": 149.2528
+      },
+      "thresholds": {
+        "p(95)<3000": {
+          "ok": true
+        }
+      }
+    },
+    "http_req_connecting": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "p(95)": 0.1799349999999989,
+        "p(99)": 0.903169000000001,
+        "avg": 0.047320588235294114,
+        "min": 0,
+        "med": 0,
+        "max": 1.0948,
+        "p(90)": 0
+      }
+    },
+    "iteration_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 3139.8421500000004,
+        "max": 3887.2265,
+        "p(90)": 3737.7496300000003,
+        "p(95)": 3812.4880650000005,
+        "p(99)": 3872.278813,
+        "avg": 3139.8421500000004,
+        "min": 2392.4578
+      }
+    },
+    "group_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "min": 27.062,
+        "med": 112.0391,
+        "max": 656.6468,
+        "p(90)": 202.90013000000002,
+        "p(95)": 296.6127999999999,
+        "p(99)": 571.0351230000003,
+        "avg": 133.686196875
+      }
+    },
+    "data_received": {
+      "type": "counter",
+      "contains": "data",
+      "values": {
+        "rate": 42440.359194541285,
+        "count": 490575
+      }
+    },
+    "login_duration": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "max": 4852.1593,
+        "p(90)": 4852.1593,
+        "p(95)": 4852.1593,
+        "p(99)": 4852.1593,
+        "avg": 4852.1593,
+        "min": 4852.1593,
+        "med": 4852.1593
+      },
+      "thresholds": {
+        "p(95)<5000": {
+          "ok": true
+        }
+      }
+    },
+    "error_rate": {
+      "contains": "default",
+      "values": {
+        "fails": 26,
+        "rate": 0,
+        "passes": 0
+      },
+      "thresholds": {
+        "rate<0.05": {
+          "ok": true
+        }
+      },
+      "type": "rate"
+    },
+    "http_req_duration{expected_response:true}": {
+      "type": "trend",
+      "contains": "time",
+      "values": {
+        "med": 112.7591,
+        "max": 4852.1593,
+        "p(90)": 319.2590399999999,
+        "p(95)": 476.84489999999937,
+        "p(99)": 3467.363404000007,
+        "avg": 278.7781705882352,
+        "min": 26.4942
+      }
+    },
+    "http_req_tls_handshaking": {
+      "values": {
+        "max": 0,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0,
+        "avg": 0,
+        "min": 0,
+        "med": 0
+      },
+      "type": "trend",
+      "contains": "time"
+    },
+    "http_req_sending": {
+      "contains": "time",
+      "values": {
+        "avg": 0.01681470588235294,
+        "min": 0,
+        "med": 0,
+        "max": 0.5717,
+        "p(90)": 0,
+        "p(95)": 0,
+        "p(99)": 0.38303900000000096
+      },
+      "type": "trend"
+    }
+  },
+  "setup_data": {
+    "firstBankAccountId": "cmq5x3sjt0003c7h0evesf6my",
+    "companyId": "cmq5uoz8h003zc7r0z8tj9tfe",
+    "cookieStr": "session=6602bbcb-becb-4365-ac8f-c905b27b11ba"
+  }
+}

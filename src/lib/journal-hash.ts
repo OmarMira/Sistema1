@@ -117,8 +117,8 @@ export async function verifyJournalChain(
 
   for (let i = 0; i < entriesWithHash.length; i++) {
     const entry = entriesWithHash[i];
-    const totalDebit = entry.lines.reduce((s, l) => s + l.debit, 0);
-    const totalCredit = entry.lines.reduce((s, l) => s + l.credit, 0);
+    const totalDebit = entry.lines.reduce((s, l) => s + l.debit.toNumber(), 0);
+    const totalCredit = entry.lines.reduce((s, l) => s + l.credit.toNumber(), 0);
 
     const expectedHash = computeEntryHash({
       id: entry.id,

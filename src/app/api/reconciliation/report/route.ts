@@ -65,10 +65,12 @@ export async function GET(request: NextRequest) {
   let balancePerBooks = 0;
   const isDebitNormal = bankAccount.glAccount.normalBalance === 'debit';
   for (const line of journalLines) {
+    const debit = line.debit.toNumber();
+    const credit = line.credit.toNumber();
     if (isDebitNormal) {
-      balancePerBooks += line.debit - line.credit;
+      balancePerBooks += debit - credit;
     } else {
-      balancePerBooks += line.credit - line.debit;
+      balancePerBooks += credit - debit;
     }
   }
 
@@ -80,7 +82,7 @@ export async function GET(request: NextRequest) {
     },
     _sum: { amount: true },
   });
-  const balancePerStatement = reconciledResult._sum.amount ?? 0;
+  const balancePerStatement = reconciledResult._sum.amount?.toNumber() ?? 0;
 
   const difference = balancePerStatement - balancePerBooks;
 

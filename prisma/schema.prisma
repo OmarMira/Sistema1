@@ -7,6 +7,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum TransactionIntent {
+  LOAN_PAYMENT
+  RENT_PAYMENT
+  OPERATING_EXPENSE
+  OWNER_CONTRIBUTION
+  CUSTOMER_PAYMENT
+  TRANSFER
+  TAX_PAYMENT
+  OTHER
+}
+
 model User {
   id                    String                 @id @default(cuid())
   email                 String                 @unique
@@ -47,6 +58,7 @@ model Company {
   isActive              Boolean                @default(true)
   isOnboardingComplete  Boolean                @default(false)
   entityFirstMode       Boolean                @default(false)
+  autoRoleAssignment    Boolean                @default(false)
   maxApplyTransactions  Int?
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
@@ -61,6 +73,7 @@ model Company {
   journalEntries        JournalEntry[]
   reconciliationPeriods ReconciliationPeriod[]
   systemMemories        SystemMemory[]
+  detectionConfig       DetectionConfig?
 }
 
 model CompanyMember {
@@ -95,6 +108,7 @@ model GlAccount {
   entityContexts  EntityContext[]
   parent          GlAccount?        @relation("AccountHierarchy", fields: [parentId], references: [id])
   children        GlAccount[]       @relation("AccountHierarchy")
+  balance         Decimal           @default(0) @db.Decimal(18, 2)
   company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   journalLines    JournalLine[]
 
@@ -111,8 +125,8 @@ model BankAccount {
   accountNo             String?
   routingNo             String?
   glAccountId           String
-  balance               Decimal               @default(0) @db.Decimal(18, 2)
-  initialBalance        Decimal               @default(0) @db.Decimal(18, 2)
+  balance               Decimal                @default(0) @db.Decimal(18, 2)
+  initialBalance        Decimal                @default(0) @db.Decimal(18, 2)
   currency              String                 @default("USD")
   isActive              Boolean                @default(true)
   createdAt             DateTime               @default(now())
@@ -133,10 +147,10 @@ model BankStatement {
   bankAccountId  String
   startDate      DateTime
   endDate        DateTime
-  openingBalance Decimal            @db.Decimal(18, 2)
-  closingBalance Decimal            @db.Decimal(18, 2)
-  totalCredits   Decimal               @default(0) @db.Decimal(18, 2)
-  totalDebits    Decimal               @default(0) @db.Decimal(18, 2)
+  openingBalance Decimal          @db.Decimal(18, 2)
+  closingBalance Decimal          @db.Decimal(18, 2)
+  totalCredits   Decimal          @default(0) @db.Decimal(18, 2)
+  totalDebits    Decimal          @default(0) @db.Decimal(18, 2)
   format         String
   fileName       String?
   createdAt      DateTime          @default(now())
@@ -153,7 +167,7 @@ model BankTransaction {
   statementId            String
   date                   DateTime
   description            String
-  amount                 Decimal               @db.Decimal(18, 2)
+  amount                 Decimal          @db.Decimal(18, 2)
   reference              String?
   isReconciled           Boolean               @default(false)
   isIgnored              Boolean               @default(false)
@@ -163,25 +177,27 @@ model BankTransaction {
   reconciliationPeriodId String?
   status                 String                @default("posted")
   importHash             String?               @unique
-  journalLineId          String?               @unique
   journalEntryId         String?               @unique
+  journalLineId          String?               @unique
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
-  reconciliationPeriod   ReconciliationPeriod? @relation(fields: [reconciliationPeriodId], references: [id])
-  matchedRule            BankRule?             @relation(fields: [matchedRuleId], references: [id])
-  glAccount              GlAccount?            @relation(fields: [glAccountId], references: [id])
-  statement              BankStatement         @relation(fields: [statementId], references: [id], onDelete: Cascade)
   journalEntry           JournalEntry?         @relation(fields: [journalEntryId], references: [id])
+  journalLine            JournalLine?          @relation(fields: [journalLineId], references: [id])
+  reconciliationPeriod   ReconciliationPeriod? @relation(fields: [reconciliationPeriodId], references: [id])
+  matchedRule            BankRule?              @relation(fields: [matchedRuleId], references: [id])
+  glAccount              GlAccount?             @relation(fields: [glAccountId], references: [id])
+  statement              BankStatement          @relation(fields: [statementId], references: [id], onDelete: Cascade)
 
   @@index([statementId])
   @@index([glAccountId])
   @@index([isReconciled])
+  @@index([isIgnored])
   @@index([status])
   @@index([statementId, isReconciled, date])
   @@index([reference])
   @@index([statementId, date])
   @@index([importHash])
-  @@index([isReconciled, journalLineId, date])
+  @@index([isReconciled, journalEntryId, date])
 }
 
 model ReconciliationPeriod {
@@ -189,9 +205,9 @@ model ReconciliationPeriod {
   companyId        String
   bankAccountId    String
   userId           String
-  statementBalance Decimal               @default(0) @db.Decimal(18, 2)
-  bookBalance      Decimal               @default(0) @db.Decimal(18, 2)
-  difference       Decimal               @default(0) @db.Decimal(18, 2)
+  statementBalance Decimal           @default(0) @db.Decimal(18, 2)
+  bookBalance      Decimal           @default(0) @db.Decimal(18, 2)
+  difference       Decimal           @default(0) @db.Decimal(18, 2)
   status           String            @default("open")
   startedAt        DateTime          @default(now())
   completedAt      DateTime?
@@ -219,11 +235,15 @@ model BankRule {
   creditGlAccountId    String?
   priority             Int               @default(10)
   isActive             Boolean           @default(true)
+  entityContextId      String?
+  isManuallyEdited     Boolean           @default(false)
+  intent               TransactionIntent?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   creditGlAccount      GlAccount?        @relation("CreditRuleGlAccount", fields: [creditGlAccountId], references: [id], onDelete: SetNull)
   debitGlAccount       GlAccount?        @relation("DebitRuleGlAccount", fields: [debitGlAccountId], references: [id], onDelete: SetNull)
   glAccount            GlAccount?        @relation("LegacyRuleGlAccount", fields: [glAccountId], references: [id], onDelete: SetNull)
+  entityContext        EntityContext?    @relation(fields: [entityContextId], references: [id], onDelete: SetNull)
   company              Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   transactions         BankTransaction[]
 
@@ -243,20 +263,21 @@ model JournalEntry {
   updatedAt       DateTime          @updatedAt
   company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   lines           JournalLine[]
-  bankTransaction BankTransaction?
+  transactions    BankTransaction[]
 
   @@index([companyId, date])
 }
 
 model JournalLine {
-  id          String       @id @default(cuid())
-  entryId     String
-  glAccountId String
-  description String?
-  debit       Decimal        @default(0) @db.Decimal(18, 2)
-  credit      Decimal        @default(0) @db.Decimal(18, 2)
-  glAccount   GlAccount    @relation(fields: [glAccountId], references: [id])
-  entry       JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  id              String            @id @default(cuid())
+  entryId         String
+  glAccountId     String
+  description     String?
+  debit           Decimal           @default(0) @db.Decimal(18, 2)
+  credit          Decimal           @default(0) @db.Decimal(18, 2)
+  glAccount       GlAccount         @relation(fields: [glAccountId], references: [id])
+  entry           JournalEntry      @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  bankTransaction BankTransaction?
 
   @@index([entryId])
   @@index([glAccountId])
@@ -282,13 +303,13 @@ model AuditLog {
   userId    String?
   action    String
   entity    String
-  entityId     String?
-  details      String?
-  hash         String?
-  previousHash String?
-  createdAt    DateTime @default(now())
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  entityId      String?
+  details       String?
+  hash          String?
+  previousHash  String?
+  createdAt     DateTime          @default(now())
+  user          User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company       Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
   @@index([companyId])
   @@index([createdAt])
@@ -319,10 +340,12 @@ model EntityContext {
   transactionDirection String?
   glAccountId          String?
   source               String     @default("user")
+  autoAssignedAt       DateTime?
   createdAt            DateTime   @default(now())
   updatedAt            DateTime   @updatedAt
   glAccount            GlAccount? @relation(fields: [glAccountId], references: [id], onDelete: SetNull)
   company              Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bankRules            BankRule[]
 
   @@unique([companyId, pattern])
   @@index([companyId])
@@ -373,4 +396,24 @@ model RateLimit {
   updatedAt DateTime @updatedAt
 
   @@index([key])
+}
+
+model SystemConfig {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+model DetectionConfig {
+  companyId      String   @id
+  threshold      Float?
+  clusterMode    String?
+  minOccurrences Int?
+  updatedAt      DateTime @updatedAt
+  updatedBy      String?
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 }

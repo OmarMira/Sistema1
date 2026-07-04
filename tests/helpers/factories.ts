@@ -12,12 +12,17 @@ export async function createTestUser(email: string = 'test@example.com') {
   });
 }
 
-export async function createTestCompany(name: string = 'Test Company', entityType: 'INDIVIDUAL' | 'BUSINESS' = 'BUSINESS') {
+export async function createTestCompany(
+  name: string = 'Test Company',
+  entityType: 'INDIVIDUAL' | 'BUSINESS' = 'BUSINESS',
+  overrides: Partial<{ autoRoleAssignment: boolean }> = {},
+) {
   return db.company.create({
     data: {
       legalName: name,
       entityType,
       taxId: '12-3456789',
+      ...overrides,
     },
   });
 }

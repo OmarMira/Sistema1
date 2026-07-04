@@ -8,7 +8,7 @@ import { POST } from '@/app/api/learning/suggest-role/route';
 
 // ─── Helper ─────────────────────────────────────────────────────
 async function makeRequest(
-  body: unknown,
+  body: Record<string, unknown>,
   token: string,
   companyId: string,
 ): Promise<NextRequest> {
@@ -19,7 +19,7 @@ async function makeRequest(
       'Content-Type': 'application/json',
       'x-company-id': companyId,
     },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: JSON.stringify({ ...body, companyId }),
   });
 }
 
@@ -30,7 +30,7 @@ describe('POST /api/learning/suggest-role', () => {
   beforeEach(async () => {
     await clearDatabase();
     const user = await createTestUser('suggest-role-test@example.com');
-    const company = await createTestCompany('Suggest Role Co');
+    const company = await createTestCompany('Suggest Role Co', 'BUSINESS', { autoRoleAssignment: true });
     companyId = company.id;
     await createTestCompanyMember(user.id, companyId);
     token = await createSession(user.id);
@@ -195,6 +195,100 @@ describe('POST /api/learning/suggest-role', () => {
       const req = await makeRequest({ description: 'Alquiler mensual' }, token, companyId);
       const res = await POST(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(502);
+    });
+  });
+
+  // ─── Auto-role-assignment flag behavior ───────────────────────────
+  describe('auto-role-assignment flag', () => {
+    beforeEach(() => {
+      process.env.AI_API_KEY = 'test-key';
+      process.env.AI_BASE_URL = 'https://api.test.openrouter.ai/v1';
+      process.env.AI_MODEL = 'test-model';
+    });
+
+    afterEach(() => {
+      delete process.env.AI_API_KEY;
+      delete process.env.AI_BASE_URL;
+      delete process.env.AI_MODEL;
+      vi.restoreAllMocks();
+    });
+
+    it('autoRoleAssignment: false caps confidence at 0.69 and NO autoAssign signal', async () => {
+      const company = await createTestCompany('AutoRole False Co', 'BUSINESS', { autoRoleAssignment: false });
+
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              role: 'PROVEEDOR',
+              confidence: 0.92,
+              explanation: 'test provider confidence cap',
+            }),
+          },
+        }],
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), { status: 200 }),
+      );
+
+      const req = await makeRequest({ description: 'Monthly service payment test' }, token, company.id);
+      const res = await POST(req, { params: Promise.resolve({}) });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.confidence).toBe(0.69);
+      expect(body.autoAssign).toBeUndefined();
+    });
+
+    it('autoRoleAssignment: true with high confidence returns uncapped + autoAssign: true', async () => {
+      const company = await createTestCompany('AutoRole True High Co', 'BUSINESS', { autoRoleAssignment: true });
+
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              role: 'PROVEEDOR',
+              confidence: 0.95,
+              explanation: 'test high confidence auto-assign',
+            }),
+          },
+        }],
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), { status: 200 }),
+      );
+
+      const req = await makeRequest({ description: 'High confidence vendor payment' }, token, company.id);
+      const res = await POST(req, { params: Promise.resolve({}) });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.confidence).toBe(0.95);
+      expect(body.autoAssign).toBe(true);
+    });
+
+    it('autoRoleAssignment: true with confidence < 0.9 returns uncapped but no autoAssign', async () => {
+      const company = await createTestCompany('AutoRole True Low Co', 'BUSINESS', { autoRoleAssignment: true });
+
+      const mockResponse = {
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              role: 'PROVEEDOR',
+              confidence: 0.85,
+              explanation: 'test moderate confidence no auto-assign',
+            }),
+          },
+        }],
+      };
+      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+        new Response(JSON.stringify(mockResponse), { status: 200 }),
+      );
+
+      const req = await makeRequest({ description: 'Moderate confidence utility payment' }, token, company.id);
+      const res = await POST(req, { params: Promise.resolve({}) });
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.confidence).toBe(0.85);
+      expect(body.autoAssign).toBeUndefined();
     });
   });
 });

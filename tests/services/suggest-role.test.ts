@@ -24,11 +24,13 @@ async function makeRequest(
 
 describe('POST /api/learning/suggest-role — prompt construction', () => {
   let token: string;
+  let companyId: string;
 
   beforeAll(async () => {
     await clearDatabase();
     const user = await createTestUser('suggest-role-unit@example.com');
-    const company = await createTestCompany('Suggest Role Unit Co');
+    const company = await createTestCompany('Suggest Role Unit Co', 'BUSINESS', { autoRoleAssignment: true });
+    companyId = company.id;
     await createTestCompanyMember(user.id, company.id);
     token = await createSession(user.id);
 
@@ -273,6 +275,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
       const req = await makeRequest({
         description: 'SETOYOTA FIN/EZP',
         directionProfile: { creditPct: 0, debitPct: 1 },
+        companyId,
       }, token);
 
       const res = await POST(req, { params: Promise.resolve({}) });

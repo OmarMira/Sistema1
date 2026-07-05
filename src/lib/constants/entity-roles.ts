@@ -29,6 +29,21 @@ export const entityRoleSchema = z.enum(ENTITY_ROLES);
  * - 'mixed': roles that can go either way (SOCIO)
  * - null: roles without a directional expectation (OTRO, IGNORADA)
  */
+/** Human-readable labels for each entity role. */
+export const ROLE_LABELS: Record<EntityRole, string> = {
+  INQUILINO: 'Inquilino',
+  PROVEEDOR: 'Proveedor',
+  SOCIO: 'Socio',
+  CLIENTE: 'Cliente',
+  EMPLEADO: 'Empleado',
+  TARJETA_CREDITO: 'Tarjeta de crédito',
+  PRESTAMO: 'Préstamo',
+  GASTO_OPERATIVO: 'Gasto operativo',
+  INGRESO: 'Ingreso',
+  OTRO: 'Otro',
+  IGNORADA: 'Ignorada',
+};
+
 export const EXPECTED_DIRECTION: Record<EntityRole, 'credit' | 'debit' | 'mixed' | null> = {
   CLIENTE: 'credit',
   INGRESO: 'credit',

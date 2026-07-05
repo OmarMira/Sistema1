@@ -15,18 +15,27 @@ vi.mock('@/components/ui/select', () => {
     'TARJETA_CREDITO', 'PRESTAMO', 'GASTO_OPERATIVO', 'INGRESO', 'OTRO', 'IGNORADA',
   ];
   return {
-    Select: ({ value, onValueChange, disabled, children }: any) => (
-      <select
-        data-testid="mock-select"
-        value={value ?? ''}
-        onChange={(e) => onValueChange?.(e.target.value)}
-        disabled={disabled}
-      >
-        {ALL_ROLES.map((r) => (
-          <option key={r} value={r}>{r}</option>
-        ))}
-      </select>
-    ),
+    Select: ({ value, onValueChange, disabled, children }: any) => {
+      // Extract data-testid from SelectTrigger child
+      let testId = 'mock-select';
+      React.Children.forEach(children, (child: any) => {
+        if (React.isValidElement(child) && child.props?.['data-testid']) {
+          testId = child.props['data-testid'];
+        }
+      });
+      return (
+        <select
+          data-testid={testId}
+          value={value ?? ''}
+          onChange={(e) => onValueChange?.(e.target.value)}
+          disabled={disabled}
+        >
+          {ALL_ROLES.map((r) => (
+            <option key={r} value={r}>{r}</option>
+          ))}
+        </select>
+      );
+    },
     SelectTrigger: ({ className, children, ...props }: any) => (
       <div data-testid="mock-select-trigger" {...props}>{children}</div>
     ),
@@ -98,6 +107,8 @@ vi.mock('@/store/language-store', () => ({
 const mockToast = vi.hoisted(() => ({
   info: vi.fn(),
   error: vi.fn(),
+  warning: vi.fn(),
+  success: vi.fn(),
   custom: vi.fn(),
   dismiss: vi.fn(),
 }));
@@ -146,7 +157,7 @@ function setupFetch(
 ) {
   mockFetch.mockImplementation((url: string, req?: RequestInit) => {
     const u = typeof url === 'string' ? url : '';
-    if (u.includes('/api/learning/classify-entity') && (!req || req.method === 'GET')) {
+    if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ success: true, data: candidates }),
@@ -203,7 +214,12 @@ describe('EntityOnboardingModal', () => {
       entityIdx: number,
       role: string,
     ) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -278,7 +294,12 @@ describe('EntityOnboardingModal', () => {
   // ── F2: Direction mismatch warning ───────────────────────────────
   describe('F2 — Direction mismatch warning', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -321,7 +342,12 @@ describe('EntityOnboardingModal', () => {
   // ── Block save when all OTRO ─────────────────────────────────────
   describe('F4 — Block save (allOtroOrEmpty)', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -337,8 +363,8 @@ describe('EntityOnboardingModal', () => {
       // Select OTRO
       await selectRole(user, 0, 'OTRO');
 
-      // Save button should exist but be disabled
-      const saveBtn = screen.getByRole('button', { name: /Classify/i });
+      // Main save button should be disabled (OTRO needs description)
+      const saveBtn = screen.getByRole('button', { name: 'Classify entities' });
       expect(saveBtn).toBeDisabled();
     });
 
@@ -355,7 +381,7 @@ describe('EntityOnboardingModal', () => {
       // Set DEBIT to PROVEEDOR (first entity, index 0)
       await selectRole(user, 0, 'PROVEEDOR');
 
-      const saveBtn = screen.getByRole('button', { name: /Classify/i });
+      const saveBtn = screen.getByRole('button', { name: 'Classify entities' });
       expect(saveBtn).not.toBeDisabled();
     });
   });
@@ -363,7 +389,12 @@ describe('EntityOnboardingModal', () => {
   // ── 4.2 — Descriptions snapshot prevents mid-batch pollution (FR-11) ──
   describe('4.2 — Descriptions snapshot (FR-11)', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -382,7 +413,7 @@ describe('EntityOnboardingModal', () => {
       setupFetch([entityA, { ...mixedCandidate, canonicalName: 'ENTITY_B' }]);
       mockFetch.mockImplementation((url: string, req?: RequestInit) => {
         const u = typeof url === 'string' ? url : '';
-        if (u.includes('/api/learning/classify-entity') && (!req || req.method === 'GET')) {
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -419,8 +450,8 @@ describe('EntityOnboardingModal', () => {
       await user.type(textareas[1], 'entity b description');
 
       // Click "Pre classify entities" — this snapshots descriptions
-      const preClassifyBtn = screen.getByRole('button', { name: 'Pre classify entities' });
-      await user.click(preClassifyBtn);
+      const preClassifyFooter = screen.getByRole('button', { name: 'Pre classify entities' });
+      await user.click(preClassifyFooter);
 
       // NOW change entity A's description during the batch
       await user.clear(textareas[0]);
@@ -440,7 +471,7 @@ describe('EntityOnboardingModal', () => {
 
       // Wait for batch to complete
       await waitFor(() => {
-        expect(screen.getByText('Suggestion: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
 
       // Verify the captured descriptions were the ORIGINAL (snapshot) values, not the polluted one
@@ -454,7 +485,13 @@ describe('EntityOnboardingModal', () => {
   // ── 4.3 — Promise.allSettled fires parallel requests with correct bodies ──
   describe('4.3 — Parallel batch requests', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      // Click first available manual-select-btn (array shrinks as entities enter manual mode)
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -488,12 +525,10 @@ describe('EntityOnboardingModal', () => {
       await user.type(textareas[1], 'customer invoice');
       await user.type(textareas[2], 'supplier bill');
 
-      // Click "Pre classify entities"
+      // Click footer "Pre classify entities" button (triggers batch)
       await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
-
-      // Wait for batch completion — 3 success banners (all get same suggestion)
       await waitFor(() => {
-        const banners = screen.getAllByText('Suggestion: PROVEEDOR');
+        const banners = screen.getAllByText('Suggestion: Proveedor');
         expect(banners).toHaveLength(3);
       });
 
@@ -515,7 +550,12 @@ describe('EntityOnboardingModal', () => {
   // ── 4.4 — Batch results update per-entity state independently ──────────
   describe('4.4 — Independent batch results', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -527,7 +567,7 @@ describe('EntityOnboardingModal', () => {
       let callIndex = 0;
       mockFetch.mockImplementation((url: string, req?: RequestInit) => {
         const u = typeof url === 'string' ? url : '';
-        if (u.includes('/api/learning/classify-entity') && (!req || req.method === 'GET')) {
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -595,7 +635,7 @@ describe('EntityOnboardingModal', () => {
       // Wait for all banners to appear
       await waitFor(() => {
         // Entity A: success with high confidence
-        expect(screen.getByText('Suggestion: INQUILINO')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Inquilino')).toBeInTheDocument();
         // Entity B: error banner
         expect(screen.getByText('Not available now. Pick manually.')).toBeInTheDocument();
         // Entity C: low confidence banner
@@ -611,7 +651,12 @@ describe('EntityOnboardingModal', () => {
   // ── 4.6 — handleDiscardSuggestion ──────────────────────────────────────
   describe('4.6 — Discard suggestion', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -643,7 +688,7 @@ describe('EntityOnboardingModal', () => {
 
       // Wait for success banner
       await waitFor(() => {
-        expect(screen.getByText('Suggestion: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
 
       // Click "Discard"
@@ -651,7 +696,7 @@ describe('EntityOnboardingModal', () => {
 
       // Banner should be gone
       await waitFor(() => {
-        expect(screen.queryByText('Suggestion: PROVEEDOR')).not.toBeInTheDocument();
+        expect(screen.queryByText('Suggestion: Proveedor')).not.toBeInTheDocument();
       });
 
       // Entity should still be OTRO — description textarea still visible
@@ -669,7 +714,12 @@ describe('EntityOnboardingModal', () => {
   // ── 4.7 — Button text cycles through all states (additional states) ──
   describe('4.7 — Button text — additional state machine states', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -685,7 +735,7 @@ describe('EntityOnboardingModal', () => {
 
       mockFetch.mockImplementation((url: string, req?: RequestInit) => {
         const u = typeof url === 'string' ? url : '';
-        if (u.includes('/api/learning/classify-entity') && (!req || req.method === 'GET')) {
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -708,6 +758,11 @@ describe('EntityOnboardingModal', () => {
 
       const textarea = await screen.findByPlaceholderText('Describe what this entity is...');
       await user.type(textarea, 'pays invoices monthly');
+
+      // Wait for button to change to "Pre classify entities"
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Pre classify entities' })).not.toBeDisabled();
+      });
 
       // Click "Pre classify entities"
       await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
@@ -745,7 +800,7 @@ describe('EntityOnboardingModal', () => {
 
       // Wait for success
       await waitFor(() => {
-        expect(screen.getByText('Suggestion: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
 
       // Accept the suggestion
@@ -762,12 +817,18 @@ describe('EntityOnboardingModal', () => {
   // ── 4.10 — Modal close aborts in-flight batch requests (FR-10) ─────
   describe('4.10 — Modal close aborts in-flight requests (FR-10)', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
     it('resets batch state and does not persist partial results when modal closes during batch', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      vi.useRealTimers();
+      const user = userEvent.setup();
 
       // Use a controlled promise that resolves after close
       let resolveBatch: ((v: any) => void) | null = null;
@@ -777,7 +838,7 @@ describe('EntityOnboardingModal', () => {
 
       mockFetch.mockImplementation((url: string, req?: RequestInit) => {
         const u = typeof url === 'string' ? url : '';
-        if (u.includes('/api/learning/classify-entity') && (!req || req.method === 'GET')) {
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -806,6 +867,11 @@ describe('EntityOnboardingModal', () => {
       const textarea = await screen.findByPlaceholderText('Describe what this entity is...');
       await user.type(textarea, 'desc for entity');
 
+      // Wait for button text to change to "Pre classify entities" (after state update)
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Pre classify entities' })).not.toBeDisabled();
+      });
+
       // Click "Pre classify entities"
       await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
 
@@ -817,8 +883,8 @@ describe('EntityOnboardingModal', () => {
       // Close modal — unmount the component
       rerender(<EntityOnboardingModal isOpen={false} onClose={vi.fn()} companyId="comp_1" />);
 
-      // Advance to process cleanup effects
-      await vi.advanceTimersByTimeAsync(0);
+      // Flush any pending effects
+      await act(async () => {});
 
       // Now try to resolve the batch — the component is unmounted so no results should appear
       resolveBatch!(
@@ -833,7 +899,7 @@ describe('EntityOnboardingModal', () => {
       );
 
       // Advance to let any microtasks process
-      await vi.advanceTimersByTimeAsync(0);
+      await act(async () => {});
 
       // When we re-open the modal, it should be in clean state
       rerender(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
@@ -843,9 +909,9 @@ describe('EntityOnboardingModal', () => {
       });
 
       // No batch results should appear from the old batch
-      // The button should show "Pre classify entities" (disabled — no description)
+      // The button should show "Classify entities" (disabled — no role selected)
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Pre classify entities' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Classify entities' })).toBeDisabled();
       });
     });
   });
@@ -853,7 +919,12 @@ describe('EntityOnboardingModal', () => {
   // ── 4.11 — Typing during batch does not add new entities (FR-11) ────
   describe('4.11 — Typing during batch does not add new entities (FR-11)', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -869,7 +940,7 @@ describe('EntityOnboardingModal', () => {
 
       mockFetch.mockImplementation((url: string, req?: RequestInit) => {
         const u = typeof url === 'string' ? url : '';
-        if (u.includes('/api/learning/classify-entity') && (!req || req.method === 'GET')) {
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
           return Promise.resolve({
             ok: true,
             json: () =>
@@ -923,11 +994,11 @@ describe('EntityOnboardingModal', () => {
 
       // Wait for batch to complete
       await waitFor(() => {
-        expect(screen.getByText('Suggestion: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
 
       // Only ONE banner should appear (for Entity A). Entity B was typed during batch and excluded.
-      const suggestions = screen.queryAllByText('Suggestion: PROVEEDOR');
+      const suggestions = screen.queryAllByText('Suggestion: Proveedor');
       expect(suggestions).toHaveLength(1);
 
       // Entity B should still have its textarea visible (no batch result banner)
@@ -936,14 +1007,190 @@ describe('EntityOnboardingModal', () => {
     });
   });
 
+  // ── Role-first flow (Opción A) ──────────────────────────────────
+  describe('Role-first flow', () => {
+    async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
+      // Enter manual mode first (role-select is hidden until manual mode or suggestion)
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
+      await user.selectOptions(selects[entityIdx], role);
+    }
+
+    it('enables classify button when at least 1 entity has a valid role (no intent needed)', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate, mixedCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+        expect(screen.getByText('MIXED ENTITY')).toBeInTheDocument();
+      });
+
+      // Select PROVEEDOR for first entity — no intent selected
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      // Main footer button should be enabled (exact match avoids per-entity preClassify buttons)
+      const saveBtn = screen.getByRole('button', { name: 'Classify entities' });
+      expect(saveBtn).not.toBeDisabled();
+    });
+
+    it('sends role + optional intent to classify-entity API', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const capturedBodies: any[] = [];
+
+      mockFetch.mockImplementation((url: string, req?: RequestInit) => {
+        const u = typeof url === 'string' ? url : '';
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: [debitCandidate] }),
+          });
+        }
+        if (u.includes('/api/learning/classify-entity') && req?.method === 'POST') {
+          capturedBodies.push(JSON.parse(req.body as string));
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { role: 'PROVEEDOR' } }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      // Select PROVEEDOR — no intent
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      // Click classify (exact match to avoid per-entity preClassify buttons)
+      const classifyBtn = screen.getByRole('button', { name: 'Classify entities' });
+      await user.click(classifyBtn);
+
+      await waitFor(() => {
+        expect(capturedBodies).toHaveLength(1);
+      });
+
+      // Body should have role but intent can be null
+      expect(capturedBodies[0].role).toBe('PROVEEDOR');
+      // intent is optional — may be null or undefined
+    });
+
+    it('keeps modal open after save when entities remain', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+
+      mockFetch.mockImplementation((url: string, req?: RequestInit) => {
+        const u = typeof url === 'string' ? url : '';
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: [debitCandidate, mixedCandidate] }),
+          });
+        }
+        if (u.includes('/api/learning/classify-entity') && req?.method === 'POST') {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { role: 'PROVEEDOR' } }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+
+      render(<EntityOnboardingModal isOpen onClose={onClose} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+        expect(screen.getByText('MIXED ENTITY')).toBeInTheDocument();
+      });
+
+      // Select PROVEEDOR for first entity only
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      // Click classify (exact match)
+      const classifyBtn = screen.getByRole('button', { name: 'Classify entities' });
+      await user.click(classifyBtn);
+
+      // Wait for save — toast.warning (not success) because MIXED ENTITY was skipped (no role)
+      await waitFor(() => {
+        expect(mockToast.warning).toHaveBeenCalled();
+      });
+
+      // Modal should NOT have closed — MIXED ENTITY is still pending
+      expect(onClose).not.toHaveBeenCalled();
+
+      // MIXED ENTITY should still be visible
+      expect(screen.getByText('MIXED ENTITY')).toBeInTheDocument();
+    });
+
+    it('closes modal when all entities are classified', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      const onClose = vi.fn();
+
+      mockFetch.mockImplementation((url: string, req?: RequestInit) => {
+        const u = typeof url === 'string' ? url : '';
+        if (u.includes('/api/learning/smart-classify') && (!req || req.method === 'GET')) {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: [debitCandidate] }),
+          });
+        }
+        if (u.includes('/api/learning/classify-entity') && req?.method === 'POST') {
+          return Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ success: true, data: { role: 'PROVEEDOR' } }),
+          });
+        }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
+      });
+
+      render(<EntityOnboardingModal isOpen onClose={onClose} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      // Select PROVEEDOR
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      // Click classify (exact match)
+      const classifyBtn = screen.getByRole('button', { name: 'Classify entities' });
+      await user.click(classifyBtn);
+
+      // Wait for save to complete
+      await waitFor(() => {
+        expect(mockToast.success).toHaveBeenCalled();
+      });
+
+      // Modal should close — only 1 entity and it was classified
+      expect(onClose).toHaveBeenCalled();
+    });
+  });
+
   // ── 3.1 — Button text derivation (state machine) ──────────────────
   describe('3.1 — Button text derivation', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      // Enter manual mode first (role-select is hidden until manual mode or suggestion)
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
     it('shows "Classify entities" when no OTRO is selected', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       setupFetch([debitCandidate]);
       render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
 
@@ -951,13 +1198,15 @@ describe('EntityOnboardingModal', () => {
         expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
       });
 
-      // Default role is PROVEEDOR (not OTRO)
+      // Select a non-OTRO role to make button enabled
+      await selectRole(user, 0, 'PROVEEDOR');
+
       const btn = screen.getByRole('button', { name: 'Classify entities' });
       expect(btn).toBeInTheDocument();
       expect(btn).not.toBeDisabled();
     });
 
-    it('shows "Pre classify entities" disabled when OTRO selected but no description', async () => {
+    it('does not show pre-classify button when OTRO selected but no description', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       setupFetch([debitCandidate]);
       render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
@@ -969,10 +1218,11 @@ describe('EntityOnboardingModal', () => {
       // Select OTRO → no description yet
       await selectRole(user, 0, 'OTRO');
 
+      // Textarea should be visible but no pre-classify button yet
       await waitFor(() => {
-        const btn = screen.getByRole('button', { name: 'Pre classify entities' });
-        expect(btn).toBeDisabled();
+        expect(screen.getByPlaceholderText('Describe what this entity is...')).toBeInTheDocument();
       });
+      expect(screen.queryByTestId('pre-classify-btn')).not.toBeInTheDocument();
     });
 
     it('shows "Pre classify entities" enabled when OTRO selected with description >= 5 chars', async () => {
@@ -992,7 +1242,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textarea, 'pays invoices monthly');
 
       await waitFor(() => {
-        const btn = screen.getByRole('button', { name: 'Pre classify entities' });
+        const btn = screen.getByTestId('pre-classify-btn');
         expect(btn).not.toBeDisabled();
       });
     });
@@ -1001,7 +1251,13 @@ describe('EntityOnboardingModal', () => {
   // ── 3.2 — Inline banner rendering ─────────────────────────────────
   describe('3.2 — Inline suggestion banner', () => {
     async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: number, role: string) {
-      const selects = screen.getAllByTestId('mock-select');
+      // Enter manual mode first (role-select is hidden until manual mode or suggestion)
+      const manualBtns = screen.getAllByTestId('manual-select-btn');
+      await user.click(manualBtns[0]);
+      await waitFor(() => {
+        expect(screen.getAllByTestId('role-select').length).toBeGreaterThan(entityIdx);
+      });
+      const selects = screen.getAllByTestId('role-select');
       await user.selectOptions(selects[entityIdx], role);
     }
 
@@ -1034,12 +1290,12 @@ describe('EntityOnboardingModal', () => {
       await user.type(textarea, 'pays invoices monthly');
 
       // Click "Pre classify entities"
-      const preClassifyBtn = screen.getByRole('button', { name: 'Pre classify entities' });
+      const preClassifyBtn = screen.getByTestId('pre-classify-btn');
       await user.click(preClassifyBtn);
 
       // Verify banner rendered
       await waitFor(() => {
-        expect(screen.getByText('Suggestion: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
       expect(screen.getByText('Confidence: 92%')).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /assign/i })).toBeInTheDocument();
@@ -1070,7 +1326,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textarea, 'pays invoices monthly');
 
       // Click "Pre classify entities" then flush microtasks
-      const preClassifyBtn = screen.getByRole('button', { name: 'Pre classify entities' });
+      const preClassifyBtn = screen.getByTestId('pre-classify-btn');
       await user.click(preClassifyBtn);
       await flushMicrotasks();
 
@@ -1097,7 +1353,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textarea, 'pays invoices monthly');
 
       // Click "Pre classify entities" then flush microtasks
-      const preClassifyBtn = screen.getByRole('button', { name: 'Pre classify entities' });
+      const preClassifyBtn = screen.getByTestId('pre-classify-btn');
       await user.click(preClassifyBtn);
       await flushMicrotasks();
 
@@ -1135,13 +1391,13 @@ describe('EntityOnboardingModal', () => {
 
       // Wait for success banner, then click "Assign"
       await waitFor(() => {
-        expect(screen.getByText('Suggestion: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
       await user.click(screen.getByRole('button', { name: /assign/i }));
 
       // Assigned banner should appear
       await waitFor(() => {
-        expect(screen.getByText('Role assigned: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Role assigned: Proveedor')).toBeInTheDocument();
       });
     });
 
@@ -1173,20 +1429,20 @@ describe('EntityOnboardingModal', () => {
 
       // Wait for success banner
       await waitFor(() => {
-        expect(screen.getByText('Suggestion: PROVEEDOR')).toBeInTheDocument();
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
 
       // Click "Edit role manually"
       await user.click(screen.getByRole('button', { name: /edit role manually/i }));
 
       // Select a different role — the dropdown must still be interactive
-      await user.selectOptions(screen.getAllByTestId('mock-select')[0], 'CLIENTE');
+      await user.selectOptions(screen.getAllByTestId('role-select')[0], 'CLIENTE');
 
       // Role changed: banner should be gone and select shows the new value
       await waitFor(() => {
-        expect(screen.queryByText('Suggestion: PROVEEDOR')).not.toBeInTheDocument();
+        expect(screen.queryByText('Suggestion: Proveedor')).not.toBeInTheDocument();
       });
-      expect(screen.getAllByTestId('mock-select')[0]).toHaveValue('CLIENTE');
+      expect(screen.getAllByTestId('role-select')[0]).toHaveValue('CLIENTE');
     });
   });
 });

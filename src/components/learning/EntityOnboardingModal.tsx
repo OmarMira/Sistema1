@@ -28,7 +28,7 @@ import {
 import { useLanguageStore } from '@/store/language-store';
 import { toast } from 'sonner';
 import { logger } from '@/lib/logger';
-import { EXPECTED_DIRECTION } from '@/lib/constants/entity-roles';
+import { EXPECTED_DIRECTION, UI_ROLES, ROLE_LABELS } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { TRANSACTION_INTENT_VALUES } from '@/lib/constants/transaction-intent';
 import type { TransactionIntent } from '@/lib/constants/transaction-intent';
@@ -43,6 +43,7 @@ interface EntityCandidate {
     debitPct: number;
   };
   sampleDescriptions: string[];
+  totalAmount?: number;
 }
 
 interface BatchEntry {
@@ -94,13 +95,13 @@ function isMixedDirection(profile: { creditPct: number; debitPct: number }): boo
   return profile.creditPct >= 0.15 && profile.debitPct >= 0.15;
 }
 
-function isValidClassificationInput(
-  intent: TransactionIntent | null,
+function isValidRoleInput(
+  role: string | undefined,
   description: string | undefined,
 ): boolean {
-  if (!intent) return false;
-  if (intent !== 'OTHER') return true;
-  return (description ?? '').trim().length > 0;
+  if (!role || role === '') return false;
+  if (role === 'OTRO') return (description ?? '').trim().length > 0;
+  return true;
 }
 
 /** Filter OTRO entities with description >= 5 chars for batch classification (FR-2). */
@@ -168,6 +169,9 @@ export function EntityOnboardingModal({
   const [savedEntities, setSavedEntities] = useState<Set<string>>(new Set([]));
   const savedRef = useRef<Set<string>>(new Set([]));
 
+  // ── Manual mode: show role/intent selectors only when user opts in ──
+  const [manualMode, setManualMode] = useState<Set<string>>(new Set());
+
   // ── Fetch candidates on open ─────────────────────────────────────────
   useEffect(() => {
     if (!companyId || !isOpen) return;
@@ -215,6 +219,7 @@ export function EntityOnboardingModal({
       setBatchResults({});
       setBatchInProgress(false);
       setIntentSelections({});
+      setManualMode(new Set());
     };
   }, [companyId, isOpen, t]);
 
@@ -338,14 +343,22 @@ export function EntityOnboardingModal({
         abortControllers.current[name] = controller;
         loadingRef.current[name] = true;
 
+        const candidateData = candidates.find((c) => c.canonicalName === name);
+        const batchBody: Record<string, unknown> = {
+          description: descriptionsSnapshot.current[name],
+          companyId,
+          sampleDescriptions: candidateData?.sampleDescriptions,
+          occurrences: candidateData?.occurrences,
+        };
+        if (candidateData?.totalAmount) {
+          batchBody.totalAmount = { min: candidateData.totalAmount, max: candidateData.totalAmount };
+        }
+
         try {
           const resp = await fetch('/api/learning/suggest-role', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              description: descriptionsSnapshot.current[name],
-              companyId,
-            }),
+            body: JSON.stringify(batchBody),
             signal: controller.signal,
           });
 
@@ -481,11 +494,22 @@ export function EntityOnboardingModal({
       },
     }));
 
+    const candidateData = candidates.find((c) => c.canonicalName === name);
+    const retryBody: Record<string, unknown> = {
+      description: descriptions[name],
+      companyId,
+      sampleDescriptions: candidateData?.sampleDescriptions,
+      occurrences: candidateData?.occurrences,
+    };
+    if (candidateData?.totalAmount) {
+      retryBody.totalAmount = { min: candidateData.totalAmount, max: candidateData.totalAmount };
+    }
+
     try {
       const resp = await fetch('/api/learning/suggest-role', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: descriptions[name], companyId }),
+        body: JSON.stringify(retryBody),
         signal: controller.signal,
       });
 
@@ -631,15 +655,24 @@ export function EntityOnboardingModal({
       [name]: { suggestedRole: '', confidence: 0, explanation: '', status: 'pending' },
     }));
 
+    const candidateData = candidates.find((c) => c.canonicalName === name);
+    const body: Record<string, unknown> = {
+      description: descriptionsSnapshot.current[name] || descriptions[name] || name,
+      companyId,
+      directionProfile,
+      sampleDescriptions: candidateData?.sampleDescriptions,
+      occurrences: candidateData?.occurrences,
+      manualRequest: true,
+    };
+    if (candidateData?.totalAmount) {
+      body.totalAmount = { min: candidateData.totalAmount, max: candidateData.totalAmount };
+    }
+
     try {
       const resp = await fetch('/api/learning/suggest-role', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          description: descriptionsSnapshot.current[name] || descriptions[name] || name,
-          companyId,
-          directionProfile,
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
 
@@ -710,12 +743,15 @@ export function EntityOnboardingModal({
       // Skip entities already auto-saved during pre-classify
       if (savedRef.current.has(pattern)) continue;
 
+      const sel = selections[pattern];
+      const role = sel?.role || getDefaultRole(pattern);
+      if (!isValidRoleInput(role, descriptions[pattern])) continue;
+
       const splitDir = splitSelections[pattern];
       const isSplit = splitDir === 'credit' || splitDir === 'debit';
       const intent = intentSelections[pattern] ?? null;
-      if (!isValidClassificationInput(intent, descriptions[pattern])) continue;
 
-      if (intent === 'OTHER') {
+      if (role === 'OTRO') {
         const userDesc = descriptions[pattern] || '';
 
         try {
@@ -727,6 +763,7 @@ export function EntityOnboardingModal({
               pattern,
               source: 'user',
               userDescription: userDesc.trim(),
+              role,
               intent,
             }),
           });
@@ -759,6 +796,7 @@ export function EntityOnboardingModal({
               pattern: splitPattern,
               source: 'user',
               transactionDirection: splitDir,
+              role,
               intent,
             }),
           });
@@ -789,6 +827,7 @@ export function EntityOnboardingModal({
               userInput: selectionsRef.current[pattern]?.userInput || pattern,
               source: 'user',
               directionOverride: directionOverrides[pattern] || undefined,
+              role,
               intent,
           }),
         });
@@ -837,28 +876,63 @@ export function EntityOnboardingModal({
     }
     setSaving(false);
 
+    // Check if there are still pending entities
+    const stillPending = candidates.filter(
+      (c) => !savedRef.current.has(c.canonicalName),
+    );
+
     if (onComplete) onComplete();
-    onClose();
+
+    // Only close modal if all entities are classified
+    if (stillPending.length === 0) {
+      onClose();
+    }
   }
 
   const remainingCandidates = candidates.filter(
     (c) => !savedEntities.has(c.canonicalName),
   );
 
-  const hasValidIntentSelections = remainingCandidates.some((candidate) => {
-      const intent = intentSelections[candidate.canonicalName] ?? null;
-      return isValidClassificationInput(
-        intent,
-        descriptions[candidate.canonicalName],
-      );
+  const hasValidRoleAssignments = remainingCandidates.some((candidate) => {
+      const sel = selections[candidate.canonicalName];
+      const role = sel?.role || getDefaultRole(candidate.canonicalName);
+      return isValidRoleInput(role, descriptions[candidate.canonicalName]);
     });
 
+  // Check for unresolved OTRO entities with descriptions (eligible for batch pre-classify)
+  const eligibleForBatch = remainingCandidates.filter((candidate) => {
+    const sel = selections[candidate.canonicalName];
+    const role = sel?.role || getDefaultRole(candidate.canonicalName);
+    const desc = descriptions[candidate.canonicalName];
+    if (role !== 'OTRO' || !desc || desc.length < 5) return false;
+    const result = batchResults[candidate.canonicalName];
+    return !result || result.status === 'error';
+  });
+
+  const hasUnresolvedOtro = eligibleForBatch.length > 0;
+
   const buttonState = (() => {
+    if (batchInProgress) {
+      return {
+        text: t('learning.batch.loading'),
+        disabled: true,
+        showSpinner: true,
+        onClick: undefined,
+      };
+    }
+    if (hasUnresolvedOtro) {
+      return {
+        text: t('learning.preClassify'),
+        disabled: false,
+        showSpinner: false,
+        onClick: handlePreClassify,
+      };
+    }
     return {
       text: t('learning.classify'),
-      disabled: !hasValidIntentSelections,
+      disabled: !hasValidRoleAssignments,
       showSpinner: false,
-      onClick: hasValidIntentSelections ? handleClassifyAll : undefined,
+      onClick: hasValidRoleAssignments ? handleClassifyAll : undefined,
     };
   })();
 
@@ -916,8 +990,15 @@ export function EntityOnboardingModal({
               const mixed = isMixedDirection(candidate.directionProfile);
               const currentSplit = splitSelections[name] ?? null;
 
+              // ── State flags for this entity ──
+              const result = batchResults[name];
+              const isInManualMode = manualMode.has(name);
+              const hasSuggestion = result?.status === 'success' || result?.status === 'accepted';
+              const showPreClassifyBtn = !result || result.status === 'discarded' || result.status === 'error';
+              const showSelectors = isInManualMode || hasSuggestion;
+
               // ── OTRO description handling ──
-              const isOtro = selectedIntent === 'OTHER';
+              const isOtro = role === 'OTRO' || selectedIntent === 'OTHER';
               const descValue = descriptions[name] ?? '';
 
               return (
@@ -941,8 +1022,7 @@ export function EntityOnboardingModal({
                   </div>
 
                   {/* ── 4.2 (F3) — Split UI for mixed direction ────────── */}
-                  {/* Intent-first flow does not derive or require role on the client. */}
-                  {mixed && selectedIntent && selectedIntent !== 'OTHER' && (
+                  {mixed && role && role !== 'OTRO' && (
                     <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-md p-3 space-y-2">
                       <p className="text-xs font-medium text-blue-700 dark:text-blue-300">
                         {t('learning.splitTitle')}
@@ -950,33 +1030,23 @@ export function EntityOnboardingModal({
                       <div className="flex gap-2 flex-wrap">
                         <Button
                           size="sm"
-                          variant={
-                            currentSplit === 'credit' ? 'default' : 'outline'
-                          }
-                          onClick={() =>
-                            handleSplitChange(name, 'credit')
-                          }
+                          variant={currentSplit === 'credit' ? 'default' : 'outline'}
+                          onClick={() => handleSplitChange(name, 'credit')}
                           disabled={saving}
                         >
                           {t('learning.splitCredit')}
                         </Button>
                         <Button
                           size="sm"
-                          variant={
-                            currentSplit === 'debit' ? 'default' : 'outline'
-                          }
-                          onClick={() =>
-                            handleSplitChange(name, 'debit')
-                          }
+                          variant={currentSplit === 'debit' ? 'default' : 'outline'}
+                          onClick={() => handleSplitChange(name, 'debit')}
                           disabled={saving}
                         >
                           {t('learning.splitDebit')}
                         </Button>
                         <Button
                           size="sm"
-                          variant={
-                            currentSplit === 'both' ? 'default' : 'outline'
-                          }
+                          variant={currentSplit === 'both' ? 'default' : 'outline'}
                           onClick={() => handleSplitChange(name, 'both')}
                           disabled={saving}
                         >
@@ -987,10 +1057,10 @@ export function EntityOnboardingModal({
                   )}
 
                   {/* ── F2 — Actor Type badge + direction hint ───────────── */}
-                  {role && (
+                  {hasSuggestion && (
                     <div className="flex items-center gap-2 mb-1.5">
                       <span className="text-xs text-muted-foreground font-medium">
-                        {t('learning.actorTypeLabel')}: {role}
+                        {t('learning.actorTypeLabel')}: {ROLE_LABELS[role as EntityRole] || role}
                       </span>
                       {getDirectionHint(role) && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
@@ -1000,161 +1070,231 @@ export function EntityOnboardingModal({
                     </div>
                   )}
 
-                  {/* Intent-first controls */}
-                  <div className="w-full">
-                    {/* ── F3 — Intent dropdown ──────────────────────────── */}
-                    <div className="mt-1.5">
-                      <label className="text-xs text-muted-foreground mb-1 block">
-                        {t('learning.intentLabel')}
-                      </label>
-                      <Select
-                        value={intentSelections[name] ?? 'none'}
-                        onValueChange={(v) => handleIntentChange(name, v)}
+                  {/* ── No suggestion yet: show Pre-classify + Manual buttons ── */}
+                  {showPreClassifyBtn && !showSelectors && !savedEntities.has(name) && (
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        className="h-8 text-sm"
+                        data-testid="pre-classify-btn"
+                        onClick={() => handlePreClassifyOne(name, candidate.directionProfile)}
+                        disabled={loadingRef.current[name] || saving}
+                      >
+                        {loadingRef.current[name] ? (
+                          <>
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            {t('learning.suggestionBanner.pending')}
+                          </>
+                        ) : (
+                          <>🤖 {t('learning.preClassify')}</>
+                        )}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-xs text-muted-foreground"
+                        data-testid="manual-select-btn"
+                        onClick={() => setManualMode((prev) => new Set([...prev, name]))}
                         disabled={saving}
                       >
-                        <SelectTrigger className="h-8 text-sm" data-testid="intent-select">
-                          <SelectValue placeholder={t('learning.intentPlaceholder')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="none">
-                            {t('learning.intentPlaceholder')}
-                          </SelectItem>
-                          {TRANSACTION_INTENT_VALUES.map((intent) => (
-                            <SelectItem key={intent} value={intent}>
-                              {t(`transactionIntent.${intent}`)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                        {t('learning.manualSelection')}
+                      </Button>
                     </div>
+                  )}
 
-                    {/* ── OTRO textarea ── */}
-                    {isOtro && (
-                      <div className="mt-1.5">
-                        <Textarea
-                          placeholder={t('learning.otroDescription')}
-                          value={descValue}
-                          onChange={(e) =>
-                            handleDescriptionChange(name, e.target.value)
-                          }
-                          disabled={saving}
-                          className="min-h-[60px] text-sm"
-                        />
+                  {/* ── Suggestion banner (AI suggested) ── */}
+                  {result?.status === 'success' && (
+                    <div className="flex items-center justify-between gap-3 p-3 text-sm border rounded-md bg-muted/30">
+                      <div className="flex flex-col gap-1">
+                        <span className="font-medium">
+                          {t('learning.suggestionBanner.title', { role: ROLE_LABELS[result.suggestedRole as EntityRole] || result.suggestedRole })}
+                        </span>
+                        <span className={result.confidence >= 0.7 ? 'text-green-600' : 'text-yellow-600'}>
+                          {result.confidence >= 0.7
+                            ? t('learning.suggestionBanner.confidence', { percent: Math.round(result.confidence * 100) })
+                            : t('learning.suggestionBanner.lowConfidence', { percent: Math.round(result.confidence * 100) })}
+                        </span>
                       </div>
-                    )}
-
-                    {/* ── Pre-clasificar button ── */}
-                    {(!batchResults[name] || batchResults[name]?.status === 'discarded' || batchResults[name]?.status === 'error') && !savedEntities.has(name) && (
-                      <div className="mt-2">
+                      <div className="flex gap-1 shrink-0">
                         <Button
                           size="sm"
-                          variant="secondary"
+                          variant="outline"
                           className="h-7 text-xs"
-                          onClick={() => handlePreClassifyOne(name, candidate.directionProfile)}
-                          disabled={loadingRef.current[name] || saving}
+                          data-testid="accept-suggestion-btn"
+                          onClick={() => handleAcceptSuggestion(name, result.suggestedRole)}
                         >
-                          {loadingRef.current[name] ? (
-                            <>
-                              <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                              {'Clasificando...'}
-                            </>
-                          ) : (
-                            <>🤖 {t('learning.preClassify')}</>
-                          )}
+                          ✅ {t('learning.suggestionBanner.accept')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          data-testid="discard-suggestion-btn"
+                          onClick={() => handleDiscardSuggestion(name)}
+                        >
+                          ❌ {t('learning.suggestionBanner.discard')}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          data-testid="edit-role-btn"
+                          onClick={() => setManualMode((prev) => new Set([...prev, name]))}
+                        >
+                          ✏️ {t('learning.suggestionBanner.edit')}
                         </Button>
                       </div>
-                    )}
+                    </div>
+                  )}
 
-                    {/* 3.2 — Inline banner per batch result (renders even after OTR role is accepted) */}
-                    {(() => {
-                      const result = batchResults[name];
-                      if (!result) return null;
-                      switch (result.status) {
-                        case 'pending':
-                          return (
-                            <div className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              {t('learning.suggestionBanner.pending')}
+                  {/* ── Accepted suggestion — confirmed badge ── */}
+                  {result?.status === 'accepted' && (
+                    <div className="flex items-center gap-2 p-2 text-sm text-green-600 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      {t('learning.suggestionBanner.assigned', { role: ROLE_LABELS[result.suggestedRole as EntityRole] || result.suggestedRole })}
+                    </div>
+                  )}
+
+                  {/* ── Error banner — retry button ── */}
+                  {result?.status === 'error' && (
+                    <div className="space-y-2">
+                      <div className="flex items-start gap-2 p-2.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
+                        <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <p className="text-xs leading-relaxed">
+                            {t('learning.suggestionBanner.error')}
+                          </p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs border-amber-300 dark:border-amber-700"
+                            onClick={() => handleRetrySuggestion(name)}
+                            disabled={batchInProgress || saving}
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            {t('learning.suggestionBanner.retry')}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* ── Manual selectors (role + intent) — only in manual mode or after suggestion accepted ── */}
+                  {showSelectors && (
+                    <div className="space-y-2 border-t pt-2">
+                      {/* Role dropdown */}
+                      <div className="w-full">
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          {t('learning.selectRole')}
+                        </label>
+                        <Select
+                          value={role || ''}
+                          onValueChange={(newRole) => handleRoleChange(name, newRole)}
+                          disabled={saving}
+                        >
+                          <SelectTrigger className="h-8 text-sm" data-testid="role-select">
+                            <SelectValue placeholder={t('learning.rolePlaceholder')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {UI_ROLES.map((r) => (
+                              <SelectItem key={r} value={r}>
+                                {ROLE_LABELS[r] || r}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* ── F2 — Direction mismatch warning ───────────── */}
+                      {(() => {
+                        const mismatch = checkRoleDirectionMismatch(
+                          role,
+                          candidate.directionProfile.debitPct,
+                          candidate.directionProfile.creditPct,
+                        );
+                        if (!mismatch || directionOverrides[name]) return null;
+                        return (
+                          <div className="flex items-start gap-2 p-2.5 text-sm bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
+                            <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs text-amber-700 dark:text-amber-300">
+                                {mismatch.warning}
+                              </p>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-7 text-xs mt-1.5 border-amber-300 dark:border-amber-700"
+                                onClick={() => handleDirectionOverride(name)}
+                                disabled={saving}
+                              >
+                                {t('learning.directionOverride')}
+                              </Button>
                             </div>
-                          );
-                        case 'success':
-                          return (
-                            <div className="mt-1.5 flex items-center justify-between gap-3 p-3 text-sm border rounded-md bg-muted/30">
-                              <div className="flex flex-col gap-1">
-                                <span className="font-medium">
-                                  {t('learning.suggestionBanner.title', { role: result.suggestedRole })}
-                                </span>
-                                <span className={result.confidence >= 0.7 ? 'text-green-600' : 'text-yellow-600'}>
-                                  {result.confidence >= 0.7
-                                    ? t('learning.suggestionBanner.confidence', { percent: Math.round(result.confidence * 100) })
-                                    : t('learning.suggestionBanner.lowConfidence', { percent: Math.round(result.confidence * 100) })}
-                                </span>
-                              </div>
-                              <div className="flex gap-1 shrink-0">
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => handleAcceptSuggestion(name, result.suggestedRole)}
-                                >
-                                  ✅ {t('learning.suggestionBanner.accept')}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => handleDiscardSuggestion(name)}
-                                >
-                                  ❌ {t('learning.suggestionBanner.discard')}
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-7 text-xs"
-                                  onClick={() => handleEditRole(name)}
-                                >
-                                  ✏️ {t('learning.suggestionBanner.edit')}
-                                </Button>
-                              </div>
-                            </div>
-                          );
-                        case 'error':
-                          return (
-                            <div className="mt-1.5 space-y-2">
-                              <div className="flex items-start gap-2 p-2.5 text-sm text-amber-700 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-md">
-                                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                                <div className="flex-1 min-w-0 space-y-1.5">
-                                  <p className="text-xs leading-relaxed">
-                                    {t('learning.suggestionBanner.error')}
-                                  </p>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="h-7 text-xs border-amber-300 dark:border-amber-700"
-                                    onClick={() => handleRetrySuggestion(name)}
-                                    disabled={batchInProgress || saving}
-                                  >
-                                    <RefreshCw className="h-3 w-3 mr-1" />
-                                    {t('learning.suggestionBanner.retry')}
-                                  </Button>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        case 'accepted':
-                          return (
-                            <div className="mt-1.5 flex items-center gap-2 p-2 text-sm text-green-600 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-md">
-                              <CheckCircle2 className="h-4 w-4 shrink-0" />
-                              {t('learning.suggestionBanner.assigned', { role: result.suggestedRole })}
-                            </div>
-                          );
-                        case 'discarded':
-                          return null;
-                        default:
-                          return null;
-                      }
-                    })()}
-                  </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Intent dropdown — visually secondary */}
+                      <div className="w-full">
+                        <label className="text-xs text-muted-foreground mb-1 block">
+                          {t('learning.intentLabel')}
+                        </label>
+                        <Select
+                          value={intentSelections[name] ?? 'none'}
+                          onValueChange={(v) => handleIntentChange(name, v)}
+                          disabled={saving}
+                        >
+                          <SelectTrigger className="h-7 text-xs" data-testid="intent-select">
+                            <SelectValue placeholder={t('learning.intentPlaceholder')} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="none">
+                              {t('learning.intentPlaceholder')}
+                            </SelectItem>
+                            {TRANSACTION_INTENT_VALUES.map((intent) => (
+                              <SelectItem key={intent} value={intent}>
+                                {t(`transactionIntent.${intent}`)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {/* OTRO textarea */}
+                      {isOtro && (
+                        <div className="w-full">
+                          <Textarea
+                            placeholder={t('learning.otroDescription')}
+                            value={descValue}
+                            onChange={(e) => handleDescriptionChange(name, e.target.value)}
+                            disabled={saving}
+                            className="min-h-[60px] text-sm"
+                          />
+                          {/* Pre-clasificar button inside OTRO */}
+                          {role === 'OTRO' && descValue.trim().length >= 5 && (!result || result.status === 'error' || result.status === 'discarded') && (
+                            <Button
+                              size="sm"
+                              variant="secondary"
+                              className="h-7 text-xs mt-2"
+                              data-testid="pre-classify-btn"
+                              onClick={() => handlePreClassifyOne(name, candidate.directionProfile)}
+                              disabled={loadingRef.current[name] || saving}
+                            >
+                              {loadingRef.current[name] ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                  {t('learning.suggestionBanner.pending')}
+                                </>
+                              ) : (
+                                <>🤖 {t('learning.preClassify')}</>
+                              )}
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

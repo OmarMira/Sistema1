@@ -184,7 +184,9 @@ describe('restoreBackup', () => {
     // User upsert (3 users)
     expect(userUpsertCalls).toHaveLength(3);
     expect(userUpsertCalls[0].where.id).toBe('user-1');
-    expect(userUpsertCalls[0].update).toEqual({}); // update: {} — preserve existing
+    // update contains user data minus createdAt, updatedAt, passwordHash
+    expect(userUpsertCalls[0].update.email).toBe('user1@test.com');
+    expect(userUpsertCalls[0].update.firstName).toBe('Test');
 
     // Company members created
     expect(companyMemberCreates).toHaveLength(3);

@@ -1,161 +1,166 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Database,
   Download,
   Upload,
   HardDrive,
   AlertTriangle,
-  CheckCircle2,
   Loader2,
   Clock,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
+import { useAuthStore } from '@/store/auth-store';
+import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { toast } from 'sonner';
-
-/* ─── Animation Variants ──────────────────────────────────────── */
-
-const containerVariants = {
-  hidden: { opacity: 0 },
-  visible: { opacity: 1, transition: { staggerChildren: 0.08 } },
-};
-const itemVariants = {
-  hidden: { opacity: 0, y: 20 },
-  visible: { opacity: 1, y: 0 },
-};
-
-/* ─── Types ───────────────────────────────────────────────────── */
-
-interface BackupRecord {
-  id: string;
-  date: string;
-  size: string;
-  type: 'manual' | 'automatic';
-}
+  containerVariants,
+  itemVariants,
+  formatFileSize,
+  formatDate,
+  type BackupRecord,
+} from '@/lib/types/backup';
 
 /* ─── BackupTab ───────────────────────────────────────────────── */
 
 export function BackupTab() {
   const t = useLanguageStore((s) => s.t);
+  const activeCompany = useAuthStore((s) => s.activeCompany);
+  const companyId = activeCompany?.id;
 
   const [creating, setCreating] = useState(false);
-  const [createProgress, setCreateProgress] = useState(0);
   const [restoring, setRestoring] = useState(false);
-  const [restoreProgress, setRestoreProgress] = useState(0);
-
-  // Backup history loaded from API (empty until real data exists)
   const [backups, setBackups] = useState<BackupRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const mountedRef = useRef(true);
+
+  const fetchBackups = useCallback(async () => {
+    if (!companyId || !mountedRef.current) return;
+    try {
+      const res = await fetch(`/api/backup?companyId=${companyId}`);
+      if (res.ok && mountedRef.current) {
+        const data = await res.json();
+        setBackups(data.backups || []);
+      }
+    } catch {
+      // ignore
+    }
+    if (mountedRef.current) setLoading(false);
+  }, [companyId]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void fetchBackups();
+    return () => {
+      mountedRef.current = false;
+    };
+  }, [fetchBackups]);
 
   async function handleCreateBackup() {
+    if (!companyId) return;
     setCreating(true);
-    setCreateProgress(0);
-
-    // Simulate progress
-    const interval = setInterval(() => {
-      setCreateProgress((prev) => {
-        if (prev >= 100) {
-          clearInterval(interval);
-          return 100;
-        }
-        return prev + Math.random() * 30;
-      });
-    }, 300);
-
     try {
-      const res = await fetch('/api/backup', { method: 'POST' });
+      const res = await fetch('/api/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId }),
+      });
       if (res.ok) {
-        toast.success(t('settings.backup.backupCreated'));
+        const data = await res.json();
+        toast.success(t('settings.backup.backupCreated'), {
+          description: `${formatFileSize(data.size)} — ${(Object.values(data.recordCounts) as number[]).reduce((a, b) => a + b, 0)} ${t('settings.backup.records')}`,
+        });
+        if (data.data) {
+          const jsonStr = atob(data.data);
+          const blob = new Blob([jsonStr], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = data.filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+        await fetchBackups();
       } else {
-        toast.error(t('settings.backup.backupFailed'));
+        const data = await res.json();
+        toast.error(t('settings.backup.backupFailed'), { description: data.error });
       }
     } catch {
       toast.error(t('settings.backup.backupFailed'));
     }
-
-    clearInterval(interval);
-    setCreateProgress(100);
-    setTimeout(() => {
-      setCreating(false);
-      setCreateProgress(0);
-    }, 800);
+    setCreating(false);
   }
 
-  async function handleRestore() {
+  async function handleDownload(backup: BackupRecord) {
+    if (!companyId) return;
+    try {
+      const res = await fetch(
+        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
+      );
+      if (res.ok) {
+        const data = await res.json();
+        if (data.data) {
+          const jsonStr = atob(data.data);
+          const blob = new Blob([jsonStr], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = backup.filename;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }
+      }
+    } catch {
+      toast.error(t('common.error'));
+    }
+  }
+
+  function handleRestore() {
+    if (!companyId) return;
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.json,.db,.sql';
+    input.accept = '.json,.backup';
     input.onchange = async (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
 
       setRestoring(true);
-      setRestoreProgress(0);
-
-      const interval = setInterval(() => {
-        setRestoreProgress((prev) => {
-          if (prev >= 100) {
-            clearInterval(interval);
-            return 100;
-          }
-          return prev + Math.random() * 20;
-        });
-      }, 400);
-
       try {
         const formData = new FormData();
+        formData.append('companyId', companyId);
         formData.append('file', file);
         const res = await fetch('/api/backup/restore', {
           method: 'POST',
           body: formData,
         });
+        const data = await res.json();
         if (res.ok) {
-          toast.success(t('settings.backup.restoreSuccess'));
+          const totalRecords = (Object.values(data.restoredCounts) as number[]).reduce(
+            (a, b) => a + b,
+            0,
+          );
+          toast.success(t('settings.backup.restoreSuccess'), {
+            description: `${totalRecords} ${t('settings.backup.records')}`,
+          });
+          await fetchBackups();
         } else {
-          toast.error(t('settings.backup.restoreFailed'));
+          toast.error(t('settings.backup.restoreFailed'), { description: data.error });
         }
       } catch {
         toast.error(t('settings.backup.restoreFailed'));
       }
-
-      clearInterval(interval);
-      setRestoreProgress(100);
-      setTimeout(() => {
-        setRestoring(false);
-        setRestoreProgress(0);
-      }, 800);
+      setRestoring(false);
     };
     input.click();
-  }
-
-  function handleDownload(backup: BackupRecord) {
-    toast.info(t('settings.backup.download'));
-  }
-
-  const language = useLanguageStore((s) => s.language) || 'es';
-
-  function formatDate(dateStr: string) {
-    const d = new Date(dateStr);
-    return d.toLocaleDateString(language === 'en' ? 'en-US' : 'es-MX', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
   }
 
   return (
@@ -188,8 +193,8 @@ export function BackupTab() {
             </CardTitle>
             <CardDescription>{t('settings.backup.createBackupDesc')}</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
-            <Button onClick={handleCreateBackup} disabled={creating}>
+          <CardContent>
+            <Button onClick={handleCreateBackup} disabled={creating || !companyId}>
               {creating ? (
                 <>
                   <Loader2 className="size-4 mr-1 animate-spin" /> {t('settings.backup.creating')}
@@ -200,12 +205,6 @@ export function BackupTab() {
                 </>
               )}
             </Button>
-            {creating && (
-              <div className="space-y-2">
-                <Progress value={Math.min(createProgress, 100)} className="h-2" />
-                <p className="text-xs text-muted-foreground">{t('settings.backup.creating')}</p>
-              </div>
-            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -227,7 +226,11 @@ export function BackupTab() {
                 {t('settings.backup.restoreWarning')}
               </p>
             </div>
-            <Button variant="outline" onClick={handleRestore} disabled={restoring}>
+            <Button
+              variant="outline"
+              onClick={handleRestore}
+              disabled={restoring || !companyId}
+            >
               {restoring ? (
                 <>
                   <Loader2 className="size-4 mr-1 animate-spin" /> {t('settings.backup.restoring')}
@@ -238,12 +241,6 @@ export function BackupTab() {
                 </>
               )}
             </Button>
-            {restoring && (
-              <div className="space-y-2">
-                <Progress value={Math.min(restoreProgress, 100)} className="h-2" />
-                <p className="text-xs text-muted-foreground">{t('settings.backup.restoring')}</p>
-              </div>
-            )}
           </CardContent>
         </Card>
       </motion.div>
@@ -258,50 +255,43 @@ export function BackupTab() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {backups.length === 0 ? (
+            {loading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <Skeleton key={i} className="h-12 w-full" />
+                ))}
+              </div>
+            ) : backups.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-8">
                 {t('settings.backup.noBackups')}
               </p>
             ) : (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="font-semibold">{t('settings.backup.date')}</TableHead>
-                      <TableHead className="font-semibold">{t('settings.backup.size')}</TableHead>
-                      <TableHead className="font-semibold">{t('settings.backup.type')}</TableHead>
-                      <TableHead className="font-semibold w-24"></TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {backups.map((backup) => (
-                      <TableRow key={backup.id}>
-                        <TableCell className="text-sm">{formatDate(backup.date)}</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {backup.size}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-xs">
-                            {backup.type === 'automatic'
-                              ? t('settings.backup.automatic')
-                              : t('settings.backup.manual')}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDownload(backup)}
-                            className="text-xs"
-                          >
-                            <Download className="size-3.5 mr-1" />
-                            {t('settings.backup.download')}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {backups.map((backup) => (
+                  <div
+                    key={backup.id}
+                    className="flex items-center justify-between rounded-lg border p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {backup.companyInfo.legalName}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>{formatDate(backup.createdAt)}</span>
+                        <span>·</span>
+                        <span>{formatFileSize(backup.size)}</span>
+                      </div>
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="size-8 shrink-0"
+                      onClick={() => handleDownload(backup)}
+                    >
+                      <Download className="size-4" />
+                    </Button>
+                  </div>
+                ))}
               </div>
             )}
           </CardContent>

@@ -110,6 +110,9 @@ const RESTORE_EXCLUDED_KEYS = new Set([
   'createdAt',
   'updatedAt',
   'passwordHash',
+  'transactions',
+  'user',
+  'lines',
 ]);
 
 function sanitizeForRestore(obj: Record<string, unknown>): Record<string, unknown> {
@@ -529,13 +532,13 @@ export async function restoreBackup(
         });
       }
 
-      // 2b. Upsert users (create if missing, preserve existing data)
+      // 2b. Upsert users (create if missing, update if exists)
       for (const user of backupData.data.users) {
         const clean = sanitizeForRestore(user as Record<string, unknown>);
         await tx.user.upsert({
           where: { id: user.id as string },
           create: clean as never,
-          update: {},
+          update: clean as never,
         });
       }
 
@@ -576,7 +579,7 @@ export async function restoreBackup(
       }
       restoredCounts.bankAccounts = backupData.data.bankAccounts.length;
 
-      // Insert bank statements and transactions
+      // Insert bank statements
       const statementIdMap = new Map<string, string>();
       for (const statement of backupData.data.bankStatements) {
         const clean = sanitizeForRestore(statement as Record<string, unknown>);
@@ -588,7 +591,27 @@ export async function restoreBackup(
       }
       restoredCounts.bankStatements = backupData.data.bankStatements.length;
 
-      // Insert bank transactions
+      // Insert bank rules FIRST so transactions can reference them
+      const ruleIdMap = new Map<string, string>();
+      for (const rule of backupData.data.bankRules) {
+        const clean = sanitizeForRestore(rule as Record<string, unknown>);
+        // Map GL account references
+        const oldGlId = clean.glAccountId as string;
+        clean.glAccountId = glAccountIdMap.get(oldGlId) || oldGlId;
+        if (clean.debitGlAccountId) {
+          const oldDebitId = clean.debitGlAccountId as string;
+          clean.debitGlAccountId = glAccountIdMap.get(oldDebitId) || oldDebitId;
+        }
+        if (clean.creditGlAccountId) {
+          const oldCreditId = clean.creditGlAccountId as string;
+          clean.creditGlAccountId = glAccountIdMap.get(oldCreditId) || oldCreditId;
+        }
+        const created = await tx.bankRule.create({ data: clean as never });
+        ruleIdMap.set(rule.id as string, created.id);
+      }
+      restoredCounts.bankRules = backupData.data.bankRules.length;
+
+      // Insert bank transactions (rules already exist for matchedRuleId FK)
       for (const transaction of backupData.data.bankTransactions) {
         const clean = sanitizeForRestore(transaction as Record<string, unknown>);
         // Map statement reference
@@ -599,20 +622,18 @@ export async function restoreBackup(
           const oldGlId = clean.glAccountId as string;
           clean.glAccountId = glAccountIdMap.get(oldGlId) || oldGlId;
         }
-        // Map matched rule reference (might be null)
+        // Map matched rule reference
+        if (clean.matchedRuleId) {
+          const oldRuleId = clean.matchedRuleId as string;
+          clean.matchedRuleId = ruleIdMap.get(oldRuleId) || oldRuleId;
+        }
+        // Strip FKs to entities not restored yet (will be re-linked through app workflow)
+        delete clean.journalEntryId;
+        delete clean.journalLineId;
+        delete clean.reconciliationPeriodId;
         await tx.bankTransaction.create({ data: clean as never });
       }
       restoredCounts.bankTransactions = backupData.data.bankTransactions.length;
-
-      // Insert bank rules
-      for (const rule of backupData.data.bankRules) {
-        const clean = sanitizeForRestore(rule as Record<string, unknown>);
-        // Map GL account reference
-        const oldGlId = clean.glAccountId as string;
-        clean.glAccountId = glAccountIdMap.get(oldGlId) || oldGlId;
-        await tx.bankRule.create({ data: clean as never });
-      }
-      restoredCounts.bankRules = backupData.data.bankRules.length;
 
       // Insert fiscal periods
       for (const period of backupData.data.fiscalPeriods) {

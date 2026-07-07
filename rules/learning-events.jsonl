@@ -225,3 +225,15 @@
 {"timestamp":"2026-07-04T23:10:07.422Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
 {"timestamp":"2026-07-04T23:10:07.432Z","bankDescription":"Zelle to Vendor Y","selectedGlAccountCode":"2020","confidence":0.95,"userId":"u1","companyId":"company-123"}
 {"timestamp":"2026-07-04T23:11:43.455Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmr6z8abx0001c79kp35vtd5q","companyId":"cmr6z8abz0002c79kjl5xkkib"}
+{"timestamp":"2026-07-07T16:17:33.426Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T16:17:33.426Z","bankDescription":"Wire transfer to Supplier Y","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T16:17:33.426Z","bankDescription":"Wire Transfer to Supplier ABC","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T16:17:33.426Z","bankDescription":"ACH Payment from Client","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T16:18:06.670Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T16:18:06.681Z","bankDescription":"Zelle to Vendor Y","selectedGlAccountCode":"2020","confidence":0.95,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T18:18:17.659Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T18:18:17.659Z","bankDescription":"Wire transfer to Supplier Y","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T18:18:17.659Z","bankDescription":"Wire Transfer to Supplier ABC","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T18:18:17.659Z","bankDescription":"ACH Payment from Client","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T18:18:37.333Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-07T18:18:37.341Z","bankDescription":"Zelle to Vendor Y","selectedGlAccountCode":"2020","confidence":0.95,"userId":"u1","companyId":"company-123"}

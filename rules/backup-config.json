@@ -1,11 +1,11 @@
 {
-  "version": "1.0",
-  "backupDir": "backups",
-  "retentionDays": 90,
-  "compression": true,
+  "version": "1.0.0",
+  "backupDir": "db/backups",
+  "retentionDays": null,
+  "compression": false,
   "encryptionEnabled": false,
-  "preBackupCheckpoints": true,
-  "postRestoreValidation": true,
-  "scheduleCron": "0 2 * * 0",
+  "preBackupCheckpoints": false,
+  "postRestoreValidation": false,
+  "scheduleCron": null,
   "allowedRoles": ["admin", "super_admin"]
 }

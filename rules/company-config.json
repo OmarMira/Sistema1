@@ -941,6 +941,18 @@
       "periodType": "CUSTOM_MONTHS",
       "taxModuleEnabled": false,
       "updatedAt": "2026-07-06T19:48:52.161Z"
+    },
+    "cmraz4ehd0001c7a4jav4qc0x": {
+      "currency": "USD",
+      "periodType": "CALENDAR",
+      "taxModuleEnabled": false,
+      "updatedAt": "2026-07-07T18:19:46.889Z"
+    },
+    "cmraz4el50041c7a4oz1n2pzt": {
+      "currency": "USD",
+      "periodType": "WEEK_52_53",
+      "taxModuleEnabled": false,
+      "updatedAt": "2026-07-07T18:19:47.022Z"
     }
   }
 }

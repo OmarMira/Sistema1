@@ -5,6 +5,7 @@ import type { EntityRole } from '@/lib/constants/entity-roles';
 import { checkPromptInjection } from '@/lib/guardrails';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { requireCompanyContext } from '@/lib/context-storage';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import { searchEntity } from '@/lib/services/web-search-service';
 import { getAiConfig } from '@/lib/ai-config';
@@ -14,9 +15,9 @@ import { getAiConfig } from '@/lib/ai-config';
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   try {
     const body = await request.json();
-    const { description, companyId, directionProfile, sampleDescriptions, totalAmount, occurrences, manualRequest } = body as {
+    const { companyId } = requireCompanyContext();
+    const { description, directionProfile, sampleDescriptions, totalAmount, occurrences, manualRequest } = body as {
       description?: string;
-      companyId?: string;
       directionProfile?: { creditPct: number; debitPct: number };
       sampleDescriptions?: string[];
       totalAmount?: { min: number; max: number };
@@ -34,29 +35,25 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
     const trimmedDesc = description.trim();
 
-    // ── Query company autoRoleAssignment flag (used in both local and AI paths) ──
+    // ── Query company autoRoleAssignment flag ──
     let autoRoleAssignment = false;
-    if (companyId) {
-      const company = await db.company.findUnique({
-        where: { id: companyId },
-        select: { autoRoleAssignment: true },
-      });
-      autoRoleAssignment = company?.autoRoleAssignment ?? false;
-    }
+    const company = await db.company.findUnique({
+      where: { id: companyId },
+      select: { autoRoleAssignment: true },
+    });
+    autoRoleAssignment = company?.autoRoleAssignment ?? false;
 
-    // ── Phase 1: local DB search (if companyId provided) ──────────────
-    if (companyId) {
-      const localMatch = await findLocalMatch(trimmedDesc, companyId);
-      if (localMatch) {
-        logger.info('[SUGGEST_ROLE LOCAL_MATCH]', {
-          description: trimmedDesc,
-          match: localMatch,
-        });
-        if (autoRoleAssignment && localMatch.confidence >= 0.9) {
-          return NextResponse.json({ ...localMatch, autoAssign: true });
-        }
-        return NextResponse.json(localMatch);
+    // ── Phase 1: local DB search ──────────────
+    const localMatch = await findLocalMatch(trimmedDesc, companyId);
+    if (localMatch) {
+      logger.info('[SUGGEST_ROLE LOCAL_MATCH]', {
+        description: trimmedDesc,
+        match: localMatch,
+      });
+      if (autoRoleAssignment && localMatch.confidence >= 0.9) {
+        return NextResponse.json({ ...localMatch, autoAssign: true });
       }
+      return NextResponse.json(localMatch);
     }
 
     // ── Phase 2: AI fallback ─────────────────────────────────────────
@@ -106,29 +103,27 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       }
     }
 
-    // Fetch company profile for richer AI context (if companyId provided)
+    // Fetch company profile for richer AI context
     let companyProfile: string | null = null;
-    if (companyId) {
-      try {
-        const company = await db.company.findUnique({
-          where: { id: companyId },
-          select: { legalName: true, entityType: true, taxId: true },
-        });
-        if (company) {
-          const parts: string[] = [`Company: ${company.legalName}`];
-          if (company.entityType) {
-            parts.push(`Entity type: ${company.entityType}`);
-          }
-          if (company.taxId) {
-            parts.push(`Tax ID: ${company.taxId}`);
-          }
-          companyProfile = parts.join(' | ');
-          logger.info('[SUGGEST_ROLE COMPANY_PROFILE]', { companyId, legalName: company.legalName });
+    try {
+      const company = await db.company.findUnique({
+        where: { id: companyId },
+        select: { legalName: true, entityType: true, taxId: true },
+      });
+      if (company) {
+        const parts: string[] = [`Company: ${company.legalName}`];
+        if (company.entityType) {
+          parts.push(`Entity type: ${company.entityType}`);
         }
-      } catch (err) {
-        logger.warn('[SUGGEST_ROLE COMPANY_PROFILE_FETCH_FAILED]', { companyId, error: String(err) });
-        // Non-fatal — proceed without profile
+        if (company.taxId) {
+          parts.push(`Tax ID: ${company.taxId}`);
+        }
+        companyProfile = parts.join(' | ');
+        logger.info('[SUGGEST_ROLE COMPANY_PROFILE]', { companyId, legalName: company.legalName });
       }
+    } catch (err) {
+      logger.warn('[SUGGEST_ROLE COMPANY_PROFILE_FETCH_FAILED]', { companyId, error: String(err) });
+      // Non-fatal — proceed without profile
     }
 
     // Build the focused prompt for role suggestion
@@ -339,16 +334,14 @@ Based on this additional context, re-evaluate the role.`;
     }
 
     if (!aiResult) {
-      // Last resort: try local fallback even without explicit companyId
-      if (companyId) {
-        const fallback = await findLocalMatch(trimmedDesc, companyId);
-        if (fallback) {
-          logger.info('[SUGGEST_ROLE AI_FAILED_LOCAL_FALLBACK]', {
-            description: trimmedDesc,
-            fallback,
-          });
-          return NextResponse.json(fallback);
-        }
+      // Last resort: try local fallback
+      const fallback = await findLocalMatch(trimmedDesc, companyId);
+      if (fallback) {
+        logger.info('[SUGGEST_ROLE AI_FAILED_LOCAL_FALLBACK]', {
+          description: trimmedDesc,
+          fallback,
+        });
+        return NextResponse.json(fallback);
       }
       return NextResponse.json(
         { error: 'AI service did not respond. Please try again.', code: 'AI_REQUEST_FAILED' },
@@ -393,7 +386,7 @@ Based on this additional context, re-evaluate the role.`;
       { status: 500 },
     );
   }
-}, { requireMembership: false });
+}, { requireMembership: true });
 
 /**
  * Two-pass parser for AI suggestion responses.

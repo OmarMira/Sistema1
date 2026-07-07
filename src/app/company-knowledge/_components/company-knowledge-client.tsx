@@ -288,7 +288,7 @@ export function CompanyKnowledgeClient({
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => router.push(`/company-knowledge/${record.id}`)}
+                        onClick={() => router.push(`/company-knowledge/${record.id}?companyId=${companyId}`)}
                         title="View details"
                       >
                         <Eye className="h-4 w-4" />

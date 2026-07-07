@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireCompanyContext } from '@/lib/context-storage';
 import { db } from '@/lib/db';
 
-export async function GET(request: NextRequest) {
+export const GET = apiHandler(async (request: NextRequest, _context: RouteContext) => {
+  const { companyId } = requireCompanyContext();
+
   const { searchParams } = new URL(request.url);
-  const companyId = searchParams.get('companyId') || request.headers.get('x-company-id');
-  if (!companyId) return NextResponse.json({ error: 'companyId required' }, { status: 400 });
   const page = parseInt(searchParams.get('page') || '1');
   const limit = parseInt(searchParams.get('limit') || '20');
   const type = searchParams.get('type');
@@ -21,4 +23,4 @@ export async function GET(request: NextRequest) {
     db.companyKnowledge.count({ where }),
   ]);
   return NextResponse.json({ data, pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
-}
+});

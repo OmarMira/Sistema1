@@ -2,11 +2,30 @@ import { db } from '@/lib/db';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EntityDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EntityDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ companyId?: string }>;
+}) {
   const { id } = await params;
-  const entity = await db.companyKnowledge.findUnique({ where: { id } });
+  const { companyId } = await searchParams;
+
+  if (!companyId) {
+    return <div className="p-6">Company context required</div>;
+  }
+
+  const entity = await db.companyKnowledge.findFirst({
+    where: { id, companyId },
+  });
+
   if (!entity) return <div className="p-6">Entity not found</div>;
-  const audits = await db.knowledgeAudit.findMany({ where: { knowledgeId: id }, orderBy: { timestamp: 'asc' } });
+
+  const audits = await db.knowledgeAudit.findMany({
+    where: { knowledgeId: id },
+    orderBy: { timestamp: 'asc' },
+  });
 
   return (
     <div className="p-6 max-w-2xl">

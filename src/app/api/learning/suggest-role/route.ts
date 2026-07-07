@@ -14,13 +14,14 @@ import { getAiConfig } from '@/lib/ai-config';
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   try {
     const body = await request.json();
-    const { description, companyId, directionProfile, sampleDescriptions, totalAmount, occurrences } = body as {
+    const { description, companyId, directionProfile, sampleDescriptions, totalAmount, occurrences, manualRequest } = body as {
       description?: string;
       companyId?: string;
       directionProfile?: { creditPct: number; debitPct: number };
       sampleDescriptions?: string[];
       totalAmount?: { min: number; max: number };
       occurrences?: number;
+      manualRequest?: boolean;
     };
 
     // Validate input: description is required, min 3 chars
@@ -79,7 +80,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     if (!apiKey || !baseUrl || !model) {
       logger.error('SUGGEST_ROLE_MISSING_AI_CONFIG');
       return NextResponse.json(
-        { error: 'AI configuration not available' },
+        { error: 'AI not configured. Set it up in Settings → AI.', code: 'AI_NOT_CONFIGURED' },
         { status: 502 },
       );
     }
@@ -115,7 +116,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         });
         if (company) {
           const parts: string[] = [`Company: ${company.legalName}`];
-          if (company.entityType !== 'BUSINESS') {
+          if (company.entityType) {
             parts.push(`Entity type: ${company.entityType}`);
           }
           if (company.taxId) {
@@ -149,37 +150,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       contextParts.push(
         `This entity has ${debitPct}% debit transactions (money OUT) and ${creditPct}% credit transactions (money IN)`,
       );
-
-      // Blocked role rules based on direction
-      const blockedCreditRoles = candidateRoles.filter((r) => {
-        const result = roleIsValidForDirection(r, directionProfile);
-        return !result.valid;
-      });
-
-      if (blockedCreditRoles.length > 0) {
-        // Roles blocked because they expect the opposite direction
-        const blockedDebitRoles = blockedCreditRoles.filter((r) => {
-          const role = r as EntityRole;
-          return ENTITY_ROLES.includes(role) && EXPECTED_DIRECTION[role] === 'debit';
-        });
-        const blockedCreditRoles2 = blockedCreditRoles.filter((r) => {
-          const role = r as EntityRole;
-          return ENTITY_ROLES.includes(role) && EXPECTED_DIRECTION[role] === 'credit';
-        });
-
-        if (blockedDebitRoles.length > 0) {
-          contextParts.push(
-            'If all transactions are money IN (credits >= 80%), this entity CANNOT be: ' +
-              blockedDebitRoles.join(', '),
-          );
-        }
-        if (blockedCreditRoles2.length > 0) {
-          contextParts.push(
-            'If all transactions are money OUT (debits >= 80%), this entity CANNOT be: ' +
-              blockedCreditRoles2.join(', '),
-          );
-        }
-      }
+      contextParts.push(
+        'Direction is evidence only. Never exclude a role based solely on debit/credit direction. SOCIO can be debit-only. PRESTAMO and TARJETA_CREDITO are typically debit-only. INGRESO is typically credit-only.',
+      );
     }
 
     // Sample descriptions (up to 3)
@@ -191,14 +164,27 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       }
     }
 
-    // Amount range
+    // Total amount accumulated
     if (totalAmount) {
-      contextParts.push(`Amount range: $${totalAmount.min} to $${totalAmount.max}`);
+      contextParts.push(`Total amount: $${totalAmount.min}`);
     }
 
     const contextBlock = contextParts.join('\n');
 
-    const systemPrompt = 'You are an accounting entity classifier. Return only valid JSON.';
+    const systemPrompt = `You are an accounting entity classifier. Return only valid JSON.
+
+ROLE DEFINITIONS:
+- INQUILINO: Tenant who pays rent monthly (money flows IN to company)
+- PROVEEDOR: Vendor/supplier paid for goods/services (money flows OUT)
+- SOCIO: Business partner/owner with mixed transactions (deposits, withdrawals, transfers)
+- CLIENTE: Customer who pays for services (money flows IN)
+- EMPLEADO: Employee receiving salary/payroll (money flows OUT)
+- TARJETA_CREDITO: Credit card payments (money flows OUT)
+- PRESTAMO: Loan payments (money flows OUT)
+- GASTO_OPERATIVO: Operating expense (money flows OUT)
+- INGRESO: Income/revenue source (money flows IN)
+- OTRO: Unknown or unclassified entity`;
+
     const userPrompt = `Given this entity:
 ${contextBlock}
 
@@ -365,7 +351,7 @@ Based on this additional context, re-evaluate the role.`;
         }
       }
       return NextResponse.json(
-        { error: 'AI service failed to provide a suggestion' },
+        { error: 'AI service did not respond. Please try again.', code: 'AI_REQUEST_FAILED' },
         { status: 502 },
       );
     }
@@ -374,15 +360,16 @@ Based on this additional context, re-evaluate the role.`;
     if (!ENTITY_ROLES.includes(aiResult.role as EntityRole)) {
       logger.warn('[SUGGEST_ROLE INVALID_ROLE]', { role: aiResult.role });
       return NextResponse.json(
-        { error: 'AI returned an invalid role' },
+        { error: 'AI returned unexpected data. Please try again.', code: 'AI_INVALID_ROLE' },
         { status: 502 },
       );
     }
 
-    // ── LLM confidence cap (conditional on autoRoleAssignment) ──────────
+    // ── LLM confidence cap (conditional on autoRoleAssignment + manualRequest) ──
     // When autoRoleAssignment is enabled, let confidence flow uncapped.
+    // When user explicitly requests a suggestion (manualRequest), skip the cap.
     // Otherwise, force to max 0.69 (treated as LOW by frontend confidence gate).
-    if (!autoRoleAssignment) {
+    if (!autoRoleAssignment && !manualRequest) {
       aiResult.confidence = Math.min(aiResult.confidence, 0.69);
     }
 
@@ -402,7 +389,7 @@ Based on this additional context, re-evaluate the role.`;
     const msg = error instanceof Error ? error.message : 'Unknown error';
     logger.error('[SUGGEST_ROLE ERROR]', { error: msg });
     return NextResponse.json(
-      { error: 'Failed to process suggestion request' },
+      { error: 'An unexpected error occurred. Please try again.', code: 'AI_INTERNAL_ERROR' },
       { status: 500 },
     );
   }
@@ -558,3 +545,4 @@ async function findLocalMatch(
 
   return null;
 }
+

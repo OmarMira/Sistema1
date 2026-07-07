@@ -1,0 +1,104 @@
+{
+  "version": "1.0",
+  "healthChecks": {
+    "cashFlowTrend": { "enabled": true, "minPeriods": 3 },
+    "budgetVarianceAlert": { "enabled": true, "thresholdPercent": 15 },
+    "unreconciledItems": { "enabled": true, "maxAllowed": 5 },
+    "duplicateDetection": { "enabled": true, "amountTolerance": 0.01, "dateWindowDays": 2 }
+  },
+  "templates": {
+    "executiveSummary": "Para {period}, el flujo neto fue de ${net}. Ingresos: ${income} | Gastos: ${expenses}. {budgetAlert}{reconAlert}",
+    "highExpense": "El gasto más alto en {month} fue ${amount} en {account}.",
+    "anomalyAlert": "⚠️ {issue} requiere revisión inmediata."
+  },
+  "queryLimits": {
+    "maxHistoryMonths": 12,
+    "cacheTtlMs": 300000,
+    "allowedQueryTypes": ["summary", "high_expense", "unreconciled_count", "budget_status", "cash_trend"]
+  },
+  "auditActions": {
+    "insightGenerated": "ASSISTANT_INSIGHT_GENERATED",
+    "queryExecuted": "ASSISTANT_QUERY_EXECUTED"
+  },
+  "defaultModel": "gemini-3.5-flash",
+  "temperature": 0.1,
+  "maxTokens": 300,
+  "systemInstruction": "Eres un asistente experto en contabilidad de EE.UU. (US GAAP). Parseá la descripción de una regla bancaria en lenguaje natural. REGLA CRÍTICA DE CONDICIONES: Las condiciones de la regla deben buscar e identificar las transacciones reales en el extracto. Por ende, la condición de descripción ('description') debe buscar el nombre de la Entidad (pattern) indicada o variaciones lógicas del nombre de la entidad. NUNCA uses la explicación de negocio o la categoría que te da el usuario (como 'retiro de dinero del socio', 'compra de comida', 'alquiler') como el valor ('value') de la condición de descripción, ya que los extractos bancarios reales solo contienen nombres o referencias comerciales, no explicaciones. REGLA DE CUENTAS DE SOCIOS: Las transacciones de socios (retiros, aportes, préstamos de socios) NUNCA deben asignarse a cuentas de efectivo/banco como '1010'. Deben registrarse en cuentas de patrimonio/capital (ej: '3010' o similar) o de préstamos. Extraé: 1. `role`: el rol contable principal (INQUILINO, PROVEEDOR, SOCIO, CLIENTE, EMPLEADO, TARJETA_CREDITO, PRESTAMO). 2. `debitGlAccountCode`: código de cuenta GL para transacciones de Débito (monto negativo). 3. `creditGlAccountCode`: código de cuenta GL para transacciones de Crédito (monto positivo). 4. `glAccountCode`: código de cuenta GL heredado/fallback si no hay bifurcación. 5. `suggestSubAccount` (boolean) y `subAccountName` (string | null). 6. `conditions`: un array de condiciones conteniendo objetos con las propiedades: `field` ('description' o 'amount'), `operator` ('contains', 'starts_with', 'ends_with', 'equals', 'amount_greater', 'amount_less'), y `value` (string). Si no se especifica bifurcación por signo de monto, asigná la cuenta correspondiente a `glAccountCode`, `debitGlAccountCode` y `creditGlAccountCode` por igual. Retorná siempre un objeto JSON con estas claves.",
+  "heuristics": {
+    "priorities": ["SOCIO", "EMPLEADO", "INQUILINO", "CLIENTE", "TARJETA_CREDITO", "PRESTAMO", "PROVEEDOR", "GASTO_OPERATIVO", "INGRESO"],
+    "rules": [
+      {
+        "role": "SOCIO",
+        "glAccountCode": "3010",
+        "keywords": {
+          "es": ["socio", "dueño", "capital", "extracción", "retiro", "empresa propia", "cuenta propia", "intercompany", "relacionada", "afiliada"],
+          "en": ["partner", "owner", "capital", "draw", "withdrawal", "own company", "related company", "intercompany", "affiliate"]
+        }
+      },
+      {
+        "role": "EMPLEADO",
+        "glAccountCode": "6030",
+        "keywords": {
+          "es": ["empleado", "salario", "sueldo", "nómina", "nomina"],
+          "en": ["employee", "salary", "wage", "payroll"]
+        }
+      },
+      {
+        "role": "INQUILINO",
+        "glAccountCode": "4020",
+        "keywords": {
+          "es": ["inquilino", "arrendatario", "renta", "alquiler"],
+          "en": ["tenant", "renter", "rental", "lease"]
+        }
+      },
+      {
+        "role": "CLIENTE",
+        "glAccountCode": "4010",
+        "keywords": {
+          "es": ["cliente"],
+          "en": ["customer", "client"]
+        }
+      },
+      {
+        "role": "TARJETA_CREDITO",
+        "glAccountCode": "2020",
+        "keywords": {
+          "es": ["tarjeta de credito", "tarjeta de crédito", "tarjeta", "amex", "visa", "mastercard", "discover"],
+          "en": ["credit card", "creditcard", "card", "amex", "visa", "mastercard", "discover"]
+        }
+      },
+      {
+        "role": "PRESTAMO",
+        "glAccountCode": "2040",
+        "keywords": {
+          "es": ["prestamo", "préstamo", "credito", "crédito", "loan", "hipoteca", "mortgage"],
+          "en": ["loan", "mortgage", "credit line"]
+        }
+      },
+      {
+        "role": "PROVEEDOR",
+        "glAccountCode": "6070",
+        "keywords": {
+          "es": ["proveedor", "contratista", "vendor", "honorarios", "servicios profesionales", "professional fees"],
+          "en": ["vendor", "contractor", "professional fees", "fees"]
+        }
+      },
+      {
+        "role": "GASTO_OPERATIVO",
+        "glAccountCode": "5000",
+        "keywords": {
+          "es": ["gasto", "pago", "compra", "cargo", "devolución", "vehículo", "auto", "transporte"],
+          "en": ["expense", "payment", "purchase", "charge", "refund", "vehicle", "car", "transport"]
+        }
+      },
+      {
+        "role": "INGRESO",
+        "glAccountCode": "4010",
+        "keywords": {
+          "es": ["ingreso", "depósito", "deposito", "venta", "abono", "renta", "cobro", "alquiler"],
+          "en": ["income", "deposit", "revenue", "credit", "rent", "sales", "collection"]
+        }
+      }
+    ]
+  }
+}

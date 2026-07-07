@@ -1,0 +1,25 @@
+{
+  "version": "1.2",
+  "accountHolderValidation": {
+    "enabled": true,
+    "businessSuffixes": [
+      "llc", "l.l.c.", "inc", "inc.", "incorporated",
+      "corp", "corp.", "corporation",
+      "ltd", "ltd.", "limited",
+      "sa", "s.a", "s.a.", "s.a.s", "sac",
+      "sl", "s.l", "s.l.", "srl", "s.r.l", "s.r.l.",
+      "gmbh", "ag", "plc", "llp", "lp", "pty", "ptyltd", "co",
+      "company", "group", "holdings", "llc.", "ltda", "eirl"
+    ],
+    "thresholds": {
+      "business": {
+        "levenshtein": 0.85,
+        "token": 0.6
+      },
+      "individual": {
+        "levenshtein": 0.75,
+        "token": 0.5
+      }
+    }
+  }
+}

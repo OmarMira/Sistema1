@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "alertThresholds": {
+    "variancePercent": 10.0,
+    "absoluteAmount": 500.00
+  },
+  "fiscalStartMonth": 1,
+  "allowOverBudgetPosting": false, 
+  "auditAction": "BUDGET_VARIANCE_ALERT"
+}

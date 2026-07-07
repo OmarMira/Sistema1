@@ -18,6 +18,25 @@ enum TransactionIntent {
   OTHER
 }
 
+enum EntityType {
+  PERSON
+  COMPANY
+  FINANCIAL_PRODUCT
+  PLATFORM
+  ASSET
+}
+
+enum DecisionReason {
+  COMPANY_KNOWLEDGE_CONFIRMED
+  COMPANY_KNOWLEDGE_UPDATED
+  COMPANY_KNOWLEDGE_MERGED
+  ENTITY_CONTEXT_MATCH
+  BANK_RULE_MATCH
+  LLM_SUGGESTION
+  MANUAL_OVERRIDE
+  FALLBACK_DEFAULT
+}
+
 model User {
   id                    String                 @id @default(cuid())
   email                 String                 @unique
@@ -74,6 +93,7 @@ model Company {
   reconciliationPeriods ReconciliationPeriod[]
   systemMemories        SystemMemory[]
   detectionConfig       DetectionConfig?
+  companyKnowledge      CompanyKnowledge[]
 }
 
 model CompanyMember {
@@ -416,4 +436,66 @@ model DetectionConfig {
   updatedAt      DateTime @updatedAt
   updatedBy      String?
   company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+/// Polymorphic entity registry — single table with type discriminator.
+model CompanyKnowledge {
+  id            String         @id @default(cuid())
+  companyId     String
+  type          EntityType
+  canonicalName String
+  aliases       String[]
+  relationship  String?
+  metadata      Json           @default("{}")
+  source        String         @default("company_knowledge")
+  status        String         @default("active")
+  mergedIntoId  String?
+  version       Int            @default(1)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  company          Company           @relation(fields: [companyId], references: [id])
+  mergedInto       CompanyKnowledge? @relation("KnowledgeMerge", fields: [mergedIntoId], references: [id])
+  mergedFrom       CompanyKnowledge[] @relation("KnowledgeMerge")
+  pendingApprovals PendingApproval[]
+  auditEntries     KnowledgeAudit[]
+
+  @@index([companyId])
+  @@index([type])
+  @@index([canonicalName])
+}
+
+/// Approval gate — every mutation creates a record before applying.
+model PendingApproval {
+  id          String   @id @default(cuid())
+  knowledgeId String?
+  action      String
+  payload     Json
+  requestedBy String
+  requestedAt DateTime @default(now())
+  status      String   @default("pending")
+
+  companyKnowledge CompanyKnowledge? @relation(fields: [knowledgeId], references: [id])
+
+  @@index([knowledgeId])
+  @@index([status])
+}
+
+/// Append-only audit trail — one row per state transition.
+model KnowledgeAudit {
+  id              String   @id @default(cuid())
+  knowledgeId     String
+  action          String
+  version         Int
+  beforeValue     Json?
+  afterValue      Json?
+  changedByUserId String
+  timestamp       DateTime @default(now())
+  source          String
+  reason          String
+
+  companyKnowledge CompanyKnowledge @relation(fields: [knowledgeId], references: [id])
+
+  @@index([knowledgeId])
+  @@index([timestamp])
 }

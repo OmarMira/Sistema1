@@ -1,0 +1,9 @@
+{
+  "version": "1.0",
+  "logo": {
+    "maxSizeMB": 10,
+    "allowedFormats": ["image/png", "image/jpeg", "image/svg+xml"],
+    "path": "public/uploads/logos",
+    "filenameStrategy": "timestamp-uuid"
+  }
+}

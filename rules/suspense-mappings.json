@@ -1,0 +1,18 @@
+{
+  "Noel Morales": {
+    "glAccountCode": "6070",
+    "description": "Servicios Profesionales - Noel Morales"
+  },
+  "A JN ENTERPRISE": {
+    "glAccountCode": "4010",
+    "description": "Ingreso por Ventas - A JN ENTERPRISE"
+  },
+  "Counter Credit": {
+    "glAccountCode": "4030",
+    "description": "Otros Ingresos / Depósito de Ventas"
+  },
+  "GRAB GO AUTOS": {
+    "glAccountCode": "4010",
+    "description": "Ingreso por Ventas - Grab Go Autos"
+  }
+}

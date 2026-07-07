@@ -67,7 +67,9 @@ export async function parseWithAI(
   const getConfig = deps.readAssistantConfig ?? readAssistantConfigSync;
 
   if (!apiKey || !baseUrl || !model) {
-    throw new Error('AI configuration missing: AI_API_KEY, AI_BASE_URL, and AI_MODEL must be set');
+    const err = new Error('AI not configured. Set it up in Settings → AI.') as Error & { code?: string };
+    err.code = 'AI_NOT_CONFIGURED';
+    throw err;
   }
 
   // Prompt injection guardrails

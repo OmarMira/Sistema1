@@ -67,9 +67,11 @@ const tFn = vi.hoisted(() => vi.fn((key: string, params?: Record<string, any>) =
     'learning.otroDescription': 'Describe what this entity is...',
     'learning.otroAnalyzing': 'Analyzing...',
     'learning.selectRole': 'Select role...',
-    'learning.classify': 'Classify entities',
+    'learning.preClassify': 'Suggest role',
+    'learning.preClassifyPlural': 'Suggest roles',
+    'learning.saveClassificationSingular': 'Save classification',
+    'learning.saveClassificationPlural': 'Save classifications',
     'learning.close': 'Close',
-    'learning.preClassify': 'Pre classify entities',
     'learning.batch.loading': 'Classifying entities...',
     'learning.classifyCount': 'Classify ({count})',
     'learning.saving': 'Saving...',
@@ -364,7 +366,7 @@ describe('EntityOnboardingModal', () => {
       await selectRole(user, 0, 'OTRO');
 
       // Main save button should be disabled (OTRO needs description)
-      const saveBtn = screen.getByRole('button', { name: 'Classify entities' });
+      const saveBtn = screen.getByRole('button', { name: 'Save classification' });
       expect(saveBtn).toBeDisabled();
     });
 
@@ -381,7 +383,7 @@ describe('EntityOnboardingModal', () => {
       // Set DEBIT to PROVEEDOR (first entity, index 0)
       await selectRole(user, 0, 'PROVEEDOR');
 
-      const saveBtn = screen.getByRole('button', { name: 'Classify entities' });
+      const saveBtn = screen.getByRole('button', { name: 'Save classifications' });
       expect(saveBtn).not.toBeDisabled();
     });
   });
@@ -450,7 +452,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textareas[1], 'entity b description');
 
       // Click "Pre classify entities" — this snapshots descriptions
-      const preClassifyFooter = screen.getByRole('button', { name: 'Pre classify entities' });
+      const preClassifyFooter = screen.getByRole('button', { name: 'Suggest roles' });
       await user.click(preClassifyFooter);
 
       // NOW change entity A's description during the batch
@@ -525,8 +527,8 @@ describe('EntityOnboardingModal', () => {
       await user.type(textareas[1], 'customer invoice');
       await user.type(textareas[2], 'supplier bill');
 
-      // Click footer "Pre classify entities" button (triggers batch)
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      // Click footer "Suggest roles" button (triggers batch)
+      await user.click(screen.getByRole('button', { name: 'Suggest roles' }));
       await waitFor(() => {
         const banners = screen.getAllByText('Suggestion: Proveedor');
         expect(banners).toHaveLength(3);
@@ -629,8 +631,9 @@ describe('EntityOnboardingModal', () => {
       await user.type(textareas[1], 'desc b');
       await user.type(textareas[2], 'desc c');
 
-      // Click "Pre classify entities"
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      // 3 OTRO entities, button shows "Suggest roles" (plural)
+      // Click "Suggest roles"
+      await user.click(screen.getByRole('button', { name: 'Suggest roles' }));
 
       // Wait for all banners to appear
       await waitFor(() => {
@@ -684,7 +687,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textarea, 'pays invoices monthly');
 
       // Click "Pre classify entities"
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      await user.click(screen.getByRole('button', { name: 'Suggest role' }));
 
       // Wait for success banner
       await waitFor(() => {
@@ -704,8 +707,8 @@ describe('EntityOnboardingModal', () => {
 
       // Button text — entity is OTRO and unresolved (discarded but still OTRO), or resolved?
       // After discard: batchResults[name].status = 'discarded' → hasUnresolvedOtro is false (discarded counts as resolved)
-      // So button should be "Classify entities" (enabled)
-      const classifyBtn = screen.getByRole('button', { name: 'Classify entities' });
+      // So button should be "Save classification" (enabled)
+      const classifyBtn = screen.getByRole('button', { name: 'Save classification' });
       expect(classifyBtn).toBeInTheDocument();
       expect(classifyBtn).not.toBeDisabled();
     });
@@ -759,13 +762,13 @@ describe('EntityOnboardingModal', () => {
       const textarea = await screen.findByPlaceholderText('Describe what this entity is...');
       await user.type(textarea, 'pays invoices monthly');
 
-      // Wait for button to change to "Pre classify entities"
+      // Wait for button to change to "Suggest role" (OTRO + desc >= 5)
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Pre classify entities' })).not.toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Suggest role' })).not.toBeDisabled();
       });
 
-      // Click "Pre classify entities"
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      // Click "Suggest role"
+      await user.click(screen.getByRole('button', { name: 'Suggest role' }));
 
       // Immediately after click, should show "Classifying entities..." disabled
       await waitFor(() => {
@@ -795,10 +798,10 @@ describe('EntityOnboardingModal', () => {
       const textarea = await screen.findByPlaceholderText('Describe what this entity is...');
       await user.type(textarea, 'pays invoices monthly');
 
-      // Click "Pre classify entities"
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      // Click "Suggest role" (1 OTRO entity, singular)
+      await user.click(screen.getByRole('button', { name: 'Suggest role' }));
 
-      // Wait for success
+      // Wait for success banner
       await waitFor(() => {
         expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
       });
@@ -806,9 +809,9 @@ describe('EntityOnboardingModal', () => {
       // Accept the suggestion
       await user.click(screen.getByRole('button', { name: /assign/i }));
 
-      // After accept, button should show "Classify entities" enabled
+      // After accept, button should show "Save classification" enabled
       await waitFor(() => {
-        const btn = screen.getByRole('button', { name: 'Classify entities' });
+        const btn = screen.getByRole('button', { name: 'Save classification' });
         expect(btn).not.toBeDisabled();
       });
     });
@@ -867,13 +870,13 @@ describe('EntityOnboardingModal', () => {
       const textarea = await screen.findByPlaceholderText('Describe what this entity is...');
       await user.type(textarea, 'desc for entity');
 
-      // Wait for button text to change to "Pre classify entities" (after state update)
+      // Wait for button text to change to "Suggest role" (after state update)
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Pre classify entities' })).not.toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Suggest role' })).not.toBeDisabled();
       });
 
-      // Click "Pre classify entities"
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      // Click "Suggest role"
+      await user.click(screen.getByRole('button', { name: 'Suggest role' }));
 
       // Verify "Classifying entities..." appears (confirms batch is in-flight)
       await waitFor(() => {
@@ -911,7 +914,7 @@ describe('EntityOnboardingModal', () => {
       // No batch results should appear from the old batch
       // The button should show "Classify entities" (disabled — no role selected)
       await waitFor(() => {
-        expect(screen.getByRole('button', { name: 'Classify entities' })).toBeDisabled();
+        expect(screen.getByRole('button', { name: 'Save classification' })).toBeDisabled();
       });
     });
   });
@@ -975,7 +978,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textareas[0], 'entity a description');
 
       // Click "Pre classify entities" — only Entity A is eligible
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      await user.click(screen.getByRole('button', { name: 'Suggest role' }));
 
       // DURING the batch, type description for Entity B
       await user.type(textareas[1], 'entity b description written during batch');
@@ -1034,7 +1037,7 @@ describe('EntityOnboardingModal', () => {
       await selectRole(user, 0, 'PROVEEDOR');
 
       // Main footer button should be enabled (exact match avoids per-entity preClassify buttons)
-      const saveBtn = screen.getByRole('button', { name: 'Classify entities' });
+      const saveBtn = screen.getByRole('button', { name: 'Save classifications' });
       expect(saveBtn).not.toBeDisabled();
     });
 
@@ -1071,7 +1074,7 @@ describe('EntityOnboardingModal', () => {
       await selectRole(user, 0, 'PROVEEDOR');
 
       // Click classify (exact match to avoid per-entity preClassify buttons)
-      const classifyBtn = screen.getByRole('button', { name: 'Classify entities' });
+      const classifyBtn = screen.getByRole('button', { name: 'Save classification' });
       await user.click(classifyBtn);
 
       await waitFor(() => {
@@ -1116,7 +1119,7 @@ describe('EntityOnboardingModal', () => {
       await selectRole(user, 0, 'PROVEEDOR');
 
       // Click classify (exact match)
-      const classifyBtn = screen.getByRole('button', { name: 'Classify entities' });
+      const classifyBtn = screen.getByRole('button', { name: 'Save classifications' });
       await user.click(classifyBtn);
 
       // Wait for save — toast.warning (not success) because MIXED ENTITY was skipped (no role)
@@ -1163,7 +1166,7 @@ describe('EntityOnboardingModal', () => {
       await selectRole(user, 0, 'PROVEEDOR');
 
       // Click classify (exact match)
-      const classifyBtn = screen.getByRole('button', { name: 'Classify entities' });
+      const classifyBtn = screen.getByRole('button', { name: 'Save classification' });
       await user.click(classifyBtn);
 
       // Wait for save to complete
@@ -1201,7 +1204,7 @@ describe('EntityOnboardingModal', () => {
       // Select a non-OTRO role to make button enabled
       await selectRole(user, 0, 'PROVEEDOR');
 
-      const btn = screen.getByRole('button', { name: 'Classify entities' });
+      const btn = screen.getByRole('button', { name: 'Save classification' });
       expect(btn).toBeInTheDocument();
       expect(btn).not.toBeDisabled();
     });
@@ -1387,7 +1390,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textarea, 'pays invoices monthly');
 
       // Click "Pre classify entities"
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      await user.click(screen.getByRole('button', { name: 'Suggest role' }));
 
       // Wait for success banner, then click "Assign"
       await waitFor(() => {
@@ -1425,7 +1428,7 @@ describe('EntityOnboardingModal', () => {
       await user.type(textarea, 'pays invoices monthly');
 
       // Click "Pre classify entities"
-      await user.click(screen.getByRole('button', { name: 'Pre classify entities' }));
+      await user.click(screen.getByRole('button', { name: 'Suggest role' }));
 
       // Wait for success banner
       await waitFor(() => {

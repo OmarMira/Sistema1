@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "stopWords": {
+    "es": ["y", "el", "la", "de", "que", "un", "una", "los", "las", "del", "al", "es", "son", "para", "por", "con", "sin", "sobre", "entre", "como", "más", "pero", "sus", "le", "ya", "se", "este", "esa", "esos", "fue", "ser", "mi", "mis", "tu", "tus", "nuestro", "nuestra"],
+    "en": ["and", "the", "of", "that", "a", "an", "is", "are", "for", "by", "with", "without", "about", "between", "as", "more", "but", "their", "them", "already", "it", "this", "those", "was", "be", "my", "your", "our"]
+  },
+  "minKeywordLength": 3,
+  "maxKeywordsToExtract": 10,
+  "maxMemoriesToInject": 5,
+  "maxTokensPerMemory": 200
+}

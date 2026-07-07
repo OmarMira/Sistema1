@@ -157,5 +157,6 @@ export async function clearDatabase() {
   await db.glAccount.deleteMany().catch(() => {});
   await db.companyMember.deleteMany().catch(() => {});
   await db.company.deleteMany().catch(() => {});
-  await db.user.deleteMany().catch(() => {});
+  // Only delete test users (email contains @example.com) to avoid wiping production data
+  await db.user.deleteMany({ where: { email: { contains: '@example.com' } } }).catch(() => {});
 }

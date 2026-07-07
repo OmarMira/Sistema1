@@ -1,0 +1,19 @@
+{
+  "version": "1.0",
+  "confidenceThreshold": 0.85,
+  "weights": {
+    "amount": 0.40,
+    "date": 0.20,
+    "description": 0.30,
+    "historicalFrequency": 0.10
+  },
+  "dateWindowDays": 5,
+  "autoSuggestEnabled": true,
+  "maxSuggestionsPerTx": 3,
+  "cacheTtlMs": 60000,
+  "auditActions": {
+    "shown": "PREDICTIVE_SUGGESTION_SHOWN",
+    "applied": "PREDICTIVE_MATCH_APPLIED",
+    "rejected": "PREDICTIVE_MATCH_REJECTED"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "asset": {
+    "normalBalance": "debit",
+    "isPL": false,
+    "order": 0
+  },
+  "liability": {
+    "normalBalance": "credit",
+    "isPL": false,
+    "order": 1
+  },
+  "equity": {
+    "normalBalance": "credit",
+    "isPL": false,
+    "order": 2
+  },
+  "revenue": {
+    "normalBalance": "credit",
+    "isPL": true,
+    "order": 3
+  },
+  "expense": {
+    "normalBalance": "debit",
+    "isPL": true,
+    "order": 4
+  }
+}

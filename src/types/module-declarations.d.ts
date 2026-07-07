@@ -3,225 +3,225 @@
 
 declare module '@radix-ui/react-accordion' {
   import React from 'react';
-  export const Root: React.FC<{ type?: 'single' | 'multiple'; collapsible?: boolean; defaultValue?: string[]; value?: string[]; onValueChange?: (value: string[]) => void; children?: React.ReactNode; className?: string }>;
-  export const Item: React.FC<{ value: string; disabled?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Header: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ children?: React.ReactNode; className?: string }>;
-  export const Content: React.FC<{ children?: React.ReactNode; className?: string }>;
+  export const Root: React.FC<{ type?: 'single' | 'multiple'; collapsible?: boolean; defaultValue?: string[]; value?: string[]; onValueChange?: (value: string[]) => void; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Item: React.FC<{ value: string; disabled?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Header: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Content: React.FC<{ children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-alert-dialog' {
   import React from 'react';
-  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Overlay: React.FC<{ className?: string }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Title: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Description: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Cancel: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode }>;
-  export const Action: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Overlay: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Title: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Description: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Cancel: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Action: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-aspect-ratio' {
   import React from 'react';
-  export const Root: React.FC<{ ratio?: number; children?: React.ReactNode; className?: string }>;
+  export const Root: React.FC<{ ratio?: number; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-avatar' {
   import React from 'react';
-  export const Root: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Image: React.FC<{ src?: string; alt?: string; className?: string }>;
-  export const Fallback: React.FC<{ className?: string; children?: React.ReactNode; delayMs?: number }>;
+  export const Root: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Image: React.FC<{ src?: string; alt?: string; className?: string ; [key: string]: unknown }>;
+  export const Fallback: React.FC<{ className?: string; children?: React.ReactNode; delayMs?: number ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-checkbox' {
   import React from 'react';
   export const Root: React.FC<{ checked?: boolean | 'indeterminate'; onCheckedChange?: (checked: boolean | 'indeterminate') => void; disabled?: boolean; className?: string; id?: string; name?: string; required?: boolean; children?: React.ReactNode; [key: string]: unknown }>;
-  export const Indicator: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Indicator: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-collapsible' {
   import React from 'react';
-  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; disabled?: boolean; className?: string; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode }>;
-  export const CollapsibleTrigger: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const CollapsibleContent: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; disabled?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const CollapsibleTrigger: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const CollapsibleContent: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-context-menu' {
   import React from 'react';
-  export const Root: React.FC<{ children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; alignOffset?: number; sideOffset?: number }>;
-  export const Group: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Sub: React.FC<{ children?: React.ReactNode }>;
-  export const Item: React.FC<{ className?: string; children?: React.ReactNode; disabled?: boolean; onSelect?: () => void; onClick?: () => void }>;
-  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Separator: React.FC<{ className?: string }>;
-  export const Label: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const CheckboxItem: React.FC<{ checked?: boolean; onCheckedChange?: (checked: boolean) => void; className?: string; children?: React.ReactNode }>;
-  export const RadioGroup: React.FC<{ value?: string; onValueChange?: (value: string) => void; children?: React.ReactNode }>;
-  export const RadioItem: React.FC<{ value: string; className?: string; children?: React.ReactNode }>;
-  export const SubTrigger: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const SubContent: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; alignOffset?: number; sideOffset?: number ; [key: string]: unknown }>;
+  export const Group: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Sub: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Item: React.FC<{ className?: string; children?: React.ReactNode; disabled?: boolean; onSelect?: () => void; onClick?: () => void ; [key: string]: unknown }>;
+  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Separator: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Label: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const CheckboxItem: React.FC<{ checked?: boolean; onCheckedChange?: (checked: boolean) => void; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const RadioGroup: React.FC<{ value?: string; onValueChange?: (value: string) => void; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const RadioItem: React.FC<{ value: string; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const SubTrigger: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const SubContent: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-dialog' {
   import React from 'react';
-  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Overlay: React.FC<{ className?: string }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Title: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Description: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Close: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Overlay: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Title: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Description: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Close: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-dropdown-menu' {
   import React from 'react';
-  export const Root: React.FC<{ children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; alignOffset?: number; sideOffset?: number }>;
-  export const Group: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Sub: React.FC<{ children?: React.ReactNode }>;
-  export const Item: React.FC<{ className?: string; children?: React.ReactNode; disabled?: boolean; onSelect?: () => void; onClick?: () => void }>;
-  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Separator: React.FC<{ className?: string }>;
-  export const Label: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const CheckboxItem: React.FC<{ checked?: boolean; onCheckedChange?: (checked: boolean) => void; className?: string; children?: React.ReactNode }>;
-  export const RadioGroup: React.FC<{ value?: string; onValueChange?: (value: string) => void; children?: React.ReactNode }>;
-  export const RadioItem: React.FC<{ value: string; className?: string; children?: React.ReactNode }>;
-  export const SubTrigger: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const SubContent: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; alignOffset?: number; sideOffset?: number ; [key: string]: unknown }>;
+  export const Group: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Sub: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Item: React.FC<{ className?: string; children?: React.ReactNode; disabled?: boolean; onSelect?: () => void; onClick?: () => void ; [key: string]: unknown }>;
+  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Separator: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Label: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const CheckboxItem: React.FC<{ checked?: boolean; onCheckedChange?: (checked: boolean) => void; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const RadioGroup: React.FC<{ value?: string; onValueChange?: (value: string) => void; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const RadioItem: React.FC<{ value: string; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const SubTrigger: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const SubContent: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-hover-card' {
   import React from 'react';
-  export const Root: React.FC<{ openDelay?: number; closeDelay?: number; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; sideOffset?: number; alignOffset?: number }>;
+  export const Root: React.FC<{ openDelay?: number; closeDelay?: number; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; sideOffset?: number; alignOffset?: number ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-label' {
   import React from 'react';
-  export const Root: React.FC<{ htmlFor?: string; className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ htmlFor?: string; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-menubar' {
   import React from 'react';
-  export const Root: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Menu: React.FC<{ children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; alignOffset?: number; sideOffset?: number }>;
-  export const Group: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const RadioGroup: React.FC<{ value?: string; onValueChange?: (value: string) => void; children?: React.ReactNode }>;
-  export const Sub: React.FC<{ children?: React.ReactNode }>;
-  export const Item: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const CheckboxItem: React.FC<{ checked?: boolean; onCheckedChange?: (checked: boolean) => void; className?: string; children?: React.ReactNode }>;
-  export const RadioItem: React.FC<{ value: string; className?: string; children?: React.ReactNode }>;
-  export const Separator: React.FC<{ className?: string }>;
-  export const Label: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const SubTrigger: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const SubContent: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Menu: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; alignOffset?: number; sideOffset?: number ; [key: string]: unknown }>;
+  export const Group: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const RadioGroup: React.FC<{ value?: string; onValueChange?: (value: string) => void; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Sub: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Item: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const CheckboxItem: React.FC<{ checked?: boolean; onCheckedChange?: (checked: boolean) => void; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const RadioItem: React.FC<{ value: string; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Separator: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Label: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const SubTrigger: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const SubContent: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-navigation-menu' {
   import React from 'react';
-  export const Root: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const List: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Item: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Link: React.FC<{ className?: string; children?: React.ReactNode; active?: boolean; onSelect?: () => void }>;
-  export const Trigger: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Indicator: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Viewport: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const List: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Item: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Link: React.FC<{ className?: string; children?: React.ReactNode; active?: boolean; onSelect?: () => void ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Indicator: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Viewport: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-popover' {
   import React from 'react';
-  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; sideOffset?: number; alignOffset?: number }>;
-  export const Anchor: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; sideOffset?: number; alignOffset?: number ; [key: string]: unknown }>;
+  export const Anchor: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-progress' {
   import React from 'react';
   export const Root: React.FC<{ value?: number; max?: number; className?: string; children?: React.ReactNode; [key: string]: unknown }>;
-  export const Indicator: React.FC<{ className?: string; style?: React.CSSProperties }>;
+  export const Indicator: React.FC<{ className?: string; style?: React.CSSProperties ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-radio-group' {
   import React from 'react';
-  export const Root: React.FC<{ value?: string; onValueChange?: (value: string) => void; disabled?: boolean; className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ value?: string; onValueChange?: (value: string) => void; disabled?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
   export const Item: React.FC<{ value: string; disabled?: boolean; className?: string; id?: string; children?: React.ReactNode; [key: string]: unknown }>;
-  export const Indicator: React.FC<{ className?: string; children?: React.ReactNode }>;
+  export const Indicator: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-scroll-area' {
   import React from 'react';
-  export const Root: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Viewport: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Scrollbar: React.FC<{ orientation: 'horizontal' | 'vertical'; className?: string }>;
-  export const ScrollAreaScrollbar: React.FC<{ orientation?: 'horizontal' | 'vertical'; className?: string; children?: React.ReactNode }>;
-  export const Thumb: React.FC<{ className?: string }>;
-  export const ScrollAreaThumb: React.FC<{ className?: string }>;
-  export const Corner: React.FC<{ className?: string }>;
+  export const Root: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Viewport: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Scrollbar: React.FC<{ orientation: 'horizontal' | 'vertical'; className?: string ; [key: string]: unknown }>;
+  export const ScrollAreaScrollbar: React.FC<{ orientation?: 'horizontal' | 'vertical'; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Thumb: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const ScrollAreaThumb: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Corner: React.FC<{ className?: string ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-select' {
   import React from 'react';
-  export const Root: React.FC<{ value?: string; onValueChange?: (value: string) => void; defaultValue?: string; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ className?: string; children?: React.ReactNode; asChild?: boolean }>;
-  export const Value: React.FC<{ placeholder?: string }>;
-  export const Icon: React.FC<{ className?: string; children?: React.ReactNode; asChild?: boolean }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode; position?: 'item-aligned' | 'popper' }>;
-  export const ScrollUpButton: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const ScrollDownButton: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Viewport: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Item: React.FC<{ value: string; disabled?: boolean; className?: string; children?: React.ReactNode }>;
-  export const ItemText: React.FC<{ children?: React.ReactNode }>;
-  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Label: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Separator: React.FC<{ className?: string }>;
-  export const Group: React.FC<{ children?: React.ReactNode }>;
+  export const Root: React.FC<{ value?: string; onValueChange?: (value: string) => void; defaultValue?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ className?: string; children?: React.ReactNode; asChild?: boolean ; [key: string]: unknown }>;
+  export const Value: React.FC<{ placeholder?: string ; [key: string]: unknown }>;
+  export const Icon: React.FC<{ className?: string; children?: React.ReactNode; asChild?: boolean ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode; position?: 'item-aligned' | 'popper' ; [key: string]: unknown }>;
+  export const ScrollUpButton: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const ScrollDownButton: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Viewport: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Item: React.FC<{ value: string; disabled?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const ItemText: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const ItemIndicator: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Label: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Separator: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Group: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-separator' {
   import React from 'react';
-  export const Root: React.FC<{ orientation?: 'horizontal' | 'vertical'; decorative?: boolean; className?: string }>;
+  export const Root: React.FC<{ orientation?: 'horizontal' | 'vertical'; decorative?: boolean; className?: string ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-slider' {
   import React from 'react';
-  export const Root: React.FC<{ value?: number[]; onValueChange?: (value: number[]) => void; defaultValue?: number[]; min?: number; max?: number; step?: number; className?: string; children?: React.ReactNode }>;
-  export const Track: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Range: React.FC<{ className?: string }>;
-  export const Thumb: React.FC<{ className?: string }>;
+  export const Root: React.FC<{ value?: number[]; onValueChange?: (value: number[]) => void; defaultValue?: number[]; min?: number; max?: number; step?: number; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Track: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Range: React.FC<{ className?: string ; [key: string]: unknown }>;
+  export const Thumb: React.FC<{ className?: string ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-switch' {
   import React from 'react';
   export const Root: React.FC<{ checked?: boolean; onCheckedChange?: (checked: boolean) => void; disabled?: boolean; className?: string; id?: string; children?: React.ReactNode; [key: string]: unknown }>;
-  export const Thumb: React.FC<{ className?: string }>;
+  export const Thumb: React.FC<{ className?: string ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-tabs' {
   import React from 'react';
-  export const Root: React.FC<{ value?: string; onValueChange?: (value: string) => void; defaultValue?: string; className?: string; children?: React.ReactNode }>;
-  export const List: React.FC<{ className?: string; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ value: string; disabled?: boolean; className?: string; children?: React.ReactNode }>;
-  export const Content: React.FC<{ value: string; className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ value?: string; onValueChange?: (value: string) => void; defaultValue?: string; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const List: React.FC<{ className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ value: string; disabled?: boolean; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ value: string; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-toast' {
@@ -247,29 +247,29 @@ declare module '@radix-ui/react-toast' {
 
 declare module '@radix-ui/react-toggle' {
   import React from 'react';
-  export const Root: React.FC<{ pressed?: boolean; onPressedChange?: (pressed: boolean) => void; className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ pressed?: boolean; onPressedChange?: (pressed: boolean) => void; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-toggle-group' {
   import React from 'react';
-  export const Root: React.FC<{ type?: 'single' | 'multiple'; value?: string; onValueChange?: (value: string) => void; className?: string; children?: React.ReactNode }>;
-  export const Item: React.FC<{ value: string; className?: string; children?: React.ReactNode }>;
+  export const Root: React.FC<{ type?: 'single' | 'multiple'; value?: string; onValueChange?: (value: string) => void; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Item: React.FC<{ value: string; className?: string; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-tooltip' {
   import React from 'react';
-  export const Provider: React.FC<{ delayDuration?: number; skipDelayDuration?: number; children?: React.ReactNode }>;
-  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; defaultOpen?: boolean; delayDuration?: number; children?: React.ReactNode }>;
-  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string }>;
-  export const Portal: React.FC<{ children?: React.ReactNode }>;
-  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; sideOffset?: number; alignOffset?: number }>;
-  export const Arrow: React.FC<{ className?: string }>;
+  export const Provider: React.FC<{ delayDuration?: number; skipDelayDuration?: number; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Root: React.FC<{ open?: boolean; onOpenChange?: (open: boolean) => void; defaultOpen?: boolean; delayDuration?: number; children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Trigger: React.FC<{ asChild?: boolean; children?: React.ReactNode; className?: string ; [key: string]: unknown }>;
+  export const Portal: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
+  export const Content: React.FC<{ className?: string; children?: React.ReactNode; side?: string; align?: string; sideOffset?: number; alignOffset?: number ; [key: string]: unknown }>;
+  export const Arrow: React.FC<{ className?: string ; [key: string]: unknown }>;
 }
 
 declare module '@radix-ui/react-slot' {
   import React from 'react';
   export const Slot: React.FC<{ children?: React.ReactNode; className?: string; [key: string]: unknown }>;
-  export const Slottable: React.FC<{ children?: React.ReactNode }>;
+  export const Slottable: React.FC<{ children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@testing-library/user-event' {
@@ -373,7 +373,7 @@ declare module '@tanstack/react-query' {
     reset: () => void;
   };
   export function useQueryClient(): QueryClient;
-  export const QueryClientProvider: React.FC<{ client: QueryClient; children?: React.ReactNode }>;
+  export const QueryClientProvider: React.FC<{ client: QueryClient; children?: React.ReactNode ; [key: string]: unknown }>;
 }
 
 declare module '@tanstack/react-virtual' {

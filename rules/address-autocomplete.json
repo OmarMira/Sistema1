@@ -1,0 +1,10 @@
+{
+  "version": "1.0",
+  "provider": "nominatim",
+  "baseUrl": "https://nominatim.openstreetmap.org/search",
+  "userAgent": "AccountExpress-AddressService/1.0 (Contact: postmaster@account-express-new-gen.com)",
+  "debounceMs": 300,
+  "cacheTtlMs": 300000,
+  "maxResults": 5,
+  "usOnly": true
+}

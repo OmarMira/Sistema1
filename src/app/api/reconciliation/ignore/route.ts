@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { logger } from '@/lib/logger';
 
 // ─── PATCH /api/reconciliation/ignore ──────────────────────────────
 // Toggle ignore status for transactions.
@@ -109,7 +110,9 @@ export async function PATCH(request: NextRequest) {
       ignore,
     });
   } catch (error) {
-    console.error('[IGNORE TRANSACTIONS ERROR]', error);
+    logger.error('Failed to toggle ignore on transactions', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

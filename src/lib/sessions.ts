@@ -1,71 +1,65 @@
-import { createHash } from 'crypto';
 import { NextRequest } from 'next/server';
+import crypto from 'crypto';
 import { db } from '@/lib/db';
 
-const SESSION_COOKIE = 'session_token';
-
 /**
- * SHA-256 hash a session token for secure DB storage.
- * The raw token is sent to the client; only the hash is persisted.
+ * DB-backed session store — stores SHA-256 hashes only.
  */
-export function hashToken(token: string): string {
-  return createHash('sha256').update(token).digest('hex');
+
+function hashToken(raw: string): string {
+  return crypto.createHash('sha256').update(raw).digest('hex');
 }
 
-/**
- * Extract the raw session token from a NextRequest (cookie or Authorization header).
- */
-function extractToken(request: NextRequest): string | null {
-  return (
-    request.cookies.get(SESSION_COOKIE)?.value ??
-    request.headers.get('authorization')?.replace('Bearer ', '') ??
-    null
-  );
-}
+export async function createSession(userId: string): Promise<string> {
+  const rawToken = crypto.randomUUID();
+  const hashedToken = hashToken(rawToken);
 
-/**
- * Creates a new session for a user, storing only the SHA-256 hash.
- * Returns the raw token (to be sent to the client).
- */
-export async function createSession(
-  userId: string,
-  expiresAt?: Date,
-): Promise<{ rawToken: string; sessionId: string }> {
-  // 32-byte random token
-  const { randomBytes } = await import('crypto');
-  const rawToken = randomBytes(32).toString('hex');
-  const tokenHash = hashToken(rawToken);
+  // Sessions expire after 7 days
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-  const session = await db.session.create({
+  await db.session.create({
     data: {
+      token: hashedToken,
       userId,
-      token: tokenHash,
-      expiresAt: expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
+      expiresAt,
     },
   });
 
-  return { rawToken, sessionId: session.id };
+  return rawToken;
 }
 
-/**
- * Look up a session by its raw token (hashes it first, then searches by hash).
- */
-export async function getSessionUserId(
-  request: NextRequest,
-): Promise<string | null> {
-  const rawToken = extractToken(request);
+export async function getSessionUserId(request: NextRequest): Promise<string | null> {
+  const rawToken = getSessionToken(request);
   if (!rawToken) return null;
 
-  const tokenHash = hashToken(rawToken);
+  const hashedToken = hashToken(rawToken);
 
-  const session = await db.session.findUnique({ where: { token: tokenHash } });
+  const session = await db.session.findUnique({
+    where: { token: hashedToken },
+  });
+
   if (!session) return null;
 
-  // Expired session cleanup
-  if (session.expiresAt && session.expiresAt < new Date()) {
-    await db.session.delete({ where: { id: session.id } });
+  // Check if expired
+  if (session.expiresAt < new Date()) {
+    await db.session.delete({ where: { token: hashedToken } }).catch(() => {});
     return null;
   }
 
   return session.userId;
+}
+
+export async function destroySession(rawToken: string): Promise<void> {
+  const hashedToken = hashToken(rawToken);
+  await db.session.delete({ where: { token: hashedToken } }).catch(() => {});
+}
+
+export function getSessionToken(request: NextRequest): string | null {
+  const isProd = process.env.NODE_ENV === 'production';
+  const cookieName = isProd ? '__Host-session' : 'session';
+  return (
+    request.cookies.get(cookieName)?.value ??
+    request.headers.get('authorization')?.replace('Bearer ', '') ??
+    null
+  );
 }

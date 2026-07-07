@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "refreshIntervalMs": 30000,
+  "alertThresholds": {
+    "reconciliationPending": 0,
+    "unlockedPeriodsInPast": true,
+    "balanceMismatchTolerance": 0.01,
+    "draftInLockedPeriod": true
+  },
+  "display": {
+    "currency": "USD",
+    "locale": "es-CO",
+    "defaultRange": "YTD"
+  }
+}

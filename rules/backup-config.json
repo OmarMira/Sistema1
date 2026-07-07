@@ -1,0 +1,11 @@
+{
+  "version": "1.0",
+  "backupDir": "backups",
+  "retentionDays": 90,
+  "compression": true,
+  "encryptionEnabled": false,
+  "preBackupCheckpoints": true,
+  "postRestoreValidation": true,
+  "scheduleCron": "0 2 * * 0",
+  "allowedRoles": ["admin", "super_admin"]
+}

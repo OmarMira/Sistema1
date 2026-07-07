@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { getSessionUserId } from '@/lib/sessions';
+import { z } from 'zod';
 
 // ─── GET /api/reconciliation/report ────────────────────────────────
 // Get structured reconciliation report.
 // Query params: bankAccountId (required), companyId (required)
+const paramsSchema = z.object({
+  bankAccountId: z.string().min(1, 'bankAccountId is required'),
+  companyId: z.string().min(1, 'companyId is required'),
+});
+
 export async function GET(request: NextRequest) {
   const userId = await getSessionUserId(request);
   if (!userId) {
@@ -12,15 +18,20 @@ export async function GET(request: NextRequest) {
   }
 
   const { searchParams } = new URL(request.url);
-  const bankAccountId = searchParams.get('bankAccountId');
-  const companyId = searchParams.get('companyId');
+  const raw = {
+    bankAccountId: searchParams.get('bankAccountId'),
+    companyId: searchParams.get('companyId'),
+  };
 
-  if (!bankAccountId || !companyId) {
+  const parsed = paramsSchema.safeParse(raw);
+  if (!parsed.success) {
     return NextResponse.json(
       { error: 'bankAccountId and companyId are required' },
       { status: 400 }
     );
   }
+
+  const { bankAccountId, companyId } = parsed.data;
 
   // Verify access
   const membership = await db.companyMember.findUnique({
@@ -65,8 +76,8 @@ export async function GET(request: NextRequest) {
   let balancePerBooks = 0;
   const isDebitNormal = bankAccount.glAccount.normalBalance === 'debit';
   for (const line of journalLines) {
-    const debit = line.debit.toNumber();
-    const credit = line.credit.toNumber();
+    const debit = line.debit;
+    const credit = line.credit;
     if (isDebitNormal) {
       balancePerBooks += debit - credit;
     } else {
@@ -82,7 +93,7 @@ export async function GET(request: NextRequest) {
     },
     _sum: { amount: true },
   });
-  const balancePerStatement = reconciledResult._sum.amount?.toNumber() ?? 0;
+  const balancePerStatement = Number(reconciledResult._sum.amount ?? 0);
 
   const difference = balancePerStatement - balancePerBooks;
 

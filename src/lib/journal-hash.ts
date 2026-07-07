@@ -6,7 +6,16 @@ import { createHmac } from 'crypto';
  * Any tampering with the database breaks the chain and is detectable.
  */
 
-const HMAC_SECRET = process.env.HMAC_SECRET || 'default-dev-secret-change-in-production';
+const HMAC_SECRET = (() => {
+  const secret = process.env.HMAC_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('HMAC_SECRET environment variable is required in production');
+    }
+    return 'dev-secret-not-for-production';
+  }
+  return secret;
+})();
 
 /**
  * Compute HMAC-SHA-256 hash for a journal entry, chaining with the previous entry's hash.
@@ -117,8 +126,8 @@ export async function verifyJournalChain(
 
   for (let i = 0; i < entriesWithHash.length; i++) {
     const entry = entriesWithHash[i];
-    const totalDebit = entry.lines.reduce((s, l) => s + l.debit.toNumber(), 0);
-    const totalCredit = entry.lines.reduce((s, l) => s + l.credit.toNumber(), 0);
+    const totalDebit = entry.lines.reduce((s, l) => s + l.debit, 0);
+    const totalCredit = entry.lines.reduce((s, l) => s + l.credit, 0);
 
     const expectedHash = computeEntryHash({
       id: entry.id,

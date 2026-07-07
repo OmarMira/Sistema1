@@ -1,0 +1,20 @@
+{
+  "version": "1.0",
+  "feedbackLogPath": "rules/learning-events.jsonl",
+  "minConfidenceToAutoSuggest": 0.85,
+  "minOccurrencesToGenerateRule": 3,
+  "consistencyScoreThreshold": 0.85,
+  "sanitizeNoise": {
+    "dates": "\\d{1,2}[\\/\\-\\.]\\d{1,2}[\\/\\-\\.]\\d{2,4}",
+    "references": "(Ref|Conf|Trx|#)\\s*[\\w\\d]+",
+    "amounts": "\\b\\d[\\d.,/\\-]*\\b"
+  },
+  "autoApplyRules": false,
+  "reviewQueueEnabled": true,
+  "patternGeneration": {
+    "safeRegexCharsOnly": true,
+    "ignoreStopWords": ["to", "from", "payment", "ach", "zelle", "conf", "id"],
+    "maxLength": 50
+  },
+  "auditAction": "LEARNING_FEEDBACK_RECEIVED"
+}

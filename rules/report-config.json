@@ -1,0 +1,9 @@
+{
+  "version": "1.0",
+  "internalUseOnlyDisclaimer": "DOCUMENTO PARA USO INTERNO. NO VÁLIDO PARA PRESENTACIÓN ANTE ENTIDADES GUBERNAMENTALES O FISCALES.",
+  "defaultCompanyLabel": "LQ&OM LLC",
+  "supportedFormats": ["csv", "pdf"],
+  "cacheTtlMs": 30000,
+  "hashAlgorithm": "sha256",
+  "auditAction": "REPORT_EXPORTED"
+}

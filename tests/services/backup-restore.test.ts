@@ -49,7 +49,7 @@ let currentTx: any;
 
 vi.mock('@/lib/db', () => ({
   db: {
-    $transaction: vi.fn((cb: Function) => {
+    $transaction: vi.fn((cb: (...args: any[]) => any) => {
       currentTx = buildTx();
       return cb(currentTx);
     }),

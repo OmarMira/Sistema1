@@ -1,0 +1,64 @@
+{
+  "version": "2",
+  "rules": [
+    {
+      "id": "rule_rent_income",
+      "pattern": "MANUEL FABRO|RENTA|RENTO",
+      "matchType": "regex",
+      "glAccountCode": "4010",
+      "description": "Ingreso por Alquiler",
+      "type": "credit"
+    },
+    {
+      "id": "rule_vehicle_loan",
+      "pattern": "TOYOTA FIN|AUTO FINAN",
+      "matchType": "regex",
+      "glAccountCode": "2010",
+      "description": "Pago Préstamo Vehicular",
+      "type": "debit"
+    },
+    {
+      "id": "rule_amex_payable",
+      "pattern": "AMERICAN EXPRESS|ACH PMT",
+      "matchType": "regex",
+      "glAccountCode": "2020",
+      "description": "Pago Tarjeta Crédito",
+      "type": "debit"
+    },
+    {
+      "id": "rule_partner_draw",
+      "pattern": "omar mira|laura quijano|NELSON MIRA",
+      "matchType": "regex",
+      "glAccountCode": "3020",
+      "description": "Retiro Socios",
+      "type": "debit"
+    },
+    {
+      "id": "rule_investment_transfer",
+      "pattern": "LQ&OM INVESTMENT",
+      "matchType": "regex",
+      "glAccountCode": "3010",
+      "description": "Transferencia a Holding/Inversión",
+      "type": "debit"
+    },
+    {
+      "id": "rule_misc_expense",
+      "pattern": "connectxion|lic Vallellanes|Grab and Go",
+      "matchType": "regex",
+      "glAccountCode": "5010",
+      "description": "Gasto Operativo",
+      "type": "debit"
+    },
+    {
+      "id": "ef842b921b06",
+      "pattern": "(?i)noel\\.\\*morales",
+      "glAccountCode": "6070",
+      "confidence": 0.5,
+      "occurrences": 3,
+      "status": "pending_review"
+    }
+  ],
+  "fallbackAccountCode": "9999",
+  "lastUpdated": "2026-05-28T02:39:46.928Z",
+  "autoApplied": false
+}

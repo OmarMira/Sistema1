@@ -1,0 +1,26 @@
+{
+  "version": "1.0",
+  "rateLimit": {
+    "default": { "requestsPerMinute": 60, "burstMultiplier": 1.5 },
+    "criticalEndpoints": {
+      "/api/reconciliation": { "requestsPerMinute": 20, "burstMultiplier": 1.2 },
+      "/api/reports/export": { "requestsPerMinute": 15, "burstMultiplier": 1.2 },
+      "/api/admin/backup": { "requestsPerMinute": 5, "burstMultiplier": 1.0 },
+      "/api/auth/login": { "requestsPerMinute": 10, "burstMultiplier": 1.0 }
+    },
+    "scope": "per_user_company",
+    "windowMs": 60000
+  },
+  "ipAllowlist": {
+    "enabled": false,
+    "allowedRanges": [],
+    "bypassRoles": ["super_admin"],
+    "fallbackAction": "block"
+  },
+  "securityHeaders": {
+    "xContentTypeOptions": "nosniff",
+    "xFrameOptions": "DENY",
+    "strictTransportSecurity": "max-age=31536000; includeSubDomains",
+    "contentSecurityPolicy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline';"
+  }
+}

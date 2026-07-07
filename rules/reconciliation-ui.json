@@ -1,0 +1,43 @@
+{
+  "version": "1.0",
+  "layout": {
+    "splitViewRatio": 0.5,
+    "defaultSort": "date_asc",
+    "visibleColumns": ["date", "description", "amount", "status", "confidence", "matchedEntry"],
+    "stickyHeader": true,
+    "rowHeight": "compact",
+    "syncScroll": true
+  },
+  "matching": {
+    "fuzzyThreshold": 0.75,
+    "amountTolerance": 0.01,
+    "dateWindowDays": 3,
+    "autoMatchEnabled": true,
+    "autoMatchThreshold": 0.90,
+    "highlightConfidence": true,
+    "ignoreReconciled": true
+  },
+  "actions": {
+    "allowedRoles": ["admin", "super_admin", "company_admin", "accountant"],
+    "enableBulkMatch": true,
+    "enableManualLink": true,
+    "enableUnreconcile": true,
+    "enableAdjustmentEntry": true,
+    "requireCommentForUnreconcile": true,
+    "blockActionsOnLockedPeriods": true
+  },
+  "audit": {
+    "logEveryAction": true,
+    "trackConfidenceScore": true,
+    "includeUserId": true,
+    "exportFormat": "csv",
+    "retentionDays": 365
+  },
+  "ui": {
+    "theme": "system",
+    "currency": "USD",
+    "locale": "es-CO",
+    "showDisclaimers": true,
+    "disclaimerText": "Interfaz de uso interno para conciliación. No genera asientos oficiales sin revisión manual."
+  }
+}

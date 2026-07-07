@@ -1,0 +1,84 @@
+{
+  "version": "1.0",
+  "active": true,
+  "sanitization": {
+    "description": "Reglas para eliminar ruido (IDs, fechas, montos, descriptores) antes de extraer nombres.",
+    "stripPatterns": [
+      {
+        "name": "remove_zelle_memos",
+        "regex": "\\bfor\\b.*",
+        "replacement": "",
+        "flags": "gi"
+      },
+      {
+        "name": "remove_conf_ref_ids",
+        "regex": "(Conf#|Ref#|ID:|ID: Indn:|TRX)\\s*\\S*|\\b\\d{10,}\\b|\\$[\\d,]+\\.\\d{2}|\\b(?:[A-Za-z]+\\d+[A-Za-z0-9]*|\\d+[A-Za-z]+[A-Za-z0-9]*)\\b",
+        "replacement": "",
+        "flags": "gi"
+      },
+      {
+        "name": "remove_dates",
+        "regex": "\\b\\d{1,2}[\\/\\-\\.]\\d{1,2}[\\/\\-\\.]\\d{2,4}\\b",
+        "replacement": ""
+      },
+      {
+        "name": "remove_banks_prefixes",
+        "regex": "\\b(BKOFAMERICA|DEPOSIT|MOBILE|PAYMENT|TRANSFER|Zelle payment)\\b",
+        "replacement": "",
+        "flags": "gi"
+      },
+      {
+        "name": "remove_descriptors",
+        "regex": "(DES:|WEB|CCD|PMT INFO:[^\\s]+)",
+        "replacement": "",
+        "flags": "gi"
+      }
+    ]
+  },
+  "extraction": {
+    "description": "Patrones heurísticos para encontrar nombres cerca de palabras clave.",
+    "strategies": [
+      {
+        "priority": 1,
+        "pattern": "^(RAISER\\s*\\d*|LYFT[\\*\\.]?COM|TURO\\s*\\d*|AMERICAN\\s*EXPRESS|SETOYOTA\\s*FIN[\\/\\w]*|HOME\\s*DEPOT|KMF[\\w\\.]*|UBER\\s*USA\\s*\\d*|RIDELYFT)\\b",
+        "description": "Captura nombres de empresas con variantes numéricas y de formato al inicio de la descripción."
+      },
+      {
+        "priority": 2,
+        "pattern": "\\b(?:from|to|payee)\\s+([A-ZÀ-ÿ0-9\\s\\.&\\-']{2,40})",
+        "description": "Busca nombre tras 'from', 'to' o 'payee'. Captura mayúsculas, números, guiones y apóstrofes."
+      },
+      {
+        "priority": 3,
+        "pattern": "\\bINDN:\\s*([A-ZÀ-ÿ0-9\\s\\.&\\-']+?)(?=\\s+(?:CO ID:|ID:|CCD|WEB)|$)",
+        "description": "Busca nombre tras 'INDN:' hasta marcador técnico (CO ID:, ID:, CCD, WEB)."
+      },
+      {
+        "priority": 1,
+        "pattern": "^([A-ZÀ-ÿ0-9\\s\\.\\,&\\-']{2,40})(?=\\s+(DES:|ID:|\\d{2}\\/))",
+        "description": "Fallback: Primera secuencia de texto largo antes de un descriptor técnico."
+      }
+    ]
+  },
+  "clustering": {
+    "description": "Configuración para agrupar variantes del mismo nombre (Fuzzy Matching).",
+    "algorithm": "jaro-winkler",
+    "threshold": 0.85,
+    "canonicalSelection": "most_frequent",
+    "minLength": 3,
+    "stopWords": ["LLC", "INC", "CORP", "CO", "PA", "THE", "AND", "DES", "PMNT"]
+  },
+  "validation": {
+    "description": "Umbrales para decidir si una entidad merece ser preguntada al usuario.",
+    "minOccurrences": 2,
+
+    "ignorePatterns": [
+      "CASH",
+      "CHECK",
+      "FEE",
+      "INTEREST",
+      "BALANCE",
+      "MOBILE"
+    ]
+  }
+}

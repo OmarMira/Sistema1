@@ -1,0 +1,227 @@
+{"timestamp":"2026-05-28T02:39:46.773Z","bankDescription":"Zelle payment from Noel Morales","selectedGlAccountCode":"6070","confidence":1,"userId":"test-user","companyId":"cmpos91cl0002c7uwco7gtkqb"}
+{"timestamp":"2026-05-28T02:39:46.775Z","bankDescription":"Zelle payment from Noel Morales","selectedGlAccountCode":"6070","confidence":1,"userId":"test-user","companyId":"cmpos91cl0002c7uwco7gtkqb"}
+{"timestamp":"2026-05-28T02:39:46.776Z","bankDescription":"Zelle payment from Noel Morales","selectedGlAccountCode":"6070","confidence":1,"userId":"test-user","companyId":"cmpos91cl0002c7uwco7gtkqb"}
+{"timestamp":"2026-06-02T01:04:55.118Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvxqqtg0000c7aszhzjmq9r","companyId":"cmpvxqqti0001c7asiud9r7dt"}
+{"timestamp":"2026-06-02T01:04:55.136Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvxqqu60006c7asixd0dgli","companyId":"cmpvxqqu80007c7ast3hdrk58"}
+{"timestamp":"2026-06-02T01:05:03.903Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvxqxlb0000c764jzxf6hif","companyId":"cmpvxqxld0001c764bi92pym1"}
+{"timestamp":"2026-06-02T01:05:35.626Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvxrm2i0000c7xcrl30ex9e","companyId":"cmpvxrm2k0001c7xca2tusnok"}
+{"timestamp":"2026-06-02T01:05:49.137Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvxrwgw0000c7bozvuf4w5w","companyId":"cmpvxrwh30002c7boo272doy5"}
+{"timestamp":"2026-06-02T01:07:54.022Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvxukuu0000c7voywp54b0j","companyId":"cmpvxukuw0001c7vobc7lcb79"}
+{"timestamp":"2026-06-02T01:08:37.309Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvxvi8z0000c7ggnooivbii","companyId":"cmpvxvi990002c7ggyuthclbn"}
+{"timestamp":"2026-06-02T01:16:16.662Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvy5cor0000c784gi3q3jz5","companyId":"cmpvy5cov0001c784neznhvzq"}
+{"timestamp":"2026-06-02T01:17:42.244Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvy76q90000c7e0y2ki70q3","companyId":"cmpvy76qc0001c7e0zzklhvn0"}
+{"timestamp":"2026-06-02T01:17:55.016Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvy7gku0000c7swhcjrl9sl","companyId":"cmpvy7gl20002c7sw1mn1zm0g"}
+{"timestamp":"2026-06-02T01:40:38.613Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvz0oqn0000c7eggrq3w7re","companyId":"cmpvz0oqp0001c7eg52tz8mfg"}
+{"timestamp":"2026-06-02T01:40:41.552Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvz0r0j0000c70wk3uoyjrh","companyId":"cmpvz0r0k0001c70wprst413f"}
+{"timestamp":"2026-06-02T01:41:00.480Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvz15ma0000c7mg0rfnv3qt","companyId":"cmpvz15mc0001c7mgqhr8ykgq"}
+{"timestamp":"2026-06-02T01:53:56.765Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvzhslp0000c7k43msj9n8u","companyId":"cmpvzhslr0001c7k4kfk3olo0"}
+{"timestamp":"2026-06-02T01:55:29.365Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvzjs1z0000c79gqaq8vg53","companyId":"cmpvzjs200001c79g76ikw4v0"}
+{"timestamp":"2026-06-02T01:59:56.317Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvzpi1a0000c76428v1llmz","companyId":"cmpvzpi1c0001c764a6hr28b9"}
+{"timestamp":"2026-06-02T02:02:45.444Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvzt4j70000c7vg5gtd0r92","companyId":"cmpvzt4j90001c7vg12zm6cir"}
+{"timestamp":"2026-06-02T02:05:27.441Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpvzwlj20000c7m40cmtneea","companyId":"cmpvzwlj40001c7m46a8oknks"}
+{"timestamp":"2026-06-02T03:27:26.194Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpw2u0va0000c7zs4x611vim","companyId":"cmpw2u0vb0001c7zsdf1l79wj"}
+{"timestamp":"2026-06-02T03:28:46.751Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpw2vr0r0000c7e0aldda2ko","companyId":"cmpw2vr0y0002c7e076z691us"}
+{"timestamp":"2026-06-02T03:29:21.857Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpw2wi3r0000c74kafiuq8oa","companyId":"cmpw2wi3s0001c74kl9rcm4d9"}
+{"timestamp":"2026-06-02T03:29:33.632Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpw2wr6y0000c77gq9848d5d","companyId":"cmpw2wr740002c77gn2it96wp"}
+{"timestamp":"2026-06-02T17:35:02.896Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpwx425e0000c79ktx1xzlan","companyId":"cmpwx425g0001c79kfbihu9cv"}
+{"timestamp":"2026-06-02T17:35:54.280Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpwx55sp0000c7l0ahkvn748","companyId":"cmpwx55sq0001c7l05chufej9"}
+{"timestamp":"2026-06-02T18:16:52.478Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpwylujz0000c7iwk2birz29","companyId":"cmpwyluk00001c7iwilqv7xtj"}
+{"timestamp":"2026-06-02T18:17:29.510Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpwymn4r0000c7xwnwsb963i","companyId":"cmpwymn4s0001c7xw3pe20n8y"}
+{"timestamp":"2026-06-02T18:40:31.793Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpwzg9pe0000c7d4dwlogif7","companyId":"cmpwzg9ph0001c7d48dun0m8c"}
+{"timestamp":"2026-06-02T18:45:07.064Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpwzm63u0000c7049np9wthf","companyId":"cmpwzm63x0001c7045yiwn6g8"}
+{"timestamp":"2026-06-02T18:57:51.214Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx02jq40000c7aorkcd2k7l","companyId":"cmpx02jq70001c7aoogpcyt3y"}
+{"timestamp":"2026-06-02T19:00:16.189Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx05nl90000c7t0n6o59gaj","companyId":"cmpx05nlc0001c7t0wma6gvf7"}
+{"timestamp":"2026-06-02T19:01:23.893Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx073ty0000c7sk7hhsjlo7","companyId":"cmpx073u10001c7sk7p7xifsr"}
+{"timestamp":"2026-06-02T19:02:47.195Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx08w3s0000c7qo8mwae95a","companyId":"cmpx08w3v0001c7qozq7zkcl1"}
+{"timestamp":"2026-06-02T19:10:56.618Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx0jdr00000c7x8kck63mwv","companyId":"cmpx0jdr20001c7x8mxzyif6q"}
+{"timestamp":"2026-06-02T22:31:20.846Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx7p3pb0000c7pw4k5f2svy","companyId":"cmpx7p3pe0001c7pwdbpnn5tc"}
+{"timestamp":"2026-06-02T22:51:17.107Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx8eqqs0000c7uc6iajlazy","companyId":"cmpx8eqqu0001c7ucsikczh1p"}
+{"timestamp":"2026-06-02T22:53:20.982Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx8hebq0000c7s4n86ntz9z","companyId":"cmpx8hebu0001c7s4u4kqhjyr"}
+{"timestamp":"2026-06-02T23:11:07.710Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx949f20000c7qge9rt0maz","companyId":"cmpx949f50001c7qgk2s7f4o8"}
+{"timestamp":"2026-06-02T23:11:46.650Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpx953gp0000c754twvauon6","companyId":"cmpx953gs0001c754bwqfptt0"}
+{"timestamp":"2026-06-03T00:13:43.856Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxbcroi0000c7ugsk769j8v","companyId":"cmpxbcrok0001c7ug896dvpse"}
+{"timestamp":"2026-06-03T00:15:06.852Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxbejpp0000c7e89nm7kimk","companyId":"cmpxbejq00002c7e89syqsh92"}
+{"timestamp":"2026-06-03T00:17:05.138Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxbh2zj0000c75wa4hya2qr","companyId":"cmpxbh2zm0001c75w6inum6bd"}
+{"timestamp":"2026-06-03T00:19:13.485Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxbju0r0000c7mwwqdgjfw7","companyId":"cmpxbju0y0002c7mwr8lvzewp"}
+{"timestamp":"2026-06-03T00:19:26.977Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxbk4fn0000c7g4jxnaeuba","companyId":"cmpxbk4fq0001c7g4fo6oqbom"}
+{"timestamp":"2026-06-03T00:45:10.969Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxch7sa0000c7z00hhh0jzo","companyId":"cmpxch7sd0001c7z0eer05v4q"}
+{"timestamp":"2026-06-03T00:47:32.166Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxck8qb0000c7x0ogf97k1w","companyId":"cmpxck8qe0001c7x0irq4kjsc"}
+{"timestamp":"2026-06-03T00:53:40.623Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxcs51b0000c7q4a8fv1oak","companyId":"cmpxcs51d0001c7q4rqgkku2q"}
+{"timestamp":"2026-06-03T00:56:56.262Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxcwbzp0000c7e4aht8ceyk","companyId":"cmpxcwbzs0001c7e418458snf"}
+{"timestamp":"2026-06-03T00:59:30.170Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxczmqt0000c7boprv4hzwp","companyId":"cmpxczmqw0001c7boygoczncd"}
+{"timestamp":"2026-06-03T01:01:42.379Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxd2grc0000c7pspfnxralm","companyId":"cmpxd2grf0001c7ps9lxyse05"}
+{"timestamp":"2026-06-03T01:03:31.078Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxd4smr0000c7t07eez3qih","companyId":"cmpxd4smu0001c7t0vhls8e0n"}
+{"timestamp":"2026-06-03T01:04:34.480Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxd65k10000c7nk6rgj01yd","companyId":"cmpxd65k50001c7nkox1wy5ka"}
+{"timestamp":"2026-06-03T01:05:13.755Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxd6zuw0000c7mclkea9qs2","companyId":"cmpxd6zv00001c7mco1a0ho3q"}
+{"timestamp":"2026-06-03T01:06:54.385Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxd95i10000c7v0r152zu9r","companyId":"cmpxd95i60001c7v0nxr7ksv7"}
+{"timestamp":"2026-06-03T01:07:19.086Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxd9ok80000c7rwoc5arqjs","companyId":"cmpxd9okc0001c7rwnvy5q8si"}
+{"timestamp":"2026-06-03T01:59:55.536Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxf5c090000c704kor244li","companyId":"cmpxf5c0h0001c704z3805oz7"}
+{"timestamp":"2026-06-03T02:00:48.204Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxf6gn30000c7ega97w06wb","companyId":"cmpxf6gn90001c7egnoqiouy1"}
+{"timestamp":"2026-06-03T02:06:14.335Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxfdg8s0000c7gc2j0jo0q0","companyId":"cmpxfdg900001c7gc22aw9wsz"}
+{"timestamp":"2026-06-03T02:07:07.210Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxfel650000c7jcqbvs08sx","companyId":"cmpxfel690001c7jc9yl9odex"}
+{"timestamp":"2026-06-03T02:14:02.811Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxfnhut0000c7mktvczjz7q","companyId":"cmpxfnhux0001c7mk8ei9a1hd"}
+{"timestamp":"2026-06-03T02:16:57.074Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpxfr8bc0000c7000ytwhwyv","companyId":"cmpxfr8bg0001c700whm98ry7"}
+{"timestamp":"2026-06-03T17:17:36.524Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpybxhfd0000c7vswsb6s139","companyId":"cmpybxhfj0001c7vssisvx6gg"}
+{"timestamp":"2026-06-03T17:18:31.709Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpybyo0a0000c7f4xlav84i1","companyId":"cmpybyo0d0001c7f4jjo5mfnt"}
+{"timestamp":"2026-06-03T17:25:55.045Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyc862m0000c7vg1fq0e8yh","companyId":"cmpyc862q0001c7vg6xyv7ywi"}
+{"timestamp":"2026-06-03T20:22:51.848Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyijq2f0000c7ccsxbbsppc","companyId":"cmpyijq2i0001c7ccu140gr4e"}
+{"timestamp":"2026-06-03T20:24:40.563Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyim1yb0000c71sssd01h4m","companyId":"cmpyim1yd0001c71sfwtchyi8"}
+{"timestamp":"2026-06-03T20:33:46.993Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyixrku0000c7pgctd5jbho","companyId":"cmpyixrky0001c7pgcregvp8s"}
+{"timestamp":"2026-06-03T20:34:35.879Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyiytaw0000c7wgfh9dbqzl","companyId":"cmpyiytay0001c7wgb24gzsfu"}
+{"timestamp":"2026-06-03T20:35:19.126Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyizqo60000c73gdqhzlvlk","companyId":"cmpyizqo90001c73gubok99bu"}
+{"timestamp":"2026-06-03T20:37:08.757Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyj239h0000c7espy9b5l84","companyId":"cmpyj239k0001c7esxc6vjcjl"}
+{"timestamp":"2026-06-03T20:38:51.999Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyj4axa0000c7w42426tf3g","companyId":"cmpyj4axd0001c7w4rcf0uino"}
+{"timestamp":"2026-06-03T20:40:00.545Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyj5rt90000c7f0kewp54b9","companyId":"cmpyj5rtc0001c7f0pyd68tre"}
+{"timestamp":"2026-06-03T20:41:16.483Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyj7eeb0000c7k88kfv32cr","companyId":"cmpyj7eeg0001c7k8pqywj4yp"}
+{"timestamp":"2026-06-03T20:42:32.690Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyj91790000c7q0qw7h35jr","companyId":"cmpyj917c0001c7q07e6bu2rn"}
+{"timestamp":"2026-06-03T20:45:00.381Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyjc75g0000c72gpszv8f8h","companyId":"cmpyjc75j0001c72g60z5utn1"}
+{"timestamp":"2026-06-03T20:56:25.384Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyjqvpi0000c788kdnzytb6","companyId":"cmpyjqvpm0001c788lf68dtlm"}
+{"timestamp":"2026-06-03T21:09:02.237Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyk73p30000c7l0hza1dvli","companyId":"cmpyk73p80001c7l0372zmo0p"}
+{"timestamp":"2026-06-03T21:11:53.909Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpykas5x0000c76srruvzhvj","companyId":"cmpykas610001c76ssi4aary7"}
+{"timestamp":"2026-06-03T21:27:00.219Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyku7h50000c75oz3xkd9f8","companyId":"cmpyku7hb0001c75od389rari"}
+{"timestamp":"2026-06-03T23:50:57.833Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpypzcb80000c7scmjbxnlgr","companyId":"cmpypzcbd0001c7sca0imlfbm"}
+{"timestamp":"2026-06-03T23:51:00.738Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpypzejz0000c7m8i8aq7kdf","companyId":"cmpypzek20001c7m836xmwu6e"}
+{"timestamp":"2026-06-04T01:09:12.733Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpysrysr0000c7bstqeqexe0","companyId":"cmpysryu40001c7bsm07iuk2y"}
+{"timestamp":"2026-06-04T01:09:21.837Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpyss5y20000c7oo5ha5n5qx","companyId":"cmpyss5y60001c7oo6pbzdxl1"}
+{"timestamp":"2026-06-04T01:10:25.042Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpystipt0000c76c15to5d2p","companyId":"cmpystipw0001c76cr9zxh73j"}
+{"timestamp":"2026-06-04T19:22:04.943Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmpzvterj0000c7nsifn40r4t","companyId":"cmpzvterm0001c7nscyopgjrf"}
+{"timestamp":"2026-06-04T23:20:40.604Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq04c8st0000c7z047equ6u5","companyId":"cmq04c8sv0001c7z0b7cucyj0"}
+{"timestamp":"2026-06-04T23:21:28.355Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq04d9n20000c794i2srajgt","companyId":"cmq04d9n50001c7940fwtlb3o"}
+{"timestamp":"2026-06-05T19:33:30.097Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1bny3a0000c7y8aj7n0ojt","companyId":"cmq1bny3d0001c7y8kgfyounc"}
+{"timestamp":"2026-06-05T23:46:06.602Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1kosxm0000c77k60ny9epe","companyId":"cmq1kosxp0001c77kpn2hn2vy"}
+{"timestamp":"2026-06-05T23:50:19.213Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1ku7ui0000c708phfv3zhh","companyId":"cmq1ku7un0001c708moax5rzo"}
+{"timestamp":"2026-06-05T23:54:05.430Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1kz2eg0000c7bcw6a5g9fa","companyId":"cmq1kz2ei0001c7bcsfepjhhl"}
+{"timestamp":"2026-06-06T00:03:13.839Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1latjx0000c7ds3uv63o65","companyId":"cmq1latk10001c7dse74x0neu"}
+{"timestamp":"2026-06-06T00:05:14.727Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1ldepc0000c7s0x6xk5g3s","companyId":"cmq1ldese0001c7s0qww3bg6x"}
+{"timestamp":"2026-06-06T00:06:01.851Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1leeyx0000c7toy2wbq07v","companyId":"cmq1leez50001c7togactwtk3"}
+{"timestamp":"2026-06-06T00:07:08.386Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1lfuf10000c7icsm7m6adc","companyId":"cmq1lfui00001c7iczwtfsv3d"}
+{"timestamp":"2026-06-06T00:10:40.814Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1lkebv0000c7o8uqeasxd3","companyId":"cmq1lkeex0001c7o878oaomng"}
+{"timestamp":"2026-06-06T00:12:58.566Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1lncoc0000c72ws835ocn4","companyId":"cmq1lncoq0001c72ww6bm24p2"}
+{"timestamp":"2026-06-06T00:18:37.803Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1lumhb0000c7qkftp8q2i1","companyId":"cmq1lumhj0001c7qk1wyo0g2n"}
+{"timestamp":"2026-06-06T00:21:39.262Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1lyihv0000c7koq6r1ione","companyId":"cmq1lyihz0001c7kouzq605gi"}
+{"timestamp":"2026-06-06T00:24:18.050Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1m1wus0000c7isrn0xb037","companyId":"cmq1m1wv30001c7iswf1pcucf"}
+{"timestamp":"2026-06-06T00:45:36.604Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1mtbjy0000c7s0i6kmesdx","companyId":"cmq1mtbk20001c7s0zoozf3h4"}
+{"timestamp":"2026-06-06T00:49:33.740Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1myei60000c7jk36qe1j8h","companyId":"cmq1myeib0001c7jk4ucsvqih"}
+{"timestamp":"2026-06-06T00:51:37.113Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1n11l50000c7fo28nfwtyt","companyId":"cmq1n11ld0001c7fop2dke6qp"}
+{"timestamp":"2026-06-06T00:54:44.162Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1n52260000c7507yrjrdm6","companyId":"cmq1n52280001c750q3llijt6"}
+{"timestamp":"2026-06-06T00:57:26.295Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1n8j5p0000c7okltk659da","companyId":"cmq1n8j5s0001c7ok83plchl8"}
+{"timestamp":"2026-06-06T00:58:20.594Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1n9p2a0000c7t8ligrroq9","companyId":"cmq1n9p2d0001c7t8sv8exurm"}
+{"timestamp":"2026-06-06T00:59:46.266Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1nbj610000c7ko2gb99g0j","companyId":"cmq1nbj630001c7kowq0ru35n"}
+{"timestamp":"2026-06-06T01:26:32.179Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1o9ya20000c7koq13mj0nv","companyId":"cmq1o9yab0001c7ko9ng6kc8r"}
+{"timestamp":"2026-06-06T01:41:03.847Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1osmvs0000c7q8k9pe11er","companyId":"cmq1osmvw0001c7q8ahsqdxar"}
+{"timestamp":"2026-06-06T03:40:12.612Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1t1uwe0000c7ggngcm0gga","companyId":"cmq1t1uwh0001c7ggxljlex85"}
+{"timestamp":"2026-06-06T03:40:36.998Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1t2dps0000c7gkj2irnlsr","companyId":"cmq1t2dpv0001c7gkpmnrxg50"}
+{"timestamp":"2026-06-06T03:44:55.304Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1t7x0w0000c72c95uuqd1l","companyId":"cmq1t7x130001c72cy5emww6o"}
+{"timestamp":"2026-06-06T03:45:30.209Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1t8nyc0000c7e4jbxogcuo","companyId":"cmq1t8nyh0001c7e47pvmuzwx"}
+{"timestamp":"2026-06-06T03:45:47.841Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1t91kf0000c7m4imo2lth0","companyId":"cmq1t91kh0001c7m445w4ayst"}
+{"timestamp":"2026-06-06T03:46:42.881Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1ta81b0000c7x07qnmr5f2","companyId":"cmq1ta81e0001c7x0z360z4kg"}
+{"timestamp":"2026-06-06T03:57:41.188Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1tobzn0000c7fkzipv396x","companyId":"cmq1tobzq0001c7fkfjptydwh"}
+{"timestamp":"2026-06-06T04:13:30.062Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1u8o570000c7swlb5jfgyu","companyId":"cmq1u8o5b0001c7sw552kuejx"}
+{"timestamp":"2026-06-06T04:17:09.682Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1uddlu0000c7aknjl4enve","companyId":"cmq1uddlx0001c7aknpbfksqj"}
+{"timestamp":"2026-06-06T05:29:31.978Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1wyg500000c7jwg3ispsdd","companyId":"cmq1wyg530001c7jw2do49f87"}
+{"timestamp":"2026-06-06T05:55:59.701Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1xwh8f0000c708jmc8zzs8","companyId":"cmq1xwh8i0001c708f1krvj3j"}
+{"timestamp":"2026-06-06T05:57:38.562Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1xylih0000c7zs9frq50v6","companyId":"cmq1xylil0001c7zsif87d8u3"}
+{"timestamp":"2026-06-06T05:58:20.938Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1xzi7k0000c738s5anjvg2","companyId":"cmq1xzi7q0001c738i30dd3pc"}
+{"timestamp":"2026-06-06T06:00:12.048Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq1y1vxv0000c79gqgnlqenv","companyId":"cmq1y1vxy0001c79gkj4w4ko7"}
+{"timestamp":"2026-06-06T15:32:23.044Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2ihpx10000c73oy3m03skz","companyId":"cmq2ihpx40001c73oh1oxpuz6"}
+{"timestamp":"2026-06-06T15:34:28.355Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2ikelu0000c7vo76bxy7dg","companyId":"cmq2ikelx0001c7vomcymlr36"}
+{"timestamp":"2026-06-06T15:35:43.161Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2im0bu0001c7bc7zzd3t49","companyId":"cmq2im0bw0002c7bcq9ihhwut"}
+{"timestamp":"2026-06-06T15:37:15.519Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2inzld0001c7i08dqcbvih","companyId":"cmq2inzlf0002c7i07uvk7sfx"}
+{"timestamp":"2026-06-06T15:43:38.002Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2iw6pt0001c7wc5ye9swi0","companyId":"cmq2iw6pw0002c7wca8am2ujv"}
+{"timestamp":"2026-06-06T15:57:17.057Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2jdqpa0001c7k0zern4cd4","companyId":"cmq2jdqpc0002c7k0xydelvec"}
+{"timestamp":"2026-06-06T16:08:34.489Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2js9ey0001c71sc0uom79u","companyId":"cmq2js9f00002c71szm0fjep0"}
+{"timestamp":"2026-06-06T16:14:04.476Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2jzc1b0001c7y8015pjk4e","companyId":"cmq2jzc1d0002c7y8s6evzg2t"}
+{"timestamp":"2026-06-06T20:39:24.559Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2tgk1o0001c7ho27fyto1p","companyId":"cmq2tgk1t0002c7hoqzdk9cqo"}
+{"timestamp":"2026-06-06T20:42:25.984Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2tkg0e0001c7r0wkr7podg","companyId":"cmq2tkg0j0002c7r04xm3j46q"}
+{"timestamp":"2026-06-06T22:29:17.405Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2xdv490001c7b08ojtjqut","companyId":"cmq2xdv4b0002c7b0n4m9a51o"}
+{"timestamp":"2026-06-06T22:43:43.966Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2xwfrh0001c7es8uj74eye","companyId":"cmq2xwfrj0002c7esnwt9nvin"}
+{"timestamp":"2026-06-06T22:48:24.493Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq2y2g7z0001c7d0t2ylo4ly","companyId":"cmq2y2g800002c7d06pf7bkjc"}
+{"timestamp":"2026-06-07T00:45:40.076Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq3298wt0001c78s98zzm82v","companyId":"cmq3298ww0002c78s4mwf7d1n"}
+{"timestamp":"2026-06-07T05:59:13.197Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq3dgh7f0001c7zsptbiv5wq","companyId":"cmq3dgh7h0002c7zs3lkzmzad"}
+{"timestamp":"2026-06-07T14:12:20.254Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq3v2mq70001c7ic26c9nx9z","companyId":"cmq3v2mq90002c7icxm32ttku"}
+{"timestamp":"2026-06-07T14:21:51.571Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq3vevjx0001c7tcodyr9d0s","companyId":"cmq3vevk90002c7tci9m1cj27"}
+{"timestamp":"2026-06-07T14:23:26.458Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq3vgwrv0001c7x4b3zulk8y","companyId":"cmq3vgwrx0002c7x4qby3et9k"}
+{"timestamp":"2026-06-07T14:45:46.085Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq3w9mfx0001c7uo7gy7257r","companyId":"cmq3w9mfz0002c7uo1jahgelb"}
+{"timestamp":"2026-06-07T16:27:52.763Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq3zwxt50001c7vspczy63xp","companyId":"cmq3zwxt80002c7vsu8j696ew"}
+{"timestamp":"2026-06-07T16:31:12.548Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq4017yu0001c7cw1rnl8nuo","companyId":"cmq4017yv0002c7cwa3hfymnj"}
+{"timestamp":"2026-06-07T17:28:10.330Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq422h4y0001c7n40g3hyrif","companyId":"cmq422h520002c7n4cnax3rw8"}
+{"timestamp":"2026-06-07T17:32:31.011Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq4282a50001c7g0kfn4h0as","companyId":"cmq4282a80002c7g0y5njxg25"}
+{"timestamp":"2026-06-07T18:07:37.138Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq43h7dq0001c700orbkdp5i","companyId":"cmq43h7ds0002c700tvksfqww"}
+{"timestamp":"2026-06-07T18:10:43.056Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq43l6to0001c7houolq7h08","companyId":"cmq43l6ts0002c7hoxsox931y"}
+{"timestamp":"2026-06-07T18:12:37.987Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq43nni70001c7qk37emiwt7","companyId":"cmq43nni90002c7qkohydkazw"}
+{"timestamp":"2026-06-07T18:21:03.871Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq43yhuf0001c74ktx8kxodf","companyId":"cmq43yhui0002c74kph686dpu"}
+{"timestamp":"2026-06-07T18:26:38.717Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq445o770001c7xcbiutqi2m","companyId":"cmq445o7b0002c7xcv1v9a87v"}
+{"timestamp":"2026-06-07T18:29:31.782Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq449drk0001c76s7nsw5b1a","companyId":"cmq449drn0002c76scjb0j5wy"}
+{"timestamp":"2026-06-07T18:36:00.580Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq44hprm0001c7css0ay1klz","companyId":"cmq44hprp0002c7css28lk4zs"}
+{"timestamp":"2026-06-07T19:38:22.856Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq46pxba0001c7bobc1sb41c","companyId":"cmq46pxbd0002c7boomu30pe9"}
+{"timestamp":"2026-06-07T19:41:50.297Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq46udbk0001c76w1odu33n5","companyId":"cmq46udbt0002c76wzijtk9eu"}
+{"timestamp":"2026-06-07T19:48:00.360Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq472awg0001c7wkjbzxahye","companyId":"cmq472awn0002c7wk8ua2fuqa"}
+{"timestamp":"2026-06-07T19:56:27.248Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq47d61m0001c770q4d27y9c","companyId":"cmq47d61o0002c770wer68wec"}
+{"timestamp":"2026-06-07T20:15:26.236Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq481kva0001c78gomhnedlg","companyId":"cmq481kve0002c78gan25niff"}
+{"timestamp":"2026-06-07T22:11:43.107Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq4c743w0001c7w4waruzr86","companyId":"cmq4c744d0002c7w4qzvp63o8"}
+{"timestamp":"2026-06-07T23:30:00.271Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq4ezsn50001c7z8mspl5lhi","companyId":"cmq4ezsn70002c7z8ojzi32pf"}
+{"timestamp":"2026-06-07T23:33:47.777Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq4f4o6n0001c718xr2zwdx4","companyId":"cmq4f4o6q0002c7180impechu"}
+{"timestamp":"2026-06-07T23:35:15.669Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq4f6jzy0001c7kwl10xwas1","companyId":"cmq4f6k010002c7kwdkjv7vdu"}
+{"timestamp":"2026-06-07T23:36:47.179Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmq4f8ily0001c7vosefq7jg9","companyId":"cmq4f8im10002c7vobjcioqud"}{"timestamp":"2026-06-15T23:01:11.898Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqfthkc90001c7i823zfso97","companyId":"cmqfthkcf0002c7i8nudwp4ar"}
+{"timestamp":"2026-06-15T23:08:14.583Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqftqmhc0001c7kozf92i8wk","companyId":"cmqftqmhh0002c7kojrkyojd2"}
+{"timestamp":"2026-06-15T23:28:10.253Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqfug9220001c7jgyofpcjtl","companyId":"cmqfug9290002c7jgov9m118z"}
+{"timestamp":"2026-06-15T23:38:55.238Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqfuu2qs0001c7c094dvtw7u","companyId":"cmqfuu2qy0002c7c0popvp6si"}
+{"timestamp":"2026-06-15T23:55:57.069Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqfvfz6t0001c71k7yn162fx","companyId":"cmqfvfz6z0002c71k2fbwypp3"}
+{"timestamp":"2026-06-16T00:00:35.054Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqfvlxnv0001c74gnynxv84r","companyId":"cmqfvlxo00002c74gfkixk5xa"}
+{"timestamp":"2026-06-16T02:33:13.728Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqg128kp0001c7tgn3jusxqu","companyId":"cmqg128ks0002c7tgpv5h28mx"}
+{"timestamp":"2026-06-16T02:35:11.251Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqg14r970001c7uovynoc4eh","companyId":"cmqg14r9a0002c7uooz7dyg3e"}
+{"timestamp":"2026-06-16T02:58:44.056Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqg1z1d90001c7vckg4pn1pw","companyId":"cmqg1z1dg0002c7vcpvk4tzvu"}
+{"timestamp":"2026-06-16T03:10:55.631Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqg2epv40001c75sn6j37kjx","companyId":"cmqg2epv90002c75sril82v4d"}
+{"timestamp":"2026-06-16T17:21:35.899Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqgwsoqh0001c76ocrzfsffm","companyId":"cmqgwsoqp0002c76oi3j9kh42"}
+{"timestamp":"2026-06-16T17:33:10.285Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqgx7kkw0001c7z8d2qbx8bj","companyId":"cmqgx7kl10002c7z894bnzs58"}
+{"timestamp":"2026-06-16T18:52:54.855Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh024d50001c7d8qmyb2s4n","companyId":"cmqh024de0002c7d8jidvybio"}
+{"timestamp":"2026-06-16T19:16:39.051Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh0wna80001c7sggaxd9g9y","companyId":"cmqh0wnag0002c7sgvnnpe2qr"}
+{"timestamp":"2026-06-16T19:20:19.697Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh11dfb0001c7zga2947hbj","companyId":"cmqh11dfj0002c7zggt4qp5zh"}
+{"timestamp":"2026-06-16T19:32:24.448Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh1gwqt0001c7cwh2gol52h","companyId":"cmqh1gwr00002c7cwd6bqz6ww"}
+{"timestamp":"2026-06-16T21:40:52.703Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh624h50001c7mg7dxo4jc7","companyId":"cmqh624hd0002c7mglelpa6a1"}
+{"timestamp":"2026-06-16T22:08:32.134Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh71ovj0001c7d4tnbu9uhl","companyId":"cmqh71owo0002c7d4vs5zs8k0"}
+{"timestamp":"2026-06-16T22:11:36.469Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh75n520001c7e0zjk254tq","companyId":"cmqh75n580002c7e0m7g2cch6"}
+{"timestamp":"2026-06-16T23:27:48.950Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqh9vnap0001c7mwt82wrfhb","companyId":"cmqh9vnaw0002c7mwxwyqimd8"}
+{"timestamp":"2026-06-16T23:32:16.197Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqha1di10001c7n0yt0ue8ms","companyId":"cmqha1die0002c7n0uf7orbqi"}
+{"timestamp":"2026-06-16T23:33:51.409Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqha3ezk0001c7zw4xsozetj","companyId":"cmqha3ezn0002c7zwft6ftrlw"}
+{"timestamp":"2026-06-16T23:41:36.742Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqhade070001c7sk642nzaea","companyId":"cmqhade0f0002c7sk0aec7537"}
+{"timestamp":"2026-06-17T00:15:27.329Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqhbkwu00001c73c0qsoslmw","companyId":"cmqhbkwu60002c73cpfp6qevn"}
+{"timestamp":"2026-06-17T00:34:54.100Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqhc9x4b0001c7gkvo573six","companyId":"cmqhc9x4h0002c7gk086gbntf"}
+{"timestamp":"2026-06-17T00:38:37.179Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqhcep920001c71w29m48iin","companyId":"cmqhcep9a0002c71wgw70m1fa"}
+{"timestamp":"2026-06-17T18:07:18.526Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqidvbnw0001c7f04w2q4l9c","companyId":"cmqidvbo60002c7f0trd9ib10"}
+{"timestamp":"2026-06-17T18:10:35.603Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqidzjpx0001c7bwpjqdn2kn","companyId":"cmqidzjqa0002c7bwbcdlv503"}
+{"timestamp":"2026-06-17T20:48:47.699Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqijmzvx0001c73c0oz6ebpk","companyId":"cmqijmzw30002c73cnpympnc2"}
+{"timestamp":"2026-06-17T21:19:40.305Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqikqpd60001c7hcafwm85nf","companyId":"cmqikqpdc0002c7hcfywjmi62"}
+{"timestamp":"2026-06-17T21:42:16.043Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqiljrgf0001c7g4ngcszsto","companyId":"cmqiljrgt0002c7g4eailyi79"}
+{"timestamp":"2026-06-17T23:01:57.371Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqioe8rf0001c778clulczlh","companyId":"cmqioe8rl0002c778f3ef5qyx"}
+{"timestamp":"2026-06-17T23:18:46.802Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqiozvn00001c7xgscijkdjt","companyId":"cmqiozvn60002c7xg6q1mfiw8"}
+{"timestamp":"2026-06-18T00:29:46.453Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqirj6en0001c7z0hty74y6c","companyId":"cmqirj6es0002c7z03070xcos"}
+{"timestamp":"2026-06-18T01:07:33.814Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqisvrx60001c7moozgllzxg","companyId":"cmqisvrxb0002c7moclehhv3m"}
+{"timestamp":"2026-06-18T15:13:31.389Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqjn3opm0001c7bcsx8oruff","companyId":"cmqjn3ops0002c7bc26ybnswx"}
+{"timestamp":"2026-06-18T15:16:17.538Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqjn78wx0001c7ksygf69oc5","companyId":"cmqjn78x40002c7ksl9kj7707"}
+{"timestamp":"2026-06-18T20:49:58.344Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmqjz4d1k0001c7lwocswa8l3","companyId":"cmqjz4d1u0002c7lw512pof1w"}
+{"timestamp":"2026-07-04T14:55:02.201Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:55:02.201Z","bankDescription":"Wire transfer to Supplier Y","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:55:02.201Z","bankDescription":"Wire Transfer to Supplier ABC","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:55:02.201Z","bankDescription":"ACH Payment from Client","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:55:24.120Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:55:24.129Z","bankDescription":"Zelle to Vendor Y","selectedGlAccountCode":"2020","confidence":0.95,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:57:36.557Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:57:36.557Z","bankDescription":"Wire transfer to Supplier Y","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:57:36.557Z","bankDescription":"Wire Transfer to Supplier ABC","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:57:36.557Z","bankDescription":"ACH Payment from Client","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:57:58.329Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T14:57:58.336Z","bankDescription":"Zelle to Vendor Y","selectedGlAccountCode":"2020","confidence":0.95,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T21:30:56.621Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T21:30:56.621Z","bankDescription":"Wire transfer to Supplier Y","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T21:30:56.621Z","bankDescription":"Wire Transfer to Supplier ABC","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T21:30:56.621Z","bankDescription":"ACH Payment from Client","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T21:31:39.756Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T21:31:39.767Z","bankDescription":"Zelle to Vendor Y","selectedGlAccountCode":"2020","confidence":0.95,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T23:09:23.252Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T23:09:23.252Z","bankDescription":"Wire transfer to Supplier Y","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T23:09:23.252Z","bankDescription":"Wire Transfer to Supplier ABC","selectedGlAccountCode":"2020","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T23:09:23.252Z","bankDescription":"ACH Payment from Client","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T23:10:07.422Z","bankDescription":"Zelle to Vendor X","selectedGlAccountCode":"1010","confidence":0.9,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T23:10:07.432Z","bankDescription":"Zelle to Vendor Y","selectedGlAccountCode":"2020","confidence":0.95,"userId":"u1","companyId":"company-123"}
+{"timestamp":"2026-07-04T23:11:43.455Z","bankDescription":"Zelle payment","selectedGlAccountCode":"4010","confidence":0.95,"userId":"cmr6z8abx0001c79kp35vtd5q","companyId":"cmr6z8abz0002c79kjl5xkkib"}

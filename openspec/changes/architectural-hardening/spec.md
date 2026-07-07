@@ -92,14 +92,14 @@ Affected fields: `BankAccount.balance`, `BankAccount.initialBalance`, `BankState
 
 #### Requirement: Prisma provider MUST be postgresql
 
-The Prisma datasource provider SHALL change from `sqlite` to `postgresql`.
+The Prisma datasource provider is `postgresql`.
 
 #### Scenario: Provider switch
 
-- GIVEN `prisma/schema.prisma` with `provider = "sqlite"`
-- WHEN the provider is changed to `"postgresql"`
+- GIVEN `prisma/schema.prisma` with `provider = "postgresql"`
+- WHEN the provider is validated
 - THEN `prisma migrate dev` MUST generate an initial migration
-- AND WAL-mode PRAGMAs in `src/lib/db.ts` MUST be removed
+- AND PRAGMAs in `src/lib/db.ts` MUST be removed
 
 #### Scenario: serverExternalPackages updated
 

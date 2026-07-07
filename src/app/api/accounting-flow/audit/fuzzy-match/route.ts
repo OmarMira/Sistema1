@@ -12,7 +12,7 @@ import { logger } from '@/lib/logger';
  * POST /api/accounting-flow/audit/fuzzy-match
  *
  * Detecta transacciones bancarias funcionalmente similares a una descripción
- * dada, usando pre-filtro SQLite + fuzzy match con fuse.js en runtime.
+ * dada, usando pre-filtro PostgreSQL + fuzzy match con fuse.js en runtime.
  *
  * Body:
  *   - companyId: string (requerido)
@@ -43,7 +43,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
   const { from, to } = createDateWindow(baseDate, windowDays);
 
   try {
-    // 1. Pre-filtro en SQLite (Date objects — nunca number)
+    // 1. Pre-filtro en PostgreSQL (Date objects — nunca number)
      
     const candidates = await fetchFuzzyCandidates(db as any, {
       companyId,

@@ -45,12 +45,12 @@ export async function register() {
     const { initPdfWorker } = await import('./lib/pdf-worker');
     await initPdfWorker();
 
-    const { optimizeSQLite } = await import('./lib/db-optimizer');
+    const { optimizeDatabase } = await import('./lib/db-optimizer');
     const { resetMetrics } = await import('./lib/metrics');
     const { startSessionCleanupInterval } = await import('./lib/maintenance/cleanupSessions');
     const { decrypt } = await import('./lib/crypto');
 
-    await optimizeSQLite();
+    await optimizeDatabase();
     resetMetrics();
     startSessionCleanupInterval();
 

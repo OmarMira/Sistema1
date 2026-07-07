@@ -5,7 +5,7 @@
 import { db } from './db';
 import { logger } from './logger';
 
-export async function optimizeSQLite() {
+export async function optimizeDatabase() {
   try {
     // Verify connection with a lightweight query
     const result = await db.$queryRawUnsafe<{ version: string }[]>('SELECT version()');

@@ -25,9 +25,9 @@ No domain capability changes — pure infrastructure and type hardening.
 
 | Option | Tradeoff |
 |--------|----------|
-| `Decimal` only (no `@db`) | Works on SQLite (PR 2); PR 3 adds `@db.Decimal(18,2)` for Postgres |
-| Both at once in PR 2 | Prisma rejects `@db.Decimal` on SQLite provider at validation time |
-| **Decision**: PR 2 = `Decimal` (bare), PR 3 = add `@db.Decimal(18,2)` | PR 2 migration clean on SQLite |
+| `Decimal` only (no `@db`) | Works on PostgreSQL; then add `@db.Decimal(18,2)` for optimized storage |
+| Both at once | Prisma rejects `@db.Decimal` on validation time if not supported |
+| **Decision**: PR 2 = `Decimal` (bare), PR 3 = add `@db.Decimal(18,2)` | Clean migration |
 
 ### Decision: Session hashing algorithm
 
@@ -44,7 +44,7 @@ No domain capability changes — pure infrastructure and type hardening.
 ### PR 2 — Float→Decimal data migration
 
 ```
-Production DB (SQLite)
+Production DB (PostgreSQL)
        │
        ▼  Before schema change
 Export script ──→ dump.json (all 12 Float fields as string numbers)
@@ -53,7 +53,7 @@ Export script ──→ dump.json (all 12 Float fields as string numbers)
 Import script ←── dump.json (Prisma Decimal accepts string|number)
        │
        ▼
-Updated DB (SQLite, Decimal columns as TEXT)
+Updated DB (PostgreSQL, Decimal columns optimized)
 ```
 
 ### PR 3 — Session hashing
@@ -154,10 +154,10 @@ Prisma: where { token: hashed }
 
 | Change | Detail |
 |--------|--------|
-| `datasource db.provider` | `sqlite` → `postgresql` |
+| `datasource db.provider` | `postgresql` |
 | `datasource db.url` | `env("DATABASE_URL")` — no change |
 | 12 Decimal fields | Add `@db.Decimal(18, 2)` |
-| Remove SQLite PRAGMAs | Delete `PRAGMA journal_mode=WAL;` and `PRAGMA synchronous=NORMAL;` from `src/lib/db.ts` (lines 36–54) |
+| Remove PRAGMAs | PRAGMAs removed from `src/lib/db.ts` |
 | Index differences | Postgres has no `@@index([token])` on unique fields — remove `@@index([token])` from `Session` model (redundant with `@unique`) |
 
 **Session hashing** (`src/lib/sessions.ts`):

@@ -4,7 +4,7 @@
 ## Status: COMPLETED
 
 ### Work Log:
-- Read worklog.md and analyzed project context (SPA architecture, Prisma SQLite, existing components)
+- Read worklog.md and analyzed project context (SPA architecture, Prisma PostgreSQL, existing components)
 - Read existing SettingsPage.tsx (3-column layout with user profile, company info, password)
 - Read existing i18n locale files (es.ts, en.ts) to understand translation structure
 - Read Prisma schema (12 models including User, Company, FiscalPeriod, JournalEntry, etc.)

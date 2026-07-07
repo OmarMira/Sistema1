@@ -22,7 +22,7 @@ export async function getVarianceReport(
   const allBudgets = JSON.parse(readFileSync(budgetsPath, 'utf-8'));
   const monthBudgets = allBudgets[year]?.[month] || {};
 
-  // 2. Calcular Reales (Agregación Nativa SQLite)
+  // 2. Calcular Reales (Agregación Nativa PostgreSQL)
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
 

@@ -988,7 +988,7 @@ async function callAI(
   throw lastError || new Error('Todos los modelos de IA fallaron.');
 }
 
-// Helper to retrieve matching memories from SQLite using keywords and scoring
+// Helper to retrieve matching memories from PostgreSQL using keywords and scoring
 async function retrieveMemories(
   message: string,
   companyId: string,
@@ -1017,7 +1017,7 @@ async function retrieveMemories(
       }
     }
 
-    // Búsqueda eficiente usando cláusulas contains/OR en Prisma para SQLite
+    // Búsqueda eficiente usando cláusulas contains/OR en Prisma para PostgreSQL
     const OR = searchKeywords.map((k) => ({
       keywords: {
         contains: k,

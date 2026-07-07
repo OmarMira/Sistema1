@@ -24,7 +24,7 @@ const FUSE_OPTIONS: IFuseOptions<FuseCandidate> = {
 };
 
 /**
- * Ejecuta fuzzy matching en memoria sobre candidatos pre-filtrados de SQLite.
+ * Ejecuta fuzzy matching en memoria sobre candidatos pre-filtrados de PostgreSQL.
  * Devuelve matches ordenados por score descendente (mayor = más similar).
  *
  * @param candidates - Resultado de fetchFuzzyCandidates()

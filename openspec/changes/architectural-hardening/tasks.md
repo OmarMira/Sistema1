@@ -46,8 +46,8 @@ Chain strategy: stacked-to-main
 
 ## PR 3 — Postgres + Session Hashing
 
-- [ ] 3.1 Schema: provider `sqlite` → `postgresql`; add `@db.Decimal(18,2)` to 12 Decimal fields; remove `@@index([token])` on Session (redundant with `@unique`)
-- [ ] 3.2 Remove SQLite PRAGMAs (`PRAGMA journal_mode=WAL`, `PRAGMA synchronous=NORMAL`) from `src/lib/db.ts` (lines 36-54)
+- [x] 3.1 Schema: provider `postgresql`; add `@db.Decimal(18,2)` to 12 Decimal fields; remove `@@index([token])` on Session (redundant with `@unique`)
+- [x] 3.2 Remove PRAGMAs from `src/lib/db.ts`
 - [ ] 3.3 Update `next.config.mjs` `serverExternalPackages` if needed
 - [ ] 3.4 `prisma migrate dev --name init_postgres` — generate initial migration
 - [ ] 3.5 Add `hashToken()` using `crypto.createHash('sha256')` in `src/lib/sessions.ts`

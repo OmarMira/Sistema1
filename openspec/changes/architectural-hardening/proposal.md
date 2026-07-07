@@ -2,7 +2,7 @@
 
 ## Intent
 
-A financial SaaS with Float money types, plaintext session tokens, hardcoded SQLite, and builds ignoring TS errors is untrustworthy. Fix all four.
+A financial SaaS with Float money types, plaintext session tokens, and builds ignoring TS errors is untrustworthy. Fix all three.
 
 ## Scope
 
@@ -37,7 +37,7 @@ Three sequential PRs, each independently deployable:
 | `src/lib/sessions.ts` | Modified | SHA-256 hashing |
 | 5 Prisma models | Modified | Float → Decimal columns |
 | 15 service files | Modified | Float math → Decimal ops |
-| `src/lib/db.ts` | Modified | Remove SQLite PRAGMAs |
+| `src/lib/db.ts` | Modified | Decimal safety-net middleware |
 
 ## Risks
 
@@ -52,7 +52,7 @@ Three sequential PRs, each independently deployable:
 
 - **PR 1**: Revert `next.config.mjs`
 - **PR 2**: Keep data export. Revert schema + services, re-deploy
-- **PR 3**: Keep SQLite dump. Revert schema, restore dump
+- **PR 3**: Revert schema, restore from backup
 
 ## Dependencies
 

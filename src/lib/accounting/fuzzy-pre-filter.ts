@@ -28,10 +28,10 @@ function getEffectiveTolerance(description: string | undefined, base: number): n
 }
 
 /**
- * Pre-filtra candidatos en SQLite usando índices B-tree existentes.
+ * Pre-filtra candidatos en PostgreSQL usando índices B-tree existentes.
  * Reduce el conjunto a cargar en memoria antes del fuzzy match en JS.
  *
- * Nota: SQLite no soporta índices parciales. El índice compuesto
+ * Nota: PostgreSQL soporta índices parciales. El índice compuesto
  * @@index([isReconciled, journalLineId, date]) cubre este query.
  */
  

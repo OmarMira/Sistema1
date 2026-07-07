@@ -12,7 +12,7 @@ export interface AuditLogData {
 }
 
 /**
- * Creates an AuditLog record with retry logic to handle SQLite lock contentions.
+ * Creates an AuditLog record with retry logic to handle PostgreSQL lock contentions.
  * Accepts an optional transaction client (`tx`).
  */
 export async function createAuditLogWithRetry(
@@ -47,7 +47,7 @@ export async function createAuditLogWithRetry(
 
       if (isDatabaseLocked && attempt < maxAttempts) {
         logger.warn(
-          `⚠️ [AuditLog Retry] SQLite locked on attempt ${attempt}/${maxAttempts}. Retrying in ${delayMs}ms...`,
+          `⚠️ [AuditLog Retry] PostgreSQL locked on attempt ${attempt}/${maxAttempts}. Retrying in ${delayMs}ms...`,
         );
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         // Exponential backoff

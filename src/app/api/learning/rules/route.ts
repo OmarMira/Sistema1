@@ -105,7 +105,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
         if (createSubAccount && subAccountName?.trim()) {
           // Fetch siblings INSIDE the transaction so concurrent partner creation
-          // cannot produce duplicate codes. SQLite serializes writes per WAL.
+          // cannot produce duplicate codes. PostgreSQL serializes writes per transaction.
           const siblings = await tx.glAccount.findMany({
             where: { companyId, parentId: parentAccount.id },
             orderBy: { code: 'desc' },

@@ -1,0 +1,24 @@
+# Project Overview
+
+Next.js + TypeScript + Tailwind CSS + shadcn/ui project ("sistema").
+Prisma ORM with PostgreSQL backend. Vitest for testing.
+
+# Coding Conventions
+
+- Use `import type` for type-only imports
+- shadcn/ui components in `src/components/ui/`
+- Feature components in `src/components/` by domain
+- Server actions in `src/actions/`
+- API routes follow Next.js App Router conventions in `src/app/api/`
+- Prisma schema in `prisma/schema.prisma`
+
+# Testing
+
+- `npx vitest run` for tests
+- Tests co-located with source files as `*.test.ts` or `*.test.tsx`
+
+# Database
+
+- `npm run db:push` to sync schema
+- `npm run db:migrate` for migrations
+- `npm run db:generate` after schema changes

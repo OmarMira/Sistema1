@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
-import { stat } from 'fs/promises';
-import path from 'path';
 
 /**
  * GET /api/diagnostics — System diagnostics
@@ -22,15 +20,13 @@ export const GET = apiHandler(
       return NextResponse.json({ error: 'Access denied' }, { status: 403 });
     }
 
-    // Check database size
-    let dbSize = '0KB';
+    // Get database size from PostgreSQL
+    let dbSize = 'Unknown';
     try {
-      const dbPath = path.join(process.cwd(), 'db', 'custom.db');
-      const stats = await stat(dbPath);
-      const bytes = stats.size;
-      if (bytes < 1024) dbSize = `${bytes}B`;
-      else if (bytes < 1024 * 1024) dbSize = `${(bytes / 1024).toFixed(0)}KB`;
-      else dbSize = `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+      const result = await db.$queryRawUnsafe<{ size: string }[]>(
+        "SELECT pg_size_pretty(pg_database_size(current_database())) as size"
+      );
+      dbSize = result[0]?.size ?? 'Unknown';
     } catch {
       dbSize = 'Unknown';
     }

@@ -142,11 +142,18 @@ export async function createTestJournalEntry(
 }
 
 export async function clearDatabase() {
-  // Defensive guard: only attempt to clear sessions if the model exists
+  // HARD STOP: Never clear a production/development database.
+  // Only allow clearing if DATABASE_URL points to a test database.
+  const url = process.env.DATABASE_URL ?? '';
+  if (!url.includes('test')) {
+    throw new Error(
+      `clearDatabase() REFUSED: DATABASE_URL does not contain 'test'. ` +
+      `Current: ${url.slice(0, 40)}... — Fix your test setup to use a test database.`
+    );
+  }
+
   if ('session' in db) {
     await db.session.deleteMany().catch(() => {});
-  } else {
-    console.warn('⚠️ Session model not available in Prisma client; skipping session cleanup.');
   }
   await db.entityContext.deleteMany().catch(() => {});
   await db.auditLog.deleteMany().catch(() => {});
@@ -157,6 +164,5 @@ export async function clearDatabase() {
   await db.glAccount.deleteMany().catch(() => {});
   await db.companyMember.deleteMany().catch(() => {});
   await db.company.deleteMany().catch(() => {});
-  // Only delete test users (email contains @example.com) to avoid wiping production data
   await db.user.deleteMany({ where: { email: { contains: '@example.com' } } }).catch(() => {});
 }

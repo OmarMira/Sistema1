@@ -1,6 +1,7 @@
-// Safeguard: Force DATABASE_URL to use a test database so we never wipe dev.db
-if (!process.env.DATABASE_URL || process.env.DATABASE_URL.includes('dev.db')) {
-  process.env.DATABASE_URL = 'file:./test.db';
+// SAFEGUARD: Always force a test database when running vitest.
+// Never allow tests to touch the real PostgreSQL/dev database.
+if (!process.env.DATABASE_URL?.includes('test')) {
+  process.env.DATABASE_URL = 'postgresql://postgres:postgrespassword@localhost:5432/accountexpress_test?schema=public';
 }
 
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';

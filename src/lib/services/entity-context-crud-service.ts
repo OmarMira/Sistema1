@@ -86,7 +86,7 @@ export async function updateEntityContext(
       role: input.role?.toUpperCase(),
       glAccountId: input.glAccountId,
       roles: rolesJson,
-      transactionDirection: input.transactionDirection ?? undefined,
+      transactionDirection: input.transactionDirection === null ? null : input.transactionDirection,
     },
     include: { glAccount: true },
   });

@@ -167,9 +167,9 @@ export function extractComponents(
       if (match) {
         const extracted = (match[1] || match[0]).trim();
         if (extracted.length >= config.clustering.minLength) {
-          if (strategy.priority === 1) result.merchant = extracted;
-          else if (strategy.priority === 2) result.transferName = extracted;
-          else if (strategy.priority === 3) result.indnName = extracted;
+          if (strategy.priority === 1 && !result.merchant) result.merchant = extracted;
+          else if (strategy.priority === 2 && !result.transferName) result.transferName = extracted;
+          else if (strategy.priority === 3 && !result.indnName) result.indnName = extracted;
         }
       }
     } catch (err) {

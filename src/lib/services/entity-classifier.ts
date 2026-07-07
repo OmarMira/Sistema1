@@ -127,6 +127,8 @@ export async function autoCreateRule(
           conditionValue: normalizePattern(context.pattern),
           conditionType: 'contains',
           intent: intent ?? null,
+          ...(direction === 'debit' ? { debitGlAccountId: context.glAccountId } : {}),
+          ...(direction === 'credit' ? { creditGlAccountId: context.glAccountId } : {}),
         },
       });
       return {};
@@ -145,6 +147,8 @@ export async function autoCreateRule(
         isActive: true,
         entityContextId: context.id,
         intent: intent ?? null,
+        ...(direction === 'debit' ? { debitGlAccountId: context.glAccountId } : {}),
+        ...(direction === 'credit' ? { creditGlAccountId: context.glAccountId } : {}),
       },
     });
 

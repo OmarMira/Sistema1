@@ -31,7 +31,7 @@ export const GET = apiHandler(
 
       let aiAlive = false;
       try {
-        const verifyRes = await fetch(`${AI_CONFIG.BASE_URL}/chat/completions`, {
+        const verifyRes = await fetch(`${config.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${config.apiKey}`,
@@ -50,7 +50,7 @@ export const GET = apiHandler(
         aiAlive = false;
       }
 
-      return NextResponse.json({ isSaved: true, apiKey: maskedKey, model: config.model, aiAlive });
+      return NextResponse.json({ isSaved: true, apiKey: maskedKey, model: config.model, baseUrl: config.baseUrl, aiAlive });
     } catch {
       return NextResponse.json({ isSaved: false });
     }
@@ -65,13 +65,13 @@ export const POST = apiHandler(
     if (denied) return denied;
 
     try {
-      const { apiKey, model } = await request.json();
+      const { apiKey, model, baseUrl } = await request.json();
       if (!apiKey) {
         return NextResponse.json({ error: 'La clave no puede estar vacía' }, { status: 400 });
       }
 
       // Persist to DB — encrypts internally via setAiConfig
-      await setAiConfig({ apiKey, model });
+      await setAiConfig({ apiKey, model, baseUrl });
 
       // Also mutate process.env for immediate in-process effect
       process.env.AI_API_KEY = apiKey;

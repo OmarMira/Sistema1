@@ -8,14 +8,15 @@ export const POST = apiHandler(
     const userId = requireCurrentUserId();
 
     try {
-      const { apiKey, model } = await request.json();
+      const { apiKey, model, baseUrl } = await request.json();
       if (!apiKey) {
         return NextResponse.json({ error: 'La clave no puede estar vacía' }, { status: 400 });
       }
 
       const modelToVerify = model || AI_CONFIG.DEFAULT_MODEL;
+      const baseUrlToUse = baseUrl || AI_CONFIG.BASE_URL;
 
-      const res = await fetch(`${AI_CONFIG.BASE_URL}/chat/completions`, {
+      const res = await fetch(`${baseUrlToUse}/chat/completions`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,

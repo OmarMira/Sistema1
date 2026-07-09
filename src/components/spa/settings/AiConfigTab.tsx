@@ -10,6 +10,7 @@ export default function AiConfigTab() {
   const [apiKey, setApiKey] = useState('');
   const [selectedModel, setSelectedModel] = useState<string>(AI_CONFIG.DEFAULT_MODEL);
   const [customModel, setCustomModel] = useState('');
+  const [baseUrl, setBaseUrl] = useState<string>(AI_CONFIG.BASE_URL);
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -24,6 +25,7 @@ export default function AiConfigTab() {
           setIsSaved(true);
           setAiAlive(data.aiAlive ?? false);
           if (data.apiKey) setApiKey(data.apiKey);
+          if (data.baseUrl) setBaseUrl(data.baseUrl);
           if (data.model) {
             const isStandard = AI_CONFIG.AVAILABLE_MODELS.some((m) => m.id === data.model);
             if (isStandard) {
@@ -64,7 +66,7 @@ export default function AiConfigTab() {
       const verifyRes = await fetch('/api/config/ai/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model }),
+        body: JSON.stringify({ apiKey, model, baseUrl }),
       });
       const verifyData = await verifyRes.json();
 
@@ -78,7 +80,7 @@ export default function AiConfigTab() {
       const res = await fetch('/api/config/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model }),
+        body: JSON.stringify({ apiKey, model, baseUrl }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -112,7 +114,7 @@ export default function AiConfigTab() {
       const res = await fetch('/api/config/ai/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model }),
+        body: JSON.stringify({ apiKey, model, baseUrl }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -333,6 +335,24 @@ export default function AiConfigTab() {
                   </p>
                 </div>
               )}
+
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold text-gray-500 uppercase tracking-wider block">
+                  {isEn ? 'API Base URL' : 'URL Base de la API'}
+                </label>
+                <input
+                  type="text"
+                  className="w-full p-2 border border-gray-300 rounded bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-transparent text-xs font-mono"
+                  value={baseUrl}
+                  onChange={(e) => setBaseUrl(e.target.value)}
+                  placeholder="https://openrouter.ai/api/v1"
+                />
+                <p className="text-[10px] text-gray-400 leading-normal">
+                  {isEn
+                    ? 'OpenRouter: https://openrouter.ai/api/v1 · DeepSeek: https://api.deepseek.com/v1'
+                    : 'OpenRouter: https://openrouter.ai/api/v1 · DeepSeek: https://api.deepseek.com/v1'}
+                </p>
+              </div>
             </div>
           </div>
 

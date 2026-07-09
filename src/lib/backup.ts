@@ -27,6 +27,8 @@ export interface BackupManifest {
     fiscalPeriods: number;
     companyMembers: number;
     users: number;
+    systemConfig: number;
+    companyConfig: boolean;
   };
 }
 
@@ -44,6 +46,8 @@ export interface BackupData {
     fiscalPeriods: Record<string, unknown>[];
     companyMembers: Record<string, unknown>[];
     users: Record<string, unknown>[];
+    systemConfig: Record<string, unknown>[];
+    companyConfig: Record<string, unknown> | null;
   };
 }
 
@@ -233,6 +237,25 @@ export async function createBackup(companyId: string): Promise<{
         })
       : [];
 
+  // Fetch SystemConfig (AI API keys, settings)
+  const systemConfig = await db.systemConfig.findMany();
+
+  // Read company-config.json (currency, periodType)
+  const configPath = path.join(process.cwd(), 'rules', 'company-config.json');
+  let companyConfig: Record<string, unknown> | null = null;
+  try {
+    if (fs.existsSync(configPath)) {
+      const allConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
+        companies?: Record<string, unknown>;
+      };
+      if (allConfig.companies?.[companyId]) {
+        companyConfig = allConfig.companies[companyId] as Record<string, unknown>;
+      }
+    }
+  } catch {
+    // Config file missing or corrupt — backup continues without it
+  }
+
   // Collect statement IDs for filtering transactions
   const statementIds = bankStatements.map((s) => s.id);
   const companyTransactions = bankTransactions.filter((t) => statementIds.includes(t.statementId));
@@ -258,6 +281,8 @@ export async function createBackup(companyId: string): Promise<{
     fiscalPeriods: fiscalPeriods.length,
     companyMembers: companyMembers.length,
     users: users.length,
+    systemConfig: systemConfig.length,
+    companyConfig: companyConfig !== null,
   };
 
   const backupData: BackupData = {
@@ -284,6 +309,8 @@ export async function createBackup(companyId: string): Promise<{
       fiscalPeriods: fiscalPeriods.map((p) => JSON.parse(JSON.stringify(p))),
       companyMembers: companyMembers.map((m) => JSON.parse(JSON.stringify(m))),
       users: users.map((u) => JSON.parse(JSON.stringify(u))),
+      systemConfig: systemConfig.map((c) => JSON.parse(JSON.stringify(c))),
+      companyConfig,
     },
   };
 
@@ -415,7 +442,7 @@ export function validateBackup(backupData: BackupData): { valid: boolean; errors
     return { valid: false, errors };
   }
 
-  // Check required data sections
+  // Check required data sections (systemConfig and companyConfig are optional for backwards compatibility)
   const requiredSections = [
     'company',
     'glAccounts',
@@ -434,6 +461,11 @@ export function validateBackup(backupData: BackupData): { valid: boolean; errors
     if (!Array.isArray(backupData.data[section])) {
       errors.push(`Missing or invalid data section: ${section}`);
     }
+  }
+
+  // Optional sections — warn but don't fail
+  if (!Array.isArray(backupData.data.systemConfig)) {
+    errors.push('Missing systemConfig section (AI settings will not be restored)');
   }
 
   // Check company data
@@ -692,6 +724,42 @@ export async function restoreBackup(
         await tx.journalLine.create({ data: clean as never });
       }
       restoredCounts.journalLines = backupData.data.journalLines.length;
+
+      // Restore SystemConfig (AI API keys, settings)
+      if (backupData.data.systemConfig && backupData.data.systemConfig.length > 0) {
+        for (const config of backupData.data.systemConfig) {
+          const clean = sanitizeForRestore(config as Record<string, unknown>);
+          await tx.systemConfig.upsert({
+            where: { key: clean.key as string },
+            create: clean as never,
+            update: { value: clean.value as string },
+          });
+        }
+        restoredCounts.systemConfig = backupData.data.systemConfig.length;
+      }
+
+      // Restore company-config.json (currency, periodType)
+      if (backupData.data.companyConfig) {
+        const rulesDir = path.join(process.cwd(), 'rules');
+        if (!fs.existsSync(rulesDir)) {
+          fs.mkdirSync(rulesDir, { recursive: true });
+        }
+        const configPath = path.join(rulesDir, 'company-config.json');
+        let allConfig: { companies?: Record<string, unknown> } = { companies: {} };
+        try {
+          if (fs.existsSync(configPath)) {
+            allConfig = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+          }
+        } catch {
+          // File corrupt — start fresh
+        }
+        if (!allConfig.companies) {
+          allConfig.companies = {};
+        }
+        allConfig.companies[companyId] = backupData.data.companyConfig;
+        fs.writeFileSync(configPath, JSON.stringify(allConfig, null, 2), 'utf-8');
+        restoredCounts.companyConfig = 1;
+      }
     });
 
     return {

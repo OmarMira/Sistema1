@@ -19,8 +19,8 @@ export type EntityRole = (typeof ENTITY_ROLES)[number];
 /** Roles exposed to user-facing dropdowns (excludes internal IGNORADA). */
 export const UI_ROLES = ENTITY_ROLES.filter((r) => r !== 'IGNORADA');
 
-/** Zod enum helper for validating role fields. */
-export const entityRoleSchema = z.enum(ENTITY_ROLES);
+/** Zod schema for role fields — accepts any string to support custom roles */
+export const entityRoleSchema = z.string();
 
 /**
  * Maps each role to the transaction direction it expects.

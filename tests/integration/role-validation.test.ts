@@ -29,7 +29,7 @@ async function makeAuthRequest(
   });
 }
 
-describe('Role validation — invalid role returns 400', () => {
+describe('Role validation — any role string is now accepted', () => {
   let userId: string;
   let companyId: string;
   let token: string;
@@ -72,66 +72,66 @@ describe('Role validation — invalid role returns 400', () => {
   });
 
   // ── Route 1: POST /api/learning/context ──────────────────────
-  it('POST /api/learning/context rejects invalid role', async () => {
+  it('POST /api/learning/context accepts custom role', async () => {
     const req = await makeAuthRequest(
       'POST',
       'http://localhost/api/learning/context',
-      { pattern: 'SOME PATTERN', role: 'ROL_INEXISTENTE', glAccountId },
+      { companyId, pattern: 'SOME PATTERN', role: 'FIDEICOMISO', glAccountId },
       token,
       companyId,
     );
     const res = await postContext(req, { params: Promise.resolve({}) });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error).toBe('Validation failed');
-    expect(body.details?.fieldErrors?.role).toBeDefined();
+    expect(body.success).toBe(true);
+    expect(body.data.role).toBe('FIDEICOMISO');
   });
 
   // ── Route 2: POST /api/learning/classify-entity ──────────────
-  it('POST /api/learning/classify-entity rejects invalid role', async () => {
+  it('POST /api/learning/classify-entity accepts custom role', async () => {
     const req = await makeAuthRequest(
       'POST',
       'http://localhost/api/learning/classify-entity',
-      { pattern: 'SOME PATTERN', role: 'NO_EXISTE' },
+      { pattern: 'SOME PATTERN', role: 'PLATAFORMA' },
       token,
       companyId,
     );
     const res = await postClassify(req, { params: Promise.resolve({}) });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error).toBe('Invalid role');
-    expect(body.validRoles).toContain('CLIENTE');
+    expect(body.success).toBe(true);
+    expect(body.data.role).toBe('PLATAFORMA');
   });
 
   // ── Route 3: PATCH /api/entity-context/[id] ─────────────────
-  it('PATCH /api/entity-context/[id] rejects invalid role', async () => {
+  it('PATCH /api/entity-context/[id] accepts custom role', async () => {
     const req = await makeAuthRequest(
       'PATCH',
       `http://localhost/api/entity-context/${entityId}`,
-      { role: 'ROL_FALSO' },
+      { role: 'INVERSOR' },
       token,
       companyId,
     );
     const res = await patchEntityContext(req, { params: Promise.resolve({ id: entityId }) });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.error).toBe('Invalid role');
-    expect(body.validRoles).toContain('CLIENTE');
+    expect(body.success).toBe(true);
+    expect(body.data.role).toBe('INVERSOR');
   });
 
   // ── Route 4: POST /api/learning/entities ────────────────────
-  it('POST /api/learning/entities rejects invalid role', async () => {
+  it('POST /api/learning/entities accepts custom role', async () => {
     const req = await makeAuthRequest(
       'POST',
       'http://localhost/api/learning/entities',
-      { pattern: 'NEW ENTITY', role: 'ROLE_INVALIDO' },
+      { pattern: 'NEW ENTITY', role: 'CUSTOM_ROLE' },
       token,
       companyId,
     );
     const res = await postEntities(req, { params: Promise.resolve({}) });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.error).toBe('Validation failed');
-    expect(body.details?.fieldErrors?.role).toBeDefined();
+    expect(body.success).toBe(true);
+    expect(body.data.role).toBe('CUSTOM_ROLE');
   });
 });

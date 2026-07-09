@@ -17,12 +17,10 @@ import { db } from '@/lib/db';
 describe('POST /api/ai-rules/scan - Role Hierarchy Resolution', () => {
   beforeEach(async () => {
     await clearDatabase();
-    await db.entityContext.deleteMany().catch(() => {});
   });
 
   afterEach(async () => {
     await clearDatabase();
-    await db.entityContext.deleteMany().catch(() => {});
   });
 
   it('debe aplicar la jerarquía de roles cuando hay múltiples contextos coincidentes', async () => {

@@ -152,17 +152,65 @@ export async function clearDatabase() {
     );
   }
 
-  if ('session' in db) {
-    await db.session.deleteMany().catch(() => {});
+  // SAFETY: Only delete test data. Test users always have @example.com emails.
+  // Find test user IDs first, then find their companies, then cascade deletes.
+  const testUsers = await db.user.findMany({
+    where: { email: { contains: '@example.com' } },
+    select: { id: true },
+  });
+  const testUserIds = testUsers.map((u) => u.id);
+
+  if (testUserIds.length === 0) {
+    // No test data exists — nothing to clean.
+    return;
   }
-  await db.entityContext.deleteMany().catch(() => {});
-  await db.auditLog.deleteMany().catch(() => {});
-  await db.journalEntry.deleteMany().catch(() => {});
-  await db.bankTransaction.deleteMany().catch(() => {});
-  await db.bankStatement.deleteMany().catch(() => {});
-  await db.bankAccount.deleteMany().catch(() => {});
-  await db.glAccount.deleteMany().catch(() => {});
-  await db.companyMember.deleteMany().catch(() => {});
-  await db.company.deleteMany().catch(() => {});
-  await db.user.deleteMany({ where: { email: { contains: '@example.com' } } }).catch(() => {});
+
+  // Find companies that have test users as members
+  const testMemberships = await db.companyMember.findMany({
+    where: { userId: { in: testUserIds } },
+    select: { companyId: true },
+  });
+  const testCompanyIds = [...new Set(testMemberships.map((m) => m.companyId))];
+
+  if (testCompanyIds.length === 0) {
+    // Test users exist but no companies — just delete the users.
+    await db.user.deleteMany({ where: { id: { in: testUserIds } } }).catch(() => {});
+    return;
+  }
+
+  // Cascade delete: children first, then parents. Only touches test company data.
+  if ('session' in db) {
+    await db.session.deleteMany({ where: { user: { id: { in: testUserIds } } } }).catch(() => {});
+  }
+
+  // Delete entities scoped to test companies
+  const companyFilter = { companyId: { in: testCompanyIds } };
+
+  // Find statements and entries scoped to test companies for nested deletes
+  const [testStatements, testEntries] = await Promise.all([
+    db.bankStatement.findMany({ where: companyFilter, select: { id: true } }),
+    db.journalEntry.findMany({ where: companyFilter, select: { id: true } }),
+  ]);
+  const testStatementIds = testStatements.map((s) => s.id);
+  const testEntryIds = testEntries.map((e) => e.id);
+
+  if (testStatementIds.length > 0) {
+    await db.bankTransaction.deleteMany({ where: { statementId: { in: testStatementIds } } }).catch(() => {});
+  }
+  if (testEntryIds.length > 0) {
+    await db.journalLine.deleteMany({ where: { entryId: { in: testEntryIds } } }).catch(() => {});
+  }
+
+  await db.entityContext.deleteMany({ where: companyFilter }).catch(() => {});
+  await db.auditLog.deleteMany({ where: companyFilter }).catch(() => {});
+  await db.journalEntry.deleteMany({ where: companyFilter }).catch(() => {});
+  await db.bankStatement.deleteMany({ where: companyFilter }).catch(() => {});
+  await db.bankAccount.deleteMany({ where: companyFilter }).catch(() => {});
+  await db.glAccount.deleteMany({ where: companyFilter }).catch(() => {});
+  await db.fiscalPeriod.deleteMany({ where: companyFilter }).catch(() => {});
+  await db.companyMember.deleteMany({ where: { companyId: { in: testCompanyIds } } }).catch(() => {});
+  await db.company.deleteMany({ where: { id: { in: testCompanyIds } } }).catch(() => {});
+
+  // Finally delete test users
+  await db.user.deleteMany({ where: { id: { in: testUserIds } } }).catch(() => {});
 }

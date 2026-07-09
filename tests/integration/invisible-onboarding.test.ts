@@ -71,7 +71,7 @@ const createPdfItems = (
 describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () => {
   beforeEach(async () => {
     await clearDatabase();
-    await db.bankProfile.deleteMany();
+    await db.bankProfile.deleteMany({ where: { bankName: { contains: 'Onboard' } } });
     invalidateAllProfilesCache();
     customGetDocumentMock = null;
     mockCreateChatCompletion.mockReset();
@@ -79,7 +79,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
 
   afterEach(async () => {
     await clearDatabase();
-    await db.bankProfile.deleteMany();
+    await db.bankProfile.deleteMany({ where: { bankName: { contains: 'Onboard' } } });
     invalidateAllProfilesCache();
     customGetDocumentMock = null;
     vi.restoreAllMocks();

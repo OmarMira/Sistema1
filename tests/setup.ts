@@ -4,6 +4,15 @@ if (!process.env.DATABASE_URL?.includes('test')) {
   process.env.DATABASE_URL = 'postgresql://postgres:postgrespassword@localhost:5432/accountexpress_test?schema=public';
 }
 
+// DOUBLE CHECK: If DATABASE_URL was overridden but still points to production, abort.
+const _dbUrl = process.env.DATABASE_URL ?? '';
+if (_dbUrl.includes('accountexpress') && !_dbUrl.includes('test')) {
+  throw new Error(
+    `[TEST SAFETY] DATABASE_URL points to production database! ` +
+    `Value: ${_dbUrl.slice(0, 60)}... — Tests MUST use a test database. Aborting.`
+  );
+}
+
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import path from 'path';
 import { pathToFileURL } from 'url';

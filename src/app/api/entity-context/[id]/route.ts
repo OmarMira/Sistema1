@@ -5,7 +5,6 @@ import {
   updateEntityContext,
   removeEntityContext,
 } from '@/lib/services/entity-context-crud-service';
-import { entityRoleSchema } from '@/lib/constants/entity-roles';
 import { logger } from '@/lib/logger';
 
 // ─── PATCH /api/entity-context/[id] ───────────────────────────────────
@@ -30,21 +29,6 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
         { error: 'At least one field (role, glAccountId, roles, transactionDirection) is required' },
         { status: 400 },
       );
-    }
-
-    // Validate role against canonical entity roles if provided
-    if (role !== undefined) {
-      const roleResult = entityRoleSchema.safeParse(role);
-      if (!roleResult.success) {
-        return NextResponse.json(
-          {
-            error: 'Invalid role',
-            details: roleResult.error.flatten(),
-            validRoles: entityRoleSchema.options,
-          },
-          { status: 400 },
-        );
-      }
     }
 
     const updated = await updateEntityContext(companyId, id, { role, glAccountId, roles, transactionDirection });

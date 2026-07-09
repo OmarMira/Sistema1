@@ -4,13 +4,13 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { saveContext } from '@/lib/services/entity-context-service';
-import { entityRoleSchema } from '@/lib/constants/entity-roles';
+
 import { logger } from '@/lib/logger';
 
 // ─── Request Schema ───────────────────────────────────────────────────
 const createEntitySchema = z.object({
   pattern: z.string().min(1).max(255),
-  role: entityRoleSchema,
+  role: z.string().min(1),
   glAccountId: z.string().optional(),
 });
 

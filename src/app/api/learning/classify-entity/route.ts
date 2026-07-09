@@ -5,7 +5,6 @@ import { classifyEntity, deriveRoleFromIntent, getEntityCandidates } from '@/lib
 import { parseConversationalContext } from '@/lib/services/conversational-service';
 import { safeAuditLog } from '@/lib/services/audit-service';
 import { db } from '@/lib/db';
-import { entityRoleSchema } from '@/lib/constants/entity-roles';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
 import { logger } from '@/lib/logger';
 import { serverT } from '@/lib/server-i18n';
@@ -67,21 +66,6 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         { error: 'userDescription is required when role is OTRO' },
         { status: 400 },
       );
-    }
-
-    // Validate role against canonical entity roles before persisting
-    if (finalRole) {
-      const roleResult = entityRoleSchema.safeParse(finalRole);
-      if (!roleResult.success) {
-        return NextResponse.json(
-          {
-            error: 'Invalid role',
-            details: roleResult.error.flatten(),
-            validRoles: entityRoleSchema.options,
-          },
-          { status: 400 },
-        );
-      }
     }
 
     const classifyResult = await classifyEntity({

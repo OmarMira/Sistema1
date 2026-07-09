@@ -10,6 +10,7 @@ import {
   Settings,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
@@ -35,6 +36,8 @@ import { EXPECTED_DIRECTION, UI_ROLES, ROLE_LABELS } from '@/lib/constants/entit
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { classifyDirection } from '@/lib/services/direction-filter';
 
+const CUSTOM_ROLE = '__CUSTOM__';
+
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
 interface EntityCandidate {
@@ -52,6 +55,8 @@ interface SuggestionData {
   suggestedRole: string;
   confidence: number;
   explanation: string;
+  isNewRole?: boolean;
+  roleSource?: 'BASE_ROLE' | 'COMPANY_ROLE' | 'NEW_ROLE_CANDIDATE';
 }
 
 interface EntityOnboardingModalProps {
@@ -95,6 +100,8 @@ export function EntityOnboardingModal({
   const [manualRoles, setManualRoles] = useState<Record<string, string>>({});
   // Per-entity OTRO description
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
+  // Per-entity custom role name (for CUSTOM_ROLE selection)
+  const [customRoleNames, setCustomRoleNames] = useState<Record<string, string>>({});
   // Per-entity error message
   const [entityErrors, setEntityErrors] = useState<Record<string, string>>({});
 
@@ -134,6 +141,7 @@ export function EntityOnboardingModal({
       setEntityStates({});
       setSuggestions({});
       setManualRoles({});
+      setCustomRoleNames({});
       setDescriptions({});
       setEntityErrors({});
       savedRef.current = new Set();
@@ -205,6 +213,8 @@ export function EntityOnboardingModal({
           suggestedRole: data.suggestedRole,
           confidence: data.confidence,
           explanation: data.explanation,
+          isNewRole: data.isNewRole ?? false,
+          roleSource: data.roleSource ?? 'BASE_ROLE',
         },
       }));
       setState(name, 'suggestion');
@@ -280,6 +290,12 @@ export function EntityOnboardingModal({
       }
       return;
     }
+    if (role === CUSTOM_ROLE) {
+      const customName = customRoleNames[name]?.trim().toUpperCase();
+      if (!customName || customName.length < 2) return;
+      await handleAssign(name, customName);
+      return;
+    }
     await handleAssign(name, role);
   }
 
@@ -333,8 +349,10 @@ export function EntityOnboardingModal({
               const suggestion = suggestions[name];
               const manualRole = manualRoles[name] ?? '';
               const desc = descriptions[name] ?? '';
+              const customName = customRoleNames[name] ?? '';
               const entityError = entityErrors[name];
               const isOtro = manualRole === 'OTRO';
+              const isCustom = manualRole === CUSTOM_ROLE;
 
               const directionLabel = (() => {
                 const profile = classifyDirection(candidate.directionProfile);
@@ -387,11 +405,10 @@ export function EntityOnboardingModal({
                       STATE 1: PENDING — Two buttons, nothing else
                      ════════════════════════════════════════════════════════ */}
                   {state === 'pending' && (
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-center gap-2 pt-1">
                       <Button
                         size="sm"
-                        variant="secondary"
-                        className="h-8 text-sm"
+                        className="h-8 text-xs"
                         data-testid="pre-classify-btn"
                         onClick={() => handleAskAI(candidate)}
                       >
@@ -399,8 +416,8 @@ export function EntityOnboardingModal({
                       </Button>
                       <Button
                         size="sm"
-                        variant="ghost"
-                        className="h-8 text-xs text-muted-foreground"
+                        variant="outline"
+                        className="h-8 text-xs"
                         data-testid="manual-select-btn"
                         onClick={() => handleEnterManual(name)}
                       >
@@ -426,51 +443,101 @@ export function EntityOnboardingModal({
                      ════════════════════════════════════════════════════════ */}
                   {state === 'suggestion' && suggestion && (
                     <div className="space-y-2">
-                      <div className="p-3 border rounded-md bg-muted/30">
-                        <div className="flex flex-col gap-1 mb-3">
-                          <span className="text-xs font-medium text-muted-foreground">
-                            {t('learning.suggestionBanner.title', {
-                              role: ROLE_LABELS[suggestion.suggestedRole as EntityRole] || suggestion.suggestedRole,
+                      {suggestion.isNewRole ? (
+                        /* ── NEW ROLE SUGGESTION ── */
+                        <div className="p-3 border border-blue-200 dark:border-blue-800 rounded-md bg-blue-50 dark:bg-blue-950">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300">
+                              {t('learning.suggestionBanner.newRoleTitle')}
+                            </span>
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-1">
+                            {t('learning.suggestionBanner.newRoleDesc', {
+                              role: suggestion.suggestedRole,
                             })}
-                          </span>
+                          </p>
                           <span className="text-lg font-semibold text-foreground">
-                            {ROLE_LABELS[suggestion.suggestedRole as EntityRole] || suggestion.suggestedRole}
+                            {suggestion.suggestedRole}
                           </span>
-                          <span className={suggestion.confidence >= 0.7 ? 'text-green-600 text-xs' : 'text-yellow-600 text-xs'}>
+                          <span className={suggestion.confidence >= 0.7 ? 'text-green-600 text-xs ml-2' : 'text-yellow-600 text-xs ml-2'}>
                             {suggestion.confidence >= 0.7
                               ? t('learning.suggestionBanner.confidence', { percent: Math.round(suggestion.confidence * 100) })
                               : t('learning.suggestionBanner.lowConfidence', { percent: Math.round(suggestion.confidence * 100) })}
                           </span>
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            <Button
+                              size="sm"
+                              className="h-8 text-sm"
+                              onClick={() => handleAssign(name, suggestion.suggestedRole)}
+                            >
+                              ✅ {t('learning.suggestionBanner.newRoleUse')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-sm"
+                              onClick={() => handleEnterManual(name, suggestion.suggestedRole)}
+                            >
+                              ✏️ {t('learning.suggestionBanner.edit')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 text-xs text-muted-foreground"
+                              onClick={() => handleDiscard(name)}
+                            >
+                              ❌ {t('learning.suggestionBanner.newRoleCancel')}
+                            </Button>
+                          </div>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            className="h-8 text-sm"
-                            data-testid="accept-suggestion-btn"
-                            onClick={() => handleAssign(name, suggestion.suggestedRole)}
-                          >
-                            ✅ {t('learning.suggestionBanner.accept')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-8 text-sm"
-                            data-testid="discard-suggestion-btn"
-                            onClick={() => handleDiscard(name)}
-                          >
-                            ❌ {t('learning.suggestionBanner.discard')}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-8 text-xs text-muted-foreground"
-                            data-testid="edit-role-btn"
-                            onClick={() => handleEnterManual(name, suggestion.suggestedRole)}
-                          >
-                            ✏️ {t('learning.suggestionBanner.edit')}
-                          </Button>
+                      ) : (
+                        /* ── EXISTING ROLE SUGGESTION ── */
+                        <div className="p-3 border rounded-md bg-muted/30">
+                          <div className="flex flex-col gap-1 mb-3">
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {t('learning.suggestionBanner.title', {
+                                role: ROLE_LABELS[suggestion.suggestedRole as EntityRole] || suggestion.suggestedRole,
+                              })}
+                            </span>
+                            <span className="text-lg font-semibold text-foreground">
+                              {ROLE_LABELS[suggestion.suggestedRole as EntityRole] || suggestion.suggestedRole}
+                            </span>
+                            <span className={suggestion.confidence >= 0.7 ? 'text-green-600 text-xs' : 'text-yellow-600 text-xs'}>
+                              {suggestion.confidence >= 0.7
+                                ? t('learning.suggestionBanner.confidence', { percent: Math.round(suggestion.confidence * 100) })
+                                : t('learning.suggestionBanner.lowConfidence', { percent: Math.round(suggestion.confidence * 100) })}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              size="sm"
+                              className="h-8 text-sm"
+                              data-testid="accept-suggestion-btn"
+                              onClick={() => handleAssign(name, suggestion.suggestedRole)}
+                            >
+                              ✅ {t('learning.suggestionBanner.accept')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-8 text-sm"
+                              data-testid="discard-suggestion-btn"
+                              onClick={() => handleDiscard(name)}
+                            >
+                              ❌ {t('learning.suggestionBanner.discard')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-8 text-xs text-muted-foreground"
+                              data-testid="edit-role-btn"
+                              onClick={() => handleEnterManual(name, suggestion.suggestedRole)}
+                            >
+                              ✏️ {t('learning.suggestionBanner.edit')}
+                            </Button>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
                   )}
 
@@ -496,13 +563,13 @@ export function EntityOnboardingModal({
                   )}
 
                   {/* ════════════════════════════════════════════════════════
-                      STATE 6: MANUAL FORM — inline dropdown + conditional textarea
+                      STATE 6: MANUAL FORM — dropdown + conditional inputs
                      ════════════════════════════════════════════════════════ */}
                   {state === 'manual' && (
                     <div className="space-y-3 border-t pt-3">
                       <div className="w-full">
                         <label className="text-xs text-muted-foreground mb-1 block">
-                          {isOtro ? t('learning.describeRelationship') : t('learning.selectRole')}
+                          {isOtro ? t('learning.describeRelationship') : isCustom ? 'Nombre del rol personalizado' : t('learning.selectRole')}
                         </label>
                         <Select
                           value={manualRole}
@@ -510,6 +577,9 @@ export function EntityOnboardingModal({
                             setManualRoles((prev) => ({ ...prev, [name]: v }));
                             if (v !== 'OTRO') {
                               setDescriptions((prev) => ({ ...prev, [name]: '' }));
+                            }
+                            if (v !== CUSTOM_ROLE) {
+                              setCustomRoleNames((prev) => ({ ...prev, [name]: '' }));
                             }
                           }}
                         >
@@ -522,6 +592,9 @@ export function EntityOnboardingModal({
                                 {ROLE_LABELS[r] || r}
                               </SelectItem>
                             ))}
+                            <SelectItem value={CUSTOM_ROLE}>
+                              Personalizado...
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -535,21 +608,20 @@ export function EntityOnboardingModal({
                             onChange={(e) => setDescriptions((prev) => ({ ...prev, [name]: e.target.value }))}
                             className="min-h-[60px] text-sm"
                           />
-                          <div className="flex flex-wrap gap-2">
+                          <div className="flex items-center justify-center gap-2 pt-1">
                             <Button
                               size="sm"
-                              className="h-8 text-sm"
+                              className="h-8 text-xs"
                               disabled={!desc.trim() || desc.trim().length < 5}
-                              onClick={() => handleAssignOtro(name)}
+                              onClick={() => handleManualAssign(name)}
                             >
-                              {t('learning.assignAsOther')}
+                              ✅ {t('learning.accept')}
                             </Button>
                             <Button
                               size="sm"
-                              variant="secondary"
-                              className="h-8 text-sm"
-                              disabled={!desc.trim() || desc.trim().length < 5}
-                              onClick={() => handleManualAssign(name)}
+                              variant="outline"
+                              className="h-8 text-xs"
+                              onClick={() => handleAskAI(candidate)}
                             >
                               🤖 {t('learning.preClassify')}
                             </Button>
@@ -557,8 +629,30 @@ export function EntityOnboardingModal({
                         </div>
                       )}
 
-                      {/* Assign button for non-Otro roles */}
-                      {manualRole && !isOtro && (
+                      {/* Custom role name input — only when "Personalizado" selected */}
+                      {isCustom && (
+                        <div className="w-full space-y-2">
+                          <Input
+                            placeholder="Ej: FIDEICOMISO, PLATAFORMA, INVERSOR..."
+                            value={customName}
+                            onChange={(e) => setCustomRoleNames((prev) => ({ ...prev, [name]: e.target.value }))}
+                            className="h-8 text-sm"
+                          />
+                          <div className="flex items-center justify-center gap-2 pt-1">
+                            <Button
+                              size="sm"
+                              className="h-8 text-xs"
+                              disabled={!customName.trim() || customName.trim().length < 2}
+                              onClick={() => handleManualAssign(name)}
+                            >
+                              ✅ {t('learning.suggestionBanner.accept')}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Assign button for base roles (excludes OTRO and Custom) */}
+                      {manualRole && !isOtro && !isCustom && (
                         <Button
                           size="sm"
                           className="h-8 text-sm"

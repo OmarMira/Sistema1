@@ -9,6 +9,7 @@ import {
   AlertTriangle,
   Loader2,
   Clock,
+  RotateCcw,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
@@ -18,6 +19,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import {
   containerVariants,
   itemVariants,
@@ -37,6 +48,8 @@ export function BackupTab() {
   const [restoring, setRestoring] = useState(false);
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [restoringFromList, setRestoringFromList] = useState<string | null>(null);
+  const [showRestoreHistoryConfirm, setShowRestoreHistoryConfirm] = useState<BackupRecord | null>(null);
   const mountedRef = useRef(true);
 
   const fetchBackups = useCallback(async () => {
@@ -122,6 +135,47 @@ export function BackupTab() {
     } catch {
       toast.error(t('common.error'));
     }
+  }
+
+  async function handleRestoreFromHistory(backup: BackupRecord) {
+    if (!companyId) return;
+    setRestoringFromList(backup.id);
+    setShowRestoreHistoryConfirm(null);
+
+    try {
+      const res = await fetch(
+        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
+      );
+      if (!res.ok) throw new Error('Failed to fetch backup');
+      const data = await res.json();
+      if (!data.data) throw new Error('No backup data');
+
+      const restoreRes = await fetch(`/api/backup/restore?companyId=${companyId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: data.data }),
+      });
+
+      const result = await restoreRes.json();
+
+      if (restoreRes.ok) {
+        const totalRecords = (Object.values(result.restoredCounts) as number[]).reduce(
+          (a, b) => a + b,
+          0,
+        );
+        toast.success(t('settings.backup.restoreSuccess'), {
+          description: `${totalRecords} ${t('settings.backup.records')}`,
+        });
+        await fetchBackups();
+      } else {
+        toast.error(t('settings.backup.restoreFailed'), {
+          description: result.error,
+        });
+      }
+    } catch {
+      toast.error(t('settings.backup.restoreFailed'));
+    }
+    setRestoringFromList(null);
   }
 
   function handleRestore() {
@@ -282,14 +336,29 @@ export function BackupTab() {
                         <span>{formatFileSize(backup.size)}</span>
                       </div>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-8 shrink-0"
-                      onClick={() => handleDownload(backup)}
-                    >
-                      <Download className="size-4" />
-                    </Button>
+                    <div className="flex items-center gap-1">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0"
+                        onClick={() => handleDownload(backup)}
+                      >
+                        <Download className="size-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-8 shrink-0 text-muted-foreground hover:text-amber-600"
+                        onClick={() => setShowRestoreHistoryConfirm(backup)}
+                        disabled={restoringFromList === backup.id}
+                      >
+                        {restoringFromList === backup.id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <RotateCcw className="size-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -297,6 +366,53 @@ export function BackupTab() {
           </CardContent>
         </Card>
       </motion.div>
+      {/* Restore from history confirmation */}
+      <AlertDialog
+        open={!!showRestoreHistoryConfirm}
+        onOpenChange={(open) => !open && setShowRestoreHistoryConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-amber-600" />
+              {t('settings.backup.confirmRestore')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.backup.confirmRestoreDesc')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {showRestoreHistoryConfirm && (
+            <div className="rounded-lg border bg-muted/50 p-3">
+              <p className="text-sm font-medium">
+                {showRestoreHistoryConfirm.companyInfo.legalName}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {formatDate(showRestoreHistoryConfirm.createdAt)} &middot;{' '}
+                {formatFileSize(showRestoreHistoryConfirm.size)}
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                showRestoreHistoryConfirm && handleRestoreFromHistory(showRestoreHistoryConfirm)
+              }
+              disabled={restoringFromList !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {restoringFromList !== null ? (
+                <>
+                  <Loader2 className="size-4 mr-1 animate-spin" />
+                  {t('settings.backup.restoring')}
+                </>
+              ) : (
+                t('settings.backup.restoreBackup')
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 }

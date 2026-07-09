@@ -413,30 +413,26 @@ describe('getKnownSocioPatterns()', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// Role enum validation
+// Role schema validation (now accepts any string)
 // ═══════════════════════════════════════════════════════════════════════
 
-describe('EntityRole schema validation', () => {
-  it('parses all 11 valid roles from ENTITY_ROLES', () => {
+describe('entityRoleSchema', () => {
+  it('accepts all base roles from ENTITY_ROLES', () => {
     for (const role of ENTITY_ROLES) {
       const result = entityRoleSchema.safeParse(role);
       expect(result.success).toBe(true);
     }
   });
 
-  it('rejects an invalid role value', () => {
-    const result = entityRoleSchema.safeParse('INVALID_ROLE');
-    expect(result.success).toBe(false);
+  it('accepts any custom role string', () => {
+    expect(entityRoleSchema.safeParse('FIDEICOMISO').success).toBe(true);
+    expect(entityRoleSchema.safeParse('PLATAFORMA').success).toBe(true);
+    expect(entityRoleSchema.safeParse('INVERSOR').success).toBe(true);
   });
 
-  it('rejects lowercase role value', () => {
-    const result = entityRoleSchema.safeParse('proveedor');
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects empty string', () => {
-    const result = entityRoleSchema.safeParse('');
-    expect(result.success).toBe(false);
+  it('accepts lowercase strings', () => {
+    expect(entityRoleSchema.safeParse('proveedor').success).toBe(true);
+    expect(entityRoleSchema.safeParse('cliente').success).toBe(true);
   });
 
   it('UI_ROLES excludes IGNORADA', () => {

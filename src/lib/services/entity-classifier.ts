@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger';
 import type { EntityCandidate } from '@/lib/services/entity-detector';
 import type { EntityContext } from '@prisma/client';
 import type { TransactionIntent } from '@/lib/constants/transaction-intent';
-import { entityRoleSchema, type EntityRole } from '@/lib/constants/entity-roles';
+import type { EntityRole } from '@/lib/constants/entity-roles';
 
 export interface ClassifyEntityInput {
   companyId: string;
@@ -62,31 +62,23 @@ export async function computeDirectionProfile(
 export function deriveRoleFromIntent(
   intent?: TransactionIntent | null,
   providedRole?: string | null,
-): EntityRole {
-  if (intent == null) {
-    const parsedRole = providedRole ? entityRoleSchema.safeParse(providedRole) : null;
-    if (parsedRole?.success) return parsedRole.data;
-    return 'OTRO';
+): string {
+  if (intent != null) {
+    switch (intent) {
+      case 'CUSTOMER_PAYMENT': return 'CLIENTE';
+      case 'RENT_PAYMENT': return 'INQUILINO';
+      case 'OWNER_CONTRIBUTION': return 'SOCIO';
+      case 'LOAN_PAYMENT': return 'PRESTAMO';
+      case 'OPERATING_EXPENSE':
+      case 'TAX_PAYMENT': return 'GASTO_OPERATIVO';
+      case 'OTHER':
+      case 'TRANSFER':
+      default: return 'OTRO';
+    }
   }
 
-  switch (intent) {
-    case 'CUSTOMER_PAYMENT':
-      return 'CLIENTE';
-    case 'RENT_PAYMENT':
-      return 'INQUILINO';
-    case 'OWNER_CONTRIBUTION':
-      return 'SOCIO';
-    case 'LOAN_PAYMENT':
-      return 'PRESTAMO';
-    case 'OPERATING_EXPENSE':
-    case 'TAX_PAYMENT':
-      return 'GASTO_OPERATIVO';
-    case 'OTHER':
-      return 'OTRO';
-    case 'TRANSFER':
-    default:
-      return 'OTRO';
-  }
+  // No intent → preserve the provided role as-is, or fallback to OTRO
+  return providedRole ?? 'OTRO';
 }
 
 /**

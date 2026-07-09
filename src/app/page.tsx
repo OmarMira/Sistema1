@@ -10,6 +10,7 @@ import { SelectCompanyPage } from '@/components/spa/SelectCompanyPage';
 import { AppShell } from '@/components/spa/AppShell';
 import SuperAdminDashboardPage from '@/components/spa/admin/SuperAdminDashboardPage';
 import { OnboardingWizard } from '@/components/onboarding/OnboardingWizard';
+import { BootstrapPage } from '@/components/spa/BootstrapPage';
 
 /* ── Loading Spinner ── */
 function LoadingScreen() {
@@ -41,14 +42,32 @@ function AppContent() {
   const { isAuthenticated, activeCompany, currentView, hydrate } = useAuthStore();
   const [hydrating, setHydrating] = useState(true);
   const [mounted, setMounted] = useState(false);
+  const [dbEmpty, setDbEmpty] = useState<boolean | null>(null);
 
   useEffect(() => {
     setMounted(true);
     hydrate().finally(() => setHydrating(false));
   }, [hydrate]);
 
-  if (!mounted || hydrating) {
+  useEffect(() => {
+    if (!mounted) return;
+    if (!isAuthenticated) {
+      fetch('/api/bootstrap/check')
+        .then((r) => r.json())
+        .then((data) => setDbEmpty(data.empty))
+        .catch(() => setDbEmpty(false));
+    } else {
+      setDbEmpty(false);
+    }
+  }, [isAuthenticated, mounted]);
+
+  if (!mounted || hydrating || dbEmpty === null) {
     return <LoadingScreen />;
+  }
+
+  // DB is empty → show bootstrap choice
+  if (!isAuthenticated && dbEmpty) {
+    return <BootstrapPage />;
   }
 
   // Not authenticated → show public pages

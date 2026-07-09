@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { logger } from './logger';
@@ -115,12 +116,19 @@ const RESTORE_EXCLUDED_KEYS = new Set([
   'lines',
 ]);
 
-function sanitizeForRestore(obj: Record<string, unknown>): Record<string, unknown> {
+function sanitizeForRestore(
+  obj: Record<string, unknown>,
+  options?: { preservePasswordHash?: boolean },
+): Record<string, unknown> {
   const cleaned: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
-    if (!RESTORE_EXCLUDED_KEYS.has(key)) {
-      cleaned[key] = value;
+    if (RESTORE_EXCLUDED_KEYS.has(key)) {
+      if (key === 'passwordHash' && options?.preservePasswordHash) {
+        cleaned[key] = value;
+      }
+      continue;
     }
+    cleaned[key] = value;
   }
   return cleaned;
 }
@@ -142,7 +150,6 @@ export async function createBackup(companyId: string): Promise<{
   // Verify company exists
   const company = await db.company.findUnique({
     where: { id: companyId },
-    select: { id: true, legalName: true, taxId: true },
   });
 
   if (!company) {
@@ -205,6 +212,24 @@ export async function createBackup(companyId: string): Promise<{
     userIds.length > 0
       ? await db.user.findMany({
           where: { id: { in: userIds } },
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            role: true,
+            isActive: true,
+            phone: true,
+            streetLine1: true,
+            streetLine2: true,
+            city: true,
+            state: true,
+            zipCode: true,
+            avatar: true,
+            passwordHash: true,
+            createdAt: true,
+            updatedAt: true,
+          },
         })
       : [];
 
@@ -258,10 +283,7 @@ export async function createBackup(companyId: string): Promise<{
       journalLines: companyJournalLines.map((l) => JSON.parse(JSON.stringify(l))),
       fiscalPeriods: fiscalPeriods.map((p) => JSON.parse(JSON.stringify(p))),
       companyMembers: companyMembers.map((m) => JSON.parse(JSON.stringify(m))),
-      users: users.map((u) => {
-        const { passwordHash, ...safe } = u;
-        return JSON.parse(JSON.stringify(safe));
-      }),
+      users: users.map((u) => JSON.parse(JSON.stringify(u))),
     },
   };
 
@@ -452,6 +474,7 @@ function computeDepths(accounts: Record<string, unknown>[]): Map<string, number>
 export async function restoreBackup(
   companyId: string,
   backupData: BackupData,
+  options?: { bootstrap?: boolean },
 ): Promise<{ success: boolean; message: string; restoredCounts: Record<string, number> }> {
   const validation = validateBackup(backupData);
   if (!validation.valid) {
@@ -476,50 +499,48 @@ export async function restoreBackup(
 
     // Use a transaction for atomicity
     await db.$transaction(async (tx) => {
-      // Step 1: Delete existing data (in reverse dependency order)
+        // Step 1: Delete existing data (skip in bootstrap mode)
+        if (!options?.bootstrap) {
+          const statementIds = await tx.bankStatement.findMany({
+            where: { companyId },
+            select: { id: true },
+          });
+          if (statementIds.length > 0) {
+            const result = await tx.bankTransaction.deleteMany({
+              where: { statementId: { in: statementIds.map((s) => s.id) } },
+            });
+            restoredCounts.bankTransactionsDeleted = result.count;
+          }
 
-      // Delete bank transactions first (via statements)
-      const statementIds = await tx.bankStatement.findMany({
-        where: { companyId },
-        select: { id: true },
-      });
-      if (statementIds.length > 0) {
-        const result = await tx.bankTransaction.deleteMany({
-          where: { statementId: { in: statementIds.map((s) => s.id) } },
-        });
-        restoredCounts.bankTransactionsDeleted = result.count;
-      }
+          const entryIds = await tx.journalEntry.findMany({
+            where: { companyId },
+            select: { id: true },
+          });
+          if (entryIds.length > 0) {
+            const result = await tx.journalLine.deleteMany({
+              where: { entryId: { in: entryIds.map((e) => e.id) } },
+            });
+            restoredCounts.journalLinesDeleted = result.count;
+          }
 
-      // Delete journal lines (via entries)
-      const entryIds = await tx.journalEntry.findMany({
-        where: { companyId },
-        select: { id: true },
-      });
-      if (entryIds.length > 0) {
-        const result = await tx.journalLine.deleteMany({
-          where: { entryId: { in: entryIds.map((e) => e.id) } },
-        });
-        restoredCounts.journalLinesDeleted = result.count;
-      }
+          const deleteOps = [
+            { model: 'journalEntry', where: { companyId } },
+            { model: 'bankStatement', where: { companyId } },
+            { model: 'bankRule', where: { companyId } },
+            { model: 'bankAccount', where: { companyId } },
+            { model: 'fiscalPeriod', where: { companyId } },
+            { model: 'companyMember', where: { companyId } },
+            { model: 'glAccount', where: { companyId } },
+          ] as const;
 
-      // Delete top-level records
-      const deleteOps = [
-        { model: 'journalEntry', where: { companyId } },
-        { model: 'bankStatement', where: { companyId } },
-        { model: 'bankRule', where: { companyId } },
-        { model: 'bankAccount', where: { companyId } },
-        { model: 'fiscalPeriod', where: { companyId } },
-        { model: 'companyMember', where: { companyId } },
-        { model: 'glAccount', where: { companyId } },
-      ] as const;
+          for (const op of deleteOps) {
+            // @ts-expect-error Dynamic model access
+            const result = await tx[op.model].deleteMany({ where: op.where });
+            restoredCounts[`${op.model}Deleted`] = result.count;
+          }
+        }
 
-      for (const op of deleteOps) {
-        // @ts-expect-error Dynamic model access
-        const result = await tx[op.model].deleteMany({ where: op.where });
-        restoredCounts[`${op.model}Deleted`] = result.count;
-      }
-
-      // Step 2: Re-insert data
+        // Step 2: Re-insert data
 
       // 2a. Upsert company so FK references work on clean DB
       const companyData = backupData.data.company[0];
@@ -533,8 +554,14 @@ export async function restoreBackup(
       }
 
       // 2b. Upsert users (create if missing, update if exists)
+      const sanitizeOpts = options?.bootstrap ? { preservePasswordHash: true } : undefined;
       for (const user of backupData.data.users) {
-        const clean = sanitizeForRestore(user as Record<string, unknown>);
+        const clean = sanitizeForRestore(user as Record<string, unknown>, sanitizeOpts);
+        // passwordHash is required by Prisma but older backups may not include it.
+        // Generate a random hash so the upsert succeeds — user must reset password after login.
+        if (!clean.passwordHash) {
+          clean.passwordHash = crypto.randomBytes(32).toString('hex');
+        }
         await tx.user.upsert({
           where: { id: user.id as string },
           create: clean as never,

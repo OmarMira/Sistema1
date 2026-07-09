@@ -29,7 +29,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { containerVariants, itemVariants, formatFileSize, type BackupRecord } from '@/lib/types/backup';
+import { containerVariants, itemVariants, formatFileSize, formatDate, type BackupRecord } from '@/lib/types/backup';
 import { BackupItem } from '@/components/backup/BackupItem';
 import { RestoreDropZone } from '@/components/backup/RestoreDropZone';
 
@@ -51,6 +51,8 @@ export function BackupPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
+  const [restoringFromList, setRestoringFromList] = useState<string | null>(null);
+  const [showRestoreHistoryConfirm, setShowRestoreHistoryConfirm] = useState<BackupRecord | null>(null);
   const mountedRef = useRef(true);
 
   // Fetch backups
@@ -217,8 +219,58 @@ export function BackupPage() {
     setRestoreProgress(0);
   }
 
+  // Restore from history
+  async function handleRestoreFromHistory(backup: BackupRecord) {
+    if (!companyId) return;
+    setRestoringFromList(backup.id);
+    setShowRestoreHistoryConfirm(null);
+    setRestoreProgress(10);
+
+    try {
+      setRestoreProgress(30);
+      const res = await fetch(
+        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
+      );
+      if (!res.ok) throw new Error('Failed to fetch backup');
+
+      setRestoreProgress(50);
+      const data = await res.json();
+      if (!data.data) throw new Error('No backup data');
+
+      setRestoreProgress(70);
+      const restoreRes = await fetch('/api/backup/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: data.data }),
+      });
+
+      setRestoreProgress(90);
+      const result = await restoreRes.json();
+
+      if (restoreRes.ok) {
+        setRestoreProgress(100);
+        const totalRecords = (Object.values(result.restoredCounts) as number[]).reduce(
+          (a, b) => a + b,
+          0,
+        );
+        toast.success(t('settings.backup.restoreSuccess'), {
+          description: `${totalRecords} ${t('settings.backup.records')}`,
+        });
+        await fetchBackups();
+      } else {
+        toast.error(t('settings.backup.restoreFailed'), {
+          description: result.error,
+        });
+      }
+    } catch {
+      toast.error(t('settings.backup.restoreFailed'));
+    }
+    setRestoringFromList(null);
+    setRestoreProgress(0);
+  }
+
   // Restore progress overlay
-  const showRestoreOverlay = restoring;
+  const showRestoreOverlay = restoring || restoringFromList !== null;
 
   return (
     <motion.div
@@ -360,7 +412,9 @@ export function BackupPage() {
                       key={backup.id}
                       backup={backup}
                       downloading={downloading === backup.id}
+                      restoring={restoringFromList === backup.id}
                       onDownload={() => handleDownload(backup)}
+                      onRestore={() => setShowRestoreHistoryConfirm(backup)}
                       onDelete={() => setShowDeleteConfirm(backup.filename)}
                     />
                   ))}
@@ -396,6 +450,54 @@ export function BackupPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {t('settings.backup.restoreBackup')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Restore from history confirmation dialog */}
+      <AlertDialog
+        open={!!showRestoreHistoryConfirm}
+        onOpenChange={(open) => !open && setShowRestoreHistoryConfirm(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="size-5 text-amber-600" />
+              {t('settings.backup.confirmRestore')}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.backup.confirmRestoreDesc')}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          {showRestoreHistoryConfirm && (
+            <div className="rounded-lg border bg-muted/50 p-3">
+              <p className="text-sm font-medium">
+                {showRestoreHistoryConfirm.companyInfo.legalName}
+              </p>
+              <p className="text-xs text-muted-foreground">
+                {formatDate(showRestoreHistoryConfirm.createdAt)} &middot;{' '}
+                {formatFileSize(showRestoreHistoryConfirm.size)}
+              </p>
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() =>
+                showRestoreHistoryConfirm && handleRestoreFromHistory(showRestoreHistoryConfirm)
+              }
+              disabled={restoringFromList !== null}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {restoringFromList !== null ? (
+                <>
+                  <Loader2 className="size-4 mr-1 animate-spin" />
+                  {t('settings.backup.restoring')}
+                </>
+              ) : (
+                t('settings.backup.restoreBackup')
+              )}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

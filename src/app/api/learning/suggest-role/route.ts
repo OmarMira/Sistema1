@@ -43,6 +43,18 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     });
     autoRoleAssignment = company?.autoRoleAssignment ?? false;
 
+    // ── Fetch unique company roles (excluding base roles and OTRO) ──
+    const companyContexts = await db.entityContext.findMany({
+      where: { companyId },
+      select: { role: true },
+      distinct: ['role'],
+    });
+    const companyRoles = [...new Set(
+      companyContexts
+        .map((c) => c.role.trim().toUpperCase())
+        .filter((r) => r && r !== 'OTRO' && !ENTITY_ROLES.includes(r as EntityRole))
+    )];
+
     // ── Phase 1: local DB search ──────────────
     const localMatch = await findLocalMatch(trimmedDesc, companyId);
     if (localMatch) {
@@ -50,10 +62,26 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         description: trimmedDesc,
         match: localMatch,
       });
+      const matchRole = localMatch.suggestedRole.trim().toUpperCase();
+      const localIsNewRole = !ENTITY_ROLES.includes(matchRole as EntityRole) && !companyRoles.includes(matchRole);
+      const localRoleSource = ENTITY_ROLES.includes(matchRole as EntityRole)
+        ? 'BASE_ROLE'
+        : companyRoles.includes(matchRole)
+          ? 'COMPANY_ROLE'
+          : 'NEW_ROLE_CANDIDATE';
       if (autoRoleAssignment && localMatch.confidence >= 0.9) {
-        return NextResponse.json({ ...localMatch, autoAssign: true });
+        return NextResponse.json({
+          ...localMatch,
+          isNewRole: localIsNewRole,
+          roleSource: localRoleSource,
+          autoAssign: true,
+        });
       }
-      return NextResponse.json(localMatch);
+      return NextResponse.json({
+        ...localMatch,
+        isNewRole: localIsNewRole,
+        roleSource: localRoleSource,
+      });
     }
 
     // ── Phase 2: AI fallback ─────────────────────────────────────────
@@ -127,7 +155,10 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     }
 
     // Build the focused prompt for role suggestion
-    const rolesList = candidateRoles.map((r) => `- ${r}`).join('\n');
+    const baseRolesList = candidateRoles.map((r) => `- ${r}`).join('\n');
+    const companyRolesList = companyRoles.length > 0
+      ? companyRoles.map((r) => `- ${r}`).join('\n')
+      : '- (none yet)';
 
     // Rich context section
     const contextParts: string[] = [];
@@ -178,16 +209,31 @@ ROLE DEFINITIONS:
 - PRESTAMO: Loan payments (money flows OUT)
 - GASTO_OPERATIVO: Operating expense (money flows OUT)
 - INGRESO: Income/revenue source (money flows IN)
-- OTRO: Unknown or unclassified entity`;
+
+RULES:
+1. ALWAYS prefer a BASE role if it fits the entity.
+2. If no base role fits, prefer an EXISTING company role already used by this company.
+3. Suggest a NEW concise role ONLY if no base or company role fits.
+4. Never return OTRO as a final role.
+5. Return the role in UPPERCASE.
+
+EXAMPLES:
+- "Home Depot" → PROVEEDOR (base role match)
+- "Uber" → PLATAFORMA (new role suggestion — no base/company role fits)
+- "LQ&OM INVESTMENT LLC" → HOLDING (new role suggestion)
+- "Rodrigo Ochoa (renta)" → INQUILINO (base role match)`;
 
     const userPrompt = `Given this entity:
 ${contextBlock}
 
-Determine which accounting role best fits.
-Roles:
-${rolesList}
+Base roles available:
+${baseRolesList}
+
+Roles already used by this company:
+${companyRolesList}
+
 Return JSON: { "role": "ROLE_NAME", "confidence": 0.85, "explanation": "brief reason" }
-Only return one of the canonical roles. Never return free text.`;
+Follow the rules in order: prefer base role → existing company role → new role suggestion.`;
 
     let aiResult: { role: string; confidence: number; explanation: string } | null = null;
     let lastError: string | null = null;
@@ -341,7 +387,14 @@ Based on this additional context, re-evaluate the role.`;
           description: trimmedDesc,
           fallback,
         });
-        return NextResponse.json(fallback);
+        const fbRole = fallback.suggestedRole.trim().toUpperCase();
+        const fbIsNewRole = !ENTITY_ROLES.includes(fbRole as EntityRole) && !companyRoles.includes(fbRole);
+        const fbRoleSource = ENTITY_ROLES.includes(fbRole as EntityRole)
+          ? 'BASE_ROLE'
+          : companyRoles.includes(fbRole)
+            ? 'COMPANY_ROLE'
+            : 'NEW_ROLE_CANDIDATE';
+        return NextResponse.json({ ...fallback, isNewRole: fbIsNewRole, roleSource: fbRoleSource });
       }
       return NextResponse.json(
         { error: 'AI service did not respond. Please try again.', code: 'AI_REQUEST_FAILED' },
@@ -349,14 +402,45 @@ Based on this additional context, re-evaluate the role.`;
       );
     }
 
-    // Validate the returned role is a canonical ENTITY_ROLES value
-    if (!ENTITY_ROLES.includes(aiResult.role as EntityRole)) {
-      logger.warn('[SUGGEST_ROLE INVALID_ROLE]', { role: aiResult.role });
+    // ── Validate & classify the suggested role ──
+    const suggestedRole = aiResult.role.trim().toUpperCase();
+    if (!suggestedRole) {
+      logger.warn('[SUGGEST_ROLE EMPTY_ROLE]', { role: aiResult.role });
       return NextResponse.json(
-        { error: 'AI returned unexpected data. Please try again.', code: 'AI_INVALID_ROLE' },
+        { error: 'AI returned an empty role. Please try again.', code: 'AI_INVALID_ROLE' },
         { status: 502 },
       );
     }
+    if (suggestedRole === 'OTRO') {
+      logger.warn('[SUGGEST_ROLE OTRO_REJECTED]', { role: aiResult.role });
+      return NextResponse.json(
+        { error: 'AI returned OTRO. Please try again or assign manually.', code: 'AI_INVALID_ROLE' },
+        { status: 502 },
+      );
+    }
+    if (suggestedRole.length > 50) {
+      logger.warn('[SUGGEST_ROLE_ROLE_TOO_LONG]', { role: suggestedRole });
+      return NextResponse.json(
+        { error: 'AI returned a role that is too long. Please try again.', code: 'AI_INVALID_ROLE' },
+        { status: 502 },
+      );
+    }
+    if (!/^[A-Z][A-Z0-9_ ]*$/.test(suggestedRole)) {
+      logger.warn('[SUGGEST_ROLE_INVALID_CHARS]', { role: suggestedRole });
+      return NextResponse.json(
+        { error: 'AI returned a role with invalid characters. Please try again.', code: 'AI_INVALID_ROLE' },
+        { status: 502 },
+      );
+    }
+    aiResult.role = suggestedRole;
+
+    // Determine if this role is new to the company
+    const isNewRole = !ENTITY_ROLES.includes(suggestedRole as EntityRole) && !companyRoles.includes(suggestedRole);
+    const roleSource = ENTITY_ROLES.includes(suggestedRole as EntityRole)
+      ? 'BASE_ROLE'
+      : companyRoles.includes(suggestedRole)
+        ? 'COMPANY_ROLE'
+        : 'NEW_ROLE_CANDIDATE';
 
     // ── LLM confidence cap (conditional on autoRoleAssignment + manualRequest) ──
     // When autoRoleAssignment is enabled, let confidence flow uncapped.
@@ -370,6 +454,8 @@ Based on this additional context, re-evaluate the role.`;
       suggestedRole: aiResult.role,
       confidence: aiResult.confidence,
       explanation: aiResult.explanation,
+      isNewRole,
+      roleSource,
       reasoning: `No existing rule or entity context found for pattern. Suggested role: ${aiResult.role}.`,
     };
 

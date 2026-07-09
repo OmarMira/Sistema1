@@ -953,6 +953,12 @@
       "periodType": "WEEK_52_53",
       "taxModuleEnabled": false,
       "updatedAt": "2026-07-07T18:19:47.022Z"
+    },
+    "cmrb8nknr0003c7yk43n64eb1": {
+      "currency": "USD",
+      "periodType": "CUSTOM_MONTHS",
+      "taxModuleEnabled": false,
+      "updatedAt": "2026-07-07T22:46:50.901Z"
     }
   }
 }

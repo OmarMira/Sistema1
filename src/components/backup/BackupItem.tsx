@@ -1,6 +1,6 @@
 'use client';
 
-import { ShieldCheck, Calendar, HardDrive, Download, Loader2, Trash2 } from 'lucide-react';
+import { ShieldCheck, Calendar, HardDrive, Download, Loader2, RotateCcw, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { useLanguageStore } from '@/store/language-store';
@@ -9,11 +9,13 @@ import { type BackupRecord, formatDate, formatFileSize } from '@/lib/types/backu
 interface BackupItemProps {
   backup: BackupRecord;
   downloading: boolean;
+  restoring: boolean;
   onDownload: () => void;
+  onRestore: () => void;
   onDelete: () => void;
 }
 
-export function BackupItem({ backup, downloading, onDownload, onDelete }: BackupItemProps) {
+export function BackupItem({ backup, downloading, restoring, onDownload, onRestore, onDelete }: BackupItemProps) {
   const t = useLanguageStore((s) => s.t);
   const totalRecords = (Object.values(backup.recordCounts) as number[]).reduce(
     (a, b) => a + b,
@@ -79,6 +81,20 @@ export function BackupItem({ backup, downloading, onDownload, onDelete }: Backup
             <Download className="size-4" />
           )}
           <span className="sr-only">{t('settings.backup.download')}</span>
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="size-8 text-muted-foreground hover:text-amber-600"
+          onClick={onRestore}
+          disabled={restoring}
+        >
+          {restoring ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <RotateCcw className="size-4" />
+          )}
+          <span className="sr-only">{t('settings.backup.restoreBackup')}</span>
         </Button>
         <Button
           variant="ghost"

@@ -10,7 +10,7 @@
     "db:push": "prisma db push",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:reset": "prisma migrate reset"
+    "db:reset": "node scripts/db-reset-safe.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.11.1",

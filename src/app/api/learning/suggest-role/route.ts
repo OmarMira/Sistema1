@@ -97,10 +97,21 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     }
 
     // Read AI configuration from DB (encrypted) with env fallback
-    const aiConfig = await getAiConfig();
-    const apiKey = aiConfig.apiKey;
-    const baseUrl = aiConfig.baseUrl;
-    const model = aiConfig.model;
+    let apiKey: string;
+    let baseUrl: string;
+    let model: string;
+    try {
+      const aiConfig = await getAiConfig();
+      apiKey = aiConfig.apiKey;
+      baseUrl = aiConfig.baseUrl;
+      model = aiConfig.model;
+    } catch {
+      logger.error('SUGGEST_ROLE_MISSING_AI_CONFIG');
+      return NextResponse.json(
+        { error: 'AI not configured. Set it up in Settings → AI.', code: 'AI_NOT_CONFIGURED' },
+        { status: 502 },
+      );
+    }
 
     if (!apiKey || !baseUrl || !model) {
       logger.error('SUGGEST_ROLE_MISSING_AI_CONFIG');
@@ -232,8 +243,8 @@ ${baseRolesList}
 Roles already used by this company:
 ${companyRolesList}
 
-Return JSON: { "role": "ROLE_NAME", "confidence": <float between 0.0 and 1.0>, "explanation": "brief reason" }
-Follow the rules in order: evaluate specificity → prefer company role → suggest new role if more precise.`;
+Return ONLY valid JSON with this exact format: { "role": "ROLE_NAME", "confidence": 0.85, "explanation": "brief reason" }
+The confidence MUST be a decimal number like 0.85, not a string or text. Follow the rules in order: evaluate specificity → prefer company role → suggest new role if more precise.`;
 
     let aiResult: { role: string; confidence: number; explanation: string } | null = null;
     let lastError: string | null = null;
@@ -245,7 +256,7 @@ Follow the rules in order: evaluate specificity → prefer company role → sugg
 
     for (const currentModel of modelsToTry) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 12000);
+      const timeout = setTimeout(() => controller.abort(), 20000);
 
       try {
         const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -323,7 +334,7 @@ Based on this additional context, re-evaluate the role.`;
         ];
 
         const reController = new AbortController();
-        const reTimeout = setTimeout(() => reController.abort(), 12000);
+        const reTimeout = setTimeout(() => reController.abort(), 20000);
 
         try {
           const reResponse = await fetch(`${baseUrl}/chat/completions`, {

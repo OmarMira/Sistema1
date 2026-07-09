@@ -7,6 +7,7 @@ import {
   BankProfileConfig,
 } from './bank-profile-schema';
 import { getAllActiveProfiles, upsertBankProfile } from './bank-profile-service';
+import { getAiConfig } from '@/lib/ai-config';
 
 export interface PdfAnalysisData {
   fullText: string;
@@ -304,13 +305,20 @@ CRITICAL: Do NOT invent or fabricate data. Only use patterns you can clearly ide
 
   logger.info('LLM inference for bank profile creation', { temperature: 0 });
 
+  let aiModel = 'google/gemini-2.5-flash';
+  try {
+    const aiConfig = await getAiConfig();
+    if (aiConfig.model && aiConfig.model !== 'openrouter/free') {
+      aiModel = aiConfig.model;
+    }
+  } catch {
+    // Use default model
+  }
+
   try {
     const response = await Promise.race([
       zai.chat.completions.create({
-        model:
-          process.env.AI_MODEL && process.env.AI_MODEL !== 'openrouter/free'
-            ? process.env.AI_MODEL
-            : 'google/gemini-2.5-flash',
+        model: aiModel,
         messages: [
           { role: 'system', content: systemPrompt },
           { role: 'user', content: userPrompt },

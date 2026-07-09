@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { getRequestContext } from '@/lib/context-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
+import { getAiConfig } from '@/lib/ai-config';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { extractKeywords } from '@/lib/memory/keyword-extractor';
 import { checkPromptInjection, addSystemDelimiter } from '@/lib/guardrails';
@@ -870,11 +871,18 @@ async function callAI(
   }>,
   requireJson?: boolean,
 ) {
-  const apiKey = process.env.AI_API_KEY;
-  const baseUrl = process.env.AI_BASE_URL || AI_CONFIG.BASE_URL;
-  let configuredModel = process.env.AI_MODEL;
-  if (!configuredModel || configuredModel === AI_CONFIG.LEGACY_MODEL) {
-    configuredModel = AI_CONFIG.DEFAULT_MODEL;
+  let apiKey: string;
+  let baseUrl: string;
+  let configuredModel: string;
+  try {
+    const aiConfig = await getAiConfig();
+    apiKey = aiConfig.apiKey;
+    baseUrl = aiConfig.baseUrl;
+    configuredModel = aiConfig.model;
+  } catch {
+    const err = new Error('AI not configured. Set it up in Settings → AI.') as Error & { code?: string };
+    err.code = 'AI_NOT_CONFIGURED';
+    throw err;
   }
   if (!apiKey || !baseUrl || !configuredModel) {
     const err = new Error('AI not configured. Set it up in Settings → AI.') as Error & { code?: string };

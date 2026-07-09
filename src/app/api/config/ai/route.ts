@@ -4,6 +4,7 @@ import { requireCurrentUserId } from '@/lib/context-storage';
 import { getAiConfig, setAiConfig } from '@/lib/ai-config';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 
 async function requireAdminRole(userId: string): Promise<NextResponse | null> {
   const user = await db.user.findUnique({

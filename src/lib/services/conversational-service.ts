@@ -8,6 +8,7 @@ import { findContext } from '@/lib/services/entity-context-service';
 import { ROLE_ACCOUNT_MAP } from '@/lib/constants/role-account-map';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { serverT } from '@/lib/server-i18n';
+import { getAiConfig } from '@/lib/ai-config';
 import type { RuleCondition, AssistantConfig } from '@/lib/types/shared';
 import { collectSignals } from './signal-collector';
 import { decide } from './decision-engine';
@@ -267,9 +268,17 @@ export async function parseConversationalContext(
   const existingContext = await findContext(companyId, pattern).catch(() => null);
 
   // Step 2: try AI (parseWithAI)
-  const apiKey = process.env.AI_API_KEY;
-  const baseUrl = process.env.AI_BASE_URL;
-  const model = process.env.AI_MODEL;
+  let apiKey: string | undefined;
+  let baseUrl: string | undefined;
+  let model: string | undefined;
+  try {
+    const aiConfig = await getAiConfig();
+    apiKey = aiConfig.apiKey;
+    baseUrl = aiConfig.baseUrl;
+    model = aiConfig.model;
+  } catch {
+    // AI not configured — skip AI parsing
+  }
 
   let aiResponse: { role?: string; glAccountCode?: string } | null = null;
 

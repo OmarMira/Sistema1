@@ -256,7 +256,7 @@ The confidence MUST be a decimal number like 0.85, not a string or text. Follow 
 
     for (const currentModel of modelsToTry) {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000);
+      const timeout = setTimeout(() => controller.abort(), 60000);
 
       try {
         const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -334,7 +334,7 @@ Based on this additional context, re-evaluate the role.`;
         ];
 
         const reController = new AbortController();
-        const reTimeout = setTimeout(() => reController.abort(), 20000);
+        const reTimeout = setTimeout(() => reController.abort(), 60000);
 
         try {
           const reResponse = await fetch(`${baseUrl}/chat/completions`, {

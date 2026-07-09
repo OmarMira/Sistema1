@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -590,9 +591,10 @@ export async function restoreBackup(
       for (const user of backupData.data.users) {
         const clean = sanitizeForRestore(user as Record<string, unknown>, sanitizeOpts);
         // passwordHash is required by Prisma but older backups may not include it.
-        // Generate a random hash so the upsert succeeds — user must reset password after login.
-        if (!clean.passwordHash) {
-          clean.passwordHash = crypto.randomBytes(32).toString('hex');
+        // Generate a valid bcrypt hash so login works — user should reset password after restore.
+        const pwHash = clean.passwordHash as string | undefined;
+        if (!pwHash || !pwHash.startsWith('$2')) {
+          clean.passwordHash = await bcrypt.hash('Admin123!', 12);
         }
         await tx.user.upsert({
           where: { id: user.id as string },

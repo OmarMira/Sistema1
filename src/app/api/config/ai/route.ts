@@ -29,6 +29,8 @@ export const GET = apiHandler(
           ? config.apiKey.slice(0, 4) + '...' + config.apiKey.slice(-4)
           : '...';
 
+      logger.info('[AI CONFIG GET]', { model: config.model, baseUrl: config.baseUrl, keyPrefix: config.apiKey.slice(0, 6) });
+
       let aiAlive = false;
       try {
         const verifyRes = await fetch(`${config.baseUrl}/chat/completions`, {
@@ -51,7 +53,8 @@ export const GET = apiHandler(
       }
 
       return NextResponse.json({ isSaved: true, apiKey: maskedKey, model: config.model, baseUrl: config.baseUrl, aiAlive });
-    } catch {
+    } catch (err) {
+      logger.error('[AI CONFIG GET] Failed to load config', { error: err instanceof Error ? err.message : String(err) });
       return NextResponse.json({ isSaved: false });
     }
   },

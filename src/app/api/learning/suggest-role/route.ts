@@ -211,9 +211,9 @@ ROLE DEFINITIONS:
 - INGRESO: Income/revenue source (money flows IN)
 
 RULES:
-1. ALWAYS prefer a BASE role if it fits the entity.
-2. If no base role fits, prefer an EXISTING company role already used by this company.
-3. Suggest a NEW concise role ONLY if no base or company role fits.
+1. Evaluate base roles first, but if a custom or new role (like HOLDING, EMPRESA_SOCIO, INVERSOR) describes the entity's purpose MORE precisely than any base role, PRIORITIZE the more specific role.
+2. If an EXISTING company role already used by this company fits well, prefer it over a base role.
+3. Suggest a NEW concise role when it captures the entity better than any base or company role.
 4. Never return OTRO as a final role.
 5. Return the role in UPPERCASE.
 
@@ -232,8 +232,8 @@ ${baseRolesList}
 Roles already used by this company:
 ${companyRolesList}
 
-Return JSON: { "role": "ROLE_NAME", "confidence": 0.85, "explanation": "brief reason" }
-Follow the rules in order: prefer base role → existing company role → new role suggestion.`;
+Return JSON: { "role": "ROLE_NAME", "confidence": <float between 0.0 and 1.0>, "explanation": "brief reason" }
+Follow the rules in order: evaluate specificity → prefer company role → suggest new role if more precise.`;
 
     let aiResult: { role: string; confidence: number; explanation: string } | null = null;
     let lastError: string | null = null;

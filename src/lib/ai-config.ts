@@ -55,6 +55,7 @@ export async function getAiConfig(): Promise<AiConfig> {
   // Cache hit?
   const now = Date.now();
   if (_cached && now - _cachedAt < CACHE_TTL_MS) {
+    logger.info('[AI CONFIG] Cache hit');
     return _cached;
   }
 
@@ -65,15 +66,23 @@ export async function getAiConfig(): Promise<AiConfig> {
     getDbValue(KEY_BASE_URL),
   ]);
 
+  logger.info('[AI CONFIG] DB read', {
+    hasEncryptedKey: !!encryptedKey,
+    hasModel: !!model,
+    hasBaseUrl: !!baseUrl,
+    encryptedKeyLen: encryptedKey?.length,
+  });
+
   // If all three are in DB, decrypt and cache
   if (encryptedKey && model && baseUrl) {
     try {
       const apiKey = decrypt(encryptedKey);
       _cached = { apiKey, model, baseUrl };
       _cachedAt = now;
+      logger.info('[AI CONFIG] Decrypted OK', { model, baseUrl, keyPrefix: apiKey.slice(0, 6) });
       return _cached;
-    } catch {
-      logger.warn('[AI CONFIG] Failed to decrypt stored key, falling back to env');
+    } catch (err) {
+      logger.warn('[AI CONFIG] Failed to decrypt stored key', { error: err instanceof Error ? err.message : String(err) });
       // Fall through to env fallback — corrupted entry, re-seed below
     }
   }
@@ -82,6 +91,8 @@ export async function getAiConfig(): Promise<AiConfig> {
   const envApiKey = process.env.AI_API_KEY;
   const envModel = process.env.AI_MODEL || AI_CONFIG.DEFAULT_MODEL;
   const envBaseUrl = process.env.AI_BASE_URL || AI_CONFIG.BASE_URL;
+
+  logger.info('[AI CONFIG] Env fallback', { hasEnvApiKey: !!envApiKey });
 
   if (envApiKey) {
     // Seed DB so future reads don't depend on env
@@ -101,6 +112,7 @@ export async function getAiConfig(): Promise<AiConfig> {
     return _cached;
   }
 
+  logger.error('[AI CONFIG] No config found — neither DB nor env');
   throw new Error(
     'AI configuration missing. Set AI_API_KEY in .env or save via /api/config/ai.',
   );

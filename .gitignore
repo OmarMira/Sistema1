@@ -73,3 +73,6 @@ server.log
 db/backups/
 *.sql
 test-restore.js
+
+# Temp
+tsc-errors.txt

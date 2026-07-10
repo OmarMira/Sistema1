@@ -12,6 +12,23 @@ const globalForPrisma = globalThis as unknown as {
 // client before extending, because $extends wraps it.
 
 function createBaseClient() {
+  // ─── Test isolation guard ────────────────────────────────────────────────
+  // Prevent tests from accidentally connecting to production/dev database.
+  // This MUST run before PrismaClient reads DATABASE_URL.
+  if (process.env.NODE_ENV === 'test') {
+    const configuredDatabase =
+      process.env.DATABASE_URL
+        ? new URL(process.env.DATABASE_URL).pathname.replace(/^\//, '')
+        : null;
+
+    if (configuredDatabase !== 'accountexpress_test') {
+      throw new Error(
+        `[TEST SAFETY] Refusing to create PrismaClient — DATABASE_URL points to "${configuredDatabase ?? 'null'}" ` +
+        `instead of "accountexpress_test". Tests MUST use the test database. Aborting.`
+      );
+    }
+  }
+
   return new PrismaClient({
     log: [
       { level: 'query', emit: 'event' },

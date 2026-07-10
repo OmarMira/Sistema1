@@ -97,7 +97,7 @@ describe('PDF Parser - Bank of America PDF Parser', () => {
       expect(result.bankAccountName).toBe('Bank of America Checking');
     });
 
-    it('rechaza importación de statement duplicado con ConflictError', async () => {
+    it('skips duplicate transactions on re-import instead of throwing ConflictError', async () => {
       const company = await createTestCompany('LQ&OM LLC');
       const glAccount = await createTestGlAccount({
         companyId: company.id,
@@ -123,7 +123,7 @@ describe('PDF Parser - Bank of America PDF Parser', () => {
       });
 
       // Primera importación (éxito)
-      await ImportService.importFile({
+      const firstResult = await ImportService.importFile({
         companyId: company.id,
         bankAccountId: bankAccount.id,
         fileName: 'eStmt_2025-03-31.pdf',
@@ -132,17 +132,20 @@ describe('PDF Parser - Bank of America PDF Parser', () => {
         content: '',
       });
 
-      // Segunda importación (debe lanzar ConflictError)
-      await expect(
-        ImportService.importFile({
-          companyId: company.id,
-          bankAccountId: bankAccount.id,
-          fileName: 'eStmt_2025-03-31.pdf',
-          extension: 'pdf',
-          buffer: pdfBuffer,
-          content: '',
-        }),
-      ).rejects.toThrow(ConflictError);
+      expect(firstResult.transactionCount).toBeGreaterThan(0);
+
+      // Segunda importación (duplicatesSkipped, no error)
+      const secondResult = await ImportService.importFile({
+        companyId: company.id,
+        bankAccountId: bankAccount.id,
+        fileName: 'eStmt_2025-03-31.pdf',
+        extension: 'pdf',
+        buffer: pdfBuffer,
+        content: '',
+      });
+
+      expect(secondResult.duplicatesSkipped).toBeGreaterThan(0);
+      expect(secondResult.transactionCount).toBe(0);
     });
   });
 });

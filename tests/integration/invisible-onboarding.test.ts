@@ -71,7 +71,7 @@ const createPdfItems = (
 describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () => {
   beforeEach(async () => {
     await clearDatabase();
-    await db.bankProfile.deleteMany({ where: { bankName: { contains: 'Onboard' } } });
+    await db.bankProfile.deleteMany({});
     invalidateAllProfilesCache();
     customGetDocumentMock = null;
     mockCreateChatCompletion.mockReset();
@@ -79,7 +79,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
 
   afterEach(async () => {
     await clearDatabase();
-    await db.bankProfile.deleteMany({ where: { bankName: { contains: 'Onboard' } } });
+    await db.bankProfile.deleteMany({});
     invalidateAllProfilesCache();
     customGetDocumentMock = null;
     vi.restoreAllMocks();
@@ -161,7 +161,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
     // 1. Crear un perfil erróneo en la base de datos (con anchor regex errónea que no encuentra transacciones)
     await db.bankProfile.create({
       data: {
-        bankId: 'galicia-healing',
+        bankId: 'galicia-healing-unique',
         bankName: 'Banco Galicia Healing',
         fingerprints: JSON.stringify(['Galicia Healing', 'Galicia Healing Business']),
         requiresReview: false,
@@ -262,7 +262,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
     });
     expect(profileInDb).toBeDefined();
     expect(profileInDb?.requiresReview).toBe(false);
-    expect(profileInDb?.bankId).toBe('galicia-healing');
+    expect(profileInDb?.bankId).toBe('galicia-healing-unique');
 
     const configParsed = JSON.parse(profileInDb!.config);
     expect(configParsed.rules.anchor.regex).toBe('^\\d{2}/\\d{2}/\\d{4}$');

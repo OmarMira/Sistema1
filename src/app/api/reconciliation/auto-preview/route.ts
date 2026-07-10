@@ -108,7 +108,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       } else {
         journalEntryMap.set(jl.entryId, {
           amount: net,
-          date: jl.entry.date.toISOString().split('T')[0],
+          date: jl.entry.date.toISOString().split('T')[0] ?? '',
         });
       }
     }

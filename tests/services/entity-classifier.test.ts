@@ -9,6 +9,7 @@ vi.mock('@/lib/db', () => ({
     bankTransaction: { findMany: vi.fn() },
     entityContext: { findMany: vi.fn() },
     bankRule: { findMany: vi.fn() },
+    $transaction: vi.fn(),
   },
 }));
 
@@ -34,9 +35,9 @@ import { saveContext } from '@/lib/services/entity-context-service';
 import {
   classifyEntity,
   getEntityCandidates,
-  detectEntityConflict,
   getKnownSocioPatterns,
 } from '@/lib/services/entity-classifier';
+import { detectConflictSync } from '@/lib/services/entity-conflict-detector';
 import { ENTITY_ROLES, entityRoleSchema, UI_ROLES } from '@/lib/constants/entity-roles';
 
 // ─── Helpers ───────────────────────────────────────────────────────────
@@ -47,6 +48,7 @@ const mockDb = db as unknown as {
   bankTransaction: { findMany: ReturnType<typeof vi.fn> };
   entityContext: { findMany: ReturnType<typeof vi.fn> };
   bankRule: { findMany: ReturnType<typeof vi.fn> };
+  $transaction: ReturnType<typeof vi.fn>;
 };
 
 function makeCandidate(overrides: Partial<EntityCandidate> = {}): EntityCandidate {
@@ -92,6 +94,16 @@ type EntityCandidate = {
 describe('classifyEntity()', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.bankTransaction.findMany.mockResolvedValue([]);
+    mockDb.$transaction.mockImplementation(async (fn: Function) => {
+      const tx = {
+        bankRule: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({}),
+        },
+      };
+      return fn(tx);
+    });
   });
 
   it('calls saveContext with correct params when no glAccountCode', async () => {
@@ -144,6 +156,7 @@ describe('classifyEntity()', () => {
       pattern: 'UNKNOWN',
       role: 'OTRO',
       glAccountCode: '9999',
+      userDescription: 'Miscellaneous expense',
     });
 
     expect(saveContext).toHaveBeenCalledWith(
@@ -308,10 +321,10 @@ describe('getEntityCandidates()', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// detectEntityConflict (pure function — no mocks needed)
+// detectConflictSync (pure function — no mocks needed except entity-detector)
 // ═══════════════════════════════════════════════════════════════════════
 
-describe('detectEntityConflict()', () => {
+describe('detectConflictSync()', () => {
   it('detects merchant in description', () => {
     (loadConfig as ReturnType<typeof vi.fn>).mockReturnValue({});
     (extractComponents as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -319,7 +332,7 @@ describe('detectEntityConflict()', () => {
       indnName: null,
     });
 
-    const result = detectEntityConflict('AMERICAN EXPRESS payment', ['SOCIO PATTERN']);
+    const result = detectConflictSync('AMERICAN EXPRESS payment', ['SOCIO PATTERN']);
 
     expect(result.hasMerchant).toBe(true);
     expect(result.hasSocioInIndn).toBe(false);
@@ -333,7 +346,7 @@ describe('detectEntityConflict()', () => {
       indnName: 'LAURA QUIJANO',
     });
 
-    const result = detectEntityConflict('payment INDN:LAURA QUIJANO', ['laura quijano']);
+    const result = detectConflictSync('payment INDN:LAURA QUIJANO', ['laura quijano']);
 
     expect(result.hasMerchant).toBe(false);
     expect(result.hasSocioInIndn).toBe(true);
@@ -347,7 +360,7 @@ describe('detectEntityConflict()', () => {
       indnName: 'MARIA GOMEZ',
     });
 
-    const result = detectEntityConflict('payment INDN:MARIA GOMEZ', ['laura quijano', 'juan perez']);
+    const result = detectConflictSync('payment INDN:MARIA GOMEZ', ['laura quijano', 'juan perez']);
 
     expect(result.hasSocioInIndn).toBe(false);
     expect(result.socioIndnName).toBe('MARIA GOMEZ');
@@ -360,7 +373,7 @@ describe('detectEntityConflict()', () => {
       indnName: null,
     });
 
-    const result = detectEntityConflict('plain description', []);
+    const result = detectConflictSync('plain description', []);
 
     expect(result.hasMerchant).toBe(false);
     expect(result.hasSocioInIndn).toBe(false);

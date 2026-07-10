@@ -148,7 +148,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
           const counterLine = jl.entry.lines.find((l) => l.glAccountId !== bankAccount.glAccountId);
           journalEntryMap.set(jl.entryId, {
             amount: net,
-            date: jl.entry.date.toISOString().split('T')[0],
+            date: jl.entry.date.toISOString().split('T')[0] ?? '',
             description: jl.entry.description,
             counterGlAccountId: counterLine?.glAccountId || '',
           });

@@ -191,7 +191,7 @@ describe('parseWithAI', () => {
         baseUrl: '',
         model: '',
       }),
-    ).rejects.toThrow('AI configuration missing');
+    ).rejects.toThrow('AI not configured');
   });
 });
 

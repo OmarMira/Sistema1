@@ -134,7 +134,7 @@ describe('Bank Rules Phase 3 Integration Tests', () => {
 
     const body2 = await res2.json();
     expect(body2).toHaveProperty('warnings');
-    expect(body2.warnings[0].message).toContain('shadowed by rule \'Broad Uber Rule\'');
+    expect(body2.warnings[0].message).toContain("pattern is broader than rule 'Broad Uber Rule'");
   });
 
   it('debe obtener las cuentas GL más utilizadas a través de /api/bank-rules/top-accounts', async () => {

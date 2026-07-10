@@ -266,7 +266,7 @@ export function evaluateWinningRule(
   rolePriorities: Record<string, number> = loadRolePrioritiesSync(),
   contexts?: Array<{ pattern: string; role: string }>,
 ): MatchingRule {
-  if (matchingRules.length <= 1) return matchingRules[0];
+  if (matchingRules.length <= 1) return matchingRules[0]!;
 
   const rolePrios = rolePriorities;
   const descLower = tx.description.toLowerCase();
@@ -305,5 +305,5 @@ export function evaluateWinningRule(
     return a.dbPriority - b.dbPriority;
   });
 
-  return scored[0].rule;
+  return scored[0]!.rule;
 }

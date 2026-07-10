@@ -348,8 +348,8 @@ export class ImportService {
 
     const sorted = [...transactions].sort((a, b) => a.date.getTime() - b.date.getTime());
 
-    const startDate = balanceInfo?.startDate || sorted[0].date;
-    const endDate = balanceInfo?.endDate || sorted[sorted.length - 1].date;
+    const startDate = balanceInfo?.startDate || sorted[0]!.date;
+    const endDate = balanceInfo?.endDate || sorted[sorted.length - 1]!.date;
     const openingBalance = balanceInfo?.openingBalance ?? 0;
     const closingBalance = balanceInfo?.closingBalance ?? 0;
 
@@ -379,8 +379,8 @@ export class ImportService {
     });
     const existingHashSet = new Set(existingHashes.map((t) => t.importHash));
 
-    const uniqueTransactions = sorted.filter((_txn, idx) => !existingHashSet.has(hashList[idx]));
-    const uniqueHashes = hashList.filter((_, idx) => !existingHashSet.has(hashList[idx]));
+    const uniqueTransactions = sorted.filter((_txn, idx) => !existingHashSet.has(hashList[idx]!));
+    const uniqueHashes = hashList.filter((_, idx) => !existingHashSet.has(hashList[idx]!));
 
     const duplicatesSkipped = sorted.length - uniqueTransactions.length;
 
@@ -442,7 +442,7 @@ export class ImportService {
       const transactionsToInsert: Prisma.BankTransactionCreateManyInput[] = [];
 
       for (let idx = 0; idx < uniqueTransactions.length; idx++) {
-        const txn = uniqueTransactions[idx];
+        const txn = uniqueTransactions[idx]!;
         const { matchedRuleId, glAccountId } = await findMatchingRule(
           { description: txn.description, amount: txn.amount } as Transaction,
           bankRules as unknown as MatchingRule[],
@@ -528,8 +528,8 @@ export class ImportService {
         .join(' ');
     }
 
-    if (parts.length > 0 && parts[0].length > 2) {
-      return parts[0].charAt(0).toUpperCase() + parts[0].slice(1).toLowerCase();
+    if (parts.length > 0 && parts[0]!.length > 2) {
+      return parts[0]!.charAt(0).toUpperCase() + parts[0]!.slice(1).toLowerCase();
     }
 
     return 'Cuenta Bancaria Importada';
@@ -549,8 +549,8 @@ export class ImportService {
     await tx.bankAccount.update({
       where: { id: bankAccountId },
       data: {
-        initialBalance: oldest.openingBalance,
-        balance: newest.closingBalance,
+        initialBalance: oldest!.openingBalance,
+        balance: newest!.closingBalance,
       },
     });
   }

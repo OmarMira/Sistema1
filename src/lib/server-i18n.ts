@@ -19,7 +19,7 @@ const localeMap: Record<string, Record<string, unknown>> = { en, es };
 
 export function serverT(locale: string | undefined, key: string): string {
   const lang = locale === 'en' ? 'en' : 'es';
-  return dig(localeMap[lang], key);
+  return dig(localeMap[lang]!, key);
 }
 
 export type { Locale };

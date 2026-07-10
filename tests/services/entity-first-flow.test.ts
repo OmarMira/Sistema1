@@ -7,7 +7,8 @@ import {
   createTestBankStatement,
   createTestBankTransaction,
 } from '../helpers/factories';
-import { classifyEntity, getEntityCandidates, getKnownSocioPatterns, detectEntityConflict } from '@/lib/services/entity-classifier';
+import { classifyEntity, getEntityCandidates, getKnownSocioPatterns } from '@/lib/services/entity-classifier';
+import { detectConflictSync } from '@/lib/services/entity-conflict-detector';
 import { entityFirstCheck } from '@/lib/services/rule-matching-engine';
 import { extractComponents, loadConfig } from '@/lib/services/entity-detector';
 import { db } from '@/lib/db';
@@ -219,9 +220,9 @@ describe('Entity Classification Flow — Integration', () => {
     });
   });
 
-  describe('detectEntityConflict()', () => {
+  describe('detectConflictSync()', () => {
     it('debe detectar merchant + SOCIO en INDN', () => {
-      const result = detectEntityConflict(
+      const result = detectConflictSync(
         'KMF DES:KMFUSA.com ID:9876543210 INDN:OMAR MIRA CO ID:1234',
         ['omar mira'],
       );
@@ -232,7 +233,7 @@ describe('Entity Classification Flow — Integration', () => {
     });
 
     it('NO debe marcar conflicto si INDN no es SOCIO conocido', () => {
-      const result = detectEntityConflict(
+      const result = detectConflictSync(
         'KMF DES:KMFUSA.com ID:9876543210 INDN:UNKNOWN GUY CO ID:1234',
         ['omar mira'],
       );
@@ -241,7 +242,7 @@ describe('Entity Classification Flow — Integration', () => {
     });
 
     it('NO debe marcar conflicto si no hay merchant (solo Zelle)', () => {
-      const result = detectEntityConflict(
+      const result = detectConflictSync(
         'Zelle payment to LAURA QUIJANO',
         ['laura quijano'],
       );

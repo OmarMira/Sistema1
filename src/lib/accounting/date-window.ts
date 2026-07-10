@@ -25,5 +25,5 @@ export function toStatementMonth(date: Date): string {
  * Formatea una Date a "YYYY-MM-DD" para usar como txDate en el hash.
  */
 export function toDateString(date: Date): string {
-  return date.toISOString().split('T')[0];
+  return date.toISOString().split('T')[0] ?? '';
 }

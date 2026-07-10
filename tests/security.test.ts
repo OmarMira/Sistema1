@@ -60,6 +60,7 @@ vi.mock('@/lib/db', () => {
       create: vi.fn().mockResolvedValue({}),
     },
     rateLimit: {
+      findMany: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue({}),
     },
     user: {

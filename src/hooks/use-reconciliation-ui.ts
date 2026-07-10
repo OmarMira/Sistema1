@@ -53,7 +53,7 @@ export function useReconciliationUI(companyId: string, bankAccountId: string) {
       setSelectedBankTx([]);
       setSelectedJournalEntry(null);
     },
-    onError: (err) => toast.error((err as Error).message),
+    onError: (err: unknown) => toast.error((err as Error).message),
   });
 
   // 4. Validación de seguridad antes de ejecutar

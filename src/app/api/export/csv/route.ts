@@ -188,7 +188,7 @@ async function generateTransactionsCSV(
   for (const entry of entries) {
     for (const line of entry.lines) {
       rows.push([
-        entry.date.toISOString().split('T')[0],
+        entry.date.toISOString().split('T')[0] ?? '',
         entry.reference || '',
         `"${entry.description}"`,
         line.glAccount.code,
@@ -241,7 +241,7 @@ async function generateReconciliationCSV(
 
   for (const t of transactions) {
     rows.push([
-      t.date.toISOString().split('T')[0],
+      t.date.toISOString().split('T')[0] ?? '',
       `"${t.description}"`,
       t.amount.toFixed(2),
       t.reference || '',

@@ -28,7 +28,8 @@ vi.mock('@/lib/logger', () => ({
   },
 }));
 
-import { checkRateLimit } from '@/lib/security/rate-limiter';
+type CheckRateLimitFn = (userId: string, companyId: string, path: string) => { allowed: boolean; limit: number; remaining: number; resetAt: number };
+let checkRateLimit: CheckRateLimitFn;
 
 const VALID_CONFIG = {
   version: '1.0',
@@ -44,12 +45,16 @@ const VALID_CONFIG = {
 };
 
 describe('checkRateLimit', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     // Ensure NODE_ENV is 'test' so config is NOT cached forever
     vi.stubEnv('NODE_ENV', 'test');
     // Default: valid config file
     mockReadFileSync.mockReturnValue(JSON.stringify(VALID_CONFIG));
+    // Reset module state to clear cached config and request windows
+    vi.resetModules();
+    const mod = await import('@/lib/security/rate-limiter');
+    checkRateLimit = mod.checkRateLimit;
   });
 
   afterEach(() => {

@@ -8,8 +8,8 @@ export async function executeYearClose(companyId: string, year: number, config: 
   const calcPeriods = strategy.calculate({ year, config });
   if (!calcPeriods.length) throw new Error('Estrategia no generó períodos');
 
-  const fiscalStart = calcPeriods[0].startDate; // UTC
-  const fiscalEnd = calcPeriods[calcPeriods.length - 1].endDate; // UTC
+  const fiscalStart = calcPeriods[0]!.startDate; // UTC
+  const fiscalEnd = calcPeriods[calcPeriods.length - 1]!.endDate; // UTC
 
   const dbPeriods = await db.fiscalPeriod.findMany({
     where: { companyId, startDate: { gte: fiscalStart }, endDate: { lte: fiscalEnd } },

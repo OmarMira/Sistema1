@@ -28,8 +28,8 @@ export function parseCSV(content: string): ParsedTransaction[] {
     throw new Error('CSV file must contain at least a header row and one data row');
   }
 
-  const delimiter = detectDelimiter(lines[0]);
-  const headers = parseLine(lines[0], delimiter).map((h) =>
+  const delimiter = detectDelimiter(lines[0]!);
+  const headers = parseLine(lines[0]!, delimiter).map((h) =>
     h
       .trim()
       .toLowerCase()
@@ -46,7 +46,7 @@ export function parseCSV(content: string): ParsedTransaction[] {
   const transactions: ParsedTransaction[] = [];
 
   for (let i = 1; i < lines.length; i++) {
-    const raw = lines[i].trim();
+    const raw = lines[i]!.trim();
     if (!raw || raw.startsWith('#') || raw.startsWith('//')) continue;
 
     const cols = parseLine(raw, delimiter);
@@ -141,7 +141,7 @@ function detectDelimiter(headerLine: string): string {
   };
 
   // Return the delimiter with the highest count
-  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  const best = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]!;
   return best[1] > 0 ? best[0] : ',';
 }
 
@@ -217,12 +217,12 @@ function mapColumns(headers: string[]): ColumnMapping | null {
 
 function parseDate(val: string): Date | null {
   // Remove time portion if present
-  const dateStr = val.split(/[T\s]/)[0].trim();
+  const dateStr = val.split(/[T\s]/)[0]!.trim();
 
   // Try YYYY-MM-DD
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(dateStr)) {
     const parts = dateStr.split('-').map(Number);
-    return new Date(parts[0], parts[1] - 1, parts[2]);
+    return new Date(parts[0]!, parts[1]! - 1, parts[2]!);
   }
 
   // Try MM/DD/YYYY or DD/MM/YYYY
@@ -261,7 +261,7 @@ function parseDate(val: string): Date | null {
   ];
   const textMatch = dateStr.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
   if (textMatch) {
-    const monthIdx = monthNames.indexOf(textMatch[2].toLowerCase().slice(0, 3));
+    const monthIdx = monthNames.indexOf(textMatch[2]!.toLowerCase().slice(0, 3));
     if (monthIdx !== -1) {
       return new Date(Number(textMatch[3]), monthIdx, Number(textMatch[1]));
     }

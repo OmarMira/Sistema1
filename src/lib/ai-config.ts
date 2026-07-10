@@ -82,8 +82,13 @@ export async function getAiConfig(): Promise<AiConfig> {
       logger.info('[AI CONFIG] Decrypted OK', { model, baseUrl, keyPrefix: apiKey.slice(0, 6) });
       return _cached;
     } catch (err) {
-      logger.warn('[AI CONFIG] Failed to decrypt stored key', { error: err instanceof Error ? err.message : String(err) });
-      // Fall through to env fallback — corrupted entry, re-seed below
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error('[AI CONFIG] Failed to decrypt stored key', { error: errMsg });
+      throw new Error(
+        'Could not decrypt the stored AI API key. ' +
+        'This may have been encrypted with a different SESSION_SECRET, or the data may be corrupted. ' +
+        'Re-save your AI configuration via /api/config/ai to re-encrypt with the current SESSION_SECRET.',
+      );
     }
   }
 

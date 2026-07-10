@@ -465,9 +465,7 @@ export function validateBackup(backupData: BackupData): { valid: boolean; errors
   }
 
   // Optional sections — warn but don't fail
-  if (!Array.isArray(backupData.data.systemConfig)) {
-    errors.push('Missing systemConfig section (AI settings will not be restored)');
-  }
+  // systemConfig is optional for backwards compatibility; missing it should not invalidate the backup
 
   // Check company data
   if (backupData.data.company?.length === 0) {

@@ -110,7 +110,7 @@ describe('GET /api/reconciliation — book balance date scoping', () => {
     const response = await GET(req, { params: Promise.resolve({}) });
     const body = await response.json();
 
-    expect(body.summary.bookBalance).toBe(8000);
+    expect(body.summary.bookBalance).toBe("8000");
   });
 
   it('scopes bookBalance to the specific statement endDate when statementId is provided', async () => {
@@ -125,7 +125,7 @@ describe('GET /api/reconciliation — book balance date scoping', () => {
     const response = await GET(req, { params: Promise.resolve({}) });
     const body = await response.json();
 
-    expect(body.summary.bookBalance).toBe(5000);
+    expect(body.summary.bookBalance).toBe("5000");
     expect(body.summary.statementBalance).toBe(5000);
     expect(body.summary.difference).toBe(0);
   });
@@ -143,7 +143,7 @@ describe('GET /api/reconciliation — book balance date scoping', () => {
     const response = await GET(req, { params: Promise.resolve({}) });
     const body = await response.json();
 
-    expect(body.summary.bookBalance).toBe(5000);
+    expect(body.summary.bookBalance).toBe("5000");
   });
 
   it('uses active statement balance when statementId is provided', async () => {
@@ -158,7 +158,7 @@ describe('GET /api/reconciliation — book balance date scoping', () => {
     const body = await response.json();
 
     expect(body.summary.statementBalance).toBe(5000);
-    expect(body.summary.bookBalance).toBe(5000);
+    expect(body.summary.bookBalance).toBe("5000");
     expect(body.summary.difference).toBe(0);
   });
 

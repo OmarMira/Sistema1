@@ -3,6 +3,15 @@ import { NextRequest } from 'next/server';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
 
+vi.mock('@/lib/ai-config', () => ({
+  getAiConfig: vi.fn().mockResolvedValue({
+    apiKey: 'test-key',
+    model: 'test-model',
+    baseUrl: 'https://api.test.openrouter.ai/v1',
+  }),
+  clearAiConfigCache: vi.fn(),
+}));
+
 vi.mock('@/lib/services/web-search-service', () => ({
   searchEntity: vi.fn(),
 }));
@@ -11,12 +20,14 @@ vi.mock('@/lib/services/web-search-service', () => ({
 async function makeRequest(
   body: unknown,
   token: string,
+  cid: string,
 ): Promise<NextRequest> {
   return new NextRequest('http://localhost/api/learning/suggest-role', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json',
+      'x-company-id': cid,
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
@@ -28,6 +39,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
 
   beforeAll(async () => {
     await clearDatabase();
+    process.env.SESSION_SECRET = 'test-session-secret-for-suggest-role-unit';
     const user = await createTestUser('suggest-role-unit@example.com');
     const company = await createTestCompany('Suggest Role Unit Co', 'BUSINESS', { autoRoleAssignment: true });
     companyId = company.id;
@@ -43,6 +55,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
     delete process.env.AI_API_KEY;
     delete process.env.AI_BASE_URL;
     delete process.env.AI_MODEL;
+    delete process.env.SESSION_SECRET;
     vi.restoreAllMocks();
     await clearDatabase();
   });
@@ -76,7 +89,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
       description: 'Paga servicios mensuales',
       directionProfile: { creditPct: 0, debitPct: 1 },
       sampleDescriptions: ['Pago de servicios', 'Servicio mensual', 'Pago recurrente'],
-    }, token);
+    }, token, companyId);
 
     const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(200);
@@ -125,7 +138,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
         'Teléfono',
         'Internet',
       ],
-    }, token);
+    }, token, companyId);
 
     const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(200);
@@ -165,7 +178,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
       description: 'Servicios generales',
       directionProfile: { creditPct: 0, debitPct: 1 },
       sampleDescriptions: ['Pago de servicios'],
-    }, token);
+    }, token, companyId);
 
     const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(200);
@@ -202,7 +215,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
 
     const req = await makeRequest({
       description: 'Gasto mensual',
-    }, token);
+    }, token, companyId);
 
     const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(200);
@@ -276,7 +289,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
         description: 'SETOYOTA FIN/EZP',
         directionProfile: { creditPct: 0, debitPct: 1 },
         companyId,
-      }, token);
+      }, token, companyId);
 
       const res = await POST(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(200);
@@ -317,7 +330,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
 
       const req = await makeRequest({
         description: 'Proveedor de servicios',
-      }, token);
+      }, token, companyId);
 
       const res = await POST(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(200);
@@ -338,7 +351,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
 
       const req = await makeRequest({
         description: 'Gasto',
-      }, token);
+      }, token, companyId);
 
       const res = await POST(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(200);
@@ -360,7 +373,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
 
       const req = await makeRequest({
         description: 'Gasto',
-      }, token);
+      }, token, companyId);
 
       const res = await POST(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(200);

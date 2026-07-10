@@ -109,18 +109,18 @@ function levenshteinSimilarity(a: string, b: string): number {
   );
   for (let i = 1; i <= lenA; i++) {
     for (let j = 1; j <= lenB; j++) {
-      dp[i][j] =
+      dp[i]![j] =
         a[i - 1] === b[j - 1]
-          ? dp[i - 1][j - 1]
-          : 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+          ? dp[i - 1]![j - 1]!
+          : 1 + Math.min(dp[i - 1]![j]!, dp[i]![j - 1]!, dp[i - 1]![j - 1]!);
     }
   }
-  return 1 - dp[lenA][lenB] / Math.max(lenA, lenB);
+  return 1 - dp[lenA]![lenB]! / Math.max(lenA, lenB);
 }
 
 function stripSuffixes(name: string, suffixes: string[]): string {
   const tokens = name.split(/\s+/);
-  while (tokens.length > 1 && suffixes.includes(tokens[tokens.length - 1])) {
+  while (tokens.length > 1 && suffixes.includes(tokens[tokens.length - 1]!)) {
     tokens.pop();
   }
   return tokens.join(' ');

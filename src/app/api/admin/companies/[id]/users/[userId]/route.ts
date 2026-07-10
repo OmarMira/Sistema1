@@ -7,7 +7,7 @@ export const DELETE = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const userId = requireCurrentUserId();
 
-    const { id: companyId, userId: targetUserId } = await context.params;
+    const { id: companyId, userId: targetUserId } = await context.params as { id: string; userId: string };
 
     const member = await db.companyMember.findUnique({
       where: {
@@ -41,7 +41,7 @@ export const DELETE = apiHandler(
         action: 'revoke_user_company',
         entity: 'CompanyMember',
         entityId: member.id,
-        details: `Revoked user ${member.user.email} from company`,
+        details: `Revoked user ${(member as any).user.email} from company`,
       },
     });
 

@@ -130,8 +130,8 @@ export function getFormatBadge(format: string) {
   };
   const c = config[format] || config.csv;
   return (
-    <Badge variant="outline" className={cn('text-[10px] font-semibold uppercase', c.className)}>
-      {c.label}
+    <Badge variant="outline" className={cn('text-[10px] font-semibold uppercase', c!.className)}>
+      {c!.label}
     </Badge>
   );
 }

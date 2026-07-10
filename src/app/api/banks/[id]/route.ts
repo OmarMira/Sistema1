@@ -102,8 +102,8 @@ export const PUT = apiHandler(async (request: NextRequest, context: RouteContext
         where: { bankAccountId: id },
         orderBy: [{ startDate: 'asc' }, { endDate: 'asc' }],
       });
-      updateData.initialBalance = statements[0].openingBalance;
-      updateData.balance = statements[statements.length - 1].closingBalance;
+      updateData.initialBalance = statements[0]!.openingBalance;
+      updateData.balance = statements[statements.length - 1]!.closingBalance;
     } else {
       const parsedInitial = parseFloat(balance) || 0;
       updateData.initialBalance = parsedInitial;

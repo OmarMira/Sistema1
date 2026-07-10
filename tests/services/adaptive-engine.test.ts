@@ -81,6 +81,44 @@ vi.mock('fs', () => {
   };
 });
 
+vi.mock('fs/promises', () => ({
+  appendFile: vi.fn(async (path: string, content: string) => {
+    const key = normalizePath(path);
+    const files = (globalThis as any)._fsFiles || {};
+    files[key] = (files[key] || '') + content;
+  }),
+  writeFile: vi.fn(async (path: string, content: string) => {
+    const key = normalizePath(path);
+    const files = (globalThis as any)._fsFiles || {};
+    files[key] = content;
+  }),
+  stat: vi.fn(async (path: string) => {
+    const key = normalizePath(path);
+    const files = (globalThis as any)._fsFiles || {};
+    const content = files[key];
+    if (content === undefined) {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+    }
+    return {
+      size: content.length,
+      birthtimeMs: Date.now(),
+      birthtime: new Date(),
+      mtimeMs: Date.now(),
+      mtime: new Date(),
+    };
+  }),
+  rename: vi.fn(async (oldPath: string, newPath: string) => {
+    const oldKey = normalizePath(oldPath);
+    const newKey = normalizePath(newPath);
+    const files = (globalThis as any)._fsFiles || {};
+    if (files[oldKey] !== undefined) {
+      files[newKey] = files[oldKey];
+      delete files[oldKey];
+    }
+  }),
+  mkdir: vi.fn(async () => {}),
+}));
+
 // ─── Mock pattern-normalizer ───────────────────────────────────────────────────
 vi.mock('@/lib/services/pattern-normalizer', () => ({
   sanitizeDescriptionForAdaptive: vi.fn((desc: string, _config: any) => {
@@ -88,12 +126,16 @@ vi.mock('@/lib/services/pattern-normalizer', () => ({
   }),
 }));
 
-// ─── Import after mocks ────────────────────────────────────────────────────────
-import { recordFeedback, computeDescriptionHash } from '../../src/lib/learning/adaptive-engine';
-
 // ─── Tests ─────────────────────────────────────────────────────────────────────
 describe('Adaptive Engine — recordFeedback', () => {
-  beforeEach(() => {
+  let recordFeedback: typeof import('../../src/lib/learning/adaptive-engine')['recordFeedback'];
+  let computeDescriptionHash: typeof import('../../src/lib/learning/adaptive-engine')['computeDescriptionHash'];
+
+  beforeEach(async () => {
+    vi.resetModules();
+    const mod = await import('../../src/lib/learning/adaptive-engine');
+    recordFeedback = mod.recordFeedback;
+    computeDescriptionHash = mod.computeDescriptionHash;
     (globalThis as any)._fsFiles = {
       'rules/learning-engine.json': defaultEngineConfig,
     };

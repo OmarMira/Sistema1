@@ -23,8 +23,8 @@ export class Week52_53Strategy extends PeriodStrategy {
   private resolveRuleDate(year: number, rule: string): Date {
     // Parseo dinámico: "LAST_FRIDAY_OF_DECEMBER"
     const [position, dayName, of, monthName] = rule.split('_');
-    const monthIndex = this.getMonthIndex(monthName);
-    const dayIndex = this.getDayIndex(dayName);
+    const monthIndex = this.getMonthIndex(monthName!);
+    const dayIndex = this.getDayIndex(dayName!);
 
     const date = new Date(Date.UTC(year, monthIndex + 1, 0)); // Último día del mes
     while (date.getUTCDay() !== dayIndex) {

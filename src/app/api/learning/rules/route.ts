@@ -114,10 +114,10 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
           let nextCode = `${parentAccount.code}-01`;
           if (siblings.length > 0) {
-            const lastCode = siblings[0].code;
+            const lastCode = siblings[0]!.code;
             const parts = lastCode.split('-');
             if (parts.length > 1) {
-              const suffixNum = parseInt(parts[parts.length - 1], 10) + 1;
+              const suffixNum = parseInt(parts[parts.length - 1]!, 10) + 1;
               const suffixStr = suffixNum.toString().padStart(2, '0');
               nextCode = `${parentAccount.code}-${suffixStr}`;
             }
@@ -130,7 +130,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
             })
           ) {
             const parts = nextCode.split('-');
-            const suffixNum = parseInt(parts[parts.length - 1], 10) + 1;
+            const suffixNum = parseInt(parts[parts.length - 1]!, 10) + 1;
             nextCode = `${parentAccount.code}-${suffixNum.toString().padStart(2, '0')}`;
           }
           const capitalizedSubName = subAccountName

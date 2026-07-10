@@ -63,10 +63,10 @@ function parseXML(content: string): ParsedOFX {
   // Sort by date
   transactions.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  const startDate = startDateVal ? parseOFXDate(startDateVal) : transactions[0].date;
+  const startDate = startDateVal ? parseOFXDate(startDateVal) : transactions[0]!.date;
   const endDate = endDateVal
     ? parseOFXDate(endDateVal)
-    : transactions[transactions.length - 1].date;
+    : transactions[transactions.length - 1]!.date;
 
   // Calculate opening balance from closing balance
   const totalCredits = transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -151,10 +151,10 @@ function parseSGML(content: string): ParsedOFX {
   // Sort by date
   transactions.sort((a, b) => a.date.getTime() - b.date.getTime());
 
-  const startDate = startDateStr ? parseOFXDate(startDateStr) : transactions[0].date;
+  const startDate = startDateStr ? parseOFXDate(startDateStr) : transactions[0]!.date;
   const endDate = endDateStr
     ? parseOFXDate(endDateStr)
-    : transactions[transactions.length - 1].date;
+    : transactions[transactions.length - 1]!.date;
 
   // Calculate opening balance
   const totalCredits = transactions.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0);
@@ -238,12 +238,12 @@ function extractXmlValue(content: string, tag: string): string | null {
   // Handle nested XML extraction
   const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
   const match = content.match(regex);
-  if (match) return match[1].trim();
+  if (match) return match[1]!.trim();
 
   // Fallback: self-closing or attribute-style
   const attrRegex = new RegExp(`<${tag}[^>]*?>([^<]*)`, 'i');
   const attrMatch = content.match(attrRegex);
-  return attrMatch ? attrMatch[1].trim() : null;
+  return attrMatch ? attrMatch[1]!.trim() : null;
 }
 
 // ─── OFX Date Parsing ────────────────────────────────────────────────

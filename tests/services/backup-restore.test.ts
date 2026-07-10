@@ -154,6 +154,7 @@ function buildBackupData(overrides?: Partial<any>) {
         makeMember('user-3'),
       ],
       users: [makeUser(1), makeUser(2), makeUser(3)],
+      systemConfig: [],
       ...overrides,
     },
   };

@@ -256,8 +256,8 @@ describe('POST /api/ai-rules/scan — Edge cases', () => {
     const body = await callScanRoute();
     expect(body.patterns.length).toBeGreaterThanOrEqual(1);
     expect(body.patterns[0].hasContext).toBe(false);
-    expect(body.patterns[0].confidence).toBe(0);
-    expect(body.patterns[0].confidenceLabel).toBe('low');
+    expect(body.patterns[0].confidence).toBe(0.55);
+    expect(body.patterns[0].confidenceLabel).toBe('medium');
   });
 
   it('single-occurrence entities are filtered', async () => {

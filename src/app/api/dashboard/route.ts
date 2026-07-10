@@ -48,7 +48,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   });
 
   // Aggregate by account type
-  const typeBalances: Record<string, number> = {
+  const typeBalances = {
     asset: 0,
     liability: 0,
     equity: 0,
@@ -64,9 +64,9 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     // For assets/expenses (normal debit): net debit increases balance
     // For liabilities/equity/revenue (normal credit): net credit increases balance
     if (line.glAccount.normalBalance === 'debit') {
-      typeBalances[aType] += net;
+      typeBalances[aType]! += net;
     } else {
-      typeBalances[aType] -= net;
+      typeBalances[aType]! -= net;
     }
   }
 
@@ -113,9 +113,9 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     const net = netDebit - netCredit;
 
     if (tx.glAccount.normalBalance === 'debit') {
-      typeBalances[aType] += net;
+      typeBalances[aType]! += net;
     } else {
-      typeBalances[aType] -= net;
+      typeBalances[aType]! -= net;
     }
 
     // We also affect the bank asset account implicitly if we wanted to balance,
@@ -242,7 +242,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   const monthlyTrend = Object.entries(monthMap)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, val]) => ({
-      month: MONTH_NAMES[parseInt(key.split('-')[1]) - 1],
+      month: MONTH_NAMES[parseInt(key.split('-')[1] ?? '1') - 1] ?? '',
       income: Math.round(val.income * 100) / 100,
       expenses: Math.round(val.expenses * 100) / 100,
     }));

@@ -12,7 +12,7 @@ import { logger } from '@/lib/logger';
 export const PATCH = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
   const params = await context.params;
-  const id = params.id;
+  const id = params.id as string;
 
   try {
     const body = await request.json();
@@ -53,7 +53,7 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
   const params = await context.params;
-  const id = params.id;
+  const id = params.id as string;
 
   try {
     const deleted = await removeEntityContext(companyId, id);

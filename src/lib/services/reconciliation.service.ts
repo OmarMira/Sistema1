@@ -76,7 +76,7 @@ export class ReconciliationService {
 
         // If splits are provided, we use the first split's GL account as the main one for the bank transaction record
         const mainGlId =
-          txn.splits && txn.splits.length > 0 ? txn.splits[0].glAccountId : txn.glAccountId;
+          txn.splits && txn.splits.length > 0 ? txn.splits[0]!.glAccountId : txn.glAccountId;
 
         // Perform semantic checks for splits or main GL account
         if (txn.splits && txn.splits.length > 0) {

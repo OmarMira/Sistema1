@@ -12,7 +12,7 @@ import {
 async function seedTestData() {
   const user = await db.user.create({
     data: {
-      email: 'review@test.com',
+      email: `review-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`,
       passwordHash: 'hash',
       firstName: 'Review',
       lastName: 'Tester',

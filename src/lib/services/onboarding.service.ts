@@ -154,7 +154,7 @@ export async function completeOnboarding(
       const openingEntry = await tx.journalEntry.create({
         data: {
           companyId,
-          date: calculatedPeriods[0].startDate,
+          date: calculatedPeriods[0]!.startDate,
           description: 'Asiento de apertura - Saldo de efectivo inicial configurado en Onboarding',
           reference: 'OPENING-BALANCE',
           status: 'posted',

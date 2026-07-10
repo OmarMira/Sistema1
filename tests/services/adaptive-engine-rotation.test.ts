@@ -36,33 +36,24 @@ vi.mock('fs', () => {
       const key = normalizePath(path);
       const files = (globalThis as any)._fsFiles || {};
       if (files[key] !== undefined) return true;
-      // Directory check: check if any file is in this directory
       const dirPrefix = key.endsWith('/') ? key : key + '/';
-      const existsAsDir = Object.keys(files).some((k) => k.startsWith(dirPrefix));
-      console.log(`[mock existsSync] path: ${path} -> key: ${key} -> exists: ${existsAsDir || !!files[key]}`);
-      return existsAsDir || !!files[key];
+      return Object.keys(files).some((k) => k.startsWith(dirPrefix));
     }),
     readFileSync: vi.fn((path: string) => {
       const key = normalizePath(path);
       const files = (globalThis as any)._fsFiles || {};
-      if (!files[key]) {
-        console.log(`[mock readFileSync ERROR] path: ${path} -> key: ${key}`);
-        throw new Error('File not found: ' + path + ' (key: ' + key + ')');
-      }
-      console.log(`[mock readFileSync SUCCESS] path: ${path} -> key: ${key} -> length: ${files[key].length}`);
+      if (!files[key]) throw new Error('File not found: ' + path + ' (key: ' + key + ')');
       return files[key];
     }),
     writeFileSync: vi.fn((path: string, content: string) => {
       const key = normalizePath(path);
       const files = (globalThis as any)._fsFiles || {};
       files[key] = content;
-      console.log(`[mock writeFileSync] path: ${path} -> key: ${key} -> length: ${content.length}`);
     }),
     appendFileSync: vi.fn((path: string, content: string) => {
       const key = normalizePath(path);
       const files = (globalThis as any)._fsFiles || {};
       files[key] = (files[key] || '') + content;
-      console.log(`[mock appendFileSync] path: ${path} -> key: ${key}`);
     }),
     mkdirSync: vi.fn(() => {}),
     renameSync: vi.fn((oldPath: string, newPath: string) => {
@@ -72,7 +63,6 @@ vi.mock('fs', () => {
       if (files[oldKey] !== undefined) {
         files[newKey] = files[oldKey];
         delete files[oldKey];
-        console.log(`[mock renameSync] old: ${oldPath} (${oldKey}) -> new: ${newPath} (${newKey})`);
       }
     }),
     statSync: vi.fn((path: string) => {
@@ -85,7 +75,6 @@ vi.mock('fs', () => {
         birthtimeMs = Date.now() - 40 * 24 * 60 * 60 * 1000;
       }
 
-      console.log(`[mock statSync] path: ${path} -> key: ${key} -> size: ${content.length} -> age: ${Math.round((Date.now() - birthtimeMs) / (1000 * 60 * 60 * 24))} days`);
       return {
         size: content.length,
         birthtimeMs,
@@ -96,14 +85,54 @@ vi.mock('fs', () => {
     }),
     readdirSync: vi.fn((dir: string) => {
       const files = (globalThis as any)._fsFiles || {};
-      const list = Object.keys(files)
+      return Object.keys(files)
         .map((k) => k.split('/').pop() || '')
         .filter((name) => name.startsWith('learning-events'));
-      console.log(`[mock readdirSync] dir: ${dir} -> list: ${JSON.stringify(list)}`);
-      return list;
     }),
   };
 });
+
+vi.mock('fs/promises', () => ({
+  appendFile: vi.fn(async (path: string, content: string) => {
+    const key = normalizePath(path);
+    const files = (globalThis as any)._fsFiles || {};
+    files[key] = (files[key] || '') + content;
+  }),
+  writeFile: vi.fn(async (path: string, content: string) => {
+    const key = normalizePath(path);
+    const files = (globalThis as any)._fsFiles || {};
+    files[key] = content;
+  }),
+  stat: vi.fn(async (path: string) => {
+    const key = normalizePath(path);
+    const files = (globalThis as any)._fsFiles || {};
+    const content = files[key];
+    if (content === undefined) {
+      throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
+    }
+    let birthtimeMs = Date.now();
+    if (key.includes('archive-old')) {
+      birthtimeMs = Date.now() - 40 * 24 * 60 * 60 * 1000;
+    }
+    return {
+      size: content.length,
+      birthtimeMs,
+      birthtime: new Date(birthtimeMs),
+      mtimeMs: birthtimeMs,
+      mtime: new Date(birthtimeMs),
+    };
+  }),
+  rename: vi.fn(async (oldPath: string, newPath: string) => {
+    const oldKey = normalizePath(oldPath);
+    const newKey = normalizePath(newPath);
+    const files = (globalThis as any)._fsFiles || {};
+    if (files[oldKey] !== undefined) {
+      files[newKey] = files[oldKey];
+      delete files[oldKey];
+    }
+  }),
+  mkdir: vi.fn(async () => {}),
+}));
 
 // Import the service after mocking fs
 import { recordFeedback, generateCandidateRules } from '../../src/lib/learning/adaptive-engine';

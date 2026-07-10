@@ -5,6 +5,7 @@ import { RateLimiter } from '@/lib/rate-limiter';
 vi.mock('@/lib/db', () => ({
   db: {
     rateLimit: {
+      findMany: vi.fn().mockResolvedValue([]),
       upsert: vi.fn().mockResolvedValue({}),
     },
   },

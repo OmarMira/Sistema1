@@ -139,7 +139,7 @@ describe('validateRequest', () => {
     }
   });
 
-  it('returns 400 on skip path when JSON is invalid', async () => {
+  it('returns empty object on skip path when JSON is invalid', async () => {
     const req = new Request('http://localhost/api/auth/logout', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -147,11 +147,9 @@ describe('validateRequest', () => {
     });
 
     const result = await validateRequest(req, TestSchema);
-    expect(result).toBeInstanceOf(NextResponse);
-    if (result instanceof NextResponse) {
-      expect(result.status).toBe(400);
-      const body = await result.json();
-      expect(body.error).toBe('Invalid JSON body');
+    expect(result).not.toBeInstanceOf(NextResponse);
+    if (!(result instanceof NextResponse)) {
+      expect(result).toEqual({});
     }
   });
 

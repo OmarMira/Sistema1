@@ -49,8 +49,8 @@ export const GET = apiHandler(async (request: NextRequest) => {
 
       if (dates.length > 0) {
         const sortedDates = dates.sort((a, b) => a.getTime() - b.getTime());
-        minDate = sortedDates[0].toISOString().split('T')[0];
-        maxDate = sortedDates[sortedDates.length - 1].toISOString().split('T')[0];
+        minDate = sortedDates[0]!.toISOString().split('T')[0]!;
+        maxDate = sortedDates[sortedDates.length - 1]!.toISOString().split('T')[0]!;
       }
 
       return NextResponse.json({ minDate, maxDate });
@@ -177,7 +177,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
         // Add to recent movements
         recentMovements.push({
           id: entry.id,
-          date: entry.date.toISOString().split('T')[0],
+          date: entry.date.toISOString().split('T')[0] ?? '',
           description: entry.description,
           debit: line.debit,
           credit: line.credit,
@@ -305,7 +305,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
         // Add to recent movements
         recentMovements.push({
           id: tx.id + '-' + glAcct.id,
-          date: tx.date.toISOString().split('T')[0],
+          date: tx.date.toISOString().split('T')[0] ?? '',
           description: tx.description,
           debit: debit,
           credit: credit,

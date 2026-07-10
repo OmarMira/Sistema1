@@ -3,6 +3,15 @@ import { NextRequest } from 'next/server';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
 
+vi.mock('@/lib/ai-config', () => ({
+  getAiConfig: vi.fn().mockResolvedValue({
+    apiKey: 'test-key',
+    model: 'test-model',
+    baseUrl: 'https://api.test.openrouter.ai/v1',
+  }),
+  clearAiConfigCache: vi.fn(),
+}));
+
 // ─── Route handler under test ──────────────────────────────────
 import { POST } from '@/app/api/learning/suggest-role/route';
 
@@ -26,10 +35,13 @@ async function makeRequest(
 describe('POST /api/learning/suggest-role', () => {
   let token: string;
   let companyId: string;
+  let userId: string;
 
   beforeEach(async () => {
     await clearDatabase();
+    process.env.SESSION_SECRET = 'test-session-secret-for-suggest-role';
     const user = await createTestUser('suggest-role-test@example.com');
+    userId = user.id;
     const company = await createTestCompany('Suggest Role Co', 'BUSINESS', { autoRoleAssignment: true });
     companyId = company.id;
     await createTestCompanyMember(user.id, companyId);
@@ -38,6 +50,7 @@ describe('POST /api/learning/suggest-role', () => {
 
   afterEach(async () => {
     await clearDatabase();
+    delete process.env.SESSION_SECRET;
   });
 
   // ─── Validation tests (input/output mapping) ─────────────────
@@ -129,14 +142,14 @@ describe('POST /api/learning/suggest-role', () => {
       expect(body.confidence).toBe(0.85);
     });
 
-    it('rejects non-canonical role from AI with 502', async () => {
+    it('rejects OTRO role from AI with 502', async () => {
       const mockResponse = {
         choices: [{
           message: {
             content: JSON.stringify({
-              role: 'VENDEDOR_AMBULANTE',
+              role: 'OTRO',
               confidence: 0.7,
-              explanation: 'No es un rol canonical',
+              explanation: 'No es un rol válido',
             }),
           },
         }],
@@ -149,7 +162,7 @@ describe('POST /api/learning/suggest-role', () => {
       const res = await POST(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(502);
       const body = await res.json();
-      expect(body.error).toContain('invalid role');
+      expect(body.error).toContain('OTRO');
     });
 
     it('coerces string confidence to number', async () => {
@@ -215,6 +228,7 @@ describe('POST /api/learning/suggest-role', () => {
 
     it('autoRoleAssignment: false caps confidence at 0.69 and NO autoAssign signal', async () => {
       const company = await createTestCompany('AutoRole False Co', 'BUSINESS', { autoRoleAssignment: false });
+      await createTestCompanyMember(userId, company.id);
 
       const mockResponse = {
         choices: [{
@@ -241,6 +255,7 @@ describe('POST /api/learning/suggest-role', () => {
 
     it('autoRoleAssignment: true with high confidence returns uncapped + autoAssign: true', async () => {
       const company = await createTestCompany('AutoRole True High Co', 'BUSINESS', { autoRoleAssignment: true });
+      await createTestCompanyMember(userId, company.id);
 
       const mockResponse = {
         choices: [{
@@ -267,6 +282,7 @@ describe('POST /api/learning/suggest-role', () => {
 
     it('autoRoleAssignment: true with confidence < 0.9 returns uncapped but no autoAssign', async () => {
       const company = await createTestCompany('AutoRole True Low Co', 'BUSINESS', { autoRoleAssignment: true });
+      await createTestCompanyMember(userId, company.id);
 
       const mockResponse = {
         choices: [{

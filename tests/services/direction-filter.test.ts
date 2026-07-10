@@ -3,14 +3,14 @@ import { roleIsValidForDirection, DIRECTION_THRESHOLD } from '@/lib/services/dir
 
 describe('DIRECTION_THRESHOLD', () => {
   it('is set to 80', () => {
-    expect(DIRECTION_THRESHOLD).toBe(80);
+    expect(DIRECTION_THRESHOLD).toBe(0.8);
   });
 });
 
 describe('roleIsValidForDirection', () => {
-  // ── Pure credit profiles (creditPct >= 80) ──────────────────────
-  describe('with pure credit profile (creditPct=85, debitPct=10)', () => {
-    const creditProfile = { creditPct: 85, debitPct: 10 };
+  // ── Pure credit profiles (creditPct >= 0.8) ──────────────────────
+  describe('with pure credit profile (creditPct=0.85, debitPct=0.1)', () => {
+    const creditProfile = { creditPct: 0.85, debitPct: 0.1 };
 
     it('allows CLIENTE (expects credit)', () => {
       const result = roleIsValidForDirection('CLIENTE', creditProfile);
@@ -58,9 +58,9 @@ describe('roleIsValidForDirection', () => {
     });
   });
 
-  // ── Pure debit profiles (debitPct >= 80) ────────────────────────
-  describe('with pure debit profile (creditPct=10, debitPct=90)', () => {
-    const debitProfile = { creditPct: 10, debitPct: 90 };
+  // ── Pure debit profiles (debitPct >= 0.8) ────────────────────────
+  describe('with pure debit profile (creditPct=0.1, debitPct=0.9)', () => {
+    const debitProfile = { creditPct: 0.1, debitPct: 0.9 };
 
     it('allows PROVEEDOR (expects debit)', () => {
       const result = roleIsValidForDirection('PROVEEDOR', debitProfile);
@@ -107,8 +107,8 @@ describe('roleIsValidForDirection', () => {
   });
 
   // ── Ambas (mixed) profile ───────────────────────────────────────
-  describe('with mixed profile (creditPct=50, debitPct=50)', () => {
-    const mixedProfile = { creditPct: 50, debitPct: 50 };
+  describe('with mixed profile (creditPct=0.5, debitPct=0.5)', () => {
+    const mixedProfile = { creditPct: 0.5, debitPct: 0.5 };
 
     it('allows CLIENTE (expects credit)', () => {
       const result = roleIsValidForDirection('CLIENTE', mixedProfile);
@@ -133,8 +133,8 @@ describe('roleIsValidForDirection', () => {
 
   // ── Bypass roles (always pass regardless of profile) ────────────
   describe('bypass roles', () => {
-    const aggressiveCredit = { creditPct: 95, debitPct: 5 };
-    const aggressiveDebit = { creditPct: 5, debitPct: 95 };
+    const aggressiveCredit = { creditPct: 0.95, debitPct: 0.05 };
+    const aggressiveDebit = { creditPct: 0.05, debitPct: 0.95 };
 
     it('allows SOCIO with pure credit', () => {
       expect(roleIsValidForDirection('SOCIO', aggressiveCredit)).toEqual({ valid: true });
@@ -145,7 +145,7 @@ describe('roleIsValidForDirection', () => {
     });
 
     it('allows SOCIO with ambas', () => {
-      expect(roleIsValidForDirection('SOCIO', { creditPct: 50, debitPct: 50 })).toEqual({ valid: true });
+      expect(roleIsValidForDirection('SOCIO', { creditPct: 0.5, debitPct: 0.5 })).toEqual({ valid: true });
     });
 
     it('allows OTRO with pure credit', () => {
@@ -165,29 +165,29 @@ describe('roleIsValidForDirection', () => {
     });
   });
 
-  // ── Threshold boundary test (79% vs 80%) ────────────────────────
-  describe('threshold boundary at 80%', () => {
+  // ── Threshold boundary test (0.79 vs 0.80) ────────────────────────
+  describe('threshold boundary at 0.8', () => {
     it('treats 79% credit as ambas (not pure credit)', () => {
-      const result = roleIsValidForDirection('PROVEEDOR', { creditPct: 79, debitPct: 21 });
+      const result = roleIsValidForDirection('PROVEEDOR', { creditPct: 0.79, debitPct: 0.21 });
       // At 79% it's "ambas" — PROVEEDOR (debit) should be allowed
       expect(result).toEqual({ valid: true });
     });
 
     it('treats 80% credit as pure credit', () => {
-      const result = roleIsValidForDirection('PROVEEDOR', { creditPct: 80, debitPct: 20 });
+      const result = roleIsValidForDirection('PROVEEDOR', { creditPct: 0.80, debitPct: 0.20 });
       // At 80% it's pure credit — PROVEEDOR (debit) should be rejected
       expect(result).toMatchObject({ valid: false });
       expect(result.reason).toBeTruthy();
     });
 
     it('treats 79% debit as ambas (not pure debit)', () => {
-      const result = roleIsValidForDirection('CLIENTE', { creditPct: 21, debitPct: 79 });
+      const result = roleIsValidForDirection('CLIENTE', { creditPct: 0.21, debitPct: 0.79 });
       // At 79% it's "ambas" — CLIENTE (credit) should be allowed
       expect(result).toEqual({ valid: true });
     });
 
     it('treats 80% debit as pure debit', () => {
-      const result = roleIsValidForDirection('CLIENTE', { creditPct: 20, debitPct: 80 });
+      const result = roleIsValidForDirection('CLIENTE', { creditPct: 0.20, debitPct: 0.80 });
       // At 80% it's pure debit — CLIENTE (credit) should be rejected
       expect(result).toMatchObject({ valid: false });
       expect(result.reason).toBeTruthy();

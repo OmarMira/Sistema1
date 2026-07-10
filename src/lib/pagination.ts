@@ -45,7 +45,7 @@ export function cursorPaginatedResponse<T>(items: T[], limit: number): CursorRes
   }
   return {
     data: items,
-    nextCursor: hasMore ? items[items.length - 1]['id' as keyof T] as string : null,
+    nextCursor: hasMore ? items[items.length - 1]!['id' as keyof T] as string : null,
     hasMore,
   };
 }

@@ -521,8 +521,8 @@ function parseSuggestion(content: string): { role: string; confidence: number; e
 
   if (roleMatch && confidenceMatch) {
     return {
-      role: roleMatch[1].toUpperCase().trim(),
-      confidence: parseFloat(confidenceMatch[1]),
+      role: roleMatch[1]!.toUpperCase().trim(),
+      confidence: parseFloat(confidenceMatch[1]!),
       explanation: explanationMatch?.[1] ?? '',
     };
   }

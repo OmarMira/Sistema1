@@ -98,7 +98,7 @@ export function resolveContextRole(
   }
 
   if (matchingContexts.length === 0) return null;
-  if (matchingContexts.length === 1) return matchingContexts[0];
+  if (matchingContexts.length === 1) return matchingContexts[0] ?? null;
 
   // Multiple matches: sort by role priority (lower number = higher priority)
   const priorities = input.rolePriorities ?? {};
@@ -106,7 +106,7 @@ export function resolveContextRole(
     const prioA = priorities[a.role.toUpperCase()] ?? 99;
     const prioB = priorities[b.role.toUpperCase()] ?? 99;
     return prioA - prioB;
-  })[0];
+  })[0] ?? null;
 }
 
 // ========== T5b: SUGGEST GL ACCOUNT ==========

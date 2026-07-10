@@ -15,7 +15,7 @@ export const ACCOUNT_TYPE_META: Record<string, AccountTypeMeta> = {
 export const ACCOUNT_TYPES = Object.keys(ACCOUNT_TYPE_META);
 
 export const GAAP_TYPE_ORDER = ACCOUNT_TYPES.sort(
-  (a, b) => ACCOUNT_TYPE_META[a].order - ACCOUNT_TYPE_META[b].order,
+  (a, b) => ACCOUNT_TYPE_META[a]!.order - ACCOUNT_TYPE_META[b]!.order,
 );
 
 export function isValidAccountType(type: string): boolean {

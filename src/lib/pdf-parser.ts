@@ -504,7 +504,7 @@ function extractMetadataWithProfile(fullText: string, profile: BankProfileTyped)
   for (const rule of meta.accountNumber || []) {
     const match = fullText.match(new RegExp(rule.regex, 'i'));
     if (match && match[rule.captureGroup]) {
-      accountNo = match[rule.captureGroup].trim().replace(/\s+/g, ' ');
+      accountNo = match[rule.captureGroup]!.trim().replace(/\s+/g, ' ');
       break;
     }
   }
@@ -513,7 +513,7 @@ function extractMetadataWithProfile(fullText: string, profile: BankProfileTyped)
     const match = fullText.match(new RegExp(rule.regex, 'i'));
     if (match && match[rule.captureGroup]) {
       openingBalance = parseAmountWithProfileFormat(
-        match[rule.captureGroup].trim(),
+        match[rule.captureGroup]!.trim(),
         profile.config.numberFormat,
       );
       break;
@@ -524,7 +524,7 @@ function extractMetadataWithProfile(fullText: string, profile: BankProfileTyped)
     const match = fullText.match(new RegExp(rule.regex, 'i'));
     if (match && match[rule.captureGroup]) {
       closingBalance = parseAmountWithProfileFormat(
-        match[rule.captureGroup].trim(),
+        match[rule.captureGroup]!.trim(),
         profile.config.numberFormat,
       );
       break;
@@ -662,14 +662,14 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
 
     for (const item of items) {
       if (!item.str || item.str.trim() === '') continue;
-      const y = Math.round(item.transform[5] * 2) / 2;
+      const y = Math.round(item.transform[5]! * 2) / 2;
       if (!linesMap.has(y)) {
         linesMap.set(y, []);
       }
       linesMap.get(y)!.push({
         text: item.str,
-        x: item.transform[4],
-        y: item.transform[5],
+        x: item.transform[4]!,
+        y: item.transform[5]!,
         width: item.width || 0,
         height: item.height || 0,
       });
@@ -708,8 +708,8 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
   const rangeMatch = fullText.match(rangeRegex);
 
   if (rangeMatch) {
-    const s = parseDateString(rangeMatch[1]);
-    const e = parseDateString(rangeMatch[2]);
+    const s = parseDateString(rangeMatch[1]!);
+    const e = parseDateString(rangeMatch[2]!);
     if (s) startDate = s;
     if (e) endDate = e;
   } else {
@@ -721,11 +721,11 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
       /(?:Ending|Closing|New|Saldo final)\s+balance\s+on\s+([A-Za-z]+\s+\d{1,2},?\s+\d{4}|\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})/i,
     );
     if (startBalMatch) {
-      const s = parseDateString(startBalMatch[1]);
+      const s = parseDateString(startBalMatch[1]!);
       if (s) startDate = s;
     }
     if (endBalMatch) {
-      const e = parseDateString(endBalMatch[1]);
+      const e = parseDateString(endBalMatch[1]!);
       if (e) endDate = e;
     }
   }
@@ -912,7 +912,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
       /(?:Account Holder|Account statement for|Name|Client|Titular|Customer Name|Customer\b(?! Service| Support| Info| Phone)|Para|Titular de la cuenta):\s*([^\n\r]+)/i,
     );
     if (holderMatch) {
-      const val = holderMatch[1].trim();
+      const val = holderMatch[1]!.trim();
       if (!isAddressLine(val) && !isHeaderOrServiceLine(val)) {
         accountHolder = val;
       }
@@ -926,7 +926,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
       const searchEnd = summaryIdx > 0 ? summaryIdx : Math.min(20, lines.length);
 
       for (let i = searchStart; i < searchEnd && !accountHolder; i++) {
-        const line = lines[i].trim();
+        const line = lines[i]!.trim();
         if (!line) continue;
         if (isAddressLine(line)) continue;
         if (isHeaderOrServiceLine(line)) continue;
@@ -991,11 +991,11 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
 
 // ========== HELPER PARSERS ==========
 function parseDateString(val: string): Date | null {
-  const dateStr = val.split(/[T\s]/)[0].trim();
+  const dateStr = val.split(/[T\s]/)[0]!.trim();
 
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(dateStr)) {
     const parts = dateStr.split('-').map(Number);
-    return new Date(parts[0], parts[1] - 1, parts[2]);
+    return new Date(parts[0]!, parts[1]! - 1, parts[2]!);
   }
 
   const slashMatch = dateStr.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
@@ -1028,7 +1028,7 @@ function parseDateString(val: string): Date | null {
   ];
   const textMatch = dateStr.match(/^([a-zA-Z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
   if (textMatch) {
-    const monthIdx = monthNames.indexOf(textMatch[1].toLowerCase().slice(0, 3));
+    const monthIdx = monthNames.indexOf(textMatch[1]!.toLowerCase().slice(0, 3));
     if (monthIdx !== -1) {
       return new Date(Number(textMatch[3]), monthIdx, Number(textMatch[2]));
     }
@@ -1036,7 +1036,7 @@ function parseDateString(val: string): Date | null {
 
   const reverseTextMatch = dateStr.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
   if (reverseTextMatch) {
-    const monthIdx = monthNames.indexOf(reverseTextMatch[2].toLowerCase().slice(0, 3));
+    const monthIdx = monthNames.indexOf(reverseTextMatch[2]!.toLowerCase().slice(0, 3));
     if (monthIdx !== -1) {
       return new Date(Number(reverseTextMatch[3]), monthIdx, Number(reverseTextMatch[1]));
     }

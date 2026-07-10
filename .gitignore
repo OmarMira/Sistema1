@@ -52,3 +52,24 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# AI tool configs
+.codeium/
+.codex/
+.config/
+.copilot/
+.cursor/
+.gemini/
+.hermes/
+.kimi/
+.kiro/
+.openclaw/
+.pi/
+.qwen/
+.trae/
+.windsurf/
+
+# Backups
+db/backups/
+*.sql
+test-restore.js

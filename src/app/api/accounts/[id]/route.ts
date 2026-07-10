@@ -11,7 +11,7 @@ export const GET = apiHandler(
   async (_request: NextRequest, context: RouteContext) => {
     const { userId, companyId } = requireCompanyContext();
 
-    const { id } = await context.params;
+    const { id } = await context.params as { id: string };
 
     const account = await db.glAccount.findFirst({
       where: { id, companyId },
@@ -50,7 +50,7 @@ export const PUT = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { userId, companyId } = requireCompanyContext();
 
-    const { id } = await context.params;
+    const { id } = await context.params as { id: string };
     const body = await request.json();
     const { name, isActive, code, accountType, normalBalance, parentId } = body;
 
@@ -184,7 +184,7 @@ export const DELETE = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { userId, companyId } = requireCompanyContext();
 
-    const { id } = await context.params;
+    const { id } = await context.params as { id: string };
     const account = await db.glAccount.findFirst({
       where: { id, companyId },
       include: {

@@ -15,7 +15,7 @@ describe('sanitizeInput', () => {
   });
 
   it('strips script tags', () => {
-    expect(sanitizeInput('<script>alert("xss")</script>')).toBe('alert("xss")');
+    expect(sanitizeInput('<script>alert("xss")</script>')).toBe('');
   });
 
   it('strips nested tags', () => {

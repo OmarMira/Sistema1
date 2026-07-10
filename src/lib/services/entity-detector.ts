@@ -384,7 +384,7 @@ function buildCandidatesFromMap(
     if (cluster.count < minOccurrences) continue;
 
     const nameCounts: Record<string, number> = {};
-    let canonicalName = cluster.names[0];
+    let canonicalName = cluster.names[0]!;
     let maxCount = 0;
     for (const name of cluster.names) {
       nameCounts[name] = (nameCounts[name] || 0) + 1;

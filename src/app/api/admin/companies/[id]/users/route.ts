@@ -5,7 +5,7 @@ import { requireCurrentUserId } from '@/lib/context-storage';
 export const GET = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
 
-    const { id: companyId } = await context.params;
+    const { id: companyId } = await context.params as { id: string };
 
     // Get current members of company
     const members = await db.companyMember.findMany({
@@ -45,7 +45,7 @@ export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const userId = requireCurrentUserId();
 
-    const { id: companyId } = await context.params;
+    const { id: companyId } = await context.params as { id: string };
     const body = await request.json();
     const { userId: targetUserId, role = 'company_admin' } = body;
 
@@ -95,7 +95,7 @@ export const POST = apiHandler(
         action: 'assign_user_company',
         entity: 'CompanyMember',
         entityId: member.id,
-        details: `Assigned user ${member.user.email} to company`,
+        details: `Assigned user ${(member as any).user.email} to company`,
       },
     });
 

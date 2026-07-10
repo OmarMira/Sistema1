@@ -76,16 +76,16 @@ export async function aggregateAccountingFlow(
       let primaryOffset = { code: '9999', name: 'Contrapartida Múltiple' };
       if (offsetLines.length === 1) {
         primaryOffset = {
-          code: offsetLines[0].glAccount.code,
-          name: offsetLines[0].glAccount.name,
+          code: offsetLines[0]!.glAccount.code,
+          name: offsetLines[0]!.glAccount.name,
         };
       } else if (offsetLines.length > 1) {
         const sortedOffset = [...offsetLines].sort(
           (a, b) => Math.max(b.debit, b.credit) - Math.max(a.debit, a.credit),
         );
         primaryOffset = {
-          code: sortedOffset[0].glAccount.code,
-          name: sortedOffset[0].glAccount.name,
+          code: sortedOffset[0]!.glAccount.code,
+          name: sortedOffset[0]!.glAccount.name,
         };
       }
 

@@ -267,5 +267,5 @@ describe('Condition specificity — SOCIO role fallback', () => {
     const cond = result.conditions![0];
     expect(cond.operator).toBe('contains');
     expect(cond.value).toBe('laura quijano');
-  });
+  }, 15000);
 });

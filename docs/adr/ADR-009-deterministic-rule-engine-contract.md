@@ -128,7 +128,7 @@ Draft → Testing → Active → Deprecated → Archived
 | **Draft** | No | No | Sí |
 | **Testing** | No | Sí (simulación, resultados visibles) | Sí |
 | **Active** | Sí | Sí | No |
-| **Deprecated** | No | Sí (solo read, alerta) | No |
+| **Deprecated** | No | No | No |
 | **Archived** | No | No | No |
 
 Reglas:
@@ -136,10 +136,28 @@ Reglas:
 - Una regla **Draft** nunca participa en el pipeline de evaluación real
 - Una regla **Testing** se evalúa pero no autoaplica — permite ver qué pasaría sin riesgo
 - Una regla **Active** participa y autoaplica si cumple los umbrales
-- Una regla **Deprecated** aún aparece en candidateList (read) pero no puede ganar ni autoaplicar
+- Una regla **Deprecated** se excluye del pipeline de decisión. Solo se mantiene para consulta histórica y auditoría
 - Una regla **Archived** se excluye completamente del pipeline
 
 **Open question:** ¿transición automática de Testing a Active tras N días sin falsos positivos?
+
+---
+
+## Candidate Type
+
+Cada regla que sobrevive al pipeline de evaluación produce exactamente un `Candidate`:
+
+```
+Candidate {
+  ruleId: string
+  specificity: number        // suma ponderada de pesos de condiciones matcheadas
+  matchQuality: number       // aggregate(conditionScores), 0..1
+  conditionScores: number[]  // un score (0..1) por condición de la regla
+  priority: number           // prioridad definida por el usuario en BankRule
+}
+```
+
+El motor opera sobre `Candidate[]`. Ninguna etapa del ranking modifica la lista original.
 
 ---
 
@@ -325,6 +343,22 @@ Esto permite auditar no solo qué ganó, sino **contra qué compitió**.
 - Si no hay reglas y no hay IA, la transacción queda `pending` — nunca se pierde
 - El motor nunca evalúa reglas inactivas
 - La IA nunca modifica el estado interno del motor
+
+---
+
+## Determinism Guarantee
+
+El Rule Engine **no puede depender** de:
+
+- Hora del sistema
+- Aleatoriedad
+- IA
+- Orden de lectura de la base de datos
+- Concurrencia (race conditions)
+
+Con las mismas entradas (`BankTransaction` + `BankRule[]` + configuración) y el mismo estado del motor, el resultado debe ser **idéntico en cada ejecución**, sin importar el contexto de ejecución.
+
+Esta es la propiedad fundamental del motor. Cualquier cambio que la vulnere es un bug.
 
 ---
 

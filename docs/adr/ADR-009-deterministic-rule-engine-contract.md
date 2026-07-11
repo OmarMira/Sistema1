@@ -1,6 +1,6 @@
 # ADR-009: Deterministic Rule Engine Contract
 
-**Status:** Proposed
+**Status:** Accepted
 
 ---
 

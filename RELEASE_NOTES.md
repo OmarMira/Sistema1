@@ -16,7 +16,8 @@
 - 157 → 0 test failures across 30+ files
 - Root causes: mock setup (43%), assertion mismatch (39%), missing exports (14%), integration (7%)
 - `validateBackup` regression fixed (comment said systemConfig optional, code invalidated without it)
-- 1010 tests passing, 1 skipped, 0 failed
+- 1014 tests passing, 0 skipped, 0 failed
+- Removed obsolete legacy test: `pdf-parser-fail-graceful.test.ts` → "multi-column checks" (fixture was single-column, no supported bank requires this behavior)
 - 33 production changes: TypeScript null-safety refactors
 - 1 production change: validateBackup regression fix
 

@@ -5,6 +5,44 @@
 
 ---
 
+## Sprint 0: Compatibility & Baseline
+
+Auditar el estado actual antes de tocar código.
+
+### Tasks
+
+- Auditar modelo `BankRule` en Prisma: `conditions` actuales, `isActive`, `priority`
+- Mapear reglas legacy al nuevo contrato (`condition` types, estados lifecycle)
+- Definir feature flag `RULE_ENGINE_V2_ENABLED` (env var + default `false`)
+- Definir `engineVersion` string format (ej. `"2.0.0"`)
+- Confirmar si se necesita migración de DB (nuevos campos: `status`, etc.)
+- Capturar casos reales de referencia para fixtures de test
+
+### Files to create
+
+| File | Purpose |
+|---|---|
+| `src/lib/rule-engine/flag.ts` | `isRuleEngineV2Enabled(): boolean` |
+| `src/lib/rule-engine/compat.ts` | Mapeo de reglas legacy al nuevo modelo |
+
+### Feature flag
+
+```
+RULE_ENGINE_V2_ENABLED=false (default)
+  → sistema actual (sin cambios)
+
+RULE_ENGINE_V2_ENABLED=true
+  → nuevo motor activo
+```
+
+Comportamiento: el flag se lee una vez al arrancar. Requiere restart para cambiar. Tests deben verificar ambos caminos.
+
+### Deliverable
+
+Inventario de compatibilidad completo + feature flag operativo + fixtures reales listos.
+
+---
+
 ## Sprint 1: Empty Deterministic Pipeline
 
 Construir la estructura del motor sin lógica de ranking.
@@ -22,7 +60,7 @@ Construir la estructura del motor sin lógica de ranking.
 
 | File | Change |
 |---|---|
-| `src/lib/rule-engine/index.ts` | Public API entry point |
+| `src/lib/rule-engine/index.ts` | Public API entry point, gated by feature flag |
 
 ### Acceptance (from ADR-009)
 
@@ -32,7 +70,7 @@ Construir la estructura del motor sin lógica de ranking.
 
 ### Deliverable
 
-Pipeline que acepta input, filtra reglas activas, evalúa condiciones, descarta inválidas, y produce `Candidate[]`. Sin ranking todavía.
+Pipeline que acepta input, filtra reglas activas (según lifecycle), evalúa condiciones, descarta inválidas, y produce `Candidate[]`. Sin ranking todavía.
 
 ---
 
@@ -48,6 +86,10 @@ Pipeline que acepta input, filtra reglas activas, evalúa condiciones, descarta 
 | `tests/rule-engine/specificity.test.ts` | Specificity tests |
 | `tests/rule-engine/match-quality.test.ts` | Match quality tests |
 | `tests/rule-engine/ranking.test.ts` | Ranking + ambiguity tests |
+
+### Aggregate & DELTA definition
+
+`aggregate()` y `DELTA` se definen al inicio del sprint **mediante casos reales y tests comparativos**, no por intuición. Posibles candidatos para aggregate: min, weighted average, product. Se elige el que mejor se comporte con los fixtures reales.
 
 ### Acceptance (from ADR-009)
 
@@ -70,7 +112,7 @@ Ranking completo: specificity score → match quality → sort → priority → 
 
 | File | Change |
 |---|---|
-| `src/lib/services/import.service.ts` | Replace inline classification with Rule Engine call |
+| `src/lib/services/import.service.ts` | Replace inline classification with Rule Engine call (gated by flag) |
 | `src/lib/bank-profiles/*.ts` | Ensure bank profiles pass correct data to engine |
 
 ### Files to create
@@ -81,14 +123,14 @@ Ranking completo: specificity score → match quality → sort → priority → 
 
 ### Acceptance
 
-- A importar un extracto, las transacciones pasan por el Rule Engine
+- A importar un extracto, las transacciones pasan por el Rule Engine (si flag activo)
 - Reglas activas se aplican automáticamente
 - Reglas en Testing se evalúan pero no autoaplican
-- `AuditLog` contiene candidateList completa
+- Con flag `false`, el sistema se comporta exactamente como antes
 
 ### Deliverable
 
-Rule Engine reemplaza la clasificación inline actual. El sistema importa y clasifica usando el nuevo motor.
+Rule Engine reemplaza la clasificación inline actual cuando el flag está activo. Convivencia segura con el sistema legacy.
 
 ---
 
@@ -152,21 +194,11 @@ IA conectada como fallback exclusivo, sin capacidad de influir en el motor deter
 
 ## Migration Strategy
 
-No hay breaking changes. El motor actual se reemplaza progresivamente:
+No hay breaking changes en el pipeline de datos. El motor actual se reemplaza progresivamente:
 
-1. Sprint 1–2: motor nuevo en paralelo, sin integrar
-2. Sprint 3: reemplazar clasificación inline con nuevo motor
-3. Sprint 4–5: auditoría y AI encima del motor nuevo
+1. Sprint 0: feature flag + compatibilidad auditada
+2. Sprint 1–2: motor nuevo en paralelo, detrás del flag
+3. Sprint 3: reemplazar clasificación inline (flag=true)
+4. Sprint 4–5: auditoría y AI encima del motor nuevo
 
-En cualquier punto se puede revertir al comportamiento anterior desactivando el flag de feature.
-
----
-
-## Open implementation questions
-
-| Question | Resolved by |
-|---|---|
-| `DELTA` valor inicial | Definir en Sprint 2 con caso real |
-| `aggregate()` fórmula inicial | Empezar con `min` en Sprint 2, ajustar con datos |
-| Testing → Active transición | Manual en v1.0, automática en v2.1 |
-| engineVersion string | `"2.0.0"` para primera release |
+En cualquier punto se puede revertir al comportamiento anterior cambiando `RULE_ENGINE_V2_ENABLED=false`.

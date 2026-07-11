@@ -6,48 +6,16 @@
 
 ## Pipeline
 
-```
-PDF / OFX / CSV
-   │
-   ▼
-Parser (bank-specific profile)
-   │  pdfjs-dist para PDF
-   │  OFX parser para OFX
-   │  CSV parser para CSV
-   │
-   ▼
-Normalization
-   │  Estandariza fechas (→ ISO)
-   │  Estandariza montos (→ number)
-   │  Limpia descripciones
-   │  Identifica header/balances
-   │
-   ▼
-Entity Detection
-   │  Busca coincidencias en EntityContext
-   │  Detecta proveedores, clientes, conceptos
-   │  Sin estado mutable (determinista)
-   │
-   ▼
-Rule Engine
-   │  BankRules por empresa
-   │  Match por descripción, monto, entidad
-   │  Orden: condiciones exactas → patrones → AI
-   │
-   ▼ (si no hay regla)
-AI Classification
-   │  Solo probabilistico cuando no hay evidencia
-   │  Propone categoría + entidad
-   │
-   ▼
-Journal Entry Generation
-   │  Crea asientos contables
-   │  Débito/Crédito según tipo de transacción
-   │
-   ▼
-Reconciliation
-   │  Matching contra saldo bancario
-   │  Soporta ajustes y des-reconciliación
+```mermaid
+flowchart TD
+    A[PDF / OFX / CSV] --> B[Parser<br/>bank-specific profile]
+    B --> C[Normalization<br/>fechas, montos, descripciones]
+    C --> D[Entity Detection<br/>proveedor, cliente, concepto]
+    D --> E{Rule Engine}
+    E -->|match found| F[Journal Entry<br/>Generation]
+    E -->|no match| G[AI Classification]
+    G --> F
+    F --> H[Reconciliation]
 ```
 
 ---

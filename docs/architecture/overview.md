@@ -49,6 +49,26 @@
 
 ---
 
+## Entity relationship diagram
+
+```mermaid
+erDiagram
+    Company ||--o{ CompanyMember : has
+    Company ||--o{ FiscalPeriod : has
+    Company ||--o{ GlAccount : has
+    Company ||--o{ BankRule : configures
+    Company ||--o{ AuditLog : generates
+    GlAccount ||--o{ BankAccount : categorizes
+    BankAccount ||--o{ BankStatement : receives
+    BankStatement ||--o{ BankTransaction : contains
+    BankTransaction ||--o{ EntityContext : detected-as
+    BankTransaction }o--o{ BankRule : matched-by
+    BankTransaction }o--o{ JournalEntry : reconciled-in
+    JournalEntry ||--o{ JournalLine : consists-of
+    ReconciliationPeriod ||--o{ JournalEntry : contains
+    Company ||--o{ ReconciliationPeriod : has
+```
+
 ## Domain entity model
 
 ```
@@ -76,10 +96,17 @@ Company
 
 ## Domain data flow
 
-```
-Company → Fiscal Period → Bank Account → Bank Statement
-    → Bank Transactions → Entity Detection → Bank Rules
-    → Journal Entries → General Ledger → Reports
+```mermaid
+flowchart LR
+    C[Company] --> FP[Fiscal Period]
+    C --> BA[Bank Account]
+    BA --> BS[Bank Statement]
+    BS --> BT[Bank Transactions]
+    BT --> ED[Entity Detection]
+    BT --> BR[Bank Rules]
+    BR --> JE[Journal Entries]
+    JE --> GL[General Ledger]
+    GL --> R[Reports]
 ```
 
 ---

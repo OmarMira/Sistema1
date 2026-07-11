@@ -2,6 +2,8 @@
 
 CRM contable y conciliación bancaria para empresas US. Importa extractos bancarios, clasifica transacciones con reglas deterministas e IA, y gestiona el ciclo contable completo.
 
+**Documentation:** v0.9.0 (2026-07)
+
 ---
 
 ## Why AccountExpress?
@@ -81,6 +83,9 @@ La IA **no contabiliza**. Solo propone cuando el motor determinista no tiene evi
 | Nuevo desarrollador | `docs/getting-started/new-developer.md` |
 | ADRs | `docs/adr/` |
 | Principios de ingeniería | `docs/process/engineering-principles.md` |
+| Glosario | `docs/glossary.md` |
+| Invariantes del sistema | `docs/invariants.md` |
+| Reglas de negocio | `docs/business-rules.md` |
 | v0.9.0 release | `docs/releases/v0.9.0.md` |
 
 ### Orden de lectura sugerido

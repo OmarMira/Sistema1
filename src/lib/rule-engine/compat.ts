@@ -1,91 +1,59 @@
-import type { BankRule as PrismaBankRule } from '@prisma/client';
-import type { BankRule, RuleCondition, RuleConditionType, RuleLifecycleStatus } from './types';
+// Sprint 0 — Compatibility Audit
+//
+// This file is an INVENTORY, not an implementation.
+// It documents the gap between legacy BankRule and ADR-009 contract.
+// No translation logic or default mappings here — findings only.
+// Each gap must be resolved before compat.ts becomes an active adapter.
 
-const LEGACY_TO_NEW_TYPE: Record<string, RuleConditionType> = {
-  contains: 'description_contains',
-  equals: 'amount_eq',
-  starts_with: 'description_matches',
-  ends_with: 'description_matches',
-  amount_greater: 'amount_lt',
-  amount_less: 'amount_lt',
-};
+/**
+ * Legacy BankRule fields (prisma/schema.prisma:245)
+ *
+ * conditionType: string        // "contains" | "equals" | "starts_with" | "ends_with" | "amount_greater" | "amount_less"
+ * conditionValue: string       // free text or numeric string
+ * conditions: Json?            // array of { field, operator, value } — partial V2 migration
+ * isActive: boolean
+ * priority: Int (default 10)
+ */
 
-const ENGINE_VERSION = '2.0.0';
+/**
+ * ADR-009 condition types
+ *
+ * entity_eq | amount_eq | description_matches (regex) | description_contains
+ * | amount_range | amount_lt | date_before | date_after
+ *
+ * GAPS:
+ * - legacy "equals"         → no direct match in ADR-009 (closest: amount_eq for amounts, but equals on description is unmapped)
+ * - legacy "starts_with"    → no direct match (could be regex ^pattern via description_matches — needs approval)
+ * - legacy "ends_with"      → same as starts_with
+ * - legacy "amount_greater" → no direct match (amount_lt is "less than", not "greater than")
+ * - legacy "amount_less"    → closest: amount_lt but semantics differ (legacy uses abs values)
+ * - ADR-009 entity_eq       → no legacy equivalent (new capability)
+ * - ADR-009 amount_range    → no legacy equivalent
+ * - ADR-009 date_before/after → no legacy equivalent
+ */
 
-function legacyConditionTypeToNew(legacyType: string): RuleConditionType {
-  return LEGACY_TO_NEW_TYPE[legacyType] ?? 'description_contains';
-}
-
-function mapLifecycleStatus(isActive: boolean): RuleLifecycleStatus {
-  return isActive ? 'active' : 'deprecated';
-}
-
-function buildCondition(
-  legacyType: string,
-  legacyValue: string | number | null,
-): RuleCondition | null {
-  if (legacyValue === null || legacyValue === undefined) return null;
-
-  const type = legacyConditionTypeToNew(legacyType);
-
-  if (type === 'amount_range') {
-    return { type, value: legacyValue };
-  }
-
-  if (type === 'description_matches') {
-    const escaped = String(legacyValue).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const pattern =
-      legacyType === 'starts_with'
-        ? `^${escaped}`
-        : legacyType === 'ends_with'
-          ? `${escaped}$`
-          : escaped;
-    return { type, value: pattern };
-  }
-
-  return { type, value: legacyValue };
-}
-
-export function adaptLegacyRule(prismaRule: PrismaBankRule): BankRule {
-  const conditions: RuleCondition[] = [];
-
-  if (Array.isArray(prismaRule.conditions) && prismaRule.conditions.length > 0) {
-    for (const c of prismaRule.conditions as Record<string, unknown>[]) {
-      const cond = buildCondition(
-        String(c.operator ?? c.type ?? 'contains'),
-        (c.value as string | number) ?? null,
-      );
-      if (cond) conditions.push(cond);
-    }
-  } else if (prismaRule.conditionType && prismaRule.conditionValue !== null) {
-    const cond = buildCondition(prismaRule.conditionType, prismaRule.conditionValue);
-    if (cond) conditions.push(cond);
-  }
-
-  return {
-    id: prismaRule.id,
-    companyId: prismaRule.companyId,
-    priority: prismaRule.priority,
-    conditions,
-    action: {
-      glAccountId: prismaRule.glAccountId ?? prismaRule.debitGlAccountId ?? undefined,
-      entityId: prismaRule.entityContextId ?? undefined,
-    },
-    isActive: prismaRule.isActive,
-    lifecycleStatus: mapLifecycleStatus(prismaRule.isActive),
-  };
-}
-
-export function getEngineVersion(): string {
-  return ENGINE_VERSION;
-}
-
-export const COMPAT_NOTES = {
-  UNMAPPED_CONDITIONS: ['amount_greater', 'amount_less'] as const,
-  UNMAPPED_NOTE:
-    'amount_greater/amount_less map to amount_lt (less than) in the new model. Direction semantics differ: legacy uses absolute values, new engine uses raw amount. Validate with real data.',
-  LIFECYCLE_NOTE:
-    'Legacy has only isActive boolean. All isActive=true map to "active", isActive=false map to "deprecated". No draft/testing/archived states exist in legacy data.',
-  PRIORITY_NOTE:
-    'Legacy priority defaults to 10. New engine uses priority only as tie-break after specificity and match quality. Legacy rules with all equal priority will behave as priority=10.',
+export const COMPAT_INVENTORY = {
+  conditionTypes: {
+    // legacy → new engine
+    contains: { mapsTo: 'description_contains', confidence: 'high' },
+    equals: { mapsTo: null, confidence: 'none', note: 'No ADR-009 equivalent for description equality' },
+    starts_with: { mapsTo: null, confidence: 'none', note: 'Candidate: regex ^pattern via description_matches. Needs ADR amendment.' },
+    ends_with: { mapsTo: null, confidence: 'none', note: 'Candidate: regex pattern$ via description_matches. Needs ADR amendment.' },
+    amount_greater: { mapsTo: null, confidence: 'none', note: 'No ADR-009 equivalent. Legacy uses absolute values.' },
+    amount_less: { mapsTo: null, confidence: 'none', note: 'No exact match. amount_lt needs validation with real data.' },
+  },
+  lifecycle: {
+    // legacy isActive → ADR-009 lifecycle mapping
+    isActive_true: { mapsTo: 'active (tentative)', confidence: 'medium', note: 'Could also be testing if rule was recently created' },
+    isActive_false: { mapsTo: null, confidence: 'none', note: 'Could be deprecated, archived, or disabled. No data to distinguish.' },
+  },
+  priority: {
+    note: 'Legacy default=10. ADR-009 uses priority as tie-break only (after specificity + match quality). Semantic change — existing rules with equal priority will behave differently.',
+  },
+  pendingDecisions: [
+    'Add description_matches (regex) to ADR-009 with starts_with/ends_with support?',
+    'Add amount_gt or amount_range for amount_greater legacy rules?',
+    'Define lifecycle mapping for isActive=false → which ADR-009 state?',
+    'Define engineVersion format and where it lives (only after v2 engine exists).',
+  ] as string[],
 } as const;

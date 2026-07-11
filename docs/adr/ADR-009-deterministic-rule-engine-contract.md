@@ -85,8 +85,9 @@ EvaluatedCondition {
 BankRule {
   id: string
   companyId: string
-  priority: number           // menor = mayor prioridad. Solo desempata entre
-                             // reglas del mismo nivel de especificidad técnica.
+  priority: number           // menor = mayor prioridad. Solo se evalúa después
+                             // de specificity y matchQuality. Si ambas son
+                             // iguales, priority determina el ganador.
   conditions: Condition[]    // AND lógico entre condiciones
   action: {
     category: string
@@ -111,6 +112,34 @@ BankRule {
 | `date_after` | Fecha desde | `2026-01-01` |
 
 **Open question:** ¿soporte para NOT conditions? ¿soporte para OR entre grupos de condiciones?
+
+---
+
+## Rule Lifecycle
+
+Toda regla atraviesa estos estados. Cada estado determina cómo participa en el pipeline.
+
+```
+Draft → Testing → Active → Deprecated → Archived
+```
+
+| Estado | Auto-aplica | Participa en pipeline | Editable |
+|---|---|---|---|
+| **Draft** | No | No | Sí |
+| **Testing** | No | Sí (simulación, resultados visibles) | Sí |
+| **Active** | Sí | Sí | No |
+| **Deprecated** | No | Sí (solo read, alerta) | No |
+| **Archived** | No | No | No |
+
+Reglas:
+
+- Una regla **Draft** nunca participa en el pipeline de evaluación real
+- Una regla **Testing** se evalúa pero no autoaplica — permite ver qué pasaría sin riesgo
+- Una regla **Active** participa y autoaplica si cumple los umbrales
+- Una regla **Deprecated** aún aparece en candidateList (read) pero no puede ganar ni autoaplicar
+- Una regla **Archived** se excluye completamente del pipeline
+
+**Open question:** ¿transición automática de Testing a Active tras N días sin falsos positivos?
 
 ---
 
@@ -174,24 +203,21 @@ No es un valor fijo por tipo de condición. Cada condición produce un **conditi
 | `date_before/after` | 1.0 si cumple, 0 si no |
 
 ```
-matchQuality = min(conditionScores)
-
-// O: promedio(conditionScores)
-// O: producto(conditionScores)
+matchQuality = aggregate(conditionScores)
 ```
 
-**Open question:** ¿qué función aggregate usar? ¿mínimo, promedio o producto?
+**Open question:** ¿qué función aggregate usar? Posibles candidatos: min, weighted average, product, o custom. Se definirá durante el desarrollo del motor.
 
 ### Sort
 
 Los candidatos se ordenan por:
 
 1. **Mayor specificity** — la regla más específica primero
-2. **Mayor match quality** — desempate por calidad de match
-3. **Mayor priority** (menor número) — desempate por decisión del usuario. Solo aplica cuando el nivel de especificidad técnica es comparable
+2. **Mayor match quality** — desempate por calidad de match (solo si specificity es igual)
+3. **Mayor priority** (menor número) — desempate por decisión del usuario (solo si specificity Y match quality son iguales)
 4. **Fecha de creación más reciente** — último recurso
 
-`priority` **no** overridea la especificidad técnica. Su función es exclusivamente desempatar entre reglas que el motor considera equivalentes después de aplicar specificity y match quality.
+`priority` solo se evalúa después de `specificity` y `match quality`. Si ambas son iguales entre dos reglas, `priority` determina el ganador. No overridea la especificidad técnica bajo ninguna circunstancia.
 
 ### Ambiguity Resolution
 
@@ -269,6 +295,7 @@ No se guarda solo el ganador. Se guarda la **candidateList completa**:
 
 ```json
 {
+  "engineVersion": "2.0",
   "decision": "rule",
   "winner": { "ruleId": "A", "specificity": 6, "matchQuality": 0.9, "confidence": 0.85 },
   "candidates": [
@@ -334,7 +361,8 @@ Esto permite auditar no solo qué ganó, sino **contra qué compitió**.
 | Pregunta | Impacto |
 |---|---|
 | ¿Deberían organizarse las condiciones en tiers jerárquicos (ej. entity_eq siempre > amount_eq)? | **Crítico**: decisión de negocio que necesita validación con casos reales |
-| ¿Función aggregate para matchQuality: min, avg, o product? | Afecta el score final en reglas multi-condición |
+| ¿Función aggregate para matchQuality? Posibles: min, weighted average, product, custom | Afecta el score final en reglas multi-condición |
+| ¿Transición automática de Testing a Active tras N días sin falsos positivos? | Afecta el Rule Lifecycle |
 | ¿Soporte para NOT conditions? | Cambia el modelo de condition |
 | ¿Soporte para OR entre grupos? | Requiere tree structure en conditions |
 | ¿DELTA de ambigüedad global o configurable por empresa? | Afecta granularidad de configuración |

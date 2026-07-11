@@ -194,7 +194,7 @@ IA conectada como fallback exclusivo, sin capacidad de influir en el motor deter
 
 ## Migration Strategy
 
-No hay breaking changes en el pipeline de datos. El motor actual se reemplaza progresivamente:
+Hipótesis: no debería haber breaking changes en el pipeline de datos. Se confirma en Sprint 0. El motor actual se reemplaza progresivamente:
 
 1. Sprint 0: feature flag + compatibilidad auditada
 2. Sprint 1–2: motor nuevo en paralelo, detrás del flag

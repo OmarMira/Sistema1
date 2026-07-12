@@ -1,10 +1,16 @@
 export type RuleConditionType =
+  | 'amount_gt'
+  | 'amount_gte'
+  | 'amount_lt'
+  | 'amount_lte'
+  | 'description_eq'
+  | 'description_contains'
+  | 'description_starts_with'
+  | 'description_ends_with'
+  | 'description_matches'
   | 'entity_eq'
   | 'amount_eq'
-  | 'description_matches'
-  | 'description_contains'
   | 'amount_range'
-  | 'amount_lt'
   | 'date_before'
   | 'date_after';
 
@@ -50,6 +56,7 @@ export interface Candidate {
   ruleId: string;
   specificity: number;
   matchQuality: number;
+  confidence: number;
   conditionScores: number[];
   priority: number;
 }
@@ -92,5 +99,6 @@ export interface RuleInput {
 }
 
 export interface RuleOutput {
-  decision: EngineDecision;
+  candidates: Candidate[];
+  decision?: EngineDecision;
 }

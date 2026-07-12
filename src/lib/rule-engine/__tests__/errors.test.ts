@@ -28,6 +28,12 @@ describe('RuleEngineError', () => {
 });
 
 describe('InvalidInputError hierarchy', () => {
+  it('InvalidInputError is instance of RuleEngineError', () => {
+    const err = new InvalidInputError('msg', 'ERR');
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(RuleEngineError);
+    expect(err).toBeInstanceOf(InvalidInputError);
+  });
   it('MissingTransaction has correct code', () => {
     const err = new MissingTransaction();
     expect(err.code).toBe('ERR_MISSING_TRANSACTION');
@@ -47,6 +53,13 @@ describe('InvalidInputError hierarchy', () => {
 });
 
 describe('ConditionEvalError hierarchy', () => {
+  it('ConditionEvalError is instance of RuleEngineError', () => {
+    const err = new ConditionEvalError('msg', 'ERR', 'amount_gt');
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(RuleEngineError);
+    expect(err).toBeInstanceOf(ConditionEvalError);
+  });
+
   it('InvalidRegex has correct code and conditionType', () => {
     const err = new InvalidRegex('description_matches', { pattern: '[invalid' });
     expect(err.code).toBe('ERR_INVALID_REGEX');

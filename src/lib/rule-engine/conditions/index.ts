@@ -11,7 +11,7 @@ export type EvaluatorFn = (
   transaction: Transaction,
 ) => EvaluatedCondition;
 
-const evaluatorMap: Record<string, EvaluatorFn> = {
+const evaluatorMap: Record<RuleConditionType, EvaluatorFn> = {
   ...amountEvaluators,
   ...descriptionEvaluators,
   ...dateEvaluators,

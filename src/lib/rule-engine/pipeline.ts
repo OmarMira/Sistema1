@@ -4,6 +4,7 @@ import { evaluateCondition } from './conditions/index';
 function collectCandidates(input: RuleInput): BankRule[] {
   return input.context.availableRules.filter(
     (rule) =>
+      rule.isActive &&
       rule.companyId === input.transaction.companyId &&
       (rule.lifecycleStatus === 'active' || rule.lifecycleStatus === 'testing'),
   );

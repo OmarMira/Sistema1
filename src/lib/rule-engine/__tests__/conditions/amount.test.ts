@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { makeTransaction, makeCondition } from '../fixtures';
 import { evaluateAmountGt, evaluateAmountGte, evaluateAmountLt, evaluateAmountLte, evaluateAmountEq, evaluateAmountRange } from '../../conditions/amount';
+import { InvalidNumericValue } from '../../errors';
 
 describe('amount_gt', () => {
   it('matches when amount > value', () => {
@@ -61,6 +62,23 @@ describe('amount_eq', () => {
     const result = evaluateAmountEq(makeCondition('amount_eq', 500), tx);
     expect(result.match).toBe(false);
     expect(result.score).toBe(0);
+  });
+});
+
+describe('invalid value', () => {
+  it('throws InvalidNumericValue when value is not a number', () => {
+    const tx = makeTransaction({ amount: 100 });
+    expect(() => evaluateAmountGt(makeCondition('amount_gt', 'not-a-number'), tx)).toThrow(InvalidNumericValue);
+  });
+
+  it('throws InvalidNumericValue with condition type', () => {
+    const tx = makeTransaction({ amount: 100 });
+    try {
+      evaluateAmountGt(makeCondition('amount_gt', 'not-a-number'), tx);
+    } catch (e) {
+      expect(e).toBeInstanceOf(InvalidNumericValue);
+      expect((e as InvalidNumericValue).conditionType).toBe('amount_gt');
+    }
   });
 });
 

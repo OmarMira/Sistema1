@@ -1,38 +1,39 @@
 import type { RuleCondition, Transaction, EvaluatedCondition } from '../types';
+import { InvalidNumericValue } from '../errors';
 
-function toNumber(value: string | number): number {
+function toNumber(value: string | number, conditionType: string): number {
   if (typeof value === 'number') return value;
   const n = Number(value);
-  if (isNaN(n)) throw new Error('Invalid numeric value');
+  if (isNaN(n)) throw new InvalidNumericValue(conditionType as any, { value, parsed: n });
   return n;
 }
 
 export function evaluateAmountGt(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const value = toNumber(condition.value);
+  const value = toNumber(condition.value, condition.type);
   const match = transaction.amount > value;
   return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} > ${value}: ${match}` };
 }
 
 export function evaluateAmountGte(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const value = toNumber(condition.value);
+  const value = toNumber(condition.value, condition.type);
   const match = transaction.amount >= value;
   return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} >= ${value}: ${match}` };
 }
 
 export function evaluateAmountLt(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const value = toNumber(condition.value);
+  const value = toNumber(condition.value, condition.type);
   const match = transaction.amount < value;
   return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} < ${value}: ${match}` };
 }
 
 export function evaluateAmountLte(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const value = toNumber(condition.value);
+  const value = toNumber(condition.value, condition.type);
   const match = transaction.amount <= value;
   return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} <= ${value}: ${match}` };
 }
 
 export function evaluateAmountEq(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const value = toNumber(condition.value);
+  const value = toNumber(condition.value, condition.type);
   const match = transaction.amount === value;
   return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} === ${value}: ${match}` };
 }

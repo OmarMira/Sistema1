@@ -3,6 +3,16 @@ import { makeRule, makeTransaction, makeCondition, makeRuleInput, makeEvaluatedC
 import { runPipeline } from '../pipeline';
 
 describe('collectCandidates', () => {
+  it('filters by isActive', () => {
+    const rules = [
+      makeRule({ isActive: true, id: 'r1' }),
+      makeRule({ isActive: false, id: 'r2' }),
+    ];
+    const input = makeRuleInput({ context: { availableRules: rules, entityContexts: [], historicalMatches: [] } });
+    const result = runPipeline(input);
+    expect(result.map((c) => c.ruleId)).toEqual(['r1']);
+  });
+
   it('filters by lifecycleStatus active or testing', () => {
     const rules = [
       makeRule({ lifecycleStatus: 'active', id: 'r1' }),
@@ -120,6 +130,10 @@ describe('produceCandidates', () => {
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [] } });
     const result = runPipeline(input);
     expect(result[0].priority).toBe(42);
+  });
+
+  it('empty entries returns empty array', () => {
+    expect(runPipeline(makeRuleInput({ context: { availableRules: [], entityContexts: [], historicalMatches: [] } }))).toEqual([]);
   });
 });
 

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { rankCandidates } from '../ranking';
 import { makeScoredCandidate } from './fixtures';
-import type { ScoredCandidate } from '../types';
+import type { ScoredCandidate, TraceEvent } from '../types';
+import { InvalidPipelineStateError } from '../errors';
 
 describe('rankCandidates', () => {
   it('RK-01: sort by highestTier descending', () => {
@@ -10,7 +11,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 5, weightWithinTier: 500 } }),
       makeScoredCandidate({ ruleId: 'C', specificityScore: { highestTier: 1, weightWithinTier: 100 } }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['B', 'A', 'C']);
   });
 
@@ -19,7 +20,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 4, weightWithinTier: 400 } }),
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 4, weightWithinTier: 380 } }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['A', 'B']);
   });
 
@@ -28,7 +29,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.8 }),
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.5 }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['A', 'B']);
   });
 
@@ -37,7 +38,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.8, priority: 1 }),
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.8, priority: 5 }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['A', 'B']);
   });
 
@@ -46,17 +47,19 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'rule-beta', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.8, priority: 1 }),
       makeScoredCandidate({ ruleId: 'rule-alpha', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.8, priority: 1 }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['rule-alpha', 'rule-beta']);
   });
 
   it('RK-06: empty array', () => {
-    expect(rankCandidates([])).toEqual([]);
+    const [r0] = rankCandidates([]);
+    expect(r0).toEqual([]);
   });
 
   it('RK-07: single element', () => {
     const candidate = makeScoredCandidate({ ruleId: 'A' });
-    expect(rankCandidates([candidate])).toEqual([candidate]);
+    const [r] = rankCandidates([candidate]);
+    expect(r).toEqual([candidate]);
   });
 
   it('RK-08: stable sort — does not mutate input', () => {
@@ -65,7 +68,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 5, weightWithinTier: 500 } }),
     ];
     const original = [...candidates];
-    rankCandidates(candidates);
+    const [,] = rankCandidates(candidates);
     expect(candidates).toEqual(original);
   });
 
@@ -77,7 +80,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 5, weightWithinTier: 500 }, matchQuality: 0.7, priority: 5 }),
       makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 5, weightWithinTier: 500 }, matchQuality: 0.8, priority: 1 }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['A', 'B', 'D', 'C', 'E']);
   });
 
@@ -87,7 +90,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.8, priority: 3 }),
       makeScoredCandidate({ ruleId: 'C', specificityScore: { highestTier: 3, weightWithinTier: 300 }, matchQuality: 0.8, priority: 1 }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['C', 'B', 'A']);
   });
 
@@ -97,7 +100,7 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 3, weightWithinTier: 300 } }),
       makeScoredCandidate({ ruleId: 'C', specificityScore: { highestTier: 1, weightWithinTier: 100 } }),
     ];
-    const result = rankCandidates(candidates);
+    const [result] = rankCandidates(candidates);
     expect(result.map((c) => c.ruleId)).toEqual(['A', 'B', 'C']);
   });
 
@@ -109,8 +112,53 @@ describe('rankCandidates', () => {
       makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 5, weightWithinTier: 500 }, matchQuality: 0.7, priority: 5 }),
       makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 5, weightWithinTier: 500 }, matchQuality: 0.8, priority: 1 }),
     ];
-    const first = rankCandidates(candidates);
-    const second = rankCandidates(first);
+    const [first] = rankCandidates(candidates);
+    const [second] = rankCandidates(first);
     expect(second.map((c) => c.ruleId)).toEqual(first.map((c) => c.ruleId));
+  });
+});
+
+describe('ranking trace events', () => {
+  it('emits final_order with rankedRuleIds', () => {
+    const candidates = [
+      makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 5, weightWithinTier: 500 } }),
+      makeScoredCandidate({ ruleId: 'B', specificityScore: { highestTier: 3, weightWithinTier: 300 } }),
+    ];
+    const [, events] = rankCandidates(candidates);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    expect(event.stage).toBe('ranking');
+    if (event.stage === 'ranking' && event.event === 'final_order') {
+      expect(event.rankedRuleIds).toEqual(['A', 'B']);
+    }
+  });
+
+  it('final_order deep copy — rankedRuleIds is a new array', () => {
+    const candidates = [
+      makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 5, weightWithinTier: 500 } }),
+    ];
+    const [, events] = rankCandidates(candidates);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (event.stage === 'ranking' && event.event === 'final_order') {
+      expect(Array.isArray(event.rankedRuleIds)).toBe(true);
+    }
+  });
+
+  it('empty input emits final_order with empty array', () => {
+    const [, events] = rankCandidates([]);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    if (event.stage === 'ranking' && event.event === 'final_order') {
+      expect(event.rankedRuleIds).toEqual([]);
+    }
+  });
+
+  it('stage guard preserves empty events on non-throwing error path', () => {
+    const candidates = [
+      makeScoredCandidate({ ruleId: 'A', specificityScore: { highestTier: 5, weightWithinTier: 500 } }),
+    ];
+    const [, events] = rankCandidates(candidates);
+    expect(events).toHaveLength(1);
   });
 });

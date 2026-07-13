@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { makeRule, makeTransaction, makeCondition, makeRuleInput, makeEvaluatedCondition } from './fixtures';
-import type { PipelineArtifacts } from '../types';
+import type { PipelineArtifacts, TraceEvent } from '../types';
 import { runPipeline } from '../pipeline';
 import { evaluateRules } from '../index';
-import { MissingEntityIdError } from '../errors';
+import { MissingEntityIdError, InvalidRegex } from '../errors';
+import { attachTraceToError } from '../trace';
 
 describe('collectCandidates', () => {
   it('filters by isActive', () => {
@@ -12,7 +13,7 @@ describe('collectCandidates', () => {
       makeRule({ isActive: false, id: 'r2' }),
     ];
     const input = makeRuleInput({ context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates.map((c) => c.ruleId)).toEqual(['r1']);
   });
 
@@ -25,7 +26,7 @@ describe('collectCandidates', () => {
       makeRule({ lifecycleStatus: 'deprecated', id: 'r5' }),
     ];
     const input = makeRuleInput({ context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     const matchedRuleIds = result.rawCandidates.map((c) => c.ruleId);
     expect(matchedRuleIds).toContain('r1');
     expect(matchedRuleIds).toContain('r3');
@@ -41,13 +42,13 @@ describe('collectCandidates', () => {
     ];
     const tx = makeTransaction({ companyId: 'company-1' });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates.map((c) => c.ruleId)).toEqual(['r1']);
   });
 
   it('empty availableRules returns empty', () => {
     const input = makeRuleInput({ context: { availableRules: [], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toEqual([]);
     expect(result.evaluations.size).toBe(0);
   });
@@ -60,7 +61,7 @@ describe('evaluateConditions', () => {
     });
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(1);
     expect(result.rawCandidates[0].ruleId).toBe(rule.id);
   });
@@ -74,7 +75,7 @@ describe('evaluateConditions', () => {
     });
     const tx = makeTransaction({ amount: 600, description: 'INVOICE #123' });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(1);
     expect(result.rawCandidates[0].conditionScores).toHaveLength(2);
     expect(result.rawCandidates[0].conditionScores[0]).toBe(1);
@@ -88,7 +89,7 @@ describe('discardInvalid', () => {
     });
     const tx = makeTransaction({ amount: 100 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(0);
   });
 
@@ -99,7 +100,7 @@ describe('discardInvalid', () => {
     ];
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(2);
   });
 
@@ -113,7 +114,7 @@ describe('discardInvalid', () => {
     });
     const tx = makeTransaction({ amount: 500, description: 'TEST transaction' });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(1);
   });
 
@@ -125,7 +126,7 @@ describe('discardInvalid', () => {
     ];
     const tx = makeTransaction({ amount: 200 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(2);
     expect(result.rawCandidates.map((c) => c.ruleId)).toEqual(['r1', 'r3']);
   });
@@ -136,7 +137,7 @@ describe('discardInvalid', () => {
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
     const originalRules = [...input.context.availableRules];
     const originalTx = { ...input.transaction };
-    runPipeline(input);
+    const [,] = runPipeline(input);
     expect(input.context.availableRules).toEqual(originalRules);
     expect(input.transaction).toEqual(originalTx);
   });
@@ -153,7 +154,7 @@ describe('produceCandidates', () => {
     });
     const tx = makeTransaction({ amount: 500, description: 'TEST' });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result).toHaveProperty('rawCandidates');
     expect(Array.isArray(result.rawCandidates)).toBe(true);
     expect(result).toHaveProperty('evaluations');
@@ -167,7 +168,7 @@ describe('produceCandidates', () => {
     });
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     const raw = result.rawCandidates[0];
     expect(raw).not.toHaveProperty('specificity');
     expect(raw).not.toHaveProperty('matchQuality');
@@ -185,7 +186,7 @@ describe('produceCandidates', () => {
     });
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     const evals = result.evaluations.get('test-rule-1');
     expect(evals).toBeDefined();
     expect(evals).toHaveLength(1);
@@ -202,7 +203,7 @@ describe('produceCandidates', () => {
     });
     const tx = makeTransaction({ amount: 500, description: 'TEST' });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates[0].conditionScores).toEqual([1, 1, 1]);
   });
 
@@ -213,13 +214,13 @@ describe('produceCandidates', () => {
     });
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates[0].action).toEqual({ category: 'EXPENSE', entityId: 'ent-1', glAccountId: '6000' });
   });
 
   it('empty entries', () => {
     const input = makeRuleInput({ context: { availableRules: [], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toEqual([]);
     expect(result.evaluations.size).toBe(0);
   });
@@ -232,7 +233,7 @@ describe('produceCandidates', () => {
     ];
     const tx = makeTransaction({ amount: 500, description: 'X transaction' });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(3);
     expect(result.evaluations.size).toBe(3);
     expect(result.evaluations.has('r1')).toBe(true);
@@ -244,7 +245,7 @@ describe('produceCandidates', () => {
     const rule = makeRule({ priority: 42, conditions: [makeCondition('amount_gt', 500)] });
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates[0].priority).toBe(42);
   });
 });
@@ -257,13 +258,13 @@ describe('runPipeline integration', () => {
     ];
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toHaveLength(1);
   });
 
   it('empty input returns empty', () => {
     const input = makeRuleInput({ context: { availableRules: [], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toEqual([]);
   });
 
@@ -274,7 +275,7 @@ describe('runPipeline integration', () => {
     ];
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const result = runPipeline(input);
+    const [result] = runPipeline(input);
     expect(result.rawCandidates).toEqual([]);
   });
 
@@ -285,8 +286,8 @@ describe('runPipeline integration', () => {
     ];
     const tx = makeTransaction({ amount: 600 });
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
-    const first = runPipeline(input);
-    const second = runPipeline(input);
+    const [first] = runPipeline(input);
+    const [second] = runPipeline(input);
     expect(first).toEqual(second);
   });
 
@@ -296,7 +297,7 @@ describe('runPipeline integration', () => {
     const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
     const originalRules = [...input.context.availableRules];
     const originalTx = { ...input.transaction };
-    runPipeline(input);
+    const [,] = runPipeline(input);
     expect(input.context.availableRules).toEqual(originalRules);
     expect(input.transaction).toEqual(originalTx);
   });
@@ -318,10 +319,10 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(2);
-    expect(result.decision!.result).toBe('winner');
-    expect(result.decision!.type).toBe('rule');
-    expect(result.decision!.ruleId).toBeDefined();
+    expect(result.output.candidates).toHaveLength(2);
+    expect(result.output.decision!.result).toBe('winner');
+    expect(result.output.decision!.type).toBe('rule');
+    expect(result.output.decision!.ruleId).toBeDefined();
   });
 
   it('INT-02: full flow with entity_eq matching → winner', () => {
@@ -334,10 +335,10 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'resolved', entityId: 'ent-123' } },
     });
-    expect(result.candidates).toHaveLength(1);
-    expect(result.decision!.result).toBe('winner');
-    expect(result.decision!.ruleId).toBe(rule.id);
-    expect(result.decision!.explanation).toBe('Single candidate');
+    expect(result.output.candidates).toHaveLength(1);
+    expect(result.output.decision!.result).toBe('winner');
+    expect(result.output.decision!.ruleId).toBe(rule.id);
+    expect(result.output.decision!.explanation).toBe('Single candidate');
   });
 
   it('INT-03: full flow with entity_eq not matching → no_match', () => {
@@ -349,9 +350,9 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'resolved', entityId: 'ent-999' } },
     });
-    expect(result.candidates).toHaveLength(0);
-    expect(result.decision!.result).toBe('no_match');
-    expect(result.decision!.ruleId).toBeUndefined();
+    expect(result.output.candidates).toHaveLength(0);
+    expect(result.output.decision!.result).toBe('no_match');
+    expect(result.output.decision!.ruleId).toBeUndefined();
   });
 
   it('INT-04: full flow with ambiguity → ambiguous', () => {
@@ -364,10 +365,10 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(2);
-    expect(result.decision!.result).toBe('ambiguous');
-    expect(result.decision!.ruleId).toBeUndefined();
-    expect(result.decision!.explanation).toContain('ambiguous');
+    expect(result.output.candidates).toHaveLength(2);
+    expect(result.output.decision!.result).toBe('ambiguous');
+    expect(result.output.decision!.ruleId).toBeUndefined();
+    expect(result.output.decision!.explanation).toContain('ambiguous');
   });
 
   it('INT-05: full flow with no candidates → no_match', () => {
@@ -380,10 +381,10 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(0);
-    expect(result.decision!.result).toBe('no_match');
-    expect(result.decision!.ruleId).toBeUndefined();
-    expect(result.decision!.explanation).toBe('No matching rules found');
+    expect(result.output.candidates).toHaveLength(0);
+    expect(result.output.decision!.result).toBe('no_match');
+    expect(result.output.decision!.ruleId).toBeUndefined();
+    expect(result.output.decision!.explanation).toBe('No matching rules found');
   });
 
   it('INT-06: full flow with mixed specificity → winner by highestTier', () => {
@@ -396,11 +397,11 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'resolved', entityId: 'ent-001' } },
     });
-    expect(result.candidates).toHaveLength(2);
-    expect(result.decision!.result).toBe('winner');
-    expect(result.decision!.ruleId).toBe(rules[0].id);
-    expect(result.decision!.explanation).toBe('Top candidate wins by specificity tier');
-    expect(result.candidates[0].ruleId).toBe(rules[0].id);
+    expect(result.output.candidates).toHaveLength(2);
+    expect(result.output.decision!.result).toBe('winner');
+    expect(result.output.decision!.ruleId).toBe(rules[0].id);
+    expect(result.output.decision!.explanation).toBe('Top candidate wins by specificity tier');
+    expect(result.output.candidates[0].ruleId).toBe(rules[0].id);
   });
 
   it('INT-07: full flow with same tier diff weight → winner by weight', () => {
@@ -413,13 +414,13 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(2);
-    expect(result.decision!.result).toBe('winner');
-    expect(result.decision!.ruleId).toBe(rules[0].id);
-    expect(result.decision!.explanation).toBe('Top candidate wins by specificity weight');
-    expect(result.candidates[0].ruleId).toBe(rules[0].id);
-    expect(result.candidates[0].specificity).toBe(400);
-    expect(result.candidates[1].specificity).toBe(380);
+    expect(result.output.candidates).toHaveLength(2);
+    expect(result.output.decision!.result).toBe('winner');
+    expect(result.output.decision!.ruleId).toBe(rules[0].id);
+    expect(result.output.decision!.explanation).toBe('Top candidate wins by specificity weight');
+    expect(result.output.candidates[0].ruleId).toBe(rules[0].id);
+    expect(result.output.candidates[0].specificity).toBe(400);
+    expect(result.output.candidates[1].specificity).toBe(380);
   });
 
   it('INT-08: evaluateRules integrates with full pipeline', () => {
@@ -432,15 +433,15 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0].ruleId).toBe(rule.id);
-    expect(result.candidates[0].specificity).toBeGreaterThan(0);
-    expect(result.candidates[0].matchQuality).toBeGreaterThan(0);
-    expect(result.candidates[0].confidence).toBe(0);
-    expect(result.decision).toBeDefined();
-    expect(result.decision!.result).toBe('winner');
-    expect(result.decision!.classification).toBeDefined();
-    expect(result.decision!.classification!.category).toBe('EXPENSE');
+    expect(result.output.candidates).toHaveLength(1);
+    expect(result.output.candidates[0].ruleId).toBe(rule.id);
+    expect(result.output.candidates[0].specificity).toBeGreaterThan(0);
+    expect(result.output.candidates[0].matchQuality).toBeGreaterThan(0);
+    expect(result.output.candidates[0].confidence).toBe(0);
+    expect(result.output.decision).toBeDefined();
+    expect(result.output.decision!.result).toBe('winner');
+    expect(result.output.decision!.classification).toBeDefined();
+    expect(result.output.decision!.classification!.category).toBe('EXPENSE');
   });
 
   it('INT-09: discardInvalidConfiguration filters empty conditions before pipeline', () => {
@@ -453,8 +454,8 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(0);
-    expect(result.decision!.result).toBe('no_match');
+    expect(result.output.candidates).toHaveLength(0);
+    expect(result.output.decision!.result).toBe('no_match');
   });
 
   it('INT-10: entity_eq not_run propagates MissingEntityIdError through full flow', () => {
@@ -491,8 +492,8 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'resolved', entityId: 'ent-001' } },
     });
-    expect(result.candidates).toHaveLength(15);
-    const rankedIds = result.candidates.map((c) => c.ruleId);
+    expect(result.output.candidates).toHaveLength(15);
+    const rankedIds = result.output.candidates.map((c) => c.ruleId);
 
     expect(rankedIds[0]).toBe('r-entity');
     expect(rankedIds[1]).toBe('r-desc-eq');
@@ -510,9 +511,9 @@ describe('Integration (evaluateRules)', () => {
     const weight50Ids = rankedIds.slice(13, 15);
     expect(weight50Ids).toEqual(['r-date-before', 'r-date-after']);
 
-    expect(result.decision!.result).toBe('winner');
-    expect(result.decision!.ruleId).toBe('r-entity');
-    expect(result.decision!.explanation).toBe('Top candidate wins by specificity tier');
+    expect(result.output.decision!.result).toBe('winner');
+    expect(result.output.decision!.ruleId).toBe('r-entity');
+    expect(result.output.decision!.explanation).toBe('Top candidate wins by specificity tier');
   });
 
   it('INT-FF: feature flag disabled returns Sprint 1 behavior', () => {
@@ -526,6 +527,80 @@ describe('Integration (evaluateRules)', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result).toEqual({ candidates: [], decision: undefined });
+    expect(result).toEqual({ output: { candidates: [], decision: undefined } });
+  });
+});
+
+describe('pipeline trace events', () => {
+  it('emits candidates_collected with correct count', () => {
+    const rules = [
+      makeRule({ id: 'r1', conditions: [makeCondition('amount_gt', 100)] }),
+      makeRule({ id: 'r2', conditions: [makeCondition('amount_lt', 1000)] }),
+    ];
+    const tx = makeTransaction({ amount: 500 });
+    const input = makeRuleInput({ transaction: tx, context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
+    const [, events] = runPipeline(input);
+    expect(events[0]).toEqual({ stage: 'pipeline', event: 'candidates_collected', count: 2 });
+  });
+
+  it('emits condition_evaluated for each condition', () => {
+    const rule = makeRule({
+      id: 'r1',
+      conditions: [
+        makeCondition('amount_gt', 100),
+        makeCondition('description_contains', 'TEST'),
+      ],
+    });
+    const tx = makeTransaction({ amount: 500, description: 'TEST' });
+    const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
+    const [, events] = runPipeline(input);
+    const condEvents = events.filter((e): e is Extract<TraceEvent, { stage: 'pipeline'; event: 'condition_evaluated' }> =>
+      e.stage === 'pipeline' && e.event === 'condition_evaluated',
+    );
+    expect(condEvents).toHaveLength(2);
+    expect(condEvents[0].ruleId).toBe('r1');
+    expect(condEvents[0].conditionType).toBe('amount_gt');
+    expect(condEvents[0].score).toBe(1);
+    expect(condEvents[0].matched).toBe(true);
+  });
+
+  it('emits candidate_valid for matching rules', () => {
+    const rule = makeRule({ id: 'r1', conditions: [makeCondition('amount_gt', 100)] });
+    const tx = makeTransaction({ amount: 500 });
+    const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
+    const [, events] = runPipeline(input);
+    const validEvents = events.filter((e): e is Extract<TraceEvent, { stage: 'pipeline'; event: 'candidate_valid' }> =>
+      e.stage === 'pipeline' && e.event === 'candidate_valid',
+    );
+    expect(validEvents).toHaveLength(1);
+    expect(validEvents[0].ruleId).toBe('r1');
+    expect(validEvents[0].conditionCount).toBe(1);
+  });
+
+  it('emits candidate_discarded for failing rules', () => {
+    const rule = makeRule({ id: 'r1', conditions: [makeCondition('amount_gt', 1000)] });
+    const tx = makeTransaction({ amount: 500 });
+    const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
+    const [, events] = runPipeline(input);
+    const discardedEvents = events.filter((e): e is Extract<TraceEvent, { stage: 'pipeline'; event: 'candidate_discarded' }> =>
+      e.stage === 'pipeline' && e.event === 'candidate_discarded',
+    );
+    expect(discardedEvents).toHaveLength(1);
+    expect(discardedEvents[0].ruleId).toBe('r1');
+  });
+
+  it('stage guard preserves partial events on error', () => {
+    const rule = makeRule({ id: 'r1', conditions: [makeCondition('description_matches', '[invalid')] });
+    const tx = makeTransaction({ amount: 500 });
+    const input = makeRuleInput({ transaction: tx, context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } } });
+    try {
+      runPipeline(input);
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(InvalidRegex);
+      const events: TraceEvent[] = (err as any).__ruleEngineEvents ?? [];
+      expect(events.length).toBeGreaterThan(0);
+      expect(events[0].stage).toBe('pipeline');
+    }
   });
 });

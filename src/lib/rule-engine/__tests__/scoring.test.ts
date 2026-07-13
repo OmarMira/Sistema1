@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { computeMatchQuality, scoreCandidates, MATCH_QUALITY_ALPHA } from '../scoring';
-import { InvalidPipelineStateError } from '../errors';
+import { InvalidPipelineStateError, InvalidPipelineStateError as PipelineStateError } from '../errors';
 import { makeEvaluatedCondition, makeRawCandidate, makePipelineArtifacts } from './fixtures';
+import type { TraceEvent } from '../types';
 
 describe('MATCH_QUALITY_ALPHA', () => {
   it('is 0.25', () => {
@@ -53,7 +54,7 @@ describe('scoreCandidates', () => {
       rawCandidates: [makeRawCandidate({ ruleId: 'rule-1', conditionScores: [1] })],
       evaluations: new Map([['rule-1', evals]]),
     });
-    const result = scoreCandidates(artifacts);
+    const [result] = scoreCandidates(artifacts);
     expect(result).toHaveLength(1);
     expect(result[0].ruleId).toBe('rule-1');
     expect(result[0].specificityScore).toEqual({ highestTier: 1, weightWithinTier: 100 });
@@ -82,7 +83,7 @@ describe('scoreCandidates', () => {
       rawCandidates: [raw],
       evaluations: new Map([['rule-1', evals]]),
     });
-    const result = scoreCandidates(artifacts);
+    const [result] = scoreCandidates(artifacts);
     expect(result[0].ruleId).toBe('rule-1');
     expect(result[0].priority).toBe(5);
     expect(result[0].conditionScores).toEqual([1]);
@@ -94,7 +95,8 @@ describe('scoreCandidates', () => {
       rawCandidates: [],
       evaluations: new Map(),
     });
-    expect(scoreCandidates(artifacts)).toEqual([]);
+    const [result] = scoreCandidates(artifacts);
+    expect(result).toEqual([]);
   });
 
   it('SQ-05: multiple candidates scored independently', () => {
@@ -114,11 +116,65 @@ describe('scoreCandidates', () => {
         ['rule-2', evals2],
       ]),
     });
-    const result = scoreCandidates(artifacts);
+    const [result] = scoreCandidates(artifacts);
     expect(result).toHaveLength(2);
     expect(result[0].ruleId).toBe('rule-1');
     expect(result[0].specificityScore.highestTier).toBe(1);
     expect(result[1].ruleId).toBe('rule-2');
     expect(result[1].specificityScore.highestTier).toBe(4);
+  });
+});
+
+describe('scoring trace events', () => {
+  it('emits candidate_scored for each candidate', () => {
+    const evals = [
+      makeEvaluatedCondition({ type: 'amount_gt', match: true, score: 1 }),
+    ];
+    const artifacts = makePipelineArtifacts({
+      rawCandidates: [makeRawCandidate({ ruleId: 'rule-1', conditionScores: [1] })],
+      evaluations: new Map([['rule-1', evals]]),
+    });
+    const [, events] = scoreCandidates(artifacts);
+    expect(events).toHaveLength(1);
+    const event = events[0];
+    expect(event.stage).toBe('scoring');
+    if (event.stage === 'scoring' && event.event === 'candidate_scored') {
+      expect(event.ruleId).toBe('rule-1');
+      expect(event.highestTier).toBe(1);
+      expect(event.weightWithinTier).toBe(100);
+      expect(event.matchQuality).toBe(1);
+    }
+  });
+
+  it('emits one event per candidate', () => {
+    const evals1 = [makeEvaluatedCondition({ type: 'amount_gt', match: true, score: 1 })];
+    const evals2 = [makeEvaluatedCondition({ type: 'description_eq', match: true, score: 0.5 })];
+    const artifacts = makePipelineArtifacts({
+      rawCandidates: [
+        makeRawCandidate({ ruleId: 'rule-1', conditionScores: [1] }),
+        makeRawCandidate({ ruleId: 'rule-2', conditionScores: [0.5] }),
+      ],
+      evaluations: new Map([
+        ['rule-1', evals1],
+        ['rule-2', evals2],
+      ]),
+    });
+    const [, events] = scoreCandidates(artifacts);
+    expect(events).toHaveLength(2);
+  });
+
+  it('stage guard preserves partial events on error', () => {
+    const artifacts = makePipelineArtifacts({
+      rawCandidates: [makeRawCandidate({ ruleId: 'rule-1' })],
+      evaluations: new Map(),
+    });
+    try {
+      scoreCandidates(artifacts);
+      expect.fail('should have thrown');
+    } catch (err) {
+      expect(err).toBeInstanceOf(PipelineStateError);
+      const events: TraceEvent[] = (err as any).__ruleEngineEvents ?? [];
+      expect(events).toHaveLength(0);
+    }
   });
 });

@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { evaluateRules } from '../index';
 import { MissingTransaction, MissingContext, InvalidTransaction, InvalidRegex, MissingEntityIdError } from '../errors';
 import { makeRule, makeTransaction, makeCondition } from './fixtures';
-
+import type { TraceEvent, DecisionTrace, AuditRecord } from '../types';
+import { RULE_ENGINE_VERSION } from '../version';
 
 beforeEach(() => {
   vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
@@ -13,14 +14,14 @@ describe('feature flag', () => {
     vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'false');
     const input = { transaction: null as any, context: null as any };
     const result = evaluateRules(input);
-    expect(result).toEqual({ candidates: [], decision: undefined });
+    expect(result).toEqual({ output: { candidates: [], decision: undefined } });
   });
 
   it('returns empty when flag is unset', () => {
     vi.stubEnv('RULE_ENGINE_V2_ENABLED', '');
     const input = { transaction: null as any, context: null as any };
     const result = evaluateRules(input);
-    expect(result).toEqual({ candidates: [], decision: undefined });
+    expect(result).toEqual({ output: { candidates: [], decision: undefined } });
   });
 
   it('processes when flag is enabled', () => {
@@ -30,7 +31,7 @@ describe('feature flag', () => {
       context: { availableRules: [], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     };
     const result = evaluateRules(input);
-    expect(result.candidates).toBeDefined();
+    expect(result.output.candidates).toBeDefined();
   });
 });
 
@@ -68,10 +69,10 @@ describe('decision orchestration', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0].ruleId).toBe(rule.id);
-    expect(result.decision).toBeDefined();
-    expect(result.decision!.result).toBe('winner');
+    expect(result.output.candidates).toHaveLength(1);
+    expect(result.output.candidates[0].ruleId).toBe(rule.id);
+    expect(result.output.decision).toBeDefined();
+    expect(result.output.decision!.result).toBe('winner');
   });
 
   it('condition error propagates', () => {
@@ -90,9 +91,9 @@ describe('decision orchestration', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(0);
-    expect(result.decision).toBeDefined();
-    expect(result.decision!.result).toBe('no_match');
+    expect(result.output.candidates).toHaveLength(0);
+    expect(result.output.decision).toBeDefined();
+    expect(result.output.decision!.result).toBe('no_match');
   });
 
   it('pipeline to scoring to ranking to decision flow works end to end', () => {
@@ -102,10 +103,10 @@ describe('decision orchestration', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(1);
-    expect(result.candidates[0].specificity).toBeGreaterThan(0);
-    expect(result.candidates[0].matchQuality).toBeGreaterThan(0);
-    expect(result.decision!.result).toBe('winner');
+    expect(result.output.candidates).toHaveLength(1);
+    expect(result.output.candidates[0].specificity).toBeGreaterThan(0);
+    expect(result.output.candidates[0].matchQuality).toBeGreaterThan(0);
+    expect(result.output.decision!.result).toBe('winner');
   });
 
   it('empty conditions filtered by discardInvalidConfiguration', () => {
@@ -118,7 +119,7 @@ describe('decision orchestration', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(0);
+    expect(result.output.candidates).toHaveLength(0);
   });
 
   it('entityResolution not_run with entity_eq condition propagates MissingEntityIdError', () => {
@@ -140,8 +141,8 @@ describe('decision orchestration', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'resolved' as const, entityId: 'ent-123' } },
     });
-    expect(result.candidates).toHaveLength(1);
-    expect(result.decision!.result).toBe('winner');
+    expect(result.output.candidates).toHaveLength(1);
+    expect(result.output.decision!.result).toBe('winner');
   });
 
   it('valid input with ambiguous result returns ambiguous decision', () => {
@@ -154,8 +155,8 @@ describe('decision orchestration', () => {
       transaction: tx,
       context: { availableRules: rules, entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.candidates).toHaveLength(2);
-    expect(result.decision!.result).toBe('ambiguous');
+    expect(result.output.candidates).toHaveLength(2);
+    expect(result.output.decision!.result).toBe('ambiguous');
   });
 
   it('classification populated from top candidate action when winner', () => {
@@ -168,9 +169,82 @@ describe('decision orchestration', () => {
       transaction: tx,
       context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
     });
-    expect(result.decision!.result).toBe('winner');
-    expect(result.decision!.classification).toBeDefined();
-    expect(result.decision!.classification!.category).toBe('EXPENSE');
-    expect(result.decision!.classification!.glAccountId).toBe('6000');
+    expect(result.output.decision!.result).toBe('winner');
+    expect(result.output.decision!.classification).toBeDefined();
+    expect(result.output.decision!.classification!.category).toBe('EXPENSE');
+    expect(result.output.decision!.classification!.glAccountId).toBe('6000');
+  });
+});
+
+describe('trace and audit integration', () => {
+  it('flag OFF omits trace and audit keys', () => {
+    vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'false');
+    const input = { transaction: null as any, context: null as any };
+    const result = evaluateRules(input);
+    expect('trace' in result).toBe(false);
+    expect('audit' in result).toBe(false);
+    expect(result.output).toEqual({ candidates: [], decision: undefined });
+  });
+
+  it('full pipeline produces trace with terminal complete event', () => {
+    const rule = makeRule({ conditions: [makeCondition('amount_gt', 500)] });
+    const tx = makeTransaction({ amount: 600 });
+    const result = evaluateRules({
+      transaction: tx,
+      context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
+    });
+    expect(result.trace).toBeDefined();
+    expect(result.audit).toBeDefined();
+    expect(result.trace!.engineVersion).toBe(RULE_ENGINE_VERSION);
+    expect(result.trace!.events.length).toBeGreaterThan(0);
+    const lastEvent = result.trace!.events[result.trace!.events.length - 1];
+    expect(lastEvent).toEqual({ stage: 'execution', event: 'complete' });
+  });
+
+  it('audit record has correct fields on success', () => {
+    const rule = makeRule({ conditions: [makeCondition('amount_gt', 500)], action: { category: 'EXPENSE' } });
+    const tx = makeTransaction({ amount: 600 });
+    const result = evaluateRules({
+      transaction: tx,
+      context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
+    });
+    expect(result.audit!.engineVersion).toBe(RULE_ENGINE_VERSION);
+    expect(result.audit!.transactionId).toBe(tx.id);
+    expect(result.audit!.companyId).toBe(tx.companyId);
+    expect(result.audit!.result).toBe('winner');
+    expect(result.audit!.winnerRuleId).toBe(rule.id);
+    expect(result.audit!.candidateCount).toBe(1);
+  });
+
+  it('error path — typed error has partial trace, no audit', () => {
+    const rule = makeRule({ conditions: [makeCondition('description_matches', '[invalid')] });
+    const tx = makeTransaction();
+    try {
+      evaluateRules({
+        transaction: tx,
+        context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
+      });
+      expect.fail('should have thrown');
+    } catch (err: any) {
+      expect(err.trace).toBeDefined();
+      expect(err.trace.events.length).toBeGreaterThan(0);
+      const lastEvent = err.trace.events[err.trace.events.length - 1];
+      expect(lastEvent.stage).toBe('execution');
+      expect(lastEvent.event).toBe('error');
+      expect(lastEvent.errorCode).toBe('ERR_INVALID_REGEX');
+      expect(err.audit).toBeUndefined();
+    }
+  });
+
+  it('no-match result still produces audit with result=no_match', () => {
+    const rule = makeRule({ conditions: [makeCondition('amount_gt', 1000)] });
+    const tx = makeTransaction({ amount: 500 });
+    const result = evaluateRules({
+      transaction: tx,
+      context: { availableRules: [rule], entityContexts: [], historicalMatches: [], entityResolution: { status: 'not_run' as const } },
+    });
+    expect(result.audit!.result).toBe('no_match');
+    expect(result.audit!.winnerRuleId).toBeUndefined();
+    expect(result.audit!.candidateCount).toBe(0);
   });
 });

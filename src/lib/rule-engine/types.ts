@@ -118,16 +118,47 @@ export interface EngineDecision {
   explanation: string;
 }
 
-export interface AuditLogEntry {
+export type DecisionReason =
+  | 'no_candidates'
+  | 'single_candidate'
+  | 'higher_specificity_tier'
+  | 'higher_specificity_weight'
+  | 'delta_above_threshold'
+  | 'delta_below_threshold';
+
+export type TraceEvent =
+  | { stage: 'pipeline'; event: 'candidates_collected'; count: number }
+  | { stage: 'pipeline'; event: 'condition_evaluated'; ruleId: string; conditionType: RuleConditionType; score: number; matched: boolean }
+  | { stage: 'pipeline'; event: 'candidate_valid'; ruleId: string; conditionCount: number }
+  | { stage: 'pipeline'; event: 'candidate_discarded'; ruleId: string }
+  | { stage: 'scoring'; event: 'candidate_scored'; ruleId: string; highestTier: number; weightWithinTier: number; matchQuality: number }
+  | { stage: 'ranking'; event: 'final_order'; rankedRuleIds: string[] }
+  | { stage: 'decision'; event: 'outcome'; result: DecisionResult; reason: DecisionReason; winnerRuleId?: string; delta?: number; threshold: number }
+  | { stage: 'execution'; event: 'complete' }
+  | { stage: 'execution'; event: 'error'; errorCode?: string };
+
+export interface DecisionTrace {
+  events: TraceEvent[];
   engineVersion: string;
-  decision: DecisionType;
+  truncated: boolean;
+  totalEvents: number;
+  emittedEvents: number;
+}
+
+export interface AuditRecord {
+  engineVersion: string;
+  transactionId: string;
+  companyId: string;
   result: DecisionResult;
-  winner: Candidate | null;
-  candidates: Candidate[];
-  delta: number;
-  threshold: number;
-  explanation: string;
-  timestamp: string;
+  winnerRuleId?: string;
+  candidateCount: number;
+  trace: DecisionTrace;
+}
+
+export interface RuleEngineExecution {
+  output: RuleOutput;
+  trace?: DecisionTrace;
+  audit?: AuditRecord;
 }
 
 export interface RuleInput {

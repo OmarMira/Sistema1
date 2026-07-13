@@ -1,8 +1,9 @@
-import type { RuleConditionType } from './types';
+import type { RuleConditionType, DecisionTrace } from './types';
 
 export class RuleEngineError extends Error {
   public readonly code: string;
   public readonly details: unknown;
+  public trace?: DecisionTrace;
 
   constructor(message: string, code: string, details?: unknown) {
     super(message);

@@ -11,6 +11,8 @@ import {
   InvalidDateValue,
   UnsupportedConditionError,
   UnknownConditionTypeError,
+  MissingEntityIdError,
+  InvalidPipelineStateError,
 } from '../errors';
 
 describe('RuleEngineError', () => {
@@ -90,5 +92,45 @@ describe('ConditionEvalError hierarchy', () => {
     const err = new UnknownConditionTypeError('foo_bar' as any);
     expect(err.code).toBe('ERR_UNKNOWN_CONDITION_TYPE');
     expect(err.conditionType).toBe('foo_bar');
+  });
+});
+
+describe('MissingEntityIdError', () => {
+  it('sets correct code ERR_MISSING_ENTITY_ID', () => {
+    const err = new MissingEntityIdError('entity_eq');
+    expect(err.code).toBe('ERR_MISSING_ENTITY_ID');
+  });
+
+  it('extends ConditionEvalError chain', () => {
+    const err = new MissingEntityIdError('entity_eq');
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(RuleEngineError);
+    expect(err).toBeInstanceOf(ConditionEvalError);
+    expect(err).toBeInstanceOf(MissingEntityIdError);
+  });
+
+  it('has conditionType', () => {
+    const err = new MissingEntityIdError('entity_eq');
+    expect(err.conditionType).toBe('entity_eq');
+  });
+});
+
+describe('InvalidPipelineStateError', () => {
+  it('sets correct code ERR_INVALID_PIPELINE_STATE', () => {
+    const err = new InvalidPipelineStateError('msg', 'ERR_INVALID_PIPELINE_STATE');
+    expect(err.code).toBe('ERR_INVALID_PIPELINE_STATE');
+  });
+
+  it('extends RuleEngineError chain', () => {
+    const err = new InvalidPipelineStateError('msg', 'ERR_INVALID_PIPELINE_STATE');
+    expect(err).toBeInstanceOf(Error);
+    expect(err).toBeInstanceOf(RuleEngineError);
+    expect(err).toBeInstanceOf(InvalidPipelineStateError);
+  });
+
+  it('does NOT extend ConditionEvalError', () => {
+    const err = new InvalidPipelineStateError('msg', 'ERR_INVALID_PIPELINE_STATE');
+    expect(err).toBeInstanceOf(RuleEngineError);
+    expect(err).not.toBeInstanceOf(ConditionEvalError);
   });
 });

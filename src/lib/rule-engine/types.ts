@@ -54,6 +54,7 @@ export interface EvaluatedCondition {
 
 export interface Candidate {
   ruleId: string;
+  /** @deprecated Use SpecificityScore internally — this is a derived compatibility field (weightWithinTier). NOT used for ranking. */
   specificity: number;
   matchQuality: number;
   confidence: number;
@@ -63,13 +64,53 @@ export interface Candidate {
 
 export type DecisionType = 'rule' | 'history' | 'entity' | 'ai' | 'manual';
 export type DecisionResult = 'winner' | 'ambiguous' | 'no_match';
+export type EntityResolutionStatus = 'not_run' | 'resolved' | 'not_found';
+
+export interface EntityResolution {
+  status: EntityResolutionStatus;
+  entityId?: string;
+}
+
+export interface RawCandidate {
+  ruleId: string;
+  conditionScores: number[];
+  priority: number;
+  action: {
+    category?: string;
+    entityId?: string;
+    glAccountId?: string;
+  };
+}
+
+export interface SpecificityScore {
+  highestTier: number;
+  weightWithinTier: number;
+}
+
+export interface ScoredCandidate {
+  ruleId: string;
+  specificityScore: SpecificityScore;
+  matchQuality: number;
+  priority: number;
+  conditionScores: number[];
+  action: {
+    category?: string;
+    entityId?: string;
+    glAccountId?: string;
+  };
+}
+
+export interface PipelineArtifacts {
+  rawCandidates: RawCandidate[];
+  evaluations: Map<string, EvaluatedCondition[]>;
+}
 
 export interface EngineDecision {
   type: DecisionType;
   result: DecisionResult;
   ruleId?: string;
   candidateList: Candidate[];
-  classification: {
+  classification?: {
     entityId?: string;
     category?: string;
     glAccountId?: string;
@@ -95,6 +136,7 @@ export interface RuleInput {
     availableRules: BankRule[];
     entityContexts: unknown[];
     historicalMatches: unknown[];
+    entityResolution: EntityResolution;
   };
 }
 

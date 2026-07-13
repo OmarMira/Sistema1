@@ -74,3 +74,15 @@ export class UnknownConditionTypeError extends ConditionEvalError {
     super(`Unknown condition type: ${conditionType}`, 'ERR_UNKNOWN_CONDITION_TYPE', conditionType, details);
   }
 }
+
+export class MissingEntityIdError extends ConditionEvalError {
+  constructor(conditionType: RuleConditionType, details?: unknown) {
+    super(`Entity resolution not executed for ${conditionType}`, 'ERR_MISSING_ENTITY_ID', conditionType, details);
+  }
+}
+
+export class InvalidPipelineStateError extends RuleEngineError {
+  constructor(message: string, code: string, details?: unknown) {
+    super(message, code, details);
+  }
+}

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import type { RuleConditionType, RuleCondition } from '../../types';
 import { makeCondition, makeTransaction } from '../fixtures';
 import { evaluateCondition, getSupportedTypes } from '../../conditions/index';
-import { UnknownConditionTypeError, UnsupportedConditionError } from '../../errors';
+import { UnknownConditionTypeError, MissingEntityIdError } from '../../errors';
 
 describe('dispatch map', () => {
   it('dispatches amount_gt correctly', () => {
@@ -22,14 +23,14 @@ describe('dispatch map', () => {
     expect(result.match).toBe(true);
   });
 
-  it('dispatches entity_eq throws UnsupportedConditionError', () => {
+  it('dispatches entity_eq to real evaluator (throws MissingEntityIdError without context)', () => {
     const tx = makeTransaction();
-    expect(() => evaluateCondition(makeCondition('entity_eq', 'x'), tx)).toThrow(UnsupportedConditionError);
+    expect(() => evaluateCondition(makeCondition('entity_eq', 'x'), tx)).toThrow(MissingEntityIdError);
   });
 
   it('throws UnknownConditionTypeError for unknown type', () => {
     const tx = makeTransaction();
-    const badCondition = { type: 'foo_bar' as any, value: 'x' };
+    const badCondition: RuleCondition = { type: 'foo_bar' as RuleConditionType, value: 'x' };
     expect(() => evaluateCondition(badCondition, tx)).toThrow(UnknownConditionTypeError);
   });
 

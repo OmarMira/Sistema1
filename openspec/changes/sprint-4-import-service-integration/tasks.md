@@ -55,3 +55,16 @@ Chain strategy: feature-branch-chain
 ## Implementation Order
 
 Foundation (types + normalizer) → Adapter → Integration → Verification. Each phase produces an atomic commit with `git revert` rollback. The normalizer is tested in isolation before any wiring. The import.service.ts change is the LAST code modification.
+
+## Operating Rules
+
+### Worktree Chain Sync
+Worktrees NO se sincronizan automáticamente. Después de cada fase:
+
+- Foundation commit + push → `git -C ../sprint4-adapter merge --ff-only sprint4/foundation`
+- Adapter commit + push → `git -C ../sprint4-integration merge --ff-only sprint4/adapter`
+
+Verificar siempre `git rev-parse HEAD` y `git status --short` antes de trabajar.
+
+### Branch Protection
+No usar `--admin` para saltear protecciones. Si una regla bloquea, se corrige la configuración de forma explícita y documentada antes de continuar.

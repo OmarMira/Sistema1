@@ -11,6 +11,26 @@ export type RuleEngineErrorCode =
   | 'conditions_normalization_failed'
   | 'engine_execution_error'
 
+export interface ParsedTransaction {
+  id: string
+  date: Date
+  description: string
+  amount: number
+  bankAccountId: string
+  reference?: string
+}
+
+export interface PrismaBankRule {
+  id: string
+  companyId: string
+  priority: number
+  conditions: unknown
+  glAccountId: string | null
+  debitGlAccountId: string | null
+  creditGlAccountId: string | null
+  isActive: boolean
+}
+
 export type MatchResult =
   | { outcome: 'matched'; classification: { glAccountId: string; entityId?: string; category?: string }; matchedRuleId: string }
   | { outcome: 'pending'; classification?: { glAccountId?: string; entityId?: string; category?: string }; matchedRuleId?: never; skipReason?: never; errorCode?: RuleEngineErrorCode }

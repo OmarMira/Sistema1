@@ -6,23 +6,21 @@
 |-------|-------|
 | Estimated changed lines | 500–650 |
 | 400-line budget risk | High |
-| Chained PRs recommended | Yes |
+| Chained PRs recommended | No (resolved → sequential) |
 | Suggested split | PR 1: Foundation → PR 2: Adapter → PR 3: Integration |
-| Delivery strategy | ask-on-risk |
-| Chain strategy | feature-branch-chain |
+| Delivery strategy | sequential-prs-to-main |
+| Chain strategy | sequential-prs-to-main |
 
-Decision needed before apply: Yes
-Chained PRs recommended: Yes
-Chain strategy: feature-branch-chain
+Decision needed before apply: No — resolved: sequential PRs to main
 400-line budget risk: High
 
-### Suggested Work Units (Feature Branch Chain)
+### Suggested Work Units (Sequential PRs to Main)
 
-| Unit | Goal | Branch | Merges to |
-|------|------|--------|-----------|
-| 1 | Foundation (types + normalizer + tests) | `sprint4/foundation` from `main` | PR 1 → `sprint4/foundation` |
-| 2 | Adapter (runRuleEngineV2 + tests) | `sprint4/adapter` from `sprint4/foundation` | PR 2 → `sprint4/foundation` |
-| 3 | Integration (import.service.ts + E2E tests) | `sprint4/integration` from `sprint4/adapter` | PR 3 → `main` |
+| Unit | Goal | Branch | PR → |
+|------|------|--------|------|
+| 1 | Foundation (types + normalizer + tests) | `sprint4/foundation` | **→ main** ✅ done |
+| 2 | Adapter (runRuleEngineV2 + tests) | `sprint4/adapter` | **→ main** |
+| 3 | Integration (import.service.ts + E2E tests) | `sprint4/integration` | **→ main** |
 
 ## Phase 1: Pre-work & Foundation
 
@@ -34,9 +32,9 @@ Chain strategy: feature-branch-chain
 
 ## Phase 2: Adapter Implementation
 
-- [ ] 2.1 TDD: write adapter unit tests first (`tests/services/rule-engine-adapter/adapter.test.ts`) — mock engine, verify outcome mapping for matched, pending (winner-no-gl, ambiguous, no_match), engine_error; confirm zero Prisma calls
-- [ ] 2.2 Implement `src/lib/services/rule-engine-adapter/index.ts` — `runRuleEngineV2()`: normalize conditions, build `RuleInput`, call `evaluateRules()`, map `EngineDecision` → `MatchResult`
-- [ ] 2.3 `vitest && tsc --noEmit && npm run build` — all green; atomic commit with revert hash
+- [x] 2.1 TDD: write adapter unit tests first (`tests/services/rule-engine-adapter/adapter.test.ts`) — mock engine, verify outcome mapping for matched, pending (winner-no-gl, ambiguous, no_match), engine_error; confirm zero Prisma calls
+- [x] 2.2 Implement `src/lib/services/rule-engine-adapter/index.ts` — `runRuleEngineV2()`: normalize conditions, build `RuleInput`, call `evaluateRules()`, map `EngineDecision` → `MatchResult`
+- [x] 2.3 `vitest && tsc --noEmit && npm run build` — all green; atomic commit with revert hash
 
 ## Phase 3: Integration into Import Service
 
@@ -58,11 +56,11 @@ Foundation (types + normalizer) → Adapter → Integration → Verification. Ea
 
 ## Operating Rules
 
-### Worktree Chain Sync
-Worktrees NO se sincronizan automáticamente. Después de cada fase:
+### Sequential PRs to Main
+Cada fase mergea directamente a `main`. Después del merge de una fase:
 
-- Foundation commit + push → `git -C ../sprint4-adapter merge --ff-only sprint4/foundation`
-- Adapter commit + push → `git -C ../sprint4-integration merge --ff-only sprint4/adapter`
+- `git fetch origin main`
+- `git -C ../<next-phase-worktree> merge --ff-only origin/main`
 
 Verificar siempre `git rev-parse HEAD` y `git status --short` antes de trabajar.
 

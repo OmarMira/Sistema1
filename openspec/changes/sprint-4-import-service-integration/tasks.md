@@ -26,11 +26,11 @@ Chain strategy: feature-branch-chain
 
 ## Phase 1: Pre-work & Foundation
 
-- [ ] 1.1 Physically verify `BankRule.conditions` storage format in production DB — confirm v1 shape before coding normalizer; document format decisions in ADR
-- [ ] 1.2 TDD: write failing tests for types (`MatchResult`, `SkipReason`, `RuleEngineErrorCode`) and `detectFormat()` + `normalize()` first (`tests/services/rule-engine-adapter/conditions-normalizer.test.ts`)
-- [ ] 1.3 Implement `src/lib/services/rule-engine-adapter/types.ts` — discriminated union with `matched`, `pending`, `skipped` outcomes
-- [ ] 1.4 Implement `src/lib/services/rule-engine-adapter/conditions-normalizer.ts` — `detectFormat()` returns v1/v2/corrupt, `normalize()` maps v1→v2 or rejects
-- [ ] 1.5 `vitest && tsc --noEmit && npm run build` — all green; atomic commit with revert hash logged
+- [x] 1.1 Physically verify `BankRule.conditions` storage format in production DB — confirmed v1 shape: `{ field, operator, value }` with `field: "description"`, `operator: "contains"`, `value: string`
+- [x] 1.2 TDD: write failing tests for types (`MatchResult`, `SkipReason`, `RuleEngineErrorCode`) and `detectFormat()` + `normalize()` first (`tests/services/rule-engine-adapter/conditions-normalizer.test.ts`)
+- [x] 1.3 Implement `src/lib/services/rule-engine-adapter/types.ts` — discriminated union with `matched`, `pending`, `skipped` outcomes
+- [x] 1.4 Implement `src/lib/services/rule-engine-adapter/conditions-normalizer.ts` — `detectFormat()` returns v1/v2/corrupt, `normalize()` maps v1→v2 or rejects
+- [x] 1.5 `vitest && tsc --noEmit && npm run build` — all green; atomic commit with revert hash logged
 
 ## Phase 2: Adapter Implementation
 

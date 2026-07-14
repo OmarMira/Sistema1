@@ -38,9 +38,23 @@ Decision needed before apply: No — resolved: sequential PRs to main
 
 ## Phase 3: Integration into Import Service
 
-- [ ] 3.1 Modify `src/lib/services/import.service.ts:~446` — add `RULE_ENGINE_V2_ENABLED` check; flag OFF → legacy `findMatchingRule()` (unchanged); flag ON → skip invariants then call `runRuleEngineV2()`
-- [ ] 3.2 Wire adapter result into existing journal-creation loop at line 471: `matched` → set `glAccountId`/`matchedRuleId`; `pending` → store with `glAccountId=null`; `skipped` → skip
-- [ ] 3.3 `vitest && tsc --noEmit && npm run build` — all green; atomic commit with revert hash
+- [x] 3.1 Modify `src/lib/services/import.service.ts:~446` — add `RULE_ENGINE_V2_ENABLED` check; flag OFF → legacy `findMatchingRule()` (unchanged); flag ON → call `runRuleEngineV2()`
+- [x] 3.2 Wire adapter result into existing loop: `matched` → set `glAccountId`/`matchedRuleId`; `pending` → store with `glAccountId=null`
+
+> **Design note — `skipped` invariants not applicable at import time**
+>
+> The MatchResult variant `skipped` (reconciled, journal_linked, classified, ignored,
+> manually_edited) targets transactions that already exist in the database. During initial
+> import, every transaction is a new record that has never been inserted — none of these
+> states are possible. Therefore the import path unconditionally evaluates every
+> transaction against the rule engine; `skipped` is not a reachable outcome at this point.
+> If the engine returns `skipped` (which its current implementation never does for new
+> transactions), the integration code treats it as `pending` (null/null).
+>
+> This decision is scoped to `import.service.ts`. Downstream consumers
+> (apply-all, reconciliation, manual categorization) operate on persisted transactions and
+> MUST evaluate invariants before calling the engine.
+- [x] 3.3 `vitest && tsc --noEmit && npm run build` — all green; atomic commit with revert hash
 
 ## Phase 4: Verification Tests
 

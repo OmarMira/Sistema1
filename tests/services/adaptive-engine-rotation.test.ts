@@ -19,13 +19,16 @@ const defaultEngineConfig = JSON.stringify({
 
 const normalizePath = (p: string) => {
   let clean = p.replace(/\\/g, '/');
-  // Strip trailing slash if present (except if it's just the root)
   if (clean.length > 1 && clean.endsWith('/')) {
     clean = clean.slice(0, -1);
   }
-  const index = clean.indexOf('rules');
-  if (index !== -1) {
-    return clean.slice(index);
+  const rulesIndex = clean.indexOf('rules');
+  if (rulesIndex !== -1) {
+    return clean.slice(rulesIndex);
+  }
+  const dataIndex = clean.indexOf('.data');
+  if (dataIndex !== -1) {
+    return clean.slice(dataIndex);
   }
   return clean;
 };
@@ -141,6 +144,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
   beforeEach(() => {
     (globalThis as any)._fsFiles = {
       'rules/learning-engine.json': defaultEngineConfig,
+      '.data/learning-events.jsonl': '',
     };
   });
 
@@ -151,7 +155,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
 
   it('should append log without rotation if file size is under 5MB', async () => {
     // Write 1KB of content first
-    writeFileSyncDirect('rules/learning-events.jsonl', 'a'.repeat(1024));
+    writeFileSyncDirect('.data/learning-events.jsonl', 'a'.repeat(1024));
 
     const event = {
       timestamp: new Date().toISOString(),
@@ -166,7 +170,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
 
     const files = getFiles();
     // Active log should have the original content + new event
-    const activeContent = files['rules/learning-events.jsonl'];
+    const activeContent = files['.data/learning-events.jsonl'];
     expect(activeContent).toContain('1010');
     expect(activeContent.length).toBeGreaterThan(1024);
 
@@ -178,7 +182,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
   it('should rotate active log to archive and start fresh log if file size exceeds 5MB', async () => {
     // Write 5.1MB of content to simulate large file
     const largeContent = 'b'.repeat(5.1 * 1024 * 1024);
-    writeFileSyncDirect('rules/learning-events.jsonl', largeContent);
+    writeFileSyncDirect('.data/learning-events.jsonl', largeContent);
 
     const event = {
       timestamp: new Date().toISOString(),
@@ -198,7 +202,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
     expect(files[archiveKey!]).toBe(largeContent);
 
     // The active log should be fresh and only contain the new event
-    const activeContent = files['rules/learning-events.jsonl'];
+    const activeContent = files['.data/learning-events.jsonl'];
     expect(activeContent.trim()).toBe(JSON.stringify(event));
   });
 
@@ -212,7 +216,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
       userId: 'u1',
       companyId: 'company-123',
     };
-    writeFileSyncDirect('rules/learning-events.jsonl', JSON.stringify(activeEvent) + '\n');
+    writeFileSyncDirect('.data/learning-events.jsonl', JSON.stringify(activeEvent) + '\n');
 
     // Setup recent archive (within 30 days) containing 2 occurrences
     const recentEvent = {
@@ -224,7 +228,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
       companyId: 'company-123',
     };
     writeFileSyncDirect(
-      'rules/learning-events-archive-recent.jsonl',
+      '.data/learning-events-archive-recent.jsonl',
       JSON.stringify(recentEvent) + '\n' + JSON.stringify(recentEvent) + '\n'
     );
 
@@ -239,7 +243,7 @@ describe('Adaptive Engine Rotation and Memory Retrieval', () => {
       companyId: 'company-123',
     };
     writeFileSyncDirect(
-      'rules/learning-events-archive-old.jsonl',
+      '.data/learning-events-archive-old.jsonl',
       JSON.stringify(oldEvent) + '\n' + JSON.stringify(oldEvent) + '\n'
     );
 

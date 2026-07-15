@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
 import { join, dirname } from 'path';
 import { createHash } from 'crypto';
 import { normalizePattern } from '@/lib/services/pattern-normalizer';
+import { RUNTIME_FILES } from '@/lib/config/paths';
 import { logger } from '@/lib/logger';
 
 export type FeedbackEvent = {
@@ -26,9 +27,9 @@ export function computeDescriptionHash(description: string): string {
 const descriptionHashes = new Set<string>();
 
 export async function recordFeedback(event: FeedbackEvent) {
-  const logPath = join(process.cwd(), 'rules/learning-events.jsonl');
+  const logPath = RUNTIME_FILES.learningEvents;
 
-  await mkdir(join(process.cwd(), 'rules'), { recursive: true });
+  await mkdir(dirname(logPath), { recursive: true });
 
   // Rotate log if it exceeds 5MB
   try {
@@ -83,16 +84,13 @@ function preprocessForAdaptive(
 }
 
 export function generateCandidateRules(companyId: string) {
-  // Config was loaded from rules/learning-engine.json (deprecated).
-  // Using hardcoded defaults. Use DetectionConfig DB table for overrides.
+  const logPath = RUNTIME_FILES.learningEvents;
   const config: {
-    feedbackLogPath: string;
     minOccurrencesToGenerateRule: number;
     consistencyScoreThreshold: number;
     sanitizeNoise: Record<string, string>;
     patternGeneration: { ignoreStopWords: string[] };
   } = {
-    feedbackLogPath: 'rules/learning-events.jsonl',
     minOccurrencesToGenerateRule: 3,
     consistencyScoreThreshold: 0.85,
     sanitizeNoise: {
@@ -104,7 +102,6 @@ export function generateCandidateRules(companyId: string) {
       ignoreStopWords: ['to', 'from', 'payment', 'ach', 'zelle', 'conf', 'id'],
     },
   };
-  const logPath = join(process.cwd(), config.feedbackLogPath);
 
   const allEvents: FeedbackEvent[] = [];
 

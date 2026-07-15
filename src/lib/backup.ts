@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { RUNTIME_FILES } from '@/lib/config/paths';
 import { logger } from './logger';
 
 /* ─── Types ───────────────────────────────────────────────────────── */
@@ -242,7 +243,7 @@ export async function createBackup(companyId: string): Promise<{
   const systemConfig = await db.systemConfig.findMany();
 
   // Read company-config.json (currency, periodType)
-  const configPath = path.join(process.cwd(), 'rules', 'company-config.json');
+  const configPath = RUNTIME_FILES.companyConfig;
   let companyConfig: Record<string, unknown> | null = null;
   try {
     if (fs.existsSync(configPath)) {
@@ -740,11 +741,10 @@ export async function restoreBackup(
 
       // Restore company-config.json (currency, periodType)
       if (backupData.data.companyConfig) {
-        const rulesDir = path.join(process.cwd(), 'rules');
-        if (!fs.existsSync(rulesDir)) {
-          fs.mkdirSync(rulesDir, { recursive: true });
+        const configPath = RUNTIME_FILES.companyConfig;
+        if (!fs.existsSync(path.dirname(configPath))) {
+          fs.mkdirSync(path.dirname(configPath), { recursive: true });
         }
-        const configPath = path.join(rulesDir, 'company-config.json');
         let allConfig: { companies?: Record<string, unknown> } = { companies: {} };
         try {
           if (fs.existsSync(configPath)) {

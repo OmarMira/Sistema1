@@ -74,5 +74,13 @@ db/backups/
 *.sql
 test-restore.js
 
+# Runtime data (generated at runtime, not source code)
+.data/
+
+# Legacy runtime files (moved to .data/)
+rules/company-config.json
+rules/learning-events.jsonl
+rules/learning-events-archive-*.jsonl
+
 # Temp
 tsc-errors.txt

@@ -3,16 +3,17 @@ import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';
 import { CHART_OF_ACCOUNTS, seedChartOfAccounts } from '@/lib/chart-of-accounts';
+import { RUNTIME_FILES } from '@/lib/config/paths';
 import * as fs from 'fs';
 import * as path from 'path';
 
 // Helper seguro para guardar configs en JSON sin modificar el schema de Prisma
 function saveCompanyConfig(companyId: string, currency: string, periodType: string) {
-  const rulesDir = path.join(process.cwd(), 'rules');
-  if (!fs.existsSync(rulesDir)) {
-    fs.mkdirSync(rulesDir, { recursive: true });
+  const configPath = RUNTIME_FILES.companyConfig;
+  const configDir = path.dirname(configPath);
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
   }
-  const configPath = path.join(rulesDir, 'company-config.json');
   let configData: { companies: Record<string, unknown> } = { companies: {} };
   try {
     if (fs.existsSync(configPath)) {

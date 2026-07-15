@@ -22,9 +22,13 @@ const normalizePath = (p: string) => {
   if (clean.length > 1 && clean.endsWith('/')) {
     clean = clean.slice(0, -1);
   }
-  const index = clean.indexOf('rules');
-  if (index !== -1) {
-    return clean.slice(index);
+  const rulesIndex = clean.indexOf('rules');
+  if (rulesIndex !== -1) {
+    return clean.slice(rulesIndex);
+  }
+  const dataIndex = clean.indexOf('.data');
+  if (dataIndex !== -1) {
+    return clean.slice(dataIndex);
   }
   return clean;
 };
@@ -138,6 +142,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     computeDescriptionHash = mod.computeDescriptionHash;
     (globalThis as any)._fsFiles = {
       'rules/learning-engine.json': defaultEngineConfig,
+      '.data/learning-events.jsonl': '',
     };
   });
 
@@ -157,7 +162,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(baseEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const logContent = files['rules/learning-events.jsonl'];
+    const logContent = files['.data/learning-events.jsonl'];
     expect(logContent).toBeTruthy();
     expect(logContent.trim()).toBe(JSON.stringify(baseEvent));
   });
@@ -170,7 +175,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(eventB);
 
     const files = (globalThis as any)._fsFiles;
-    const lines = files['rules/learning-events.jsonl'].trim().split('\n');
+    const lines = files['.data/learning-events.jsonl'].trim().split('\n');
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0])).toMatchObject({ selectedGlAccountCode: '1010' });
     expect(JSON.parse(lines[1])).toMatchObject({ selectedGlAccountCode: '2020' });
@@ -181,7 +186,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(eventWithAmount);
 
     const files = (globalThis as any)._fsFiles;
-    const parsed = JSON.parse(files['rules/learning-events.jsonl'].trim());
+    const parsed = JSON.parse(files['.data/learning-events.jsonl'].trim());
     expect(parsed.amount).toBe(1500.5);
   });
 
@@ -189,7 +194,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(baseEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const parsed = JSON.parse(files['rules/learning-events.jsonl'].trim());
+    const parsed = JSON.parse(files['.data/learning-events.jsonl'].trim());
     expect(parsed).not.toHaveProperty('amount');
   });
 
@@ -198,7 +203,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(lowConfEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const parsed = JSON.parse(files['rules/learning-events.jsonl'].trim());
+    const parsed = JSON.parse(files['.data/learning-events.jsonl'].trim());
     expect(parsed.confidence).toBe(0);
   });
 
@@ -207,7 +212,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(highConfEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const parsed = JSON.parse(files['rules/learning-events.jsonl'].trim());
+    const parsed = JSON.parse(files['.data/learning-events.jsonl'].trim());
     expect(parsed.confidence).toBe(1);
   });
 
@@ -216,7 +221,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(debitEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const parsed = JSON.parse(files['rules/learning-events.jsonl'].trim());
+    const parsed = JSON.parse(files['.data/learning-events.jsonl'].trim());
     expect(parsed.amount).toBe(-250.0);
   });
 
@@ -225,7 +230,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(largeAmtEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const parsed = JSON.parse(files['rules/learning-events.jsonl'].trim());
+    const parsed = JSON.parse(files['.data/learning-events.jsonl'].trim());
     expect(parsed.amount).toBe(9999999.99);
   });
 
@@ -243,7 +248,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(duplicateEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const lines = files['rules/learning-events.jsonl'].trim().split('\n');
+    const lines = files['.data/learning-events.jsonl'].trim().split('\n');
     expect(lines).toHaveLength(1); // only first event recorded
     const parsed = JSON.parse(lines[0]);
     expect(parsed.confidence).toBe(0.9); // original event kept
@@ -260,7 +265,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(differentEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const lines = files['rules/learning-events.jsonl'].trim().split('\n');
+    const lines = files['.data/learning-events.jsonl'].trim().split('\n');
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0])).toMatchObject({ bankDescription: 'Zelle to Vendor X' });
     expect(JSON.parse(lines[1])).toMatchObject({ bankDescription: 'Wire Transfer to Supplier ABC' });
@@ -276,7 +281,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(sameButDifferentCase);
 
     const files = (globalThis as any)._fsFiles;
-    const lines = files['rules/learning-events.jsonl'].trim().split('\n');
+    const lines = files['.data/learning-events.jsonl'].trim().split('\n');
     expect(lines).toHaveLength(1); // same hash (lowercased before hashing)
   });
 
@@ -290,7 +295,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(paddedEvent);
 
     const files = (globalThis as any)._fsFiles;
-    const lines = files['rules/learning-events.jsonl'].trim().split('\n');
+    const lines = files['.data/learning-events.jsonl'].trim().split('\n');
     expect(lines).toHaveLength(1); // same hash (trimmed before hashing)
   });
 
@@ -306,7 +311,7 @@ describe('Adaptive Engine — recordFeedback', () => {
     await recordFeedback(event3); // unique
 
     const files = (globalThis as any)._fsFiles;
-    const lines = files['rules/learning-events.jsonl'].trim().split('\n');
+    const lines = files['.data/learning-events.jsonl'].trim().split('\n');
     expect(lines).toHaveLength(2);
     expect(JSON.parse(lines[0])).toMatchObject({ bankDescription: 'Zelle to Vendor X' });
     expect(JSON.parse(lines[1])).toMatchObject({ bankDescription: 'ACH Payment from Client' });

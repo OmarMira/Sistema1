@@ -9,6 +9,7 @@ import {
   type MatchingRule,
 } from '@/lib/services/rule-matching-engine';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
+import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 // ─── Constants ──────────────────────────────────────────────
 // Task 4.1: Replace the old MAX_SAFETY = 5000 with MAX_PER_BATCH = 200
@@ -82,11 +83,9 @@ export async function matchTransactions(
   const statementIds = companyStatements.map((s) => s.id);
 
   let unmatchedTransactions = await db.bankTransaction.findMany({
-    where: {
+    where: eligibleForClassificationWhere({
       statementId: { in: statementIds },
-      isReconciled: false,
-      matchedRuleId: null,
-    },
+    }),
   });
 
   const totalUnmatched = unmatchedTransactions.length;
@@ -170,7 +169,8 @@ export async function executeApplyAll(
   tx: any,
   matchResult: MatchResult,
 ): Promise<ApplyResult> {
-  const allMatchedIds: string[] = [];
+  let appliedCount = 0;
+  const allCandidateIds: string[] = [];
   const rulesMap = new Map<string, { debitGlAccountId?: string | null; creditGlAccountId?: string | null; glAccountId?: string | null }>();
 
   // Load the full rule data for GL account mapping
@@ -186,11 +186,9 @@ export async function executeApplyAll(
   // before applying. This prevents double-matching when concurrent requests race.
   const allTxIds = matchResult.matchedRules.flatMap((r) => r.txIds);
   const stillUnmatched = await tx.bankTransaction.findMany({
-    where: {
+    where: eligibleForClassificationWhere({
       id: { in: allTxIds },
-      isReconciled: false,
-      matchedRuleId: null,
-    },
+    }),
     select: { id: true },
   });
   const unmatchedSet = new Set(stillUnmatched.map((t: any) => t.id));
@@ -220,26 +218,35 @@ export async function executeApplyAll(
     creditIds.sort();
 
     // Process debits first, then credits (consistent lock order)
+    // TOCTOU defense: batch updateMany re-evaluates the invariant filter
+    // at UPDATE time via the WHERE clause. Protected transactions are
+    // silently excluded — result.count reflects only real updates.
     if (debitIds.length > 0) {
-      await tx.bankTransaction.updateMany({
-        where: { id: { in: debitIds } },
+      const result = await tx.bankTransaction.updateMany({
+        where: eligibleForClassificationWhere({ id: { in: debitIds } }),
         data: { glAccountId: debitGlAccountId, matchedRuleId: rule.id },
       });
-      allMatchedIds.push(...debitIds);
+      appliedCount += result.count;
+      allCandidateIds.push(...debitIds);
     }
 
     if (creditIds.length > 0) {
-      await tx.bankTransaction.updateMany({
-        where: { id: { in: creditIds } },
+      const result = await tx.bankTransaction.updateMany({
+        where: eligibleForClassificationWhere({ id: { in: creditIds } }),
         data: { glAccountId: creditGlAccountId, matchedRuleId: rule.id },
       });
-      allMatchedIds.push(...creditIds);
+      appliedCount += result.count;
+      allCandidateIds.push(...creditIds);
     }
   }
 
-  // Re-fetch matched transactions using tx client (inside the transaction)
+  // Re-fetch candidate transactions that now have a GL account, for
+  // downstream journal entry processing. This query does NOT identify which
+  // rows were updated by this operation — it may include transactions that
+  // obtained glAccountId from another concurrent process between our SELECT
+  // and UPDATE (see Race Analysis below).
   const matchedTxs = await tx.bankTransaction.findMany({
-    where: { id: { in: allMatchedIds }, glAccountId: { not: null }, journalEntryId: null },
+    where: { id: { in: allCandidateIds }, glAccountId: { not: null }, journalEntryId: null },
     select: { id: true, date: true, amount: true, description: true, glAccountId: true, statementId: true },
   });
 
@@ -281,7 +288,7 @@ export async function executeApplyAll(
   }
 
   return {
-    appliedCount: matchResult.totalCount,
+    appliedCount,
     journalEntryCount,
   };
 }

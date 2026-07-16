@@ -7,6 +7,7 @@ import type { EntityCandidate } from '@/lib/services/entity-detector';
 import type { EntityContext } from '@prisma/client';
 import type { TransactionIntent } from '@/lib/constants/transaction-intent';
 import type { EntityRole } from '@/lib/constants/entity-roles';
+import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 export interface ClassifyEntityInput {
   companyId: string;
@@ -204,9 +205,9 @@ export async function getEntityCandidates(companyId: string): Promise<EntityCand
   if (bankAccounts.length === 0) return [];
 
   const transactions = await db.bankTransaction.findMany({
-    where: {
+    where: eligibleForClassificationWhere({
       statement: { bankAccountId: { in: bankAccounts.map((a) => a.id) } },
-    },
+    }),
     select: { description: true, amount: true, date: true, id: true },
     take: 2000,
   });

@@ -4,6 +4,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { z } from 'zod';
 import { logger } from '@/lib/logger';
+import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 // Condition schema validation
 const conditionSchema = z.object({
@@ -83,10 +84,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
     // Fetch all unreconciled transactions for the company
     const transactions = await db.bankTransaction.findMany({
-      where: {
+      where: eligibleForClassificationWhere({
         statement: { companyId },
-        isReconciled: false,
-      },
+      }),
       select: {
         id: true,
         date: true,

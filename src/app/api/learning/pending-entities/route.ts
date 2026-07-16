@@ -4,6 +4,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { loadConfig, clusterCandidates } from '@/lib/services/entity-detector';
 import { logger } from '@/lib/logger';
+import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
@@ -11,15 +12,11 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   try {
     // Load un-reconciled, un-imputed transactions
     const transactions = await db.bankTransaction.findMany({
-      where: {
+      where: eligibleForClassificationWhere({
         statement: {
-          bankAccount: {
-            companyId,
-          },
+          bankAccount: { companyId },
         },
-        isReconciled: false,
-        glAccountId: null,
-      },
+      }),
       select: {
         description: true,
         amount: true,

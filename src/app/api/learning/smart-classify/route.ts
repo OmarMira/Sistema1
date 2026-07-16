@@ -5,6 +5,7 @@ import { requireCompanyContext } from '@/lib/context-storage';
 import { loadConfig, clusterByBehavior } from '@/lib/services/entity-detector';
 import { logger } from '@/lib/logger';
 import { toNum } from '@/lib/utils/decimal';
+import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 function normalizeForComparison(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, ' ');
@@ -19,15 +20,11 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   try {
     // Fetch unclassified, unreconciled bank transactions for this company
     const transactions = await db.bankTransaction.findMany({
-      where: {
+      where: eligibleForClassificationWhere({
         statement: {
-          bankAccount: {
-            companyId,
-          },
+          bankAccount: { companyId },
         },
-        isReconciled: false,
-        glAccountId: null,
-      },
+      }),
       select: {
         description: true,
         amount: true,

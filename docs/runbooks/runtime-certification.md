@@ -28,4 +28,4 @@ Before any modification that affects system execution, the following must be cer
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `../process/project-governance.md` sections 11 and 27
+- Extracted from the original monolithic governance document (sections 11 and 27)

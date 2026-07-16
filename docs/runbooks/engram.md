@@ -26,4 +26,4 @@ If Engram **is** available:
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `../process/project-governance.md` section 9
+- Extracted from the original monolithic governance document (section 9)

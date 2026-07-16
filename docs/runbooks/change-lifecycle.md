@@ -185,4 +185,4 @@ A task may only be declared complete when:
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `../process/project-governance.md` sections 1, 7, 13, 16, 17, 18, 19, 21, 28, 29
+- Extracted from the original monolithic governance document (sections 1, 7, 13, 16, 17, 18, 19, 21, 28, 29)

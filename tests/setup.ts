@@ -17,6 +17,26 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
+// ── Network barrier: every real fetch() must be mocked ──────────────
+// Any unmocked fetch throws with stack trace to identify the caller.
+// Component tests override via vi.stubGlobal('fetch', mockFn) in their
+// beforeEach; vitest restores this barrier after each test/teardown.
+const BARRIER_FETCH: typeof globalThis.fetch = (input, init) => {
+  const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+  const stack = new Error().stack?.split('\n').slice(2).join('\n') ?? '(no stack)';
+  const msg = [
+    `[NETWORK BARRIER] fetch() llamado durante tests sin mock.`,
+    `  URL: ${url}`,
+    `  Callsite:`,
+    stack,
+  ].join('\n');
+  console.error(msg);
+  throw new Error(msg);
+};
+if (typeof globalThis.fetch !== 'undefined') {
+  vi.stubGlobal('fetch', BARRIER_FETCH);
+}
+
 // Configure PDF.js worker for Node/Bun environment
 const workerPath = pathToFileURL(
   path.join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs')

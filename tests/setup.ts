@@ -17,6 +17,26 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 
+// ── Network barrier: every real fetch() must be mocked ──────────────
+// Uses direct assignment (not vi.stubGlobal) so vi.unstubAllGlobals()
+// in individual test files cannot permanently remove it.
+const BARRIER_FETCH: typeof globalThis.fetch = (input) => {
+  const url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+  const stack = new Error().stack?.split('\n').slice(2).join('\n') ?? '(no stack)';
+  const msg = [
+    `[NETWORK BARRIER] fetch() llamado durante tests sin mock.`,
+    `  URL: ${url}`,
+    `  Callsite:`,
+    stack,
+  ].join('\n');
+  console.error(msg);
+  throw new Error(msg);
+};
+globalThis.fetch = BARRIER_FETCH;
+beforeEach(() => {
+  globalThis.fetch = BARRIER_FETCH;
+});
+
 // Configure PDF.js worker for Node/Bun environment
 const workerPath = pathToFileURL(
   path.join(process.cwd(), 'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs')
@@ -24,7 +44,7 @@ const workerPath = pathToFileURL(
 pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
 
 // Mock the Z AI SDK globally in testing
-import { vi, beforeAll } from 'vitest';
+import { vi, beforeAll, beforeEach } from 'vitest';
 vi.mock('z-ai-web-dev-sdk', () => {
   return {
     default: {

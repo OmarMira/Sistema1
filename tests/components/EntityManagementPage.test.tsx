@@ -28,7 +28,8 @@ vi.mock('sonner', () => ({
 }));
 
 const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+
+function setupFetchStub() { vi.stubGlobal('fetch', mockFetch); }
 
 const mockEntities = [
   {
@@ -66,6 +67,7 @@ function setupFetchSuccess(data = mockEntities, totalPages = 1) {
 describe('EntityManagementPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setupFetchStub();
   });
 
   it('renders page title and search input', async () => {

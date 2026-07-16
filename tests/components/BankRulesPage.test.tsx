@@ -43,7 +43,8 @@ vi.mock('@/components/spa/settings/AIRulesGeneratorTab', () => ({
 }));
 
 const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+
+function setupFetchStub() { vi.stubGlobal('fetch', mockFetch); }
 
 const mockRules = [
   {
@@ -99,6 +100,7 @@ function setupFetchSuccess(rules = mockRules) {
 describe('BankRulesPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setupFetchStub();
   });
 
   it('renders page with rules table', async () => {

@@ -13,7 +13,7 @@ Before analyzing, modifying, deleting, moving, migrating, committing, or pushing
 - Certify `DATABASE_URL` presence and format (never show values or fragments)
 - Confirm PostgreSQL connectivity
 - If Engram is available: register objective and authorized files before starting
-- Read and apply `docs/process/governance.md`
+- Read and apply `../process/governance.md`
 
 If **any** check fails: **STOP** and inform.
 
@@ -164,7 +164,7 @@ What evidence exists?
 
 ## Safe Rollback
 
-Every task must explicitly state how to undo. See the full rollback procedure in `runbooks/database-change.md`.
+Every task must explicitly state how to undo. See the full rollback procedure in `database-change.md`.
 
 Git alone is not sufficient. A recovery plan must exist.
 
@@ -185,4 +185,4 @@ A task may only be declared complete when:
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `docs/process/project-governance.md` sections 1, 7, 13, 16, 17, 18, 19, 21, 28, 29
+- Extracted from `../process/project-governance.md` sections 1, 7, 13, 16, 17, 18, 19, 21, 28, 29

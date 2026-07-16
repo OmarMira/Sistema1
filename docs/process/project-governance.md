@@ -2,7 +2,7 @@
 
 > Este documento ha sido reestructurado. Su contenido original está en los destinos indicados abajo.
 >
-> **Nuevo SSOT ejecutivo:** `docs/process/governance.md`
+> **Nuevo SSOT ejecutivo:** `governance.md`
 > **Período de transición:** Ambos documentos coexisten hasta PR B. Este documento se eliminará una vez verificados todos los enlaces.
 
 ---

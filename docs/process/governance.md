@@ -130,7 +130,7 @@ Rules:
 - `Change History` must be updated with each change.
 - No rule may be removed without documenting why.
 - A new rule does not replace another without leaving traceability.
-- Changes to this document follow the same phases as code changes (see `runbooks/change-lifecycle.md`): propose, show, authorize, implement, verify.
+- Changes to this document follow the same phases as code changes (see `../runbooks/change-lifecycle.md`): propose, show, authorize, implement, verify.
 - New sections are not accepted without a demonstrated incident that existing rules did not prevent.
 - Corrections, clarifications, and incident-driven additions are always allowed.
 
@@ -182,20 +182,20 @@ This principle applies to:
 
 Before modifying any project content, the AI must complete:
 
-- **Mandatory Preflight** — see `runbooks/change-lifecycle.md`
-- **Baseline Certification** — see `runbooks/change-lifecycle.md`
-- **Critical Variable Certification** — see `runbooks/runtime-certification.md`
-- **Protected Modification Protocol** — see `runbooks/change-lifecycle.md`
-- **Blast Radius Declaration** — see `runbooks/change-lifecycle.md`
+- **Mandatory Preflight** — see `../runbooks/change-lifecycle.md`
+- **Baseline Certification** — see `../runbooks/change-lifecycle.md`
+- **Critical Variable Certification** — see `../runbooks/runtime-certification.md`
+- **Protected Modification Protocol** — see `../runbooks/change-lifecycle.md`
+- **Blast Radius Declaration** — see `../runbooks/change-lifecycle.md`
 
 Before committing, always execute:
 
-- **Pre-Commit Verification** — see `runbooks/verification.md`
+- **Pre-Commit Verification** — see `../runbooks/verification.md`
 
 Before declaring done, verify:
 
-- **Definition of Done** — see `runbooks/change-lifecycle.md`
-- **Regression Gate** — see `runbooks/change-lifecycle.md`
+- **Definition of Done** — see `../runbooks/change-lifecycle.md`
+- **Regression Gate** — see `../runbooks/change-lifecycle.md`
 
 ---
 
@@ -205,9 +205,9 @@ Any exception must be explicitly authorized by the user and documented.*
 ## Change History
 
 ### v1.1 (restructured) (2026-07-16)
-- Extracted domain invariants to `docs/domain/accounting-invariants.md`
+- Extracted domain invariants to `../domain/accounting-invariants.md`
 - Extracted operational procedures to `docs/runbooks/`
-- Extracted runtime data policy to `docs/process/runtime-data-policy.md`
+- Extracted runtime data policy to `runtime-data-policy.md`
 - Reduced governance to executive rules only (~13 sections)
 - Added Required Procedures section with cross-references to runbooks
 

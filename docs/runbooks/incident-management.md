@@ -45,4 +45,4 @@ The following approach is **prohibited**:
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `docs/process/project-governance.md` sections 15 and 25
+- Extracted from `../process/project-governance.md` sections 15 and 25

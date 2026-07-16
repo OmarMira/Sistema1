@@ -31,4 +31,4 @@ Includes:
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `docs/process/project-governance.md` section 23
+- Extracted from `project-governance.md` section 23

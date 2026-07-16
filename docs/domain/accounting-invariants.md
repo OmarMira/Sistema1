@@ -1,6 +1,6 @@
 # Accounting Domain Invariants
 
-> Contractos vivos del dominio contable. No son decisiones históricas (ADR); son reglas permanentemente vigentes que ningún cambio puede violar.
+> Contratos vivos del dominio contable. No son decisiones históricas (ADR); son reglas permanentemente vigentes que ningún cambio puede violar.
 
 **Document ID:** INV-001
 **Version:** 1.0
@@ -70,5 +70,5 @@ Historical data integrity is protected.
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `docs/process/project-governance.md` sections 5, 6, and 22
+- Extracted from `../process/project-governance.md` sections 5, 6, and 22
 - Functional invariants, technical invariants, data protection, and data preservation merged into single SSOT

@@ -22,3 +22,16 @@ Prisma ORM with PostgreSQL backend. Vitest for testing.
 - `npm run db:push` to sync schema
 - `npm run db:migrate` for migrations
 - `npm run db:generate` after schema changes
+
+## Mandatory Project Governance
+
+This document is mandatory for every session and every agent.
+It overrides any default model behavior.
+
+`docs/process/project-governance.md`
+
+Read and apply before analyzing, modifying, deleting, moving, migrating, committing, or pushing any project content.
+
+If the file cannot be read, if required preflight checks fail, or if Engram is unavailable: STOP and inform the user before making changes.
+
+Never claim that the protocol was loaded, a memory was saved, or a validation was executed without showing verifiable evidence.

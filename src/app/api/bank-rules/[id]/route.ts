@@ -6,6 +6,7 @@ import { createAuditLogWithRetry } from '@/lib/audit';
 import { validateDirectionProfile } from '@/lib/services/direction-validation';
 import { serverT } from '@/lib/server-i18n';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
+import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 import {
   transactionMatchesRule,
@@ -405,11 +406,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   const statementIds = companyStatements.map((s) => s.id);
 
   const unmatchedTransactions = await db.bankTransaction.findMany({
-    where: {
+    where: eligibleForClassificationWhere({
       statementId: { in: statementIds },
-      isReconciled: false,
-      matchedRuleId: null,
-    },
+    }),
   });
 
   // Match transactions in memory
@@ -424,7 +423,11 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     )
     .map((tx) => tx.id);
 
-  // Update matched transactions
+  // Update matched transactions with TOCTOU defense
+  // Batch updateMany re-evaluates the invariant filter at UPDATE time,
+  // so protected transactions are silently excluded without per-ID looping.
+  let actualMatched = 0;
+
   if (matchedIds.length > 0) {
     const debitIds: string[] = [];
     const creditIds: string[] = [];
@@ -432,29 +435,35 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     for (const txId of matchedIds) {
       const tx = unmatchedTransactions.find((t) => t.id === txId);
       if (tx) {
-        if (tx.amount < 0) {
-          debitIds.push(txId);
-        } else {
-          creditIds.push(txId);
-        }
+        if (tx.amount < 0) debitIds.push(txId);
+        else creditIds.push(txId);
       }
     }
 
     if (debitIds.length > 0) {
       const debitAccountId = rule.debitGlAccountId || rule.glAccountId;
-      await db.bankTransaction.updateMany({
-        where: { id: { in: debitIds } },
+      const result = await db.bankTransaction.updateMany({
+        where: eligibleForClassificationWhere({ id: { in: debitIds } }),
         data: { glAccountId: debitAccountId, matchedRuleId: rule.id },
       });
+      actualMatched += result.count;
     }
 
     if (creditIds.length > 0) {
       const creditAccountId = rule.creditGlAccountId || rule.glAccountId;
-      await db.bankTransaction.updateMany({
-        where: { id: { in: creditIds } },
+      const result = await db.bankTransaction.updateMany({
+        where: eligibleForClassificationWhere({ id: { in: creditIds } }),
         data: { glAccountId: creditAccountId, matchedRuleId: rule.id },
       });
+      actualMatched += result.count;
     }
+  }
+
+  if (actualMatched < matchedIds.length) {
+    console.warn(
+      `[single-rule apply] ${matchedIds.length - actualMatched} of ${matchedIds.length} ` +
+      `candidate transactions were protected and not updated (TOCTOU).`,
+    );
   }
 
   await createAuditLogWithRetry({
@@ -463,12 +472,12 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     action: 'RULE_APPLIED',
     entity: 'BankRule',
     entityId: rule.id,
-    details: JSON.stringify({ matchedCount: matchedIds.length, ruleName: rule.name }),
+    details: JSON.stringify({ matchedCount: actualMatched, ruleName: rule.name }),
   });
 
   return NextResponse.json({
     success: true,
-    matched: matchedIds.length,
+    matched: actualMatched,
     total: unmatchedTransactions.length,
   });
 });

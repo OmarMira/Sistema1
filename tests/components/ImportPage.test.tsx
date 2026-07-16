@@ -45,7 +45,8 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+
+function setupFetchStub() { vi.stubGlobal('fetch', mockFetch); }
 
 function setupFetchSuccess() {
   mockFetch.mockImplementation((url: string) => {
@@ -97,6 +98,7 @@ function setupWithHistory() {
 describe('ImportPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setupFetchStub();
   });
 
   it('renders upload area and import header', async () => {

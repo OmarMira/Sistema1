@@ -45,7 +45,8 @@ vi.mock('framer-motion', () => ({
 }));
 
 const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+
+function setupFetchStub() { vi.stubGlobal('fetch', mockFetch); }
 
 const mockPeriods = [
   { id: 'p1', name: 'January 2026', startDate: '2026-01-01', endDate: '2026-01-31', isLocked: false },
@@ -64,6 +65,7 @@ function setupFetchSuccess(periods = mockPeriods) {
 describe('FiscalPeriodsTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setupFetchStub();
   });
 
   it('renders fiscal periods list', async () => {

@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockFetch = vi.fn();
-global.fetch = mockFetch as any;
-
 import { fetchAddressSuggestions, type AddressData } from '@/lib/services/address-autocomplete';
 
 describe('fetchAddressSuggestions', () => {
+  const mockFetch = vi.fn();
+
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
   });
 
   it('should return empty array for null/undefined query', async () => {

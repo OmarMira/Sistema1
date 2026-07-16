@@ -53,7 +53,8 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
+
+function setupFetchStub() { vi.stubGlobal('fetch', mockFetch); }
 
 const mockAccounts = [
   {
@@ -106,6 +107,7 @@ function setupFetchSuccess(accounts = mockAccounts) {
 describe('AccountsClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    setupFetchStub();
   });
 
   it('renders chart of accounts title', async () => {

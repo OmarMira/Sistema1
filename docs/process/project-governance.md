@@ -1,3 +1,55 @@
+# Project Governance — Transition Document
+
+> Este documento ha sido reestructurado. Su contenido original está en los destinos indicados abajo.
+>
+> **Nuevo SSOT ejecutivo:** `docs/process/governance.md`
+> **Período de transición:** Ambos documentos coexisten hasta PR B. Este documento se eliminará una vez verificados todos los enlaces.
+
+---
+
+## Trazabilidad
+
+```
+—  Order of Precedence              → docs/process/governance.md
+1   Mandatory Preflight             → docs/runbooks/change-lifecycle.md
+2   Absolute Prohibitions           → docs/process/governance.md
+3   Protected Areas                 → docs/process/governance.md
+4   Database Changes                → docs/runbooks/database-change.md
+5   Accounting Integrity & Invariants → docs/domain/accounting-invariants.md
+6   Accounting Data Protection      → docs/domain/accounting-invariants.md
+7   Execution by Phases             → docs/runbooks/change-lifecycle.md
+8   Mandatory Pre-Commit Verification → docs/runbooks/verification.md
+9   Engram (Persistent Memory)      → docs/runbooks/engram.md
+10  Honesty Rule                    → docs/process/governance.md
+11  Critical Variable Certification → docs/runbooks/runtime-certification.md
+12  Secrets                         → docs/process/governance.md
+13  Change Impact Levels            → docs/runbooks/change-lifecycle.md
+14  Mandatory Evidence              → docs/runbooks/verification.md
+15  Incident Registry               → docs/runbooks/incident-management.md
+16  Protected Modification Protocol → docs/runbooks/change-lifecycle.md
+17  Baseline Certification          → docs/runbooks/change-lifecycle.md
+18  Blast Radius Declaration        → docs/runbooks/change-lifecycle.md
+19  Regression Gate                 → docs/runbooks/change-lifecycle.md
+20  No Hidden Changes               → docs/process/governance.md
+21  Safe Rollback                   → docs/runbooks/change-lifecycle.md (proc. completo en database-change.md)
+22  Data Preservation               → docs/domain/accounting-invariants.md
+23  Runtime vs Source               → docs/process/runtime-data-policy.md
+24  Destructive Command Confirmation → docs/process/governance.md
+25  Root Cause First                → docs/process/governance.md
+26  Governance Evolution            → docs/process/governance.md
+27  Runtime Certification           → docs/runbooks/runtime-certification.md
+28  Scope Freeze                    → docs/process/governance.md
+29  Definition of Done              → docs/runbooks/change-lifecycle.md
+30  No Behavioral Change Without Doc → docs/process/governance.md
+31  Public API Contract             → docs/process/governance.md
+32  Specification First             → docs/process/governance.md
+33  Verify State Before Acting      → docs/process/governance.md
+```
+
+**33 secciones originales → 0 eliminadas, 0 perdidas.**
+
+---
+
 # Project Governance — Account Express
 
 > Nunca declarar que un protocolo fue cargado, una memoria fue guardada

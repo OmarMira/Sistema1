@@ -9,45 +9,52 @@ import { EntityOnboardingModal } from '@/components/learning/EntityOnboardingMod
 afterEach(() => cleanup());
 
 // ─── Mock shadcn Select with native <select> for jsdom ────────────
-vi.mock('@/components/ui/select', () => {
-  const ALL_ROLES = [
-    'INQUILINO', 'PROVEEDOR', 'SOCIO', 'CLIENTE', 'EMPLEADO',
-    'TARJETA_CREDITO', 'PRESTAMO', 'GASTO_OPERATIVO', 'INGRESO', 'OTRO', 'IGNORADA',
-  ];
-  return {
-    Select: ({ value, onValueChange, disabled, children }: any) => {
-      let testId = 'mock-select';
-      React.Children.forEach(children, (child: any) => {
-        if (React.isValidElement(child) && child.props?.['data-testid']) {
-          testId = child.props['data-testid'];
-        }
-      });
-      return (
-        <select
-          data-testid={testId}
-          value={value ?? ''}
-          onChange={(e) => onValueChange?.(e.target.value)}
-          disabled={disabled}
-        >
-          {ALL_ROLES.map((r) => (
-            <option key={r} value={r}>{r}</option>
-          ))}
-        </select>
-      );
-    },
-    SelectTrigger: ({ className, children, ...props }: any) => (
-      <div data-testid="mock-select-trigger" {...props}>{children}</div>
-    ),
-    SelectValue: ({ placeholder }: any) => (
-      <span data-testid="mock-select-value">{placeholder}</span>
-    ),
-    SelectContent: ({ children }: any) => <>{children}</>,
-    SelectItem: ({ value, children }: any) => <>{children}</>,
-    SelectGroup: ({ children }: any) => <>{children}</>,
-    SelectLabel: () => null,
-    SelectSeparator: () => null,
-  };
-});
+vi.mock('@/components/ui/select', () => ({
+  Select: ({ value, onValueChange, disabled, children }: any) => {
+    let testId = 'mock-select';
+    const options: { value: string; label: string }[] = [];
+    React.Children.forEach(children, (child: any) => {
+      if (!React.isValidElement(child)) return;
+      if (child.props?.['data-testid']) {
+        testId = child.props['data-testid'];
+      }
+      if (child.props?.children) {
+        React.Children.forEach(child.props.children, (sub: any) => {
+          if (!React.isValidElement(sub)) return;
+          if (sub.props?.['data-testid']) {
+            testId = sub.props['data-testid'];
+          }
+          if (sub.props?.value !== undefined) {
+            options.push({ value: sub.props.value, label: String(sub.props.children ?? sub.props.value) });
+          }
+        });
+      }
+    });
+    return (
+      <select
+        data-testid={testId}
+        value={value ?? ''}
+        onChange={(e) => onValueChange?.(e.target.value)}
+        disabled={disabled}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>{o.label}</option>
+        ))}
+      </select>
+    );
+  },
+  SelectTrigger: ({ className, children, ...props }: any) => (
+    <div data-testid="mock-select-trigger" {...props}>{children}</div>
+  ),
+  SelectValue: ({ placeholder }: any) => (
+    <span data-testid="mock-select-value">{placeholder}</span>
+  ),
+  SelectContent: ({ children }: any) => <>{children}</>,
+  SelectItem: ({ value, children }: any) => <>{children}</>,
+  SelectGroup: ({ children }: any) => <>{children}</>,
+  SelectLabel: () => null,
+  SelectSeparator: () => null,
+}));
 
 // ─── Mocks ─────────────────────────────────────────────────────────
 
@@ -105,6 +112,26 @@ const tFn = vi.hoisted(() => vi.fn((key: string, params?: Record<string, any>) =
     'learning.suggestionReady': '{role} ({account}). {explanation}',
     'learning.suggestionAssign': 'ASIGN',
     'learning.suggestionError': 'Not available now',
+    'learning.automationToggle': 'Do you want to automate these transactions?',
+    'learning.saveEntity': 'Save entity',
+    'learning.saveEntityAndRule': 'Save entity and create rule',
+    'learning.conflictError': 'This entity already has a rule for this intent with a different GL account.',
+    'learning.noAccounts': 'No GL accounts available',
+    'learning.loadingAccounts': 'Loading accounts...',
+    'learning.accountsError': 'Failed to load GL accounts.',
+    'learning.intentRequired': 'Intent is required when creating a rule.',
+    'learning.glAccountRequired': 'GL Account is required when creating a rule.',
+    'learning.intentSelectorPlaceholder': 'What does this movement represent?',
+    'learning.glAccount': 'GL Account',
+    'learning.accountPlaceholder': 'Select an account...',
+    'transactionIntent.OPERATING_EXPENSE': 'Operating Expense',
+    'transactionIntent.LOAN_PAYMENT': 'Loan Payment',
+    'transactionIntent.RENT_PAYMENT': 'Rent Payment',
+    'transactionIntent.OWNER_CONTRIBUTION': 'Owner Contribution',
+    'transactionIntent.CUSTOMER_PAYMENT': 'Customer Payment',
+    'transactionIntent.TRANSFER': 'Transfer',
+    'transactionIntent.TAX_PAYMENT': 'Tax Payment',
+    'transactionIntent.OTHER': 'Other',
     'common.cancel': 'Cancel',
     'settings.aiConfigTab': 'AI Config',
   };
@@ -168,6 +195,7 @@ function setupFetch(
     suggestRoleResponse?: any;
     classifyResponse?: any;
     suggestRoleStatus?: number;
+    classifyStatus?: number;
   },
 ) {
   mockFetch.mockImplementation((url: string, req?: RequestInit) => {
@@ -176,6 +204,12 @@ function setupFetch(
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({ success: true, data: candidates }),
+      });
+    }
+    if (u.includes('/api/accounts')) {
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ accounts: [{ id: 'gl-1', code: '4010', name: 'Test Account' }] }),
       });
     }
     if (u.includes('/api/learning/suggest-role')) {
@@ -196,11 +230,17 @@ function setupFetch(
       });
     }
     if (u.includes('/api/learning/classify-entity') && req?.method === 'POST') {
+      const status = options?.classifyStatus ?? 200;
       return Promise.resolve({
-        ok: true,
+        ok: status >= 200 && status < 300,
+        status,
         json: () =>
           Promise.resolve(
-            options?.classifyResponse ?? { success: true, data: { role: 'PROVEEDOR' } },
+            status >= 200 && status < 300
+              ? options?.classifyResponse ?? { success: true, data: { role: 'PROVEEDOR' } }
+              : status === 409
+                ? { error: 'CONFLICT: Rule already exists with a different GL Account' }
+                : { error: 'Classify error' },
           ),
       });
     }
@@ -267,7 +307,7 @@ describe('EntityOnboardingModal', () => {
 
   // ── 3.1 — Button text derivation ──────────────────────────────────
   describe('3.1 — Button text derivation', () => {
-    it('shows assign button in manual mode for non-OTRO roles', async () => {
+    it('shows save button in manual mode for non-OTRO roles', async () => {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       setupFetch([debitCandidate]);
       render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
@@ -278,7 +318,7 @@ describe('EntityOnboardingModal', () => {
 
       await selectRole(user, 0, 'PROVEEDOR');
 
-      const assignBtn = screen.getByRole('button', { name: /Assign/i });
+      const assignBtn = screen.getByRole('button', { name: /Save entity/i });
       expect(assignBtn).toBeInTheDocument();
       expect(assignBtn).not.toBeDisabled();
     });
@@ -496,6 +536,259 @@ describe('EntityOnboardingModal', () => {
 
       expect(screen.getByTestId('manual-select-btn')).toBeInTheDocument();
       expect(screen.getByTestId('pre-classify-btn')).toBeInTheDocument();
+    });
+  });
+
+  // ── S6-02: Automation toggle ─────────────────────────────────────
+  describe('S6-02 — Entity Onboarding UI automation', () => {
+    function getToggle(name: string): HTMLInputElement {
+      const toggles = screen.getAllByTestId('create-rule-toggle');
+      const idx = [...screen.getAllByTestId('create-rule-toggle')].findIndex(
+        (t) => t.closest('.border')?.textContent?.includes(name),
+      );
+      return screen.getAllByTestId<HTMLInputElement>('create-rule-toggle')[idx >= 0 ? idx : 0];
+    }
+
+    it('toggle is off by default', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      expect(toggle).not.toBeChecked();
+    });
+
+    it('OFF hides intent and GL account selectors', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      expect(screen.queryByTestId('intent-select')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('gl-account-select')).not.toBeInTheDocument();
+    });
+
+    it('OFF sends createRule:false', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+      await user.click(screen.getByRole('button', { name: /Save entity/i }));
+
+      await waitFor(() => {
+        const call = mockFetch.mock.calls.find(
+          (c: any) => c[0].includes('classify-entity'),
+        );
+        expect(call).toBeDefined();
+        const body = JSON.parse(call[1].body);
+        expect(body.createRule).toBe(false);
+      });
+    });
+
+    it('ON shows intent and GL account selectors', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      await waitFor(() => {
+        expect(screen.getByTestId('intent-select')).toBeInTheDocument();
+      });
+      expect(screen.getByTestId('gl-account-select')).toBeInTheDocument();
+    });
+
+    it('ON blocks submit if intent or GL account is missing', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      const saveBtn = screen.getByRole('button', { name: /Save entity and create rule/i });
+      expect(saveBtn).toBeDisabled();
+    });
+
+    it('ON sends createRule:true with intent and GL account', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      const intentSelect = screen.getByTestId('intent-select');
+      await user.selectOptions(intentSelect, 'OPERATING_EXPENSE');
+
+      const glSelect = screen.getByTestId('gl-account-select');
+      await user.selectOptions(glSelect, '4010');
+
+      await user.click(screen.getByRole('button', { name: /Save entity and create rule/i }));
+
+      await waitFor(() => {
+        const call = mockFetch.mock.calls.find(
+          (c: any) => c[0].includes('classify-entity'),
+        );
+        expect(call).toBeDefined();
+        const body = JSON.parse(call[1].body);
+        expect(body.createRule).toBe(true);
+        expect(body.intent).toBe('OPERATING_EXPENSE');
+        expect(body.glAccountCode).toBe('4010');
+      });
+    });
+
+    it('role and intent remain independent (no coupling)', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      await user.selectOptions(screen.getByTestId('intent-select'), 'LOAN_PAYMENT');
+      await user.selectOptions(screen.getByTestId('gl-account-select'), '4010');
+
+      await user.click(screen.getByRole('button', { name: /Save entity and create rule/i }));
+
+      await waitFor(() => {
+        const call = mockFetch.mock.calls.find(
+          (c: any) => c[0].includes('classify-entity'),
+        );
+        expect(call).toBeDefined();
+        const body = JSON.parse(call[1].body);
+        // Role stays PROVEEDOR, not overwritten by LOAN_PAYMENT intent
+        expect(body.role).toBe('PROVEEDOR');
+        expect(body.intent).toBe('LOAN_PAYMENT');
+      });
+    });
+
+    it('GASTO_OPERATIVO and INGRESO are not in the role selector', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const roleSelect = screen.getAllByTestId('role-select')[0];
+      const options = Array.from(roleSelect.querySelectorAll('option')).map((o: any) => o.value);
+      expect(options).not.toContain('GASTO_OPERATIVO');
+      expect(options).not.toContain('INGRESO');
+      expect(options).not.toContain('IGNORADA');
+    });
+
+    it('409 conflict is shown without closing the modal', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate], { classifyStatus: 409 });
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      await user.selectOptions(screen.getByTestId('intent-select'), 'OPERATING_EXPENSE');
+      await user.selectOptions(screen.getByTestId('gl-account-select'), '4010');
+
+      await user.click(screen.getByRole('button', { name: /Save entity and create rule/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/CONFLICT/i)).toBeInTheDocument();
+      });
+
+      // Modal is still open — we can still interact
+      expect(screen.getByTestId('create-rule-toggle')).toBeInTheDocument();
+    });
+
+    it('success OFF saves entity only', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      await user.click(screen.getByRole('button', { name: /Save entity/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('All entities classified')).toBeInTheDocument();
+      });
+    });
+
+    it('success ON saves entity and creates rule', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'PROVEEDOR');
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      await user.selectOptions(screen.getByTestId('intent-select'), 'OPERATING_EXPENSE');
+      await user.selectOptions(screen.getByTestId('gl-account-select'), '4010');
+
+      await user.click(screen.getByRole('button', { name: /Save entity and create rule/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('All entities classified')).toBeInTheDocument();
+      });
     });
   });
 });

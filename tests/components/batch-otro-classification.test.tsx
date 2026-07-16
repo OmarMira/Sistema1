@@ -95,6 +95,7 @@ const tFn = vi.hoisted(() => vi.fn((key: string, params?: Record<string, any>) =
     'learning.suggestionBanner.newRoleUse': 'Use this role',
     'learning.suggestionBanner.newRoleCancel': 'Cancel',
     'common.cancel': 'Cancel',
+    'learning.saveEntity': 'Save entity',
     'settings.aiConfigTab': 'AI Config',
   };
   let value = map[key] ?? key;
@@ -294,7 +295,7 @@ describe('Batch OTRO — handler modifications', () => {
     // Wait for selection to settle — no crash, no error
     await waitFor(() => {
       // The accept button should be enabled (PROVEEDOR is not OTRO)
-      const saveBtn = screen.getByRole('button', { name: /Assign/i });
+      const saveBtn = screen.getByRole('button', { name: /Save entity/i });
       expect(saveBtn).not.toBeDisabled();
     });
   });

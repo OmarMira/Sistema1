@@ -32,11 +32,13 @@ import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
 import { logger } from '@/lib/logger';
-import { EXPECTED_DIRECTION, UI_ROLES, ROLE_LABELS } from '@/lib/constants/entity-roles';
+import { EXPECTED_DIRECTION, ROLE_LABELS } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
+import { TRANSACTION_INTENT_VALUES } from '@/lib/constants/transaction-intent';
 import { classifyDirection } from '@/lib/services/direction-filter';
 
 const CUSTOM_ROLE = '__CUSTOM__';
+const ACTOR_ROLES = ['INQUILINO', 'PROVEEDOR', 'SOCIO', 'CLIENTE', 'EMPLEADO', 'TARJETA_CREDITO', 'PRESTAMO', 'OTRO'] as const;
 
 /* ─── Types ─────────────────────────────────────────────────────────── */
 
@@ -78,6 +80,105 @@ function isMixedDirection(profile: { creditPct: number; debitPct: number }): boo
   return profile.creditPct >= 0.15 && profile.debitPct >= 0.15;
 }
 
+/* ── Automation section shared between manual and suggestion states ── */
+function renderAutomationSection(
+  name: string,
+  t: (key: string, params?: Record<string, string | number>) => string,
+  createRuleFlags: Record<string, boolean>,
+  setCreateRuleFlags: React.Dispatch<React.SetStateAction<Record<string, boolean>>>,
+  intentValues: Record<string, string>,
+  setIntentValues: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+  glAccountCodes: Record<string, string>,
+  setGlAccountCodes: React.Dispatch<React.SetStateAction<Record<string, string>>>,
+  glAccounts: Array<{ id: string; code: string; name: string }>,
+  glAccountsLoading: boolean,
+  glAccountsError: string | null,
+) {
+  const isOn = createRuleFlags[name] ?? false;
+
+  return (
+    <div className="border-t pt-3 mt-3 space-y-3">
+      {/* ── Toggle ── */}
+      <label className="flex items-center gap-2 cursor-pointer text-sm">
+        <input
+          type="checkbox"
+          checked={isOn}
+          onChange={(e) =>
+            setCreateRuleFlags((prev) => ({ ...prev, [name]: e.target.checked }))
+          }
+          className="h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary"
+          data-testid="create-rule-toggle"
+        />
+        <span className="select-none">{t('learning.automationToggle')}</span>
+      </label>
+
+      {/* ── When ON: intent + GL account ── */}
+      {isOn && (
+        <div className="space-y-3 pl-1">
+          {/* Intent selector */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              {t('learning.intentSelectorPlaceholder')}
+            </label>
+            <Select
+              value={intentValues[name] ?? ''}
+              onValueChange={(v) => setIntentValues((prev) => ({ ...prev, [name]: v }))}
+            >
+              <SelectTrigger className="h-8 text-sm" data-testid="intent-select">
+                <SelectValue placeholder={t('learning.intentSelectorPlaceholder')} />
+              </SelectTrigger>
+              <SelectContent>
+                {TRANSACTION_INTENT_VALUES.map((intent) => (
+                  <SelectItem key={intent} value={intent}>
+                    {t(`transactionIntent.${intent}`)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* GL Account selector */}
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">
+              {t('learning.glAccount')}
+            </label>
+            {glAccountsLoading ? (
+              <span className="text-xs text-muted-foreground">{t('learning.loadingAccounts')}</span>
+            ) : glAccountsError ? (
+              <span className="text-xs text-red-500">{glAccountsError}</span>
+            ) : glAccounts.length === 0 ? (
+              <span className="text-xs text-muted-foreground">{t('learning.noAccounts')}</span>
+            ) : (
+              <Select
+                value={glAccountCodes[name] ?? ''}
+                onValueChange={(v) => setGlAccountCodes((prev) => ({ ...prev, [name]: v }))}
+              >
+                <SelectTrigger className="h-8 text-sm" data-testid="gl-account-select">
+                  <SelectValue placeholder={t('learning.accountPlaceholder')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {glAccounts.map((acc) => (
+                    <SelectItem key={acc.id} value={acc.code}>
+                      {acc.code} — {acc.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {/* Rule preview */}
+          {intentValues[name] && glAccountCodes[name] && (
+            <div className="p-2 border rounded text-xs text-muted-foreground bg-muted/30">
+              {t('transactionIntent.' + intentValues[name])} → {glAccountCodes[name]}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── Component ─────────────────────────────────────────────────────── */
 
 export function EntityOnboardingModal({
@@ -104,6 +205,16 @@ export function EntityOnboardingModal({
   const [customRoleNames, setCustomRoleNames] = useState<Record<string, string>>({});
   // Per-entity error message
   const [entityErrors, setEntityErrors] = useState<Record<string, string>>({});
+  // Per-entity create-rule toggle
+  const [createRuleFlags, setCreateRuleFlags] = useState<Record<string, boolean>>({});
+  // Per-entity selected intent
+  const [intentValues, setIntentValues] = useState<Record<string, string>>({});
+  // Per-entity selected GL account code
+  const [glAccountCodes, setGlAccountCodes] = useState<Record<string, string>>({});
+  // Shared GL accounts list
+  const [glAccounts, setGlAccounts] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [glAccountsLoading, setGlAccountsLoading] = useState(false);
+  const [glAccountsError, setGlAccountsError] = useState<string | null>(null);
 
   const abortControllers = useRef<Record<string, AbortController>>({});
   const savedRef = useRef<Set<string>>(new Set());
@@ -131,7 +242,24 @@ export function EntityOnboardingModal({
       }
     }
 
+    async function fetchGlAccounts() {
+      setGlAccountsLoading(true);
+      setGlAccountsError(null);
+      try {
+        const res = await fetch(`/api/accounts?companyId=${companyId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setGlAccounts((data.accounts ?? []).map((a: any) => ({ id: a.id, code: a.code, name: a.name })));
+        }
+      } catch {
+        setGlAccountsError(t('learning.accountsError'));
+      } finally {
+        setGlAccountsLoading(false);
+      }
+    }
+
     fetchData();
+    fetchGlAccounts();
 
     return () => {
       for (const controller of Object.values(abortControllers.current)) {
@@ -144,6 +272,10 @@ export function EntityOnboardingModal({
       setCustomRoleNames({});
       setDescriptions({});
       setEntityErrors({});
+      setCreateRuleFlags({});
+      setIntentValues({});
+      setGlAccountCodes({});
+      setGlAccounts([]);
       savedRef.current = new Set();
     };
   }, [companyId, isOpen, t]);
@@ -229,21 +361,31 @@ export function EntityOnboardingModal({
   }, [companyId, descriptions, entityStates, t]);
 
   /* ── Assign immediately (State 3 → saved) ──────────────────────────── */
-  async function handleAssign(name: string, role: string, userDescription?: string) {
+  async function handleAssign(
+    name: string,
+    role: string,
+    userDescription?: string,
+    extra?: { createRule?: boolean; intent?: string; glAccountCode?: string },
+  ) {
     setState(name, 'saving');
     setEntityErrors((prev) => ({ ...prev, [name]: '' }));
 
     try {
+      const body: Record<string, unknown> = {
+        companyId,
+        pattern: name,
+        userInput: name,
+        role,
+        createRule: extra?.createRule ?? false,
+        ...(userDescription ? { userDescription } : {}),
+        ...(extra?.intent ? { intent: extra.intent } : {}),
+        ...(extra?.glAccountCode ? { glAccountCode: extra.glAccountCode } : {}),
+      };
+
       const res = await fetch('/api/learning/classify-entity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          companyId,
-          pattern: name,
-          userInput: name,
-          role,
-          ...(userDescription ? { userDescription } : {}),
-        }),
+        body: JSON.stringify(body),
       });
 
       if (res.ok) {
@@ -251,15 +393,19 @@ export function EntityOnboardingModal({
         setState(name, 'saved');
         toast.success(`${name} → ${ROLE_LABELS[role as EntityRole] || role}`);
         if (onComplete) onComplete();
+      } else if (res.status === 409) {
+        const errBody = await res.json().catch(() => ({}));
+        setEntityErrors((prev) => ({ ...prev, [name]: errBody.error || t('learning.conflictError') }));
+        setState(name, getState(name) === 'manual' ? 'manual' : 'suggestion');
       } else {
         const errBody = await res.json().catch(() => ({}));
         setEntityErrors((prev) => ({ ...prev, [name]: errBody.error || 'Error' }));
-        setState(name, 'suggestion');
+        setState(name, getState(name) === 'manual' ? 'manual' : 'suggestion');
       }
     } catch (err) {
       logger.error('Assign error', { name, error: String(err) });
       setEntityErrors((prev) => ({ ...prev, [name]: 'Error de red' }));
-      setState(name, 'suggestion');
+      setState(name, getState(name) === 'manual' ? 'manual' : 'suggestion');
     }
   }
 
@@ -293,10 +439,18 @@ export function EntityOnboardingModal({
     if (role === CUSTOM_ROLE) {
       const customName = customRoleNames[name]?.trim().toUpperCase();
       if (!customName || customName.length < 2) return;
-      await handleAssign(name, customName);
+      await handleAssign(name, customName, undefined, {
+        createRule: createRuleFlags[name],
+        intent: intentValues[name],
+        glAccountCode: glAccountCodes[name],
+      });
       return;
     }
-    await handleAssign(name, role);
+    await handleAssign(name, role, undefined, {
+      createRule: createRuleFlags[name],
+      intent: intentValues[name],
+      glAccountCode: glAccountCodes[name],
+    });
   }
 
   /* ── Assign OTRO directly without AI (State 6 → saved) ────────────── */
@@ -464,11 +618,19 @@ export function EntityOnboardingModal({
                               ? t('learning.suggestionBanner.confidence', { percent: Math.round(suggestion.confidence * 100) })
                               : t('learning.suggestionBanner.lowConfidence', { percent: Math.round(suggestion.confidence * 100) })}
                           </span>
+
+                          {/* ── Automation section ── */}
+                          {renderAutomationSection(name, t, createRuleFlags, setCreateRuleFlags, intentValues, setIntentValues, glAccountCodes, setGlAccountCodes, glAccounts, glAccountsLoading, glAccountsError)}
+
                           <div className="flex flex-wrap gap-2 mt-3">
                             <Button
                               size="sm"
                               className="h-8 text-sm"
-                              onClick={() => handleAssign(name, suggestion.suggestedRole)}
+                              onClick={() => handleAssign(name, suggestion.suggestedRole, undefined, {
+                                createRule: createRuleFlags[name],
+                                intent: intentValues[name],
+                                glAccountCode: glAccountCodes[name],
+                              })}
                             >
                               ✅ {t('learning.suggestionBanner.newRoleUse')}
                             </Button>
@@ -508,12 +670,20 @@ export function EntityOnboardingModal({
                                 : t('learning.suggestionBanner.lowConfidence', { percent: Math.round(suggestion.confidence * 100) })}
                             </span>
                           </div>
+
+                          {/* ── Automation section ── */}
+                          {renderAutomationSection(name, t, createRuleFlags, setCreateRuleFlags, intentValues, setIntentValues, glAccountCodes, setGlAccountCodes, glAccounts, glAccountsLoading, glAccountsError)}
+
                           <div className="flex flex-wrap gap-2">
                             <Button
                               size="sm"
                               className="h-8 text-sm"
                               data-testid="accept-suggestion-btn"
-                              onClick={() => handleAssign(name, suggestion.suggestedRole)}
+                              onClick={() => handleAssign(name, suggestion.suggestedRole, undefined, {
+                                createRule: createRuleFlags[name],
+                                intent: intentValues[name],
+                                glAccountCode: glAccountCodes[name],
+                              })}
                             >
                               ✅ {t('learning.suggestionBanner.accept')}
                             </Button>
@@ -587,7 +757,7 @@ export function EntityOnboardingModal({
                             <SelectValue placeholder={t('learning.rolePlaceholder')} />
                           </SelectTrigger>
                           <SelectContent>
-                            {UI_ROLES.map((r) => (
+                            {ACTOR_ROLES.map((r) => (
                               <SelectItem key={r} value={r}>
                                 {ROLE_LABELS[r] || r}
                               </SelectItem>
@@ -653,13 +823,23 @@ export function EntityOnboardingModal({
 
                       {/* Assign button for base roles (excludes OTRO and Custom) */}
                       {manualRole && !isOtro && !isCustom && (
-                        <Button
-                          size="sm"
-                          className="h-8 text-sm"
-                          onClick={() => handleManualAssign(name)}
-                        >
-                          ✅ {t('learning.suggestionBanner.accept')}
-                        </Button>
+                        <div className="space-y-3">
+                          {renderAutomationSection(name, t, createRuleFlags, setCreateRuleFlags, intentValues, setIntentValues, glAccountCodes, setGlAccountCodes, glAccounts, glAccountsLoading, glAccountsError)}
+
+                          <Button
+                            size="sm"
+                            className="h-8 text-sm"
+                            disabled={
+                              (createRuleFlags[name] ?? false) &&
+                              (!intentValues[name] || !glAccountCodes[name])
+                            }
+                            onClick={() => handleManualAssign(name)}
+                          >
+                            ✅ {(createRuleFlags[name] ?? false)
+                              ? t('learning.saveEntityAndRule')
+                              : t('learning.saveEntity')}
+                          </Button>
+                        </div>
                       )}
 
                       {/* Back to pending */}

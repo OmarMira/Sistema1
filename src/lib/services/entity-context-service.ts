@@ -2,6 +2,8 @@ import { db } from '@/lib/db';
 import { entityContextSchema } from '@/lib/validations/entity-context';
 import { normalizePattern } from '@/lib/services/pattern-normalizer';
 
+type TxClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
 /**
  * Strips common bank transaction prefixes from a pattern string.
  * This is caller-specific pre-processing — normalizes raw user-provided
@@ -44,7 +46,7 @@ export async function saveContext(data: {
   transactionDirection?: string | null;
   userDescription?: string | null;
   autoAssignedAt?: Date | null;
-}, tx?: any) {
+}, tx?: TxClient) {
   const client = tx || db;
   const normalized = normalizePattern(stripTransactionPrefixes(data.pattern));
   const validated = entityContextSchema.parse({

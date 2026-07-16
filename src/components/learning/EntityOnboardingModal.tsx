@@ -32,7 +32,7 @@ import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
 import { logger } from '@/lib/logger';
-import { EXPECTED_DIRECTION, ROLE_LABELS } from '@/lib/constants/entity-roles';
+import { ROLE_LABELS } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { TRANSACTION_INTENT_VALUES } from '@/lib/constants/transaction-intent';
 import { classifyDirection } from '@/lib/services/direction-filter';
@@ -69,12 +69,6 @@ interface EntityOnboardingModalProps {
 }
 
 /* ─── Helpers ───────────────────────────────────────────────────────── */
-
-function getDirectionHint(role: string): string | null {
-  const expectedDir = EXPECTED_DIRECTION[role as EntityRole];
-  if (expectedDir === null || expectedDir === 'mixed' || expectedDir === undefined) return null;
-  return expectedDir === 'credit' ? 'Expected: Income' : 'Expected: Expense';
-}
 
 function isMixedDirection(profile: { creditPct: number; debitPct: number }): boolean {
   return profile.creditPct >= 0.15 && profile.debitPct >= 0.15;

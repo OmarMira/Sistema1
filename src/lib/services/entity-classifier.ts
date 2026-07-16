@@ -10,6 +10,8 @@ import type { TransactionIntent } from '@/lib/constants/transaction-intent';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
+type TxClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
 export interface ClassifyEntityInput {
   companyId: string;
   pattern: string;
@@ -62,27 +64,7 @@ export async function computeDirectionProfile(
   return 'any';
 }
 
-export function deriveRoleFromIntent(
-  intent?: TransactionIntent | null,
-  providedRole?: string | null,
-): string {
-  if (intent != null) {
-    switch (intent) {
-      case 'CUSTOMER_PAYMENT': return 'CLIENTE';
-      case 'RENT_PAYMENT': return 'INQUILINO';
-      case 'OWNER_CONTRIBUTION': return 'SOCIO';
-      case 'LOAN_PAYMENT': return 'PRESTAMO';
-      case 'OPERATING_EXPENSE':
-      case 'TAX_PAYMENT': return 'GASTO_OPERATIVO';
-      case 'OTHER':
-      case 'TRANSFER':
-      default: return 'OTRO';
-    }
-  }
 
-  // No intent → preserve the provided role as-is, or fallback to OTRO
-  return providedRole ?? 'OTRO';
-}
 
 /**
  * Auto-create or reactivate a BankRule linked to the given EntityContext.
@@ -93,7 +75,7 @@ export async function autoCreateRule(
   context: { id: string; pattern: string; glAccountId: string | null; conditions?: any[] },
   direction: 'debit' | 'credit' | 'any',
   intent?: TransactionIntent | null,
-  tx?: any,
+  tx?: TxClient,
 ): Promise<{ warning?: string }> {
   if (!context.glAccountId) {
     return { warning: 'No GL account linked — rule not created' };

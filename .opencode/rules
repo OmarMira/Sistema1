@@ -31,9 +31,6 @@ It overrides any default model behavior.
 Primary:
 `docs/process/governance.md`
 
-Migration reference (PR B will remove):
-`docs/process/project-governance.md`
-
 Read and apply before analyzing, modifying, deleting, moving, migrating, committing, or pushing any project content.
 
 If the file cannot be read, if required preflight checks fail, or if Engram is unavailable: STOP and inform the user before making changes.

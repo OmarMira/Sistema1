@@ -70,5 +70,5 @@ Historical data integrity is protected.
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `../process/project-governance.md` sections 5, 6, and 22
+- Extracted from the original monolithic governance document (sections 5, 6, and 22)
 - Functional invariants, technical invariants, data protection, and data preservation merged into single SSOT

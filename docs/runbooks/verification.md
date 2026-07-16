@@ -52,4 +52,4 @@ Evidence is part of the deliverable. Without it, the task is not complete.
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `../process/project-governance.md` sections 8 and 14
+- Extracted from the original monolithic governance document (sections 8 and 14)

@@ -34,5 +34,5 @@ Rollback Plan
 ## Change History
 
 ### v1.0 (2026-07-16)
-- Extracted from `../process/project-governance.md` section 4
+- Extracted from the original monolithic governance document (section 4)
 - Rollback data procedure added from section 21

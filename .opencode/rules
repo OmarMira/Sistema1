@@ -28,6 +28,10 @@ Prisma ORM with PostgreSQL backend. Vitest for testing.
 This document is mandatory for every session and every agent.
 It overrides any default model behavior.
 
+Primary:
+`docs/process/governance.md`
+
+Migration reference (PR B will remove):
 `docs/process/project-governance.md`
 
 Read and apply before analyzing, modifying, deleting, moving, migrating, committing, or pushing any project content.

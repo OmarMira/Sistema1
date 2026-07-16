@@ -2,6 +2,7 @@ import { db } from '@/lib/db';
 import { loadConfig, clusterCandidates, extractComponents } from '@/lib/services/entity-detector';
 import { saveContext } from '@/lib/services/entity-context-service';
 import { normalizePattern } from '@/lib/services/pattern-normalizer';
+import { normalize } from '@/lib/services/rule-engine-adapter/conditions-normalizer';
 import { logger } from '@/lib/logger';
 import type { EntityCandidate } from '@/lib/services/entity-detector';
 import type { EntityContext } from '@prisma/client';
@@ -21,6 +22,7 @@ export interface ClassifyEntityInput {
   userDescription?: string | null;
   intent?: TransactionIntent | null;
   autoAssign?: boolean;
+  createRule?: boolean;
 }
 
 /**
@@ -84,81 +86,111 @@ export function deriveRoleFromIntent(
 
 /**
  * Auto-create or reactivate a BankRule linked to the given EntityContext.
- * Dedup logic:
- *   - Active rule with same entityContextId → skip
- *   - Inactive rule with same entityContextId → reactivate + update fields
- *   - Manual rule with entityContextId=null and same pattern → skip
- * Wraps the operation in a Prisma $transaction to prevent race conditions.
+ * Dedup logic compares entityContextId + intent + transactionDirection + conditions.
  */
 export async function autoCreateRule(
   companyId: string,
-  context: { id: string; pattern: string; glAccountId: string | null },
+  context: { id: string; pattern: string; glAccountId: string | null; conditions?: any[] },
   direction: 'debit' | 'credit' | 'any',
   intent?: TransactionIntent | null,
+  tx?: any,
 ): Promise<{ warning?: string }> {
   if (!context.glAccountId) {
     return { warning: 'No GL account linked — rule not created' };
   }
 
-  return db.$transaction(async (tx) => {
-    const existing = await tx.bankRule.findFirst({
-      where: { entityContextId: context.id },
-    });
+  const client = tx || db;
+  const normalizedPattern = normalizePattern(context.pattern);
+  const newConditions = context.conditions ?? [];
 
-    if (existing) {
-      if (existing.isActive) {
-        // Active rule with same entityContextId → skip
-        return {};
+  function conditionsSig(conds: unknown[]): string {
+    if (conds.length === 0) return '[]';
+    const normalizedConds = normalize(conds);
+    const sorted = [...normalizedConds].sort((a, b) => {
+      const byType = a.type.localeCompare(b.type);
+      if (byType !== 0) return byType;
+      const aVal = String(a.value);
+      const bVal = String(b.value);
+      if (aVal < bVal) return -1;
+      if (aVal > bVal) return 1;
+      if (a.range && b.range) return a.range[0] - b.range[0] || a.range[1] - b.range[1];
+      if (a.range) return 1;
+      if (b.range) return -1;
+      return 0;
+    });
+    return JSON.stringify(sorted.map((c) => ({ type: c.type, value: c.value, range: c.range })));
+  }
+
+  const newSig = conditionsSig(newConditions);
+
+  const existingRules = await client.bankRule.findMany({
+    where: { entityContextId: context.id },
+  });
+
+  const existingMatch = existingRules.find((rule: any) => {
+    const isSameIntent = rule.intent === (intent || null);
+    const isSameDirection = rule.transactionDirection === direction;
+    const isSameConditions = rule.conditions
+      ? conditionsSig(rule.conditions as unknown[]) === newSig
+      : newSig === '[]';
+    return isSameIntent && isSameDirection && isSameConditions;
+  });
+
+  if (existingMatch) {
+    if (existingMatch.isActive) {
+      if (existingMatch.glAccountId !== context.glAccountId) {
+        throw new Error('CONFLICT: Rule already exists with a different GL Account');
       }
-      // Inactive rule → reactivate and update
-      await tx.bankRule.update({
-        where: { id: existing.id },
-        data: {
-          isActive: true,
-          glAccountId: context.glAccountId,
-          transactionDirection: direction,
-          conditionValue: normalizePattern(context.pattern),
-          conditionType: 'contains',
-          intent: intent ?? null,
-          ...(direction === 'debit' ? { debitGlAccountId: context.glAccountId } : {}),
-          ...(direction === 'credit' ? { creditGlAccountId: context.glAccountId } : {}),
-        },
-      });
       return {};
     }
-
-    // No existing rule → create new
-    await tx.bankRule.create({
+    await client.bankRule.update({
+      where: { id: existingMatch.id },
       data: {
-        companyId,
-        name: `Auto: ${context.pattern}`,
-        conditionType: 'contains',
-        conditionValue: normalizePattern(context.pattern),
-        glAccountId: context.glAccountId,
-        transactionDirection: direction,
-        priority: 5,
         isActive: true,
-        entityContextId: context.id,
-        intent: intent ?? null,
+        glAccountId: context.glAccountId,
         ...(direction === 'debit' ? { debitGlAccountId: context.glAccountId } : {}),
         ...(direction === 'credit' ? { creditGlAccountId: context.glAccountId } : {}),
       },
     });
-
     return {};
+  }
+
+  await client.bankRule.create({
+    data: {
+      companyId,
+      name: `Auto: ${context.pattern}${intent ? ` (${intent})` : ''}`,
+      conditionType: 'contains',
+      conditionValue: normalizedPattern,
+      conditions: newConditions.length > 0 ? newConditions : undefined,
+      glAccountId: context.glAccountId,
+      transactionDirection: direction,
+      priority: 5,
+      isActive: true,
+      entityContextId: context.id,
+      intent: intent ?? null,
+      ...(direction === 'debit' ? { debitGlAccountId: context.glAccountId } : {}),
+      ...(direction === 'credit' ? { creditGlAccountId: context.glAccountId } : {}),
+    },
   });
+
+  return {};
 }
 
 export async function classifyEntity(
   input: ClassifyEntityInput,
 ): Promise<{ context: EntityContext; warning?: string }> {
-  const { companyId, pattern, role, roles, glAccountCode, source, userId, transactionDirection, userDescription, intent, autoAssign } = input;
-  const finalRole = deriveRoleFromIntent(intent, role);
+  const { companyId, pattern, role, roles, glAccountCode, source, userId, transactionDirection, userDescription, intent, autoAssign, createRule } = input;
+  const decidedToCreate = createRule === true;
+  const finalRole = role ?? 'OTRO';
   const finalRoles = roles?.length ? roles : undefined;
   const trimmedUserDescription = typeof userDescription === 'string' ? userDescription.trim() : userDescription;
 
   if ((intent === 'OTHER' || finalRole === 'OTRO') && !trimmedUserDescription) {
     throw new Error('userDescription is required when intent is OTHER or role is OTRO');
+  }
+
+  if (decidedToCreate && (!intent || !glAccountCode)) {
+    throw new Error('Intent and GL account are required when createRule is true');
   }
 
   let glAccountId: string | null = null;
@@ -169,31 +201,36 @@ export async function classifyEntity(
     if (acc) glAccountId = acc.id;
   }
 
-  const context = await saveContext({
-    companyId,
-    pattern,
-    role: finalRole,
-    roles: finalRoles,
-    glAccountId,
-    source: source ?? 'user',
-    userId,
-    ...(transactionDirection !== undefined ? { transactionDirection } : {}),
-    ...(trimmedUserDescription != null ? { userDescription: trimmedUserDescription } : {}),
-    ...(autoAssign ? { autoAssignedAt: new Date() } : {}),
+  return db.$transaction(async (tx) => {
+    const context = await saveContext({
+      companyId,
+      pattern,
+      role: finalRole,
+      roles: finalRoles,
+      glAccountId,
+      source: source ?? 'user',
+      userId,
+      ...(transactionDirection !== undefined ? { transactionDirection } : {}),
+      ...(trimmedUserDescription != null ? { userDescription: trimmedUserDescription } : {}),
+      ...(autoAssign ? { autoAssignedAt: new Date() } : {}),
+    }, tx);
+
+    const direction = await computeDirectionProfile(companyId, pattern);
+
+    let warning: string | undefined;
+    if (decidedToCreate || autoAssign) {
+      if (intent && glAccountId) {
+        const result = await autoCreateRule(companyId, { id: context.id, pattern, glAccountId }, direction, intent, tx);
+        warning = result.warning;
+      } else {
+        warning = 'No rule created: intent or GL account not specified';
+      }
+    }
+
+    logger.info('[ENTITY CLASSIFIED]', { companyId, pattern, role: finalRole, roles: finalRoles, warning });
+
+    return { context, warning };
   });
-
-  const direction = await computeDirectionProfile(companyId, pattern);
-
-  // Only auto-create rule if user explicitly confirmed or auto-assigned
-  let warning: string | undefined;
-  if (source === 'user' || autoAssign) {
-    const result = await autoCreateRule(companyId, { id: context.id, pattern, glAccountId }, direction, intent);
-    warning = result.warning;
-  }
-
-  logger.info('[ENTITY CLASSIFIED]', { companyId, pattern, role: finalRole, roles: finalRoles, warning });
-
-  return { context, warning };
 }
 
 export async function getEntityCandidates(companyId: string): Promise<EntityCandidate[]> {

@@ -34,6 +34,7 @@ import { loadConfig, clusterCandidates, extractComponents } from '@/lib/services
 import { saveContext } from '@/lib/services/entity-context-service';
 import {
   classifyEntity,
+  autoCreateRule,
   getEntityCandidates,
   getKnownSocioPatterns,
 } from '@/lib/services/entity-classifier';
@@ -117,15 +118,18 @@ describe('classifyEntity()', () => {
       userId: 'user-1',
     });
 
-    expect(saveContext).toHaveBeenCalledWith({
-      companyId: 'comp-1',
-      pattern: 'ACME CORP',
-      role: 'PROVEEDOR',
-      roles: undefined,
-      glAccountId: null,
-      source: 'user',
-      userId: 'user-1',
-    });
+    expect(saveContext).toHaveBeenCalledWith(
+      {
+        companyId: 'comp-1',
+        pattern: 'ACME CORP',
+        role: 'PROVEEDOR',
+        roles: undefined,
+        glAccountId: null,
+        source: 'user',
+        userId: 'user-1',
+      },
+      expect.anything(),
+    );
   });
 
   it('resolves glAccountCode to glAccountId and passes it', async () => {
@@ -144,6 +148,7 @@ describe('classifyEntity()', () => {
     });
     expect(saveContext).toHaveBeenCalledWith(
       expect.objectContaining({ glAccountId: 'gl-001' }),
+      expect.anything(),
     );
   });
 
@@ -161,6 +166,7 @@ describe('classifyEntity()', () => {
 
     expect(saveContext).toHaveBeenCalledWith(
       expect.objectContaining({ glAccountId: null }),
+      expect.anything(),
     );
   });
 
@@ -175,6 +181,7 @@ describe('classifyEntity()', () => {
 
     expect(saveContext).toHaveBeenCalledWith(
       expect.objectContaining({ source: 'user' }),
+      expect.anything(),
     );
   });
 
@@ -190,7 +197,166 @@ describe('classifyEntity()', () => {
 
     expect(saveContext).toHaveBeenCalledWith(
       expect.objectContaining({ roles: ['SOCIO', 'CLIENTE'] }),
+      expect.anything(),
     );
+  });
+
+  it('keeps role and intent independent and does not coupling them', async () => {
+    (saveContext as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'ctx-1' });
+    mockDb.glAccount.findFirst.mockResolvedValue({ id: 'gl-001' });
+
+    await classifyEntity({
+      companyId: 'comp-1',
+      pattern: 'TOYOTA',
+      role: 'PROVEEDOR',
+      intent: 'LOAN_PAYMENT',
+      glAccountCode: '2040',
+    });
+
+    expect(saveContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'PROVEEDOR', // kept explicitly as PROVEEDOR, not overwritten to PRESTAMO
+      }),
+      expect.anything(),
+    );
+  });
+
+  it('does not create any rule when intent or account is missing (toggle OFF)', async () => {
+    (saveContext as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'ctx-1' });
+    mockDb.glAccount.findFirst.mockResolvedValue(null);
+
+    const result = await classifyEntity({
+      companyId: 'comp-1',
+      pattern: 'APPLE.COM',
+      role: 'PROVEEDOR',
+    });
+
+    expect(result.warning).toBeUndefined();
+  });
+
+  it('allows creating multiple rules for the same entity if they have different intents', async () => {
+    (saveContext as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'ctx-1', pattern: 'TOYOTA' });
+    mockDb.glAccount.findFirst.mockResolvedValue({ id: 'gl-loan' });
+
+    // Mock existing rules for this entity Context: 1 rule already exists for LOAN_PAYMENT
+    const mockFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'rule-loan',
+        entityContextId: 'ctx-1',
+        intent: 'LOAN_PAYMENT',
+        transactionDirection: 'debit',
+        conditionValue: 'toyota',
+        glAccountId: 'gl-loan',
+        isActive: true,
+      }
+    ]);
+    const mockCreate = vi.fn().mockResolvedValue({});
+
+    mockDb.$transaction.mockImplementation(async (fn: Function) => {
+      const tx = {
+        bankRule: {
+          findMany: mockFindMany,
+          create: mockCreate,
+        },
+      };
+      return fn(tx);
+    });
+
+    // Now try to classify with a different intent (e.g. INSURANCE_EXPENSE)
+    await classifyEntity({
+      companyId: 'comp-1',
+      pattern: 'TOYOTA',
+      role: 'PROVEEDOR',
+      intent: 'OPERATING_EXPENSE', // Different intent!
+      glAccountCode: '5000',
+      createRule: true,
+    });
+
+    // Should create a NEW rule!
+    expect(mockCreate).toHaveBeenCalled();
+  });
+
+  it('throws a conflict error when rule with same signature exists with a different account', async () => {
+    (saveContext as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'ctx-1', pattern: 'TOYOTA' });
+    mockDb.glAccount.findFirst.mockResolvedValue({ id: 'gl-new-loan' }); // different account code
+
+    const mockFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'rule-loan',
+        entityContextId: 'ctx-1',
+        intent: 'LOAN_PAYMENT',
+        transactionDirection: 'any', // default direction for mock
+        conditionValue: 'toyota',
+        glAccountId: 'gl-old-loan', // different account!
+        isActive: true,
+      }
+    ]);
+
+    mockDb.$transaction.mockImplementation(async (fn: Function) => {
+      const tx = {
+        bankRule: {
+          findMany: mockFindMany,
+          create: vi.fn(),
+        },
+      };
+      return fn(tx);
+    });
+
+    await expect(
+      classifyEntity({
+        companyId: 'comp-1',
+        pattern: 'TOYOTA',
+        role: 'PROVEEDOR',
+        intent: 'LOAN_PAYMENT',
+        glAccountCode: '2040',
+        createRule: true,
+      })
+    ).rejects.toThrow('CONFLICT: Rule already exists with a different GL Account');
+  });
+
+  it('dedup matches conditions regardless of array ordering', async () => {
+    const mockCreate = vi.fn();
+    const mockFindMany = vi.fn().mockResolvedValue([
+      {
+        id: 'rule-1',
+        entityContextId: 'ctx-1',
+        intent: 'OPERATING_EXPENSE',
+        transactionDirection: 'debit',
+        conditions: [
+          { type: 'amount_gt', value: 100 },
+          { type: 'description_contains', value: 'toyota' },
+        ],
+        glAccountId: 'gl-001',
+        isActive: true,
+      },
+    ]);
+
+    const tx = {
+      bankRule: {
+        findMany: mockFindMany,
+        create: mockCreate,
+        update: vi.fn(),
+      },
+    };
+
+    const result = await autoCreateRule(
+      'comp-1',
+      {
+        id: 'ctx-1',
+        pattern: 'TOYOTA',
+        glAccountId: 'gl-001',
+        conditions: [
+          { type: 'description_contains', value: 'toyota' },
+          { type: 'amount_gt', value: 100 },
+        ],
+      },
+      'debit',
+      'OPERATING_EXPENSE',
+      tx,
+    );
+
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(result.warning).toBeUndefined();
   });
 });
 

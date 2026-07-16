@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
-import { classifyEntity, deriveRoleFromIntent, getEntityCandidates } from '@/lib/services/entity-classifier';
+import { classifyEntity, getEntityCandidates } from '@/lib/services/entity-classifier';
 import { parseConversationalContext } from '@/lib/services/conversational-service';
 import { safeAuditLog } from '@/lib/services/audit-service';
 import { db } from '@/lib/db';
@@ -15,7 +15,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
   try {
     const body = await request.json();
-    const { pattern, userInput, glAccountCode, role, transactionDirection, directionOverride, userDescription, intent, autoAssign } = body;
+    const { pattern, userInput, glAccountCode, role, transactionDirection, directionOverride, userDescription, intent, autoAssign, createRule } = body;
 
     if (!pattern) {
       return NextResponse.json(
@@ -41,7 +41,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       logger.warn('[DIRECTION OVERRIDE]', { pattern, role, userId });
     }
 
-    let finalRole = parsedIntent ? deriveRoleFromIntent(parsedIntent, role) : role;
+    let finalRole = role;
     let finalGlAccountCode = glAccountCode;
 
     if (!finalRole) {
@@ -56,7 +56,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         undefined,
         locale,
       );
-      finalRole = deriveRoleFromIntent(parsedIntent, parseResult.role);
+      finalRole = parseResult.role;
       finalGlAccountCode = finalGlAccountCode || parseResult.glAccountCode;
     }
 
@@ -64,6 +64,14 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     if (finalRole === 'OTRO' && !trimmedUserDescription) {
       return NextResponse.json(
         { error: 'userDescription is required when role is OTRO' },
+        { status: 400 },
+      );
+    }
+
+    // Validate createRule prerequisite
+    if (createRule === true && (!parsedIntent || !finalGlAccountCode)) {
+      return NextResponse.json(
+        { error: 'Intent and GL account are required when createRule is true' },
         { status: 400 },
       );
     }
@@ -79,10 +87,12 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       transactionDirection: transactionDirection ?? undefined,
       userDescription: trimmedUserDescription ?? null,
       intent: parsedIntent,
+      createRule: createRule === true,
       ...(autoAssign !== undefined ? { autoAssign } : {}),
     });
 
-    const ruleCreationWarning = classifyResult.warning === 'No GL account linked — rule not created';
+    const ruleRequested = createRule === true;
+    const ruleCreationWarning = classifyResult.warning ? true : false;
 
     await safeAuditLog({
       companyId,
@@ -96,8 +106,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         directionOverride: directionOverride || undefined,
         intent: parsedIntent,
         userDescription: trimmedUserDescription ?? null,
-        ruleCreated: !ruleCreationWarning,
-        requiresReview: ruleCreationWarning,
+        ruleCreated: ruleRequested && !ruleCreationWarning,
+        requiresReview: ruleRequested && ruleCreationWarning,
+        createRule: ruleRequested,
       },
     });
 
@@ -105,11 +116,15 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       success: true,
       data: { role: finalRole, entityContext: classifyResult.context },
       ...(classifyResult.warning ? { warning: classifyResult.warning } : {}),
-      ...(ruleCreationWarning ? { ruleCreated: false, requiresReview: true } : { ruleCreated: true }),
+      ...(ruleRequested && !ruleCreationWarning ? { ruleCreated: true } : {}),
+      ...(ruleRequested && ruleCreationWarning ? { ruleCreated: false, requiresReview: true } : {}),
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : serverT(locale, 'learning.serverError');
     logger.error('[CLASSIFY ENTITY ERROR]', { error: msg });
+    if (msg.includes('CONFLICT')) {
+      return NextResponse.json({ error: msg }, { status: 409 });
+    }
     return NextResponse.json({ error: msg }, { status: 500 });
   }
 });

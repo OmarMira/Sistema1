@@ -44,7 +44,8 @@ export async function saveContext(data: {
   transactionDirection?: string | null;
   userDescription?: string | null;
   autoAssignedAt?: Date | null;
-}) {
+}, tx?: any) {
+  const client = tx || db;
   const normalized = normalizePattern(stripTransactionPrefixes(data.pattern));
   const validated = entityContextSchema.parse({
     companyId: data.companyId,
@@ -61,7 +62,7 @@ export async function saveContext(data: {
     ? data.userDescription.trim()
     : data.userDescription;
 
-  const context = await db.entityContext.upsert({
+  const context = await client.entityContext.upsert({
     where: {
       companyId_pattern: {
         companyId: validated.companyId,
@@ -92,7 +93,7 @@ export async function saveContext(data: {
 
   // Log in AuditLog if userId is provided
   if (data.userId) {
-    await db.auditLog.create({
+    await client.auditLog.create({
       data: {
         companyId: data.companyId,
         userId: data.userId,

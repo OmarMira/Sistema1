@@ -234,6 +234,24 @@ describe('classifyEntity()', () => {
     expect(result.warning).toBeUndefined();
   });
 
+  it('throws when createRule=true and GL account code does not resolve to active account', async () => {
+    (saveContext as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'ctx-1' });
+    mockDb.glAccount.findFirst.mockResolvedValue(null);
+
+    await expect(
+      classifyEntity({
+        companyId: 'comp-1',
+        pattern: 'FAKE CORP',
+        role: 'PROVEEDOR',
+        glAccountCode: '9999',
+        intent: 'OPERATING_EXPENSE',
+        createRule: true,
+      }),
+    ).rejects.toThrow('GL account not found: 9999');
+
+    expect(saveContext).not.toHaveBeenCalled();
+  });
+
   it('allows creating multiple rules for the same entity if they have different intents', async () => {
     (saveContext as ReturnType<typeof vi.fn>).mockResolvedValue({ id: 'ctx-1', pattern: 'TOYOTA' });
     mockDb.glAccount.findFirst.mockResolvedValue({ id: 'gl-loan' });

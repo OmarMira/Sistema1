@@ -620,6 +620,10 @@ export function EntityOnboardingModal({
                             <Button
                               size="sm"
                               className="h-8 text-sm"
+                              disabled={
+                                (createRuleFlags[name] ?? false) &&
+                                (!intentValues[name] || !glAccountCodes[name])
+                              }
                               onClick={() => handleAssign(name, suggestion.suggestedRole, undefined, {
                                 createRule: createRuleFlags[name],
                                 intent: intentValues[name],
@@ -673,6 +677,10 @@ export function EntityOnboardingModal({
                               size="sm"
                               className="h-8 text-sm"
                               data-testid="accept-suggestion-btn"
+                              disabled={
+                                (createRuleFlags[name] ?? false) &&
+                                (!intentValues[name] || !glAccountCodes[name])
+                              }
                               onClick={() => handleAssign(name, suggestion.suggestedRole, undefined, {
                                 createRule: createRuleFlags[name],
                                 intent: intentValues[name],

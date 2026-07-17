@@ -183,6 +183,10 @@ export async function classifyEntity(
     if (acc) glAccountId = acc.id;
   }
 
+  if (decidedToCreate && glAccountCode && !glAccountId) {
+    throw new Error(`GL account not found: ${glAccountCode}`);
+  }
+
   return db.$transaction(async (tx) => {
     const context = await saveContext({
       companyId,

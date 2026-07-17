@@ -790,5 +790,74 @@ describe('EntityOnboardingModal', () => {
         expect(screen.getByText('All entities classified')).toBeInTheDocument();
       });
     });
+
+    it('FR-7: existing-role suggestion button is disabled when toggle ON without intent/account', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([debitCandidate], {
+        suggestRoleResponse: {
+          suggestedRole: 'PROVEEDOR',
+          confidence: 0.92,
+          explanation: 'Supplier pattern match',
+        },
+      });
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'OTRO');
+
+      const textarea = await screen.findByPlaceholderText('Describe what this entity is...');
+      await user.type(textarea, 'pays invoices monthly');
+
+      await user.click(screen.getByRole('button', { name: /Suggest role/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText('Suggestion: Proveedor')).toBeInTheDocument();
+      });
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      const acceptBtn = screen.getByRole('button', { name: /assign/i });
+      expect(acceptBtn).toBeDisabled();
+    });
+
+    it('FR-7: new-role suggestion button is disabled when toggle ON without intent/account', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([debitCandidate], {
+        suggestRoleResponse: {
+          suggestedRole: 'PROVEEDOR',
+          confidence: 0.92,
+          explanation: 'Supplier pattern match',
+          isNewRole: true,
+        },
+      });
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+
+      await selectRole(user, 0, 'OTRO');
+
+      const textarea = await screen.findByPlaceholderText('Describe what this entity is...');
+      await user.type(textarea, 'pays invoices monthly');
+
+      await user.click(screen.getByRole('button', { name: /Suggest role/i }));
+
+      await waitFor(() => {
+        expect(screen.getByText(/Suggested new role/i)).toBeInTheDocument();
+      });
+
+      const toggle = screen.getByTestId<HTMLInputElement>('create-rule-toggle');
+      await user.click(toggle);
+
+      const useBtn = screen.getByRole('button', { name: /Use this role/i });
+      expect(useBtn).toBeDisabled();
+    });
   });
 });

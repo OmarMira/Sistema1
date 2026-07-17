@@ -45,4 +45,23 @@ export function initRuntimeData(): void {
   initFromDefault('', RUNTIME_FILES.learningEvents);
 
   logger.info('[RUNTIME] Initialization complete', { dir: RUNTIME_DIR });
+
+  // Non-blocking AI config integrity check (fire-and-forget — does not block startup)
+  void import('@/lib/ai-config').then(({ checkAiConfigIntegrity }) =>
+    checkAiConfigIntegrity().then((health) => {
+      switch (health.code) {
+        case 'AI_CONFIG_OK':
+          logger.info('[AI CONFIG] Startup check OK');
+          break;
+        case 'AI_CONFIG_MISSING':
+          logger.warn('[AI CONFIG] Startup check: not configured (set via Settings → AI)');
+          break;
+        case 'AI_CONFIG_CORRUPTED':
+          logger.error('[AI CONFIG] Startup check FAILED — ' + health.detail);
+          break;
+      }
+    }).catch((err) => {
+      logger.error('[AI CONFIG] Startup integrity check threw unexpectedly', { error: String(err) });
+    }),
+  );
 }

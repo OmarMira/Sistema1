@@ -26,6 +26,14 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+const { mockCheckAiConfigIntegrity } = vi.hoisted(() => ({
+  mockCheckAiConfigIntegrity: vi.fn<() => Promise<{ status: string; code: string; detail: string }>>(),
+}));
+
+vi.mock('@/lib/ai-config', () => ({
+  checkAiConfigIntegrity: mockCheckAiConfigIntegrity,
+}));
+
 type FileSystem = Record<string, string | undefined>;
 const fsFiles: FileSystem = {};
 
@@ -49,6 +57,9 @@ describe('initRuntimeData', () => {
 
   beforeEach(() => {
     vi.resetModules();
+    mockCheckAiConfigIntegrity.mockResolvedValue({
+      status: 'OK', code: 'AI_CONFIG_OK', detail: 'default',
+    });
     for (const key of Object.getOwnPropertyNames(fsFiles)) {
       delete fsFiles[key];
     }
@@ -119,4 +130,58 @@ describe('initRuntimeData', () => {
     expect(fsFiles[LEGACY_LEARNING_EVENTS]).toBe('{"event":"a"}\n');
   });
 
+  describe('startup AI config integrity check', () => {
+    it('AI_CONFIG_OK → logger.info', async () => {
+      mockCheckAiConfigIntegrity.mockResolvedValue({
+        status: 'OK', code: 'AI_CONFIG_OK', detail: 'AI configuration is valid',
+      });
+      const { initRuntimeData } = await import('@/lib/init-runtime');
+      const { logger } = await import('@/lib/logger');
+      initRuntimeData();
+      await vi.waitFor(() => {
+        expect(logger.info).toHaveBeenCalledWith('[AI CONFIG] Startup check OK');
+      });
+    });
+
+    it('AI_CONFIG_MISSING → logger.warn', async () => {
+      mockCheckAiConfigIntegrity.mockResolvedValue({
+        status: 'MISSING', code: 'AI_CONFIG_MISSING', detail: 'not configured',
+      });
+      const { initRuntimeData } = await import('@/lib/init-runtime');
+      const { logger } = await import('@/lib/logger');
+      initRuntimeData();
+      await vi.waitFor(() => {
+        expect(logger.warn).toHaveBeenCalledWith(
+          '[AI CONFIG] Startup check: not configured (set via Settings → AI)',
+        );
+      });
+    });
+
+    it('AI_CONFIG_CORRUPTED → logger.error with detail', async () => {
+      mockCheckAiConfigIntegrity.mockResolvedValue({
+        status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: 'Decryption failed',
+      });
+      const { initRuntimeData } = await import('@/lib/init-runtime');
+      const { logger } = await import('@/lib/logger');
+      initRuntimeData();
+      await vi.waitFor(() => {
+        expect(logger.error).toHaveBeenCalledWith(
+          '[AI CONFIG] Startup check FAILED — Decryption failed',
+        );
+      });
+    });
+
+    it('unexpected rejection does not crash initRuntimeData', async () => {
+      mockCheckAiConfigIntegrity.mockRejectedValue(new Error('network error'));
+      const { initRuntimeData } = await import('@/lib/init-runtime');
+      const { logger } = await import('@/lib/logger');
+      initRuntimeData();
+      await vi.waitFor(() => {
+        expect(logger.error).toHaveBeenCalledWith(
+          '[AI CONFIG] Startup integrity check threw unexpectedly',
+          expect.objectContaining({ error: 'Error: network error' }),
+        );
+      });
+    });
+  });
 });

@@ -26,9 +26,7 @@ export function clearAiConfigCache(): void {
 
 // ─── DB keys ─────────────────────────────────────────────────────────────────
 
-const KEY_ENCRYPTED_KEY = 'ai_encrypted_key';
-const KEY_MODEL = 'ai_model';
-const KEY_BASE_URL = 'ai_base_url';
+const { ENCRYPTED_KEY: KEY_ENCRYPTED_KEY, MODEL: KEY_MODEL, BASE_URL: KEY_BASE_URL } = AI_CONFIG.STORAGE_KEYS;
 
 async function getDbValue(key: string): Promise<string | null> {
   const row = await db.systemConfig.findUnique({ where: { key } });
@@ -132,6 +130,9 @@ export async function setAiConfig(config: {
   model?: string;
   baseUrl?: string;
 }): Promise<void> {
+  if (!config.apiKey || config.apiKey.trim().length < 8) {
+    throw new Error('API key must be at least 8 characters');
+  }
   const encryptedKey = encrypt(config.apiKey);
   const model = config.model || AI_CONFIG.DEFAULT_MODEL;
   const baseUrl = config.baseUrl || AI_CONFIG.BASE_URL;
@@ -143,4 +144,37 @@ export async function setAiConfig(config: {
   ]);
 
   clearAiConfigCache();
+}
+
+// ─── Startup integrity check ────────────────────────────────────────────────
+
+export interface AiConfigHealth {
+  status: 'OK' | 'CORRUPTED' | 'MISSING';
+  code: string;
+  detail: string;
+}
+
+export async function checkAiConfigIntegrity(): Promise<AiConfigHealth> {
+  try {
+    const config = await getAiConfig();
+    if (!config.apiKey || config.apiKey.length < 8) {
+      return { status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: 'Stored API key is too short or empty' };
+    }
+    if (!config.model) {
+      return { status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: 'Model is empty' };
+    }
+    try {
+      new URL(config.baseUrl);
+    } catch {
+      return { status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: `Invalid baseUrl: ${config.baseUrl}` };
+    }
+    logger.info('[AI CONFIG] Integrity check passed', { model: config.model });
+    return { status: 'OK', code: 'AI_CONFIG_OK', detail: 'AI configuration is valid' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (msg.includes('decrypt') || msg.includes('SESSION_SECRET')) {
+      return { status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: msg };
+    }
+    return { status: 'MISSING', code: 'AI_CONFIG_MISSING', detail: msg };
+  }
 }

@@ -13,6 +13,12 @@ export const AI_CONFIG = {
   DEFAULT_MODEL: 'openrouter/free',
   LEGACY_MODEL: 'deepseek/deepseek-chat',
   BASE_URL: 'https://openrouter.ai/api/v1',
+  STORAGE_KEYS: {
+    ENCRYPTED_KEY: 'ai_encrypted_key',
+    MODEL: 'ai_model',
+    BASE_URL: 'ai_base_url',
+  },
+  STORAGE_KEYS_SET: new Set(['ai_encrypted_key', 'ai_model', 'ai_base_url']),
   AVAILABLE_MODELS: [
     { id: 'openrouter/free', name: 'Enrutador Gratis (Recomendado - 100% Gratis)', isFree: true },
     { id: 'qwen/qwen-2.5-72b-instruct', name: 'Qwen 2.5 72B (Pago - Ultra Barato)', isFree: false },

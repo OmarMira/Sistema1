@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { RUNTIME_FILES } from '@/lib/config/paths';
+import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
 
 /* ─── Types ───────────────────────────────────────────────────────── */
@@ -142,6 +143,19 @@ function sanitizeForRestore(
 /* ─── Exported Functions ──────────────────────────────────────────── */
 
 /**
+ * Filters out sensitive AI config keys from an array of SystemConfig records.
+ * Used during both backup export and restore to prevent AI key leakage/overwrite.
+ */
+export function filterSensitiveSystemConfig(
+  entries: Array<Record<string, unknown>>,
+): Array<Record<string, unknown>> {
+  return entries.filter((entry) => {
+    const key = typeof entry.key === 'string' ? entry.key : '';
+    return !AI_CONFIG.STORAGE_KEYS_SET.has(key);
+  });
+}
+
+/**
  * Create a full backup of all company data.
  * Returns the backup data and saves it to disk.
  */
@@ -239,8 +253,9 @@ export async function createBackup(companyId: string): Promise<{
         })
       : [];
 
-  // Fetch SystemConfig (AI API keys, settings)
-  const systemConfig = await db.systemConfig.findMany();
+  // Fetch SystemConfig (exclude AI config keys — they are environment-specific)
+  const allSystemConfig = await db.systemConfig.findMany();
+  const systemConfig = filterSensitiveSystemConfig(allSystemConfig);
 
   // Read company-config.json (currency, periodType)
   const configPath = RUNTIME_FILES.companyConfig;
@@ -726,9 +741,10 @@ export async function restoreBackup(
       }
       restoredCounts.journalLines = backupData.data.journalLines.length;
 
-      // Restore SystemConfig (AI API keys, settings)
+      // Restore SystemConfig (skip AI config keys — never overwrite active AI keys from backup)
       if (backupData.data.systemConfig && backupData.data.systemConfig.length > 0) {
-        for (const config of backupData.data.systemConfig) {
+        const filtered = filterSensitiveSystemConfig(backupData.data.systemConfig);
+        for (const config of filtered) {
           const clean = sanitizeForRestore(config as Record<string, unknown>);
           await tx.systemConfig.upsert({
             where: { key: clean.key as string },
@@ -736,7 +752,11 @@ export async function restoreBackup(
             update: { value: clean.value as string },
           });
         }
-        restoredCounts.systemConfig = backupData.data.systemConfig.length;
+        restoredCounts.systemConfig = filtered.length;
+        const skipped = backupData.data.systemConfig.length - filtered.length;
+        if (skipped > 0) {
+          logger.info('[BACKUP RESTORE] Skipped AI config keys to prevent overwrite', { skipped });
+        }
       }
 
       // Restore company-config.json (currency, periodType)

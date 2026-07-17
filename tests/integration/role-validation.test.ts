@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
 import { createTestGlAccount } from '../helpers/factories';
+import { db } from '@/lib/db';
 
 // ─── Route handlers under test ──────────────────────────────────
 import { POST as postContext } from '@/app/api/learning/context/route';
@@ -133,5 +134,71 @@ describe('Role validation — any role string is now accepted', () => {
     const body = await res.json();
     expect(body.success).toBe(true);
     expect(body.data.role).toBe('CUSTOM_ROLE');
+  });
+
+  // ── createRule validation: 400 + VALIDATION_ERROR ─────────────
+  it('returns 400 VALIDATION_ERROR when createRule=true and GL account does not exist', async () => {
+    const req = await makeAuthRequest(
+      'POST',
+      'http://localhost/api/learning/classify-entity',
+      {
+        pattern: 'NONEXISTENT GL',
+        role: 'PROVEEDOR',
+        glAccountCode: '9999',
+        intent: 'OPERATING_EXPENSE',
+        createRule: true,
+      },
+      token,
+      companyId,
+    );
+    const res = await postClassify(req, { params: Promise.resolve({}) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('VALIDATION_ERROR');
+    expect(body.error).toContain('GL account not found');
+  });
+
+  // ── createRule conflict: 409 + CONFLICT + atomicity ───────────
+  it('returns 409 CONFLICT when rule exists for same signature with different GL account, and rolls back', async () => {
+    const req1 = await makeAuthRequest(
+      'POST',
+      'http://localhost/api/learning/classify-entity',
+      {
+        pattern: 'DUP RULE TEST',
+        role: 'PROVEEDOR',
+        glAccountCode: '4010',
+        intent: 'OPERATING_EXPENSE',
+        createRule: true,
+      },
+      token,
+      companyId,
+    );
+    const res1 = await postClassify(req1, { params: Promise.resolve({}) });
+    expect(res1.status).toBe(200);
+
+    await createTestGlAccount({ companyId, code: '4020', name: 'Otra cuenta', accountType: 'expense' });
+    const req2 = await makeAuthRequest(
+      'POST',
+      'http://localhost/api/learning/classify-entity',
+      {
+        pattern: 'DUP RULE TEST',
+        role: 'PROVEEDOR',
+        glAccountCode: '4020',
+        intent: 'OPERATING_EXPENSE',
+        createRule: true,
+      },
+      token,
+      companyId,
+    );
+    const res2 = await postClassify(req2, { params: Promise.resolve({}) });
+    expect(res2.status).toBe(409);
+    const body = await res2.json();
+    expect(body.code).toBe('CONFLICT');
+
+    const rules = await db.bankRule.findMany({
+      where: { companyId, conditionValue: { contains: 'dup rule test' } },
+    });
+    expect(rules).toHaveLength(1);
+    expect(rules[0].glAccountId).toBe(glAccountId);
   });
 });

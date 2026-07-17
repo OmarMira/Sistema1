@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { AppError } from '@/lib/api-error';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { classifyEntity, getEntityCandidates } from '@/lib/services/entity-classifier';
 import { parseConversationalContext } from '@/lib/services/conversational-service';
@@ -122,8 +123,8 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : serverT(locale, 'learning.serverError');
     logger.error('[CLASSIFY ENTITY ERROR]', { error: msg });
-    if (msg.includes('CONFLICT')) {
-      return NextResponse.json({ error: msg }, { status: 409 });
+    if (error instanceof AppError) {
+      throw error;
     }
     return NextResponse.json({ error: msg }, { status: 500 });
   }

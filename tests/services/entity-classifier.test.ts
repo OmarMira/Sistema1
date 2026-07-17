@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { ValidationError, ConflictError } from '@/lib/api-error';
 
 // ─── Mocks ─────────────────────────────────────────────────────────────
 
@@ -247,7 +248,7 @@ describe('classifyEntity()', () => {
         intent: 'OPERATING_EXPENSE',
         createRule: true,
       }),
-    ).rejects.toThrow('GL account not found: 9999');
+    ).rejects.toThrow(ValidationError);
 
     expect(saveContext).not.toHaveBeenCalled();
   });
@@ -329,7 +330,7 @@ describe('classifyEntity()', () => {
         glAccountCode: '2040',
         createRule: true,
       })
-    ).rejects.toThrow('CONFLICT: Rule already exists with a different GL Account');
+    ).rejects.toThrow(ConflictError);
   });
 
   it('dedup matches conditions regardless of array ordering', async () => {

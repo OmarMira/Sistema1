@@ -9,6 +9,7 @@ import type { EntityContext } from '@prisma/client';
 import type { TransactionIntent } from '@/lib/constants/transaction-intent';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
+import { ValidationError, ConflictError } from '@/lib/api-error';
 
 type TxClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
 
@@ -121,7 +122,7 @@ export async function autoCreateRule(
   if (existingMatch) {
     if (existingMatch.isActive) {
       if (existingMatch.glAccountId !== context.glAccountId) {
-        throw new Error('CONFLICT: Rule already exists with a different GL Account');
+        throw new ConflictError('Rule already exists with a different GL Account');
       }
       return {};
     }
@@ -168,11 +169,11 @@ export async function classifyEntity(
   const trimmedUserDescription = typeof userDescription === 'string' ? userDescription.trim() : userDescription;
 
   if ((intent === 'OTHER' || finalRole === 'OTRO') && !trimmedUserDescription) {
-    throw new Error('userDescription is required when intent is OTHER or role is OTRO');
+    throw new ValidationError('userDescription is required when intent is OTHER or role is OTRO');
   }
 
   if (decidedToCreate && (!intent || !glAccountCode)) {
-    throw new Error('Intent and GL account are required when createRule is true');
+    throw new ValidationError('Intent and GL account are required when createRule is true');
   }
 
   let glAccountId: string | null = null;
@@ -184,7 +185,7 @@ export async function classifyEntity(
   }
 
   if (decidedToCreate && glAccountCode && !glAccountId) {
-    throw new Error(`GL account not found: ${glAccountCode}`);
+    throw new ValidationError(`GL account not found: ${glAccountCode}`);
   }
 
   return db.$transaction(async (tx) => {

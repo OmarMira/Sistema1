@@ -14,6 +14,42 @@ import { readFileSync, existsSync } from 'fs';
 import type { AiChatMessage, AiToolCall, ParsedRuleFromAI } from '@/lib/types/shared';
 import { Prisma } from '@prisma/client';
 
+// ─── Context management constants ───────────────────────────────────────
+const MAX_INPUT_TOKENS = 6000;
+const MAX_OUTPUT_TOKENS = 2000;
+const CHARS_PER_TOKEN = 4;
+const MAX_TOOL_RESULT_CHARS = 4000;
+
+function estimateTokens(text: string): number {
+  if (!text) return 1;
+  return Math.max(1, Math.ceil(text.length / CHARS_PER_TOKEN));
+}
+
+function truncateToolResult(content: string, maxChars: number): string {
+  if (content.length <= maxChars) return content;
+  const truncated = content.slice(0, maxChars);
+  return truncated + `\n... [Tool output truncated: showing first ${maxChars} of ${content.length} characters]`;
+}
+
+function truncateHistory(history: AiChatMessage[], budgetTokens: number): AiChatMessage[] {
+  let totalTokens = 0;
+  const result: AiChatMessage[] = [];
+  for (let i = history.length - 1; i >= 0; i--) {
+    const msg = history[i];
+    const tokens = estimateTokens(msg.content ?? '');
+    if (totalTokens + tokens > budgetTokens) break;
+    totalTokens += tokens;
+    result.unshift(msg);
+  }
+  return result;
+}
+
+const AI_NOT_CONFIGURED_WARNING =
+  '\n\n> ⚠️ **La IA no está configurada.** [Configurar IA](/settings) para habilitar respuestas inteligentes.';
+
+const AI_NOT_CONFIGURED_WARNING_EN =
+  '\n\n> ⚠️ **AI is not configured.** [Set up AI](/settings) to enable intelligent responses.';
+
 // ─── Request schema ─────────────────────────────────────────────────
 const RequestBodySchema = z.object({
   message: z.string().min(1, 'Message is required'),
@@ -848,10 +884,9 @@ export const POST = apiHandler(
       logger.error('AI assistant error', { error });
       const code = (error as Error & { code?: string }).code;
       if (code === 'AI_NOT_CONFIGURED') {
-        return NextResponse.json(
-          { error: 'AI not configured. Set it up in Settings → AI.', code: 'AI_NOT_CONFIGURED' },
-          { status: 500 },
-        );
+        return NextResponse.json({
+          reply: 'El asistente de IA no tiene una API key configurada. Puedes configurarla en Settings → AI.' + AI_NOT_CONFIGURED_WARNING,
+        });
       }
       return NextResponse.json(
         { error: 'AI service did not respond. Please try again.', code: 'AI_REQUEST_FAILED' },
@@ -922,7 +957,7 @@ async function callAI(
     const timeout = setTimeout(() => controller.abort(), 12000); // 12s timeout por intento
 
     try {
-      const body: Record<string, unknown> = { model: currentModel, messages };
+      const body: Record<string, unknown> = { model: currentModel, messages, max_tokens: MAX_OUTPUT_TOKENS };
       if (tools && tools.length > 0) {
         body.tools = tools;
       }
@@ -1085,6 +1120,15 @@ async function handleChat(
     });
   }
 
+  // Check if AI API key is configured (non-blocking — we still try to call the model)
+  let apiKeyMissing = false;
+  try {
+    const cfg = await getAiConfig();
+    apiKeyMissing = !cfg.apiKey || cfg.apiKey.trim().length < 8;
+  } catch {
+    apiKeyMissing = true;
+  }
+
   const systemPrompt = `You are "Asistente Contable", a helpful and professional AI accounting assistant for the AccountExpress platform.
 
 LANGUAGE RULES:
@@ -1140,8 +1184,14 @@ YOUR STYLE:
 
   const messages: AiChatMessage[] = [{ role: 'system', content: finalSystemPrompt }];
 
+  // Budget: total context - system prompt - user message - output margin
+  const systemTokens = estimateTokens(finalSystemPrompt);
+  const userTokens = estimateTokens(message);
+  const historyBudget = Math.max(500, MAX_INPUT_TOKENS - systemTokens - userTokens - 500);
+
   if (history && Array.isArray(history)) {
-    for (const h of history) {
+    const trimmed = truncateHistory(history, historyBudget);
+    for (const h of trimmed) {
       if (h.role && h.content) {
         messages.push({ role: h.role, content: h.content });
       }
@@ -1184,11 +1234,12 @@ YOUR STYLE:
         }
 
         const result = await executeTool(toolCall.function.name, args, companyId, userId);
+        const resultStr = truncateToolResult(JSON.stringify(result), MAX_TOOL_RESULT_CHARS);
         messages.push({
           role: 'tool',
           tool_call_id: toolCall.id,
           name: toolCall.function.name,
-          content: JSON.stringify(result),
+          content: resultStr,
         });
       }
       continue;
@@ -1196,7 +1247,10 @@ YOUR STYLE:
 
     const reply =
       aiMessage.content ?? 'Lo siento, no pude procesar tu solicitud. Intenta de nuevo.';
-    return NextResponse.json({ reply });
+    const finalReply = apiKeyMissing
+      ? reply + (isEnglish ? AI_NOT_CONFIGURED_WARNING_EN : AI_NOT_CONFIGURED_WARNING)
+      : reply;
+    return NextResponse.json({ reply: finalReply });
   }
 
   throw new Error('Too many tool iterations');

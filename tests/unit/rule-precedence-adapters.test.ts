@@ -92,31 +92,76 @@ describe('importAdapter', () => {
 });
 
 describe('applyAllAdapter', () => {
-  it('returns winner with ruleId, ruleName, and glAccountId when rule is found', () => {
-    const rules = [rule({ id: 'r1', name: 'My Rule', glAccountId: 'gl-001' })];
+  it('returns matchedRuleId and resolvedRule when rule is found', () => {
+    const rules = [rule({ id: 'r1', name: 'My Rule', priority: 5, glAccountId: 'gl-001' })];
     const m = match({ winner: { ruleId: 'r1', ruleName: 'My Rule' } });
 
     const result = applyAllAdapter(m, rules);
 
-    expect(result).toEqual({ ruleId: 'r1', ruleName: 'My Rule', glAccountId: 'gl-001' });
+    expect(result.matchedRuleId).toBe('r1');
+    expect(result.resolvedRule).toEqual({
+      id: 'r1',
+      name: 'My Rule',
+      priority: 5,
+      glAccountId: 'gl-001',
+      debitGlAccountId: null,
+      creditGlAccountId: null,
+    });
   });
 
-  it('returns null when there is no winner', () => {
+  it('returns resolvedRule: null when there is no winner', () => {
     const rules = [rule({ id: 'r1', glAccountId: 'gl-001' })];
     const m = match({ winner: undefined });
 
     const result = applyAllAdapter(m, rules);
 
-    expect(result).toBeNull();
+    expect(result.matchedRuleId).toBeNull();
+    expect(result.resolvedRule).toBeNull();
   });
 
-  it('returns null when winner rule is not in the rules array', () => {
+  it('returns resolvedRule: null when winner rule is not in the rules array', () => {
     const rules = [rule({ id: 'r1', glAccountId: 'gl-001' })];
     const m = match({ winner: { ruleId: 'r2', ruleName: 'Missing' } });
 
     const result = applyAllAdapter(m, rules);
 
-    expect(result).toBeNull();
+    expect(result.matchedRuleId).toBe('r2');
+    expect(result.resolvedRule).toBeNull();
+  });
+
+  it('includes all fields in resolvedRule', () => {
+    const rules = [{
+      id: 'r1',
+      name: 'Full Rule',
+      priority: 3,
+      glAccountId: 'gl-001',
+      debitGlAccountId: 'debit-gl',
+      creditGlAccountId: 'credit-gl',
+    }];
+    const m = match({ winner: { ruleId: 'r1', ruleName: 'Full Rule' } });
+
+    const result = applyAllAdapter(m, rules);
+
+    expect(result.resolvedRule).toEqual({
+      id: 'r1',
+      name: 'Full Rule',
+      priority: 3,
+      glAccountId: 'gl-001',
+      debitGlAccountId: 'debit-gl',
+      creditGlAccountId: 'credit-gl',
+    });
+  });
+
+  it('does NOT resolve GL account direction-aware (leaves it to the flow)', () => {
+    const rules = [rule({ id: 'r1', name: 'Test', priority: 1, glAccountId: 'gl-001', debitGlAccountId: 'debit-gl', creditGlAccountId: 'credit-gl' })];
+    const m = match({ winner: { ruleId: 'r1', ruleName: 'Test' } });
+
+    const result = applyAllAdapter(m, rules);
+
+    // All three GL fields are present — the adapter does NOT choose one
+    expect(result.resolvedRule?.glAccountId).toBe('gl-001');
+    expect(result.resolvedRule?.debitGlAccountId).toBe('debit-gl');
+    expect(result.resolvedRule?.creditGlAccountId).toBe('credit-gl');
   });
 });
 

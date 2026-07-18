@@ -1,15 +1,46 @@
 import { db } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
 import {
   loadEntityFirstContext,
-  transactionMatchesRule,
-  evaluateWinningRule,
   loadRolePriorities,
-  type Transaction,
-  type Rule,
-  type MatchingRule,
 } from '@/lib/services/rule-matching-engine';
+import {
+  resolveApplyAllRule,
+  type LegacyRuleContext,
+} from '@/lib/services/rule-precedence-apply-all-resolver';
+import type { RuleRecord } from '@/lib/services/rule-precedence-import-resolver';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
+
+function toRuleRecord(rule: {
+  id: string;
+  name: string;
+  companyId: string;
+  priority: number;
+  conditions: Prisma.JsonValue;
+  conditionType: string;
+  conditionValue: string;
+  transactionDirection: string;
+  glAccountId: string | null;
+  debitGlAccountId: string | null;
+  creditGlAccountId: string | null;
+  isActive: boolean;
+}): RuleRecord {
+  return {
+    id: rule.id,
+    name: rule.name,
+    companyId: rule.companyId,
+    priority: rule.priority,
+    conditions: rule.conditions,
+    conditionType: rule.conditionType,
+    conditionValue: rule.conditionValue,
+    transactionDirection: rule.transactionDirection,
+    glAccountId: rule.glAccountId,
+    debitGlAccountId: rule.debitGlAccountId,
+    creditGlAccountId: rule.creditGlAccountId,
+    isActive: rule.isActive,
+  };
+}
 
 // ─── Constants ──────────────────────────────────────────────
 // Task 4.1: Replace the old MAX_SAFETY = 5000 with MAX_PER_BATCH = 200
@@ -78,9 +109,12 @@ export async function matchTransactions(
   // Get all unmatched transactions for this company
   const companyStatements = await db.bankStatement.findMany({
     where: { companyId },
-    select: { id: true },
+    select: { id: true, bankAccountId: true },
   });
   const statementIds = companyStatements.map((s) => s.id);
+  const bankAccountByStatement = new Map(
+    companyStatements.map((s) => [s.id, s.bankAccountId]),
+  );
 
   let unmatchedTransactions = await db.bankTransaction.findMany({
     where: eligibleForClassificationWhere({
@@ -97,38 +131,46 @@ export async function matchTransactions(
     remaining = totalUnmatched - effectiveCap;
   }
 
-  // Run rule matching loop (extracted from route.ts lines 89-123)
+  // Run rule matching loop using the unified resolver
   const winnerMap = new Map<string, { ruleId: string; ruleName: string; txIds: string[] }>();
   const rolePriorities = await loadRolePriorities();
   const entityContexts = await db.entityContext.findMany({
     where: { companyId },
     select: { pattern: true, role: true },
   });
+  const legacyCtx: LegacyRuleContext = {
+    knownSocioPatterns: efCtx.knownSocioPatterns,
+    entityFirstMode: efCtx.entityFirstMode,
+    rolePriorities,
+    entityContexts,
+  };
+  const ruleRecords = rules.map(toRuleRecord);
 
   for (const tx of unmatchedTransactions) {
-    const matchingRules = rules.filter((rule) =>
-      transactionMatchesRule(
-        tx as Transaction,
-        rule as Rule,
-        efCtx.knownSocioPatterns,
-        efCtx.entityFirstMode,
-      ),
-    ) as MatchingRule[];
-
-    if (matchingRules.length === 0) continue;
-
-    const winner = evaluateWinningRule(
-      matchingRules,
-      tx as Transaction,
+    const resolution = await resolveApplyAllRule(
+      {
+        id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        amount: Number(tx.amount),
+        bankAccountId: bankAccountByStatement.get(tx.statementId),
+      },
+      ruleRecords,
       companyId,
-      rolePriorities,
-      entityContexts,
+      legacyCtx,
     );
-    const existing = winnerMap.get(winner.id);
+
+    if (!resolution.resolvedRule) continue;
+
+    const existing = winnerMap.get(resolution.resolvedRule.id);
     if (existing) {
       existing.txIds.push(tx.id);
     } else {
-      winnerMap.set(winner.id, { ruleId: winner.id, ruleName: winner.name, txIds: [tx.id] });
+      winnerMap.set(resolution.resolvedRule.id, {
+        ruleId: resolution.resolvedRule.id,
+        ruleName: resolution.resolvedRule.name,
+        txIds: [tx.id],
+      });
     }
   }
 

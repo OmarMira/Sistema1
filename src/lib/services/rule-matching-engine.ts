@@ -5,6 +5,11 @@ import { getKnownSocioPatterns } from '@/lib/services/entity-classifier';
 import { db } from '@/lib/db';
 import type { RuleCondition } from '@/lib/types/shared';
 
+export interface EntityContext {
+  pattern: string;
+  role: string;
+}
+
 export type Transaction = { description: string; amount: number };
 
 export type Rule = {

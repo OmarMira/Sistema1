@@ -1,16 +1,33 @@
 import type { RuleMatchOutput } from './rule-precedence-engine';
 
-export interface ImportRuleResolution {
+export interface RuleResolution {
   matchedRuleId: string | null;
+}
+
+export interface ImportRuleResolution extends RuleResolution {
   glAccountId: string | null;
 }
 
 export interface AdapterRule {
   id: string;
   name?: string;
+  priority?: number;
   glAccountId?: string | null;
   debitGlAccountId?: string | null;
   creditGlAccountId?: string | null;
+}
+
+export interface ApplyAllResolvedRule {
+  id: string;
+  name: string;
+  priority: number;
+  glAccountId: string | null;
+  debitGlAccountId: string | null;
+  creditGlAccountId: string | null;
+}
+
+export interface ApplyAllRuleResolution extends RuleResolution {
+  resolvedRule: ApplyAllResolvedRule | null;
 }
 
 export function importAdapter(
@@ -29,16 +46,22 @@ export function importAdapter(
 export function applyAllAdapter(
   match: RuleMatchOutput,
   rules: AdapterRule[],
-): { ruleId: string; ruleName: string | undefined; glAccountId: string | null } | null {
-  if (!match.winner) return null;
+): ApplyAllRuleResolution {
+  if (!match.winner) return { matchedRuleId: null, resolvedRule: null };
 
   const rule = rules.find((r) => r.id === match.winner!.ruleId);
-  if (!rule) return null;
+  if (!rule) return { matchedRuleId: match.winner.ruleId, resolvedRule: null };
 
   return {
-    ruleId: rule.id,
-    ruleName: rule.name,
-    glAccountId: rule.glAccountId ?? rule.debitGlAccountId ?? rule.creditGlAccountId ?? null,
+    matchedRuleId: match.winner.ruleId,
+    resolvedRule: {
+      id: rule.id,
+      name: rule.name ?? '',
+      priority: rule.priority ?? 0,
+      glAccountId: rule.glAccountId ?? null,
+      debitGlAccountId: rule.debitGlAccountId ?? null,
+      creditGlAccountId: rule.creditGlAccountId ?? null,
+    },
   };
 }
 

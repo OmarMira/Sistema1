@@ -30,6 +30,11 @@ import {
 import { isRuleEngineV2Enabled } from '@/lib/rule-engine/flag';
 import { runRuleEngineV2 } from '@/lib/services/rule-engine-adapter';
 import type { ParsedTransaction as V2ParsedTransaction, PrismaBankRule as V2PrismaBankRule } from '@/lib/services/rule-engine-adapter';
+import {
+  isRulePrecedenceShadowEnabled,
+  toRulePrecedenceRule,
+  runShadowComparison,
+} from '@/lib/services/rule-precedence-shadow';
 
 export interface ImportResult {
   statementId: string;
@@ -444,6 +449,9 @@ export class ImportService {
       let autoCategorizedCount = 0;
       const transactionsToInsert: Prisma.BankTransactionCreateManyInput[] = [];
 
+      const shadowEnabled = isRulePrecedenceShadowEnabled();
+      const shadowRules = shadowEnabled ? bankRules.map((r) => toRulePrecedenceRule(r)) : [];
+
       for (let idx = 0; idx < uniqueTransactions.length; idx++) {
         const txn = uniqueTransactions[idx]!;
 
@@ -492,6 +500,22 @@ export class ImportService {
         }
 
         if (matchedRuleId) autoCategorizedCount++;
+
+        if (shadowEnabled) {
+          runShadowComparison(
+            {
+              id: uniqueHashes[idx],
+              date: txn.date,
+              description: txn.description,
+              amount: txn.amount,
+              bankAccountId,
+              companyId,
+            },
+            shadowRules,
+            matchedRuleId,
+            { companyId, transactionId: uniqueHashes[idx] },
+          );
+        }
 
         transactionsToInsert.push({
           statementId: statement.id,

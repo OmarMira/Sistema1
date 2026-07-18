@@ -1,6 +1,5 @@
-import { normalize } from '@/lib/services/rule-engine-adapter/conditions-normalizer';
 import { evaluateCondition } from '@/lib/rule-engine/conditions';
-import { normalizeInputsForCompatibility } from './rule-precedence-compat';
+import { normalizeInputsForCompatibility, normalizeRuleForPrecedence } from './rule-precedence-compat';
 import type { RuleCondition, EvaluatedCondition, Transaction } from '@/lib/rule-engine/types';
 
 // ─── Types ───────────────────────────────────────────────────────────────
@@ -42,36 +41,7 @@ export interface RuleMatchOutput {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
-
-const AMOUNT_OPERATORS = new Set([
-  'amount_greater', 'amount_less', 'greater_than', 'less_than',
-  'greaterThan', 'lessThan',
-]);
-
-function isAmountOperator(op: string): boolean {
-  return AMOUNT_OPERATORS.has(op);
-}
-
-// ─── Normalization ───────────────────────────────────────────────────────
-
-function normalizeRuleForPrecedence(rule: RulePrecedenceRule): RuleCondition[] {
-  const hasConditions = Array.isArray(rule.conditions) && rule.conditions.length > 0;
-
-  if (hasConditions) {
-    return normalize(rule.conditions);
-  }
-
-  if (rule.conditionType && rule.conditionValue != null) {
-    const field = isAmountOperator(rule.conditionType) ? 'amount' : 'description';
-    return normalize([{
-      field,
-      operator: rule.conditionType,
-      value: rule.conditionValue,
-    }]);
-  }
-
-  return [];
-}
+// ─── Helpers (normalization imported from compat) ─────────────────────────
 
 // ─── Single condition evaluation via V2 SSOT ──────────────────────────────
 

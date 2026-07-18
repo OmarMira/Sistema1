@@ -22,14 +22,7 @@ import { withTiming } from '@/lib/timing';
 import { generateImportHash } from '@/lib/accounting/import-hash';
 import { toStatementMonth, toDateString } from '@/lib/accounting/date-window';
 import type { ParsedTransaction, StatementBalanceInfo, RuleCondition } from '@/lib/types/shared';
-import {
-  findMatchingRule,
-  type Transaction,
-  type MatchingRule,
-} from '@/lib/services/rule-matching-engine';
-import { isRuleEngineV2Enabled } from '@/lib/rule-engine/flag';
-import { runRuleEngineV2 } from '@/lib/services/rule-engine-adapter';
-import type { ParsedTransaction as V2ParsedTransaction, PrismaBankRule as V2PrismaBankRule } from '@/lib/services/rule-engine-adapter';
+import { resolveImportRule } from '@/lib/services/rule-precedence-import-resolver';
 import type { ShadowImportSummary } from '@/lib/services/rule-precedence-shadow';
 import {
   isRulePrecedenceShadowEnabled,
@@ -469,49 +462,20 @@ export class ImportService {
       for (let idx = 0; idx < uniqueTransactions.length; idx++) {
         const txn = uniqueTransactions[idx]!;
 
-        let matchedRuleId: string | null;
-        let glAccountId: string | null;
-
-        if (isRuleEngineV2Enabled()) {
-          const v2txn: V2ParsedTransaction = {
+        const resolution = await resolveImportRule(
+          {
             id: uniqueHashes[idx]!,
             date: txn.date,
             description: txn.description,
             amount: txn.amount,
             bankAccountId,
             reference: txn.reference,
-          }
-          const result = await runRuleEngineV2(
-            v2txn,
-            bankRules as V2PrismaBankRule[],
-            { status: 'not_run' },
-            companyId,
-          )
-
-          if (result.outcome === 'matched') {
-            matchedRuleId = result.matchedRuleId
-            glAccountId = result.classification.glAccountId
-          } else {
-            if (result.outcome === 'pending' && result.errorCode) {
-              logger.warn('Rule Engine v2 import evaluation failed', {
-                errorCode: result.errorCode,
-                companyId,
-                bankAccountId,
-                transactionId: uniqueHashes[idx],
-              })
-            }
-            matchedRuleId = null
-            glAccountId = null
-          }
-        } else {
-          const legacyResult = await findMatchingRule(
-            { description: txn.description, amount: txn.amount } as Transaction,
-            bankRules as unknown as MatchingRule[],
-            companyId,
-          )
-          matchedRuleId = legacyResult.matchedRuleId
-          glAccountId = legacyResult.glAccountId
-        }
+          },
+          bankRules,
+          companyId,
+        );
+        const matchedRuleId = resolution.matchedRuleId;
+        const glAccountId = resolution.glAccountId;
 
         if (matchedRuleId) autoCategorizedCount++;
 

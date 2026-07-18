@@ -5,6 +5,9 @@ import {
   compareRuleDecisions,
   isRulePrecedenceShadowEnabled,
   runShadowComparison,
+  createEmptyShadowImportSummary,
+  accumulateShadowSummary,
+  persistShadowSummaryBestEffort,
 } from '@/lib/services/rule-precedence-shadow';
 import type { RulePrecedenceRule, RulePrecedenceTransaction } from '@/lib/services/rule-precedence-engine';
 
@@ -12,7 +15,11 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-// Helpers
+vi.mock('@/lib/audit', () => ({
+  createAuditLogWithRetry: vi.fn(),
+}));
+
+const { createAuditLogWithRetry } = await import('@/lib/audit');
 
 const DEFAULT_DATE = new Date('2026-07-16T12:00:00Z');
 
@@ -34,8 +41,6 @@ function rule(overrides: Partial<RulePrecedenceRule> & { id: string }): RulePrec
 function tx(overrides: Partial<RulePrecedenceTransaction> = {}): RulePrecedenceTransaction {
   return { id: 'tx-1', date: DEFAULT_DATE, description: 'APPLE.COM BILLING', amount: 150, ...overrides };
 }
-
-// Adapter
 
 describe('toRulePrecedenceRule', () => {
   it('preserves all fields from source', () => {
@@ -86,8 +91,6 @@ describe('toRulePrecedenceRule', () => {
     expect(source).toEqual(original);
   });
 });
-
-// Pure comparison
 
 describe('compareRuleDecisions', () => {
   it('SAME_WINNER — motor productivo y canónico coinciden', () => {
@@ -169,8 +172,6 @@ describe('compareRuleDecisions', () => {
   });
 });
 
-// Flag
-
 describe('isRulePrecedenceShadowEnabled', () => {
   const OLD_ENV = process.env;
 
@@ -203,41 +204,39 @@ describe('isRulePrecedenceShadowEnabled', () => {
   });
 });
 
-// Shadow runner
-
 describe('runShadowComparison', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('does not throw when there is a divergence', () => {
+  it('returns ShadowExecutionResult on divergence', () => {
     const rules = [
       rule({ id: 'r1', conditionType: 'contains', conditionValue: 'APPLE' }),
     ];
 
-    expect(() =>
-      runShadowComparison(tx(), rules, 'legacy-rule', { companyId: 'c1', transactionId: 'tx-1' }),
-    ).not.toThrow();
+    const result = runShadowComparison(tx(), rules, 'legacy-rule', { companyId: 'c1', transactionId: 'tx-1' });
 
+    expect(result).toEqual({ ok: true, comparison: expect.objectContaining({ comparison: 'DIFFERENT_WINNER' }) });
     expect(logger.warn).toHaveBeenCalledWith(
       '[RULE SHADOW DIVERGENCE]',
       expect.objectContaining({ comparison: 'DIFFERENT_WINNER', companyId: 'c1' }),
     );
   });
 
-  it('catches internal error without propagating', () => {
+  it('catches internal error and returns { ok: false }', () => {
     const badRule = rule({ id: 'r1' });
     Object.defineProperty(badRule, 'isActive', {
       get() { throw new Error('forced shadow failure'); },
     });
 
-    runShadowComparison(
+    const result = runShadowComparison(
       tx(),
       [badRule],
       null,
       { companyId: 'c1', transactionId: 'tx-1' },
     );
 
+    expect(result).toEqual({ ok: false });
     expect(logger.error).toHaveBeenCalledWith(
       '[RULE SHADOW ERROR]',
       expect.objectContaining({
@@ -247,16 +246,178 @@ describe('runShadowComparison', () => {
     );
   });
 
-  it('does not modify matchedRuleId or glAccountId (shadow runner returns void)', () => {
+  it('returns SAME_WINNER when both engines agree', () => {
     const rules = [
       rule({ id: 'r1', conditionType: 'contains', conditionValue: 'APPLE' }),
     ];
 
-    const result = runShadowComparison(tx(), rules, null, { companyId: 'c1', transactionId: 'tx-1' });
-    expect(result).toBeUndefined();
+    const result = runShadowComparison(tx(), rules, 'r1', { companyId: 'c1', transactionId: 'tx-1' });
+
+    expect(result).toEqual({ ok: true, comparison: expect.objectContaining({ comparison: 'SAME_WINNER' }) });
   });
 });
 
+// ─── S7-03: Shadow metrics ──────────────────────────────────
 
+describe('createEmptyShadowImportSummary', () => {
+  it('returns all counters at zero', () => {
+    const s = createEmptyShadowImportSummary();
+    expect(s).toEqual({
+      totalEvaluated: 0,
+      sameWinner: 0,
+      bothNoMatch: 0,
+      productiveMatchCanonicalNoMatch: 0,
+      productiveNoMatchCanonicalMatch: 0,
+      differentWinner: 0,
+      canonicalAmbiguous: 0,
+      shadowErrors: 0,
+    });
+  });
+});
 
+describe('accumulateShadowSummary', () => {
+  it('increments sameWinner on SAME_WINNER', () => {
+    const s = createEmptyShadowImportSummary();
+    const r: ShadowExecutionResult = { ok: true, comparison: { comparison: 'SAME_WINNER', productiveWinnerId: null, canonicalWinnerId: null, canonicalAmbiguous: false, canonicalReason: 'WINNER' } };
+    const result = accumulateShadowSummary(s, r);
+    expect(result.sameWinner).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
 
+  it('increments bothNoMatch on BOTH_NO_MATCH', () => {
+    const s = createEmptyShadowImportSummary();
+    const r: ShadowExecutionResult = { ok: true, comparison: { comparison: 'BOTH_NO_MATCH', productiveWinnerId: null, canonicalWinnerId: null, canonicalAmbiguous: false, canonicalReason: 'NO_MATCH' } };
+    const result = accumulateShadowSummary(s, r);
+    expect(result.bothNoMatch).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('increments productiveMatchCanonicalNoMatch', () => {
+    const s = createEmptyShadowImportSummary();
+    const r: ShadowExecutionResult = { ok: true, comparison: { comparison: 'PRODUCTIVE_MATCH_CANONICAL_NO_MATCH', productiveWinnerId: 'r1', canonicalWinnerId: null, canonicalAmbiguous: false, canonicalReason: 'NO_MATCH' } };
+    const result = accumulateShadowSummary(s, r);
+    expect(result.productiveMatchCanonicalNoMatch).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('increments productiveNoMatchCanonicalMatch', () => {
+    const s = createEmptyShadowImportSummary();
+    const r: ShadowExecutionResult = { ok: true, comparison: { comparison: 'PRODUCTIVE_NO_MATCH_CANONICAL_MATCH', productiveWinnerId: null, canonicalWinnerId: 'r1', canonicalAmbiguous: false, canonicalReason: 'WINNER' } };
+    const result = accumulateShadowSummary(s, r);
+    expect(result.productiveNoMatchCanonicalMatch).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('increments differentWinner on DIFFERENT_WINNER', () => {
+    const s = createEmptyShadowImportSummary();
+    const r: ShadowExecutionResult = { ok: true, comparison: { comparison: 'DIFFERENT_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r2', canonicalAmbiguous: false, canonicalReason: 'WINNER' } };
+    const result = accumulateShadowSummary(s, r);
+    expect(result.differentWinner).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('increments canonicalAmbiguous on CANONICAL_AMBIGUOUS', () => {
+    const s = createEmptyShadowImportSummary();
+    const r: ShadowExecutionResult = { ok: true, comparison: { comparison: 'CANONICAL_AMBIGUOUS', productiveWinnerId: null, canonicalWinnerId: null, canonicalAmbiguous: true, canonicalReason: 'AMBIGUOUS' } };
+    const result = accumulateShadowSummary(s, r);
+    expect(result.canonicalAmbiguous).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('increments totalEvaluated and shadowErrors on error', () => {
+    const s = { ...createEmptyShadowImportSummary(), totalEvaluated: 5, sameWinner: 3, bothNoMatch: 2 };
+    const r: ShadowExecutionResult = { ok: false };
+    const result = accumulateShadowSummary(s, r);
+    expect(result.totalEvaluated).toBe(6);
+    expect(result.shadowErrors).toBe(1);
+    expect(result.sameWinner).toBe(3);
+    expect(result.bothNoMatch).toBe(2);
+  });
+
+  it('preserves invariant: totalEvaluated = sum of all functional counters + shadowErrors', () => {
+    let s = createEmptyShadowImportSummary();
+    const results: ShadowExecutionResult[] = [
+      { ok: true, comparison: { comparison: 'SAME_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r1', canonicalAmbiguous: false, canonicalReason: 'WINNER' } },
+      { ok: true, comparison: { comparison: 'BOTH_NO_MATCH', productiveWinnerId: null, canonicalWinnerId: null, canonicalAmbiguous: false, canonicalReason: 'NO_MATCH' } },
+      { ok: true, comparison: { comparison: 'PRODUCTIVE_MATCH_CANONICAL_NO_MATCH', productiveWinnerId: 'r1', canonicalWinnerId: null, canonicalAmbiguous: false, canonicalReason: 'NO_MATCH' } },
+      { ok: true, comparison: { comparison: 'PRODUCTIVE_NO_MATCH_CANONICAL_MATCH', productiveWinnerId: null, canonicalWinnerId: 'r1', canonicalAmbiguous: false, canonicalReason: 'WINNER' } },
+      { ok: true, comparison: { comparison: 'DIFFERENT_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r2', canonicalAmbiguous: false, canonicalReason: 'WINNER' } },
+      { ok: true, comparison: { comparison: 'CANONICAL_AMBIGUOUS', productiveWinnerId: null, canonicalWinnerId: null, canonicalAmbiguous: true, canonicalReason: 'AMBIGUOUS' } },
+      { ok: false },
+    ];
+
+    for (const r of results) {
+      s = accumulateShadowSummary(s, r);
+    }
+
+    const functionalSum = s.sameWinner + s.bothNoMatch + s.productiveMatchCanonicalNoMatch
+      + s.productiveNoMatchCanonicalMatch + s.differentWinner + s.canonicalAmbiguous;
+
+    expect(s.totalEvaluated).toBe(7);
+    expect(s.totalEvaluated).toBe(functionalSum + s.shadowErrors);
+    expect(functionalSum).toBe(6);
+    expect(s.shadowErrors).toBe(1);
+  });
+});
+
+describe('persistShadowSummaryBestEffort', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('calls createAuditLogWithRetry with correct params', async () => {
+    const summary = createEmptyShadowImportSummary();
+
+    await persistShadowSummaryBestEffort({
+      companyId: 'c1',
+      userId: 'u1',
+      statementId: 's1',
+      summary,
+    });
+
+    expect(createAuditLogWithRetry).toHaveBeenCalledWith({
+      companyId: 'c1',
+      userId: 'u1',
+      action: 'RULE_PRECEDENCE_SHADOW_SUMMARY',
+      entity: 'BankStatement',
+      entityId: 's1',
+      details: JSON.stringify(summary),
+    });
+  });
+
+  it('calls createAuditLogWithRetry with undefined userId', async () => {
+    const summary = createEmptyShadowImportSummary();
+
+    await persistShadowSummaryBestEffort({
+      companyId: 'c1',
+      statementId: 's1',
+      summary,
+    });
+
+    expect(createAuditLogWithRetry).toHaveBeenCalledWith({
+      companyId: 'c1',
+      userId: undefined,
+      action: 'RULE_PRECEDENCE_SHADOW_SUMMARY',
+      entity: 'BankStatement',
+      entityId: 's1',
+      details: JSON.stringify(summary),
+    });
+  });
+
+  it('does not throw when createAuditLogWithRetry fails', async () => {
+    vi.mocked(createAuditLogWithRetry).mockRejectedValueOnce(new Error('DB connection lost'));
+
+    await expect(
+      persistShadowSummaryBestEffort({
+        companyId: 'c1',
+        statementId: 's1',
+        summary: createEmptyShadowImportSummary(),
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(logger.error).toHaveBeenCalledWith(
+      '[SHADOW SUMMARY PERSIST FAILED]',
+      expect.objectContaining({ companyId: 'c1', statementId: 's1' }),
+    );
+  });
+});

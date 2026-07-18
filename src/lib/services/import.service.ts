@@ -30,10 +30,14 @@ import {
 import { isRuleEngineV2Enabled } from '@/lib/rule-engine/flag';
 import { runRuleEngineV2 } from '@/lib/services/rule-engine-adapter';
 import type { ParsedTransaction as V2ParsedTransaction, PrismaBankRule as V2PrismaBankRule } from '@/lib/services/rule-engine-adapter';
+import type { ShadowImportSummary } from '@/lib/services/rule-precedence-shadow';
 import {
   isRulePrecedenceShadowEnabled,
   toRulePrecedenceRule,
   runShadowComparison,
+  accumulateShadowSummary,
+  persistShadowSummaryBestEffort,
+  createEmptyShadowImportSummary,
 } from '@/lib/services/rule-precedence-shadow';
 
 export interface ImportResult {
@@ -181,6 +185,7 @@ export class ImportService {
         'pdf',
         fileName,
         balanceInfo,
+        userId,
       );
       logger.info('Import done', {
         saved: result.transactionCount,
@@ -239,6 +244,8 @@ export class ImportService {
         transactions,
         'csv',
         fileName,
+        undefined,
+        userId,
       );
 
       return {
@@ -285,6 +292,7 @@ export class ImportService {
           openingBalance: parsed.openingBalance,
           closingBalance: parsed.closingBalance,
         },
+        userId,
       );
 
       return {
@@ -349,6 +357,7 @@ export class ImportService {
     format: string,
     fileName: string,
     balanceInfo?: Partial<StatementBalanceInfo>,
+    userId?: string,
   ) {
     if (transactions.length === 0) {
       throw new ValidationError('No hay transacciones para importar');
@@ -420,6 +429,10 @@ export class ImportService {
       },
     });
 
+    const shadowEnabled = isRulePrecedenceShadowEnabled();
+    const shadowRules = shadowEnabled ? bankRules.map((r) => toRulePrecedenceRule(r)) : [];
+    let shadowSummary: ShadowImportSummary | null = null;
+
     const result = await db.$transaction(async (tx) => {
       // Duplicate check inside TX (atomic — prevents race conditions)
       const existingStatement = await tx.bankStatement.findFirst({
@@ -449,8 +462,9 @@ export class ImportService {
       let autoCategorizedCount = 0;
       const transactionsToInsert: Prisma.BankTransactionCreateManyInput[] = [];
 
-      const shadowEnabled = isRulePrecedenceShadowEnabled();
-      const shadowRules = shadowEnabled ? bankRules.map((r) => toRulePrecedenceRule(r)) : [];
+      if (shadowEnabled) {
+        shadowSummary = createEmptyShadowImportSummary();
+      }
 
       for (let idx = 0; idx < uniqueTransactions.length; idx++) {
         const txn = uniqueTransactions[idx]!;
@@ -501,8 +515,8 @@ export class ImportService {
 
         if (matchedRuleId) autoCategorizedCount++;
 
-        if (shadowEnabled) {
-          runShadowComparison(
+        if (shadowEnabled && shadowSummary) {
+          const execResult = runShadowComparison(
             {
               id: uniqueHashes[idx],
               date: txn.date,
@@ -515,6 +529,7 @@ export class ImportService {
             matchedRuleId,
             { companyId, transactionId: uniqueHashes[idx] },
           );
+          shadowSummary = accumulateShadowSummary(shadowSummary, execResult);
         }
 
         transactionsToInsert.push({
@@ -557,6 +572,16 @@ export class ImportService {
 
       return { statementId: statement.id, autoCategorizedCount };
     });
+
+    // ─── Persistir resumen shadow post-commit ──────────────────────
+    if (shadowSummary) {
+      await persistShadowSummaryBestEffort({
+        companyId,
+        userId,
+        statementId: result.statementId,
+        summary: shadowSummary,
+      });
+    }
 
     return {
       statementId: result.statementId,

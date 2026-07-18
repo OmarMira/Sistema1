@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { evaluateTransactionAgainstRules, type RulePrecedenceRule, type RulePrecedenceTransaction } from './rule-precedence-engine';
 import { logger } from '@/lib/logger';
+import { createAuditLogWithRetry } from '@/lib/audit';
 
 // Types
 
@@ -18,6 +19,36 @@ export interface ShadowComparisonResult {
   canonicalWinnerId: string | null;
   canonicalAmbiguous: boolean;
   canonicalReason: 'NO_MATCH' | 'WINNER' | 'AMBIGUOUS';
+}
+
+// Shadow metrics
+
+export interface ShadowImportSummary {
+  totalEvaluated: number;
+  sameWinner: number;
+  bothNoMatch: number;
+  productiveMatchCanonicalNoMatch: number;
+  productiveNoMatchCanonicalMatch: number;
+  differentWinner: number;
+  canonicalAmbiguous: number;
+  shadowErrors: number;
+}
+
+export type ShadowExecutionResult =
+  | { ok: true; comparison: ShadowComparisonResult }
+  | { ok: false };
+
+export function createEmptyShadowImportSummary(): ShadowImportSummary {
+  return {
+    totalEvaluated: 0,
+    sameWinner: 0,
+    bothNoMatch: 0,
+    productiveMatchCanonicalNoMatch: 0,
+    productiveNoMatchCanonicalMatch: 0,
+    differentWinner: 0,
+    canonicalAmbiguous: 0,
+    shadowErrors: 0,
+  };
 }
 
 // Flag
@@ -103,7 +134,7 @@ export function runShadowComparison(
   rules: RulePrecedenceRule[],
   productiveWinnerId: string | null,
   context: { companyId: string; transactionId: string },
-): void {
+): ShadowExecutionResult {
   try {
     const result = compareRuleDecisions(tx, rules, productiveWinnerId);
     if (DIVERGENCE_LOG_CODES.has(result.comparison)) {
@@ -115,11 +146,76 @@ export function runShadowComparison(
         comparison: result.comparison,
       });
     }
+    return { ok: true, comparison: result };
   } catch (error) {
     logger.error('[RULE SHADOW ERROR]', {
       error: String(error),
       companyId: context.companyId,
       transactionId: context.transactionId,
+    });
+    return { ok: false };
+  }
+}
+
+// Accumulator — pure function
+
+export function accumulateShadowSummary(
+  summary: ShadowImportSummary,
+  result: ShadowExecutionResult,
+): ShadowImportSummary {
+  const next = { ...summary, totalEvaluated: summary.totalEvaluated + 1 };
+
+  if (!result.ok) {
+    next.shadowErrors = next.shadowErrors + 1;
+    return next;
+  }
+
+  switch (result.comparison.comparison) {
+    case 'SAME_WINNER':
+      next.sameWinner = next.sameWinner + 1;
+      break;
+    case 'BOTH_NO_MATCH':
+      next.bothNoMatch = next.bothNoMatch + 1;
+      break;
+    case 'PRODUCTIVE_MATCH_CANONICAL_NO_MATCH':
+      next.productiveMatchCanonicalNoMatch = next.productiveMatchCanonicalNoMatch + 1;
+      break;
+    case 'PRODUCTIVE_NO_MATCH_CANONICAL_MATCH':
+      next.productiveNoMatchCanonicalMatch = next.productiveNoMatchCanonicalMatch + 1;
+      break;
+    case 'DIFFERENT_WINNER':
+      next.differentWinner = next.differentWinner + 1;
+      break;
+    case 'CANONICAL_AMBIGUOUS':
+      next.canonicalAmbiguous = next.canonicalAmbiguous + 1;
+      break;
+  }
+
+  return next;
+}
+
+// Best-effort persistence
+
+export async function persistShadowSummaryBestEffort(params: {
+  companyId: string;
+  userId?: string;
+  statementId: string;
+  summary: ShadowImportSummary;
+}): Promise<void> {
+  try {
+    await createAuditLogWithRetry({
+      companyId: params.companyId,
+      userId: params.userId,
+      action: 'RULE_PRECEDENCE_SHADOW_SUMMARY',
+      entity: 'BankStatement',
+      entityId: params.statementId,
+      details: JSON.stringify(params.summary),
+    });
+  } catch (error) {
+    logger.error('[SHADOW SUMMARY PERSIST FAILED]', {
+      error: String(error),
+      companyId: params.companyId,
+      statementId: params.statementId,
     });
   }
 }

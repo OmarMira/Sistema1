@@ -184,17 +184,18 @@ interface ShadowPersistencePayload {
 
 `RULE_PRECEDENCE_SHADOW_ENABLED` — misma env var que Import. Default OFF.
 
-El flag controla si `matchTransactions()` ejecuta shadow comparison después de la resolución productiva. Cuando está OFF, no hay overhead de shadow.
+Shadow se ejecuta únicamente cuando `RULE_PRECEDENCE_SHADOW_ENABLED=true` y `RULE_ENGINE_ADAPTER_ENABLED=false`. Si el adapter está ON, el resultado productivo ya viene del canónico y la comparación sería canónico vs canónico (métrica inútil).
 
 ## Acceptance Criteria
 
 1. **Flag OFF:** `matchTransactions()` ejecuta exactamente el mismo código que antes de S7-04C. Sin overhead de shadow.
-2. **Flag ON:** Después de cada `resolveApplyAllRule()`, se ejecuta shadow comparison entre el winner legacy y el canónico.
-3. **Shadow errors:** Cualquier error en shadow se captura, se loguea, y no interrumpe el loop de Apply All.
-4. **Clasificación de motivos:** Cada divergencia se clasifica en dos niveles: comparación (`SAME`/`DIFFERENT`) y explicación (`NO_MATCH`, `AMBIGUOUS`, `UNDETERMINED`, `OTHER`).
-5. **Persistencia:** Al finalizar `matchTransactions()`, el summary acumulado se persiste best-effort vía AuditLog.
-6. **Sin cambios productivos:** `matchedRuleId`, `resolvedRule`, `winnerMap`, transacciones, journal entries, y respuesta HTTP son idénticos antes y después de S7-04C.
-7. **Sin regresiones:** Todos los tests existentes pasan sin modificaciones.
+2. **Shadow ON + Adapter OFF:** después de cada `resolveApplyAllRule()`, se ejecuta la comparación entre el winner legacy y el canónico.
+3. **Shadow ON + Adapter ON:** no se ejecuta comparación ni persistencia, porque el resultado productivo ya proviene del motor canónico.
+4. **Shadow errors:** Cualquier error en shadow se captura, se loguea, y no interrumpe el loop de Apply All.
+5. **Clasificación de motivos:** Cada divergencia se clasifica en dos niveles: comparación (`SAME`/`DIFFERENT`) y explicación (`NO_MATCH`, `AMBIGUOUS`, `UNDETERMINED`, `OTHER`).
+6. **Persistencia:** Al finalizar `matchTransactions()`, el summary acumulado se persiste best-effort vía AuditLog.
+7. **Sin cambios productivos:** `matchedRuleId`, `resolvedRule`, `winnerMap`, transacciones, journal entries, y respuesta HTTP son idénticos antes y después de S7-04C.
+8. **Sin regresiones:** Todos los tests existentes pasan sin modificaciones.
 
 ## Cambios de archivos
 

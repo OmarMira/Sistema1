@@ -16,6 +16,7 @@ S7-04C es una fase de **observación y medición**. No altera el comportamiento 
 - No se toca direction filtering (ya es equivalente en ambos motores).
 - No se toca GL account resolution.
 - No se agregan flags nuevas — se reutiliza `RULE_PRECEDENCE_SHADOW_ENABLED`.
+- Shadow solo se ejecuta cuando el adapter flag está OFF (`!isRuleEngineAdapterEnabled()`). Si el adapter está ON, el resultado productivo ya viene del canónico y la comparación sería canónico vs canónico (métrica inútil).
 
 ## Scope
 
@@ -23,7 +24,7 @@ S7-04C es una fase de **observación y medición**. No altera el comportamiento 
 
 - Shadow Mode en el flujo Apply All (hoy solo existe en Import).
 - Comparación por transacción entre el winner legacy y el winner canónico.
-- Clasificación del motivo de divergencia con evidencia del ranking.
+- Clasificación del motivo de divergencia limitada a motivos físicamente medibles desde `ShadowComparisonResult`.
 - Persistencia agregada de métricas de divergencia por lote (vía AuditLog).
 - Tests unitarios de la comparación, clasificación y acumulación.
 
@@ -50,11 +51,14 @@ El shadow mode existente en Import (`runShadowComparison` en `rule-precedence-sh
 ```
 matchTransactions() loop:
   resolution = resolveApplyAllRule(tx, rules, companyId, legacyCtx)  // productivo, siempre legacy
-  if (shadowEnabled):
-    canonicalRules = rules.map(toRulePrecedenceRule)
-    shadowResult = runApplyAllShadow(tx, canonicalRules, resolution.matchedRuleId, context)
-    accumulateApplyAllShadowSummary(summary, shadowResult)
+  if (shadowEnabled && !isRuleEngineAdapterEnabled()):
+    shadowRules = rules.map(toRulePrecedenceRule)  // una vez antes del loop
+    shadowResult = runShadowComparison(txData, shadowRules, resolution.matchedRuleId, context)
+    classification = classifyDivergenceReason(evidence)
+    accumulateApplyAllShadowSummary(summary, shadowResult, classification)
 ```
+
+**Condición exacta:** Shadow Apply All solo se ejecuta cuando el adapter flag está OFF. Si `RULE_ENGINE_ADAPTER_ENABLED=true`, el resultado productivo ya viene del canónico y la comparación sería canónico vs canónico (métrica inútil). `shadowRules` se construye una vez fuera del loop. `batchId` se genera una sola vez con `crypto.randomUUID()`.
 
 El shadow se ejecuta **después** de la resolución productiva, dentro del mismo loop, sin alterar el flujo. Los errores de shadow se capturan y no se propagan.
 
@@ -96,106 +100,42 @@ ComparisonEvidence → DivergenceClassification
 
 Esto la hace trivial de testear y mantiene la clasificación aislada de efectos secundarios.
 
-### Inmutabilidad del ranking canónico
+### Clasificación de divergencia
 
-El ranking devuelto por `evaluateTransactionAgainstRules()` (el array `candidates`) es **read-only** para la clasificación:
+`classifyDivergenceReason()` es una **función pura** que solo interpreta los campos que `ShadowComparisonResult` ya expone. No accede al ranking canónico ni a información del motor legacy.
 
-- No reordenarlo.
-- No filtrarlo.
-- No modificar scores.
-- No eliminar candidatos.
-
-La clasificación observa el ranking; no lo transforma.
-
-### Clasificación de motivos de divergencia
-
-La clasificación separa dos conceptos:
+Separa dos conceptos:
 
 1. **Comparación** — hecho observado: `SAME` o `DIFFERENT`.
-2. **Explicación** — causa identificada con evidencia: `NO_MATCH`, `AMBIGUOUS`, `SPECIFICITY`, `MATCH_QUALITY`, `DB_PRIORITY`, `ROLE_PRIORITY`, `UNDETERMINED`, `OTHER`.
+2. **Explicación** — causa identificada con evidencia: `NO_MATCH`, `AMBIGUOUS`, `UNDETERMINED`, `OTHER`.
 
-No toda divergencia (`DIFFERENT`) tiene una explicación única. Cuando la evidencia no alcanza para identificar una causa unívoca, se clasifica como `UNDETERMINED`.
+Cuando la evidencia disponible no alcanza para una causa unívoca, se clasifica como `UNDETERMINED`. Motivos como `SPECIFICITY`, `MATCH_QUALITY`, `DB_PRIORITY` o `ROLE_PRIORITY` requieren evidencia del ranking canónico que esta fase no produce — se agregarán en una fase futura cuando exista un productor real de esa evidencia.
 
-### Comparación
+### Reglas de clasificación (en orden de precedencia)
 
-| Comparación | Condición |
-|---|---|
-| `SAME` | Legacy winner ID === Canonical winner ID, o ambos nulos |
-| `DIFFERENT` | Legacy winner ID !== Canonical winner ID, o uno nulo y el otro no |
-
-### Explicación (motivo)
+| # | Condición | Comparación | Motivo |
+|---|---|---|---|
+| 1 | `canonicalReason === 'NO_MATCH'` y `productiveWinnerId !== null` | `DIFFERENT` | `NO_MATCH` |
+| 2 | `canonicalReason === 'AMBIGUOUS'` | `DIFFERENT` | `AMBIGUOUS` |
+| 3 | `productiveWinnerId === null` y `canonicalWinnerId !== null` | `DIFFERENT` | `OTHER` |
+| 4 | `productiveWinnerId === canonicalWinnerId` (o ambos nulos) | `SAME` | `null` |
+| 5 | `productiveWinnerId !== canonicalWinnerId` (default) | `DIFFERENT` | `UNDETERMINED` |
 
 #### `NO_MATCH`
 
-**Cuándo se asigna:** El motor legacy encontró un winner (`matchedRuleId !== null`) pero el canónico no encontró ningún candidato (`reason === 'NO_MATCH'`).
-
-**Evidencia requerida:**
-- Legacy: `matchedRuleId` no nulo.
-- Canónico: `candidates.length === 0`.
+**Cuándo se asigna:** El motor legacy encontró un winner (`matchedRuleId !== null`) pero el canónico no encontró ningún candidato.
 
 #### `AMBIGUOUS`
 
-**Cuándo se asigna:** El motor legacy encontró un winner pero el canónico reporta `reason === 'AMBIGUOUS'` (dos o más candidatos empatados en specificity, match quality cercana, y mismo priority).
-
-**Evidencia requerida:**
-- Canónico: `ambiguous === true`, `reason === 'AMBIGUOUS'`.
-- Top 2 candidatos del canónico disponibles para inspección.
-
-#### `SPECIFICITY`
-
-**Cuándo se asigna:** Ambos motores encontraron winner, los winners son distintos, y la divergencia se explica porque el canónico eligió un candidato con mayor `specificityScore` que el ganador legacy.
-
-**Evidencia requerida:**
-- Legacy winner ID ≠ Canonical winner ID.
-- El candidato canónico ganador tiene `specificityScore` estrictamente mayor que el candidato legacy dentro del ranking canónico.
-- Si el legacy winner no está en el ranking canónico, se asigna `UNDETERMINED` (la regla no pasó el filtro canónico).
-
-#### `MATCH_QUALITY`
-
-**Cuándo se asigna:** Ambos motores encontraron winner, los winners son distintos, la `specificityScore` del top 1 y top 2 canónicos es idéntica, y la divergencia se explica porque el canónico eligió por mejor `matchQuality`.
-
-**Evidencia requerida:**
-- Legacy winner ID ≠ Canonical winner ID.
-- `specificityScore` del top 1 y top 2 canónicos son iguales.
-- `matchQuality` del top 1 es mayor que la del top 2.
-- `priority` de ambos candidatos es la misma (de lo contrario sería `DB_PRIORITY`).
-
-#### `DB_PRIORITY`
-
-**Cuándo se asigna:** Ambos motores encontraron winner, los winners son distintos, `specificityScore` y `matchQuality` del top 1 y top 2 canónicos son iguales (o no aplican por ser el mismo candidato), y la divergencia se explica porque el canónico eligió por `priority ASC` (DB priority) mientras que el legacy eligió por otro criterio.
-
-**Evidencia requerida:**
-- Legacy winner ID ≠ Canonical winner ID.
-- `specificityScore` y `matchQuality` del top 1 y top 2 canónicos son iguales.
-- `priority` del top 1 es menor (más prioritaria) que la del top 2.
-- El legacy winner NO está en el top 2 del ranking canónico, o está pero con `priority` mayor.
-
-#### `ROLE_PRIORITY`
-
-**Cuándo se asigna:** El legacy winner y el canonical winner son distintos, y la divergencia se explica porque el legacy eligió por `rolePriority ASC` (desempate por rol de entidad) mientras que el canónico no tiene ese concepto.
-
-**Evidencia requerida (estricta):**
-- Legacy winner ID ≠ Canonical winner ID.
-- El legacy winner NO está en el top 2 del ranking canónico, O está pero perdió por `specificityScore` o `matchQuality` (no por `priority`).
-- El legacy winner ganó en el motor legacy por tener `rolePriority` menor que otros candidatos legacy.
-- Se debe demostrar que el legacy NO habría ganado por DB priority únicamente: si el legacy winner tiene `rolePriority === 999` (default, sin rol) y ganó solo por `dbPriority`, se clasifica como `DB_PRIORITY`, no `ROLE_PRIORITY`.
-
-**Regla estricta:** `ROLE_PRIORITY` solo se asigna cuando pueda demostrarse que el legacy ganó por ese desempate y no por otra señal anterior. Si el legacy winner tiene `rolePriority === 999` (default, sin matching de rol), se clasifica como `DB_PRIORITY` aunque el campo técnico sea `rolePriority`.
+**Cuándo se asigna:** El motor legacy encontró un winner pero el canónico reporta ambigüedad (dos o más candidatos empatados).
 
 #### `OTHER`
 
-**Cuándo se asigna:** Casos realmente excepcionales donde la divergencia no encaja en ninguna categoría anterior. Incluye:
-- El legacy winner no aparece en el ranking canónico (no pasó el direction filter o las condiciones del canónico).
-- Casos donde la regla legacy no existe en el conjunto canónico.
+**Cuándo se asigna:** Casos residuales donde el legacy no encontró winner pero el canónico sí.
 
 #### `UNDETERMINED`
 
-**Cuándo se asigna:** La evidencia disponible no alcanza para identificar una causa unívoca de la divergencia. Incluye:
-- El legacy winner está en el ranking canónico pero no es posible determinar por qué ganó en legacy vs canónico.
-- `ROLE_PRIORITY` no puede confirmarse porque no hay evidencia directa del desempate legacy (el canónico no conoce `rolePriority`).
-- Cualquier divergencia `DIFFERENT` donde la evidencia del ranking canónico no sea suficiente para atribuir una causa específica.
-
-**Regla:** `ROLE_PRIORITY` nunca se infiere desde el ranking canónico. Solo puede asignarse cuando exista evidencia directa del proceso de desempate legacy. Si esa evidencia no está disponible, la clasificación se degrada a `UNDETERMINED`.
+**Cuándo se asigna:** Casos `DIFFERENT` donde ambos motores tienen winners distintos y no hay evidencia adicional para clasificar la causa.
 
 ### Persistencia de métricas
 
@@ -206,10 +146,10 @@ Se reutiliza el mismo mecanismo que Import: acumulación de un summary durante e
 - Solo contadores agregados y motivos de divergencia.
 - No se persiste información por transacción individual — solo el summary del batch.
 
-El summary de Apply All incluye los mismos contadores que `ShadowImportSummary` más un desglose por motivo de divergencia:
+El summary de Apply All se modela en dos tipos: `ShadowExecutionSummary` (acumulación interna) y `ShadowPersistencePayload` (lo que se persiste, que excluye campos agregados intermedios):
 
 ```typescript
-interface ApplyAllShadowSummary {
+interface ShadowExecutionSummary {
   totalEvaluated: number;
   sameWinner: number;
   bothNoMatch: number;
@@ -221,10 +161,19 @@ interface ApplyAllShadowSummary {
   divergenceReasons: {
     NO_MATCH: number;
     AMBIGUOUS: number;
-    SPECIFICITY: number;
-    MATCH_QUALITY: number;
-    DB_PRIORITY: number;
-    ROLE_PRIORITY: number;
+    UNDETERMINED: number;
+    OTHER: number;
+  };
+}
+
+interface ShadowPersistencePayload {
+  totalEvaluated: number;
+  sameWinner: number;
+  differentWinner: number;
+  shadowErrors: number;
+  divergenceReasons: {
+    NO_MATCH: number;
+    AMBIGUOUS: number;
     UNDETERMINED: number;
     OTHER: number;
   };
@@ -242,7 +191,7 @@ El flag controla si `matchTransactions()` ejecuta shadow comparison después de 
 1. **Flag OFF:** `matchTransactions()` ejecuta exactamente el mismo código que antes de S7-04C. Sin overhead de shadow.
 2. **Flag ON:** Después de cada `resolveApplyAllRule()`, se ejecuta shadow comparison entre el winner legacy y el canónico.
 3. **Shadow errors:** Cualquier error en shadow se captura, se loguea, y no interrumpe el loop de Apply All.
-4. **Clasificación de motivos:** Cada divergencia se clasifica en dos niveles: comparación (`SAME`/`DIFFERENT`) y explicación (`NO_MATCH`, `AMBIGUOUS`, `SPECIFICITY`, `MATCH_QUALITY`, `DB_PRIORITY`, `ROLE_PRIORITY`, `UNDETERMINED`, `OTHER`).
+4. **Clasificación de motivos:** Cada divergencia se clasifica en dos niveles: comparación (`SAME`/`DIFFERENT`) y explicación (`NO_MATCH`, `AMBIGUOUS`, `UNDETERMINED`, `OTHER`).
 5. **Persistencia:** Al finalizar `matchTransactions()`, el summary acumulado se persiste best-effort vía AuditLog.
 6. **Sin cambios productivos:** `matchedRuleId`, `resolvedRule`, `winnerMap`, transacciones, journal entries, y respuesta HTTP son idénticos antes y después de S7-04C.
 7. **Sin regresiones:** Todos los tests existentes pasan sin modificaciones.
@@ -251,9 +200,10 @@ El flag controla si `matchTransactions()` ejecuta shadow comparison después de 
 
 | Archivo | Cambio |
 |---------|--------|
-| `src/lib/services/rule-precedence-shadow.ts` | Agregar tipos `DivergenceReason`, `ApplyAllShadowSummary`; agregar `classifyDivergenceReason()`; agregar `accumulateApplyAllShadowSummary()` |
-| `src/lib/services/apply-all-engine.ts` | Inyectar shadow comparison después de `resolveApplyAllRule()` en el loop de `matchTransactions()`, flaggeado por `RULE_PRECEDENCE_SHADOW_ENABLED` |
-| `tests/unit/rule-precedence-shadow.test.ts` | Tests de `classifyDivergenceReason()` y `accumulateApplyAllShadowSummary()` |
+| `src/lib/services/rule-precedence-shadow.ts` | Agregar tipos `DivergenceComparison`, `DivergenceReason`, `ComparisonEvidence`, `DivergenceClassification`, `ShadowExecutionSummary`, `ShadowPersistencePayload`, `PersistShadowParams`; agregar `classifyDivergenceReason()`, `createEmptyApplyAllShadowSummary()`, `accumulateApplyAllShadowSummary()`, `toPersistencePayload()`; refactorizar `persistShadowSummaryBestEffort` a unión discriminada |
+| `src/lib/services/apply-all-engine.ts` | Inyectar shadow comparison después de `resolveApplyAllRule()` en el loop de `matchTransactions()`, flaggeado por `RULE_PRECEDENCE_SHADOW_ENABLED` y condicionado a `!isRuleEngineAdapterEnabled()` |
+| `tests/unit/rule-precedence-shadow.test.ts` | Tests de `classifyDivergenceReason()`, `createEmptyApplyAllShadowSummary()`, `accumulateApplyAllShadowSummary()`, `toPersistencePayload()` |
+| `tests/unit/apply-all-engine-shadow.test.ts` | Tests de integración de Apply All con Shadow ON/OFF/Adapter ON |
 
 ## Dependencias
 

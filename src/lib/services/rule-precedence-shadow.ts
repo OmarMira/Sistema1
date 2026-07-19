@@ -3,7 +3,7 @@ import { evaluateTransactionAgainstRules, type RulePrecedenceRule, type RulePrec
 import { logger } from '@/lib/logger';
 import { createAuditLogWithRetry } from '@/lib/audit';
 
-// Types
+// Types — S7-02/S7-03 shared (do not modify)
 
 export type ShadowComparison =
   | 'SAME_WINNER'
@@ -21,7 +21,7 @@ export interface ShadowComparisonResult {
   canonicalReason: 'NO_MATCH' | 'WINNER' | 'AMBIGUOUS';
 }
 
-// Shadow metrics
+// Shadow metrics — S7-02/S7-03 shared (do not modify)
 
 export interface ShadowImportSummary {
   totalEvaluated: number;
@@ -32,6 +32,57 @@ export interface ShadowImportSummary {
   differentWinner: number;
   canonicalAmbiguous: number;
   shadowErrors: number;
+}
+
+// ─── S7-04C: Apply All Shadow types ────────────────────────
+
+export type DivergenceComparison = 'SAME' | 'DIFFERENT';
+
+export type DivergenceReason =
+  | 'NO_MATCH'
+  | 'AMBIGUOUS'
+  | 'UNDETERMINED'
+  | 'OTHER';
+
+export interface ComparisonEvidence {
+  productiveWinnerId: string | null;
+  canonicalWinnerId: string | null;
+  canonicalReason: 'NO_MATCH' | 'WINNER' | 'AMBIGUOUS';
+}
+
+export interface DivergenceClassification {
+  comparison: DivergenceComparison;
+  reason: DivergenceReason | null;
+}
+
+export interface ShadowExecutionSummary {
+  totalEvaluated: number;
+  sameWinner: number;
+  bothNoMatch: number;
+  productiveMatchCanonicalNoMatch: number;
+  productiveNoMatchCanonicalMatch: number;
+  differentWinner: number;
+  canonicalAmbiguous: number;
+  shadowErrors: number;
+  divergenceReasons: {
+    NO_MATCH: number;
+    AMBIGUOUS: number;
+    UNDETERMINED: number;
+    OTHER: number;
+  };
+}
+
+export interface ShadowPersistencePayload {
+  totalEvaluated: number;
+  sameWinner: number;
+  differentWinner: number;
+  shadowErrors: number;
+  divergenceReasons: {
+    NO_MATCH: number;
+    AMBIGUOUS: number;
+    UNDETERMINED: number;
+    OTHER: number;
+  };
 }
 
 export type ShadowExecutionResult =
@@ -157,6 +208,90 @@ export function runShadowComparison(
   }
 }
 
+// ─── S7-04C: Divergence classification — pure function ─────
+
+export function classifyDivergenceReason(evidence: ComparisonEvidence): DivergenceClassification {
+  if (evidence.canonicalReason === 'NO_MATCH' && evidence.productiveWinnerId !== null) {
+    return { comparison: 'DIFFERENT', reason: 'NO_MATCH' };
+  }
+  if (evidence.canonicalReason === 'AMBIGUOUS') {
+    return { comparison: 'DIFFERENT', reason: 'AMBIGUOUS' };
+  }
+  if (evidence.productiveWinnerId === null && evidence.canonicalWinnerId !== null) {
+    return { comparison: 'DIFFERENT', reason: 'OTHER' };
+  }
+  if (evidence.productiveWinnerId === evidence.canonicalWinnerId) {
+    return { comparison: 'SAME', reason: null };
+  }
+  return { comparison: 'DIFFERENT', reason: 'UNDETERMINED' };
+}
+
+// ─── S7-04C: Apply All accumulation ────────────────────────
+
+export function createEmptyApplyAllShadowSummary(): ShadowExecutionSummary {
+  return {
+    totalEvaluated: 0,
+    sameWinner: 0,
+    bothNoMatch: 0,
+    productiveMatchCanonicalNoMatch: 0,
+    productiveNoMatchCanonicalMatch: 0,
+    differentWinner: 0,
+    canonicalAmbiguous: 0,
+    shadowErrors: 0,
+    divergenceReasons: { NO_MATCH: 0, AMBIGUOUS: 0, UNDETERMINED: 0, OTHER: 0 },
+  };
+}
+
+export function accumulateApplyAllShadowSummary(
+  summary: ShadowExecutionSummary,
+  result: ShadowExecutionResult,
+  classification?: DivergenceClassification,
+): ShadowExecutionSummary {
+  const next = { ...summary, totalEvaluated: summary.totalEvaluated + 1 };
+
+  if (!result.ok) {
+    next.shadowErrors = next.shadowErrors + 1;
+    return next;
+  }
+
+  switch (result.comparison.comparison) {
+    case 'SAME_WINNER':
+      next.sameWinner = next.sameWinner + 1;
+      break;
+    case 'BOTH_NO_MATCH':
+      next.bothNoMatch = next.bothNoMatch + 1;
+      break;
+    case 'PRODUCTIVE_MATCH_CANONICAL_NO_MATCH':
+      next.productiveMatchCanonicalNoMatch = next.productiveMatchCanonicalNoMatch + 1;
+      break;
+    case 'PRODUCTIVE_NO_MATCH_CANONICAL_MATCH':
+      next.productiveNoMatchCanonicalMatch = next.productiveNoMatchCanonicalMatch + 1;
+      break;
+    case 'DIFFERENT_WINNER':
+      next.differentWinner = next.differentWinner + 1;
+      break;
+    case 'CANONICAL_AMBIGUOUS':
+      next.canonicalAmbiguous = next.canonicalAmbiguous + 1;
+      break;
+  }
+
+  if (classification?.reason) {
+    next.divergenceReasons[classification.reason] = next.divergenceReasons[classification.reason] + 1;
+  }
+
+  return next;
+}
+
+export function toPersistencePayload(summary: ShadowExecutionSummary): ShadowPersistencePayload {
+  return {
+    totalEvaluated: summary.totalEvaluated,
+    sameWinner: summary.sameWinner,
+    differentWinner: summary.differentWinner,
+    shadowErrors: summary.shadowErrors,
+    divergenceReasons: { ...summary.divergenceReasons },
+  };
+}
+
 // Accumulator — pure function
 
 export function accumulateShadowSummary(
@@ -196,26 +331,39 @@ export function accumulateShadowSummary(
 
 // Best-effort persistence
 
-export async function persistShadowSummaryBestEffort(params: {
-  companyId: string;
-  userId?: string;
-  statementId: string;
-  summary: ShadowImportSummary;
-}): Promise<void> {
+export type PersistShadowParams =
+  | {
+      companyId: string;
+      userId?: string;
+      statementId: string;
+      summary: ShadowImportSummary;
+    }
+  | {
+      companyId: string;
+      userId?: string;
+      entity: 'ApplyAllBatch';
+      entityId: string;
+      summary: ShadowPersistencePayload;
+    };
+
+export async function persistShadowSummaryBestEffort(params: PersistShadowParams): Promise<void> {
   try {
+    const entity = 'statementId' in params ? 'BankStatement' as const : params.entity;
+    const entityId = 'statementId' in params ? params.statementId : params.entityId;
     await createAuditLogWithRetry({
       companyId: params.companyId,
       userId: params.userId,
       action: 'RULE_PRECEDENCE_SHADOW_SUMMARY',
-      entity: 'BankStatement',
-      entityId: params.statementId,
+      entity,
+      entityId,
       details: JSON.stringify(params.summary),
     });
   } catch (error) {
+    const entityId = 'statementId' in params ? params.statementId : params.entityId;
     logger.error('[SHADOW SUMMARY PERSIST FAILED]', {
       error: String(error),
       companyId: params.companyId,
-      statementId: params.statementId,
+      entityId,
     });
   }
 }

@@ -8,6 +8,16 @@ import {
   createEmptyShadowImportSummary,
   accumulateShadowSummary,
   persistShadowSummaryBestEffort,
+  classifyDivergenceReason,
+  createEmptyApplyAllShadowSummary,
+  accumulateApplyAllShadowSummary,
+  toPersistencePayload,
+} from '@/lib/services/rule-precedence-shadow';
+import type {
+  DivergenceClassification,
+  ShadowExecutionResult,
+  ShadowExecutionSummary,
+  ComparisonEvidence,
 } from '@/lib/services/rule-precedence-shadow';
 import type { RulePrecedenceRule, RulePrecedenceTransaction } from '@/lib/services/rule-precedence-engine';
 
@@ -417,7 +427,257 @@ describe('persistShadowSummaryBestEffort', () => {
 
     expect(logger.error).toHaveBeenCalledWith(
       '[SHADOW SUMMARY PERSIST FAILED]',
-      expect.objectContaining({ companyId: 'c1', statementId: 's1' }),
+      expect.objectContaining({ companyId: 'c1', entityId: 's1' }),
     );
+  });
+});
+
+// ─── S7-04C: Apply All Shadow classification ──────────────
+
+describe('classifyDivergenceReason', () => {
+  it('SAME — ambos winners nulos', () => {
+    const evidence: ComparisonEvidence = {
+      productiveWinnerId: null,
+      canonicalWinnerId: null,
+      canonicalReason: 'NO_MATCH',
+    };
+
+    const result = classifyDivergenceReason(evidence);
+
+    expect(result).toEqual<DivergenceClassification>({ comparison: 'SAME', reason: null });
+  });
+
+  it('SAME — mismo winner', () => {
+    const evidence: ComparisonEvidence = {
+      productiveWinnerId: 'r1',
+      canonicalWinnerId: 'r1',
+      canonicalReason: 'WINNER',
+    };
+
+    const result = classifyDivergenceReason(evidence);
+
+    expect(result).toEqual<DivergenceClassification>({ comparison: 'SAME', reason: null });
+  });
+
+  it('DIFFERENT / NO_MATCH — productivo ganó, canónico no tiene candidatos', () => {
+    const evidence: ComparisonEvidence = {
+      productiveWinnerId: 'r1',
+      canonicalWinnerId: null,
+      canonicalReason: 'NO_MATCH',
+    };
+
+    const result = classifyDivergenceReason(evidence);
+
+    expect(result).toEqual<DivergenceClassification>({ comparison: 'DIFFERENT', reason: 'NO_MATCH' });
+  });
+
+  it('DIFFERENT / AMBIGUOUS — canónico reporta ambigüedad', () => {
+    const evidence: ComparisonEvidence = {
+      productiveWinnerId: 'r1',
+      canonicalWinnerId: null,
+      canonicalReason: 'AMBIGUOUS',
+    };
+
+    const result = classifyDivergenceReason(evidence);
+
+    expect(result).toEqual<DivergenceClassification>({ comparison: 'DIFFERENT', reason: 'AMBIGUOUS' });
+  });
+
+  it('DIFFERENT / OTHER — productivo nulo, canónico tiene winner', () => {
+    const evidence: ComparisonEvidence = {
+      productiveWinnerId: null,
+      canonicalWinnerId: 'r1',
+      canonicalReason: 'WINNER',
+    };
+
+    const result = classifyDivergenceReason(evidence);
+
+    expect(result).toEqual<DivergenceClassification>({ comparison: 'DIFFERENT', reason: 'OTHER' });
+  });
+
+  it('DIFFERENT / UNDETERMINED — winners distintos sin otra evidencia', () => {
+    const evidence: ComparisonEvidence = {
+      productiveWinnerId: 'r1',
+      canonicalWinnerId: 'r2',
+      canonicalReason: 'WINNER',
+    };
+
+    const result = classifyDivergenceReason(evidence);
+
+    expect(result).toEqual<DivergenceClassification>({ comparison: 'DIFFERENT', reason: 'UNDETERMINED' });
+  });
+});
+
+describe('createEmptyApplyAllShadowSummary', () => {
+  it('returns all counters at zero', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    expect(s).toEqual<ShadowExecutionSummary>({
+      totalEvaluated: 0,
+      sameWinner: 0,
+      bothNoMatch: 0,
+      productiveMatchCanonicalNoMatch: 0,
+      productiveNoMatchCanonicalMatch: 0,
+      differentWinner: 0,
+      canonicalAmbiguous: 0,
+      shadowErrors: 0,
+      divergenceReasons: { NO_MATCH: 0, AMBIGUOUS: 0, UNDETERMINED: 0, OTHER: 0 },
+    });
+  });
+});
+
+describe('accumulateApplyAllShadowSummary', () => {
+  it('increments sameWinner on SAME_WINNER', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    const r: ShadowExecutionResult = {
+      ok: true,
+      comparison: {
+        comparison: 'SAME_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r1',
+        canonicalAmbiguous: false, canonicalReason: 'WINNER',
+      },
+    };
+    const result = accumulateApplyAllShadowSummary(s, r, { comparison: 'SAME', reason: null });
+    expect(result.sameWinner).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('increments differentWinner and divergenceReasons on DIFFERENT / UNDETERMINED', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    const r: ShadowExecutionResult = {
+      ok: true,
+      comparison: {
+        comparison: 'DIFFERENT_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r2',
+        canonicalAmbiguous: false, canonicalReason: 'WINNER',
+      },
+    };
+    const result = accumulateApplyAllShadowSummary(s, r, { comparison: 'DIFFERENT', reason: 'UNDETERMINED' });
+    expect(result.differentWinner).toBe(1);
+    expect(result.divergenceReasons.UNDETERMINED).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('increments shadowErrors and totalEvaluated on error', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    const r: ShadowExecutionResult = { ok: false };
+    const result = accumulateApplyAllShadowSummary(s, r);
+    expect(result.shadowErrors).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+    expect(result.sameWinner).toBe(0);
+  });
+
+  it('multiple accumulations produce correct sums', () => {
+    let s = createEmptyApplyAllShadowSummary();
+
+    s = accumulateApplyAllShadowSummary(s, {
+      ok: true, comparison: { comparison: 'SAME_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r1', canonicalAmbiguous: false, canonicalReason: 'WINNER' },
+    }, { comparison: 'SAME', reason: null });
+
+    s = accumulateApplyAllShadowSummary(s, {
+      ok: true, comparison: { comparison: 'DIFFERENT_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r2', canonicalAmbiguous: false, canonicalReason: 'WINNER' },
+    }, { comparison: 'DIFFERENT', reason: 'UNDETERMINED' });
+
+    s = accumulateApplyAllShadowSummary(s, {
+      ok: true, comparison: { comparison: 'CANONICAL_AMBIGUOUS', productiveWinnerId: 'r1', canonicalWinnerId: null, canonicalAmbiguous: true, canonicalReason: 'AMBIGUOUS' },
+    }, { comparison: 'DIFFERENT', reason: 'AMBIGUOUS' });
+
+    s = accumulateApplyAllShadowSummary(s, { ok: false });
+
+    expect(s.totalEvaluated).toBe(4);
+    expect(s.sameWinner).toBe(1);
+    expect(s.differentWinner).toBe(1);
+    expect(s.canonicalAmbiguous).toBe(1);
+    expect(s.shadowErrors).toBe(1);
+    expect(s.divergenceReasons.UNDETERMINED).toBe(1);
+    expect(s.divergenceReasons.AMBIGUOUS).toBe(1);
+  });
+
+  it('bothNoMatch counter works correctly', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    const r: ShadowExecutionResult = {
+      ok: true,
+      comparison: {
+        comparison: 'BOTH_NO_MATCH', productiveWinnerId: null, canonicalWinnerId: null,
+        canonicalAmbiguous: false, canonicalReason: 'NO_MATCH',
+      },
+    };
+    const result = accumulateApplyAllShadowSummary(s, r, { comparison: 'SAME', reason: null });
+    expect(result.bothNoMatch).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('productiveMatchCanonicalNoMatch counter works correctly', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    const r: ShadowExecutionResult = {
+      ok: true,
+      comparison: {
+        comparison: 'PRODUCTIVE_MATCH_CANONICAL_NO_MATCH', productiveWinnerId: 'r1', canonicalWinnerId: null,
+        canonicalAmbiguous: false, canonicalReason: 'NO_MATCH',
+      },
+    };
+    const result = accumulateApplyAllShadowSummary(s, r, { comparison: 'DIFFERENT', reason: 'NO_MATCH' });
+    expect(result.productiveMatchCanonicalNoMatch).toBe(1);
+    expect(result.divergenceReasons.NO_MATCH).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('productiveNoMatchCanonicalMatch counter works correctly', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    const r: ShadowExecutionResult = {
+      ok: true,
+      comparison: {
+        comparison: 'PRODUCTIVE_NO_MATCH_CANONICAL_MATCH', productiveWinnerId: null, canonicalWinnerId: 'r1',
+        canonicalAmbiguous: false, canonicalReason: 'WINNER',
+      },
+    };
+    const result = accumulateApplyAllShadowSummary(s, r, { comparison: 'DIFFERENT', reason: 'OTHER' });
+    expect(result.productiveNoMatchCanonicalMatch).toBe(1);
+    expect(result.divergenceReasons.OTHER).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+
+  it('classification is optional — omits divergenceReasons increment when absent', () => {
+    const s = createEmptyApplyAllShadowSummary();
+    const r: ShadowExecutionResult = {
+      ok: true,
+      comparison: {
+        comparison: 'SAME_WINNER', productiveWinnerId: 'r1', canonicalWinnerId: 'r1',
+        canonicalAmbiguous: false, canonicalReason: 'WINNER',
+      },
+    };
+    const result = accumulateApplyAllShadowSummary(s, r);
+    expect(result.sameWinner).toBe(1);
+    expect(result.totalEvaluated).toBe(1);
+  });
+});
+
+describe('toPersistencePayload', () => {
+  it('transforms ShadowExecutionSummary to ShadowPersistencePayload', () => {
+    const summary: ShadowExecutionSummary = {
+      totalEvaluated: 100,
+      sameWinner: 50,
+      bothNoMatch: 20,
+      productiveMatchCanonicalNoMatch: 5,
+      productiveNoMatchCanonicalMatch: 3,
+      differentWinner: 15,
+      canonicalAmbiguous: 5,
+      shadowErrors: 2,
+      divergenceReasons: { NO_MATCH: 5, AMBIGUOUS: 5, UNDETERMINED: 10, OTHER: 3 },
+    };
+
+    const payload = toPersistencePayload(summary);
+
+    expect(payload).toEqual({
+      totalEvaluated: 100,
+      sameWinner: 50,
+      differentWinner: 15,
+      shadowErrors: 2,
+      divergenceReasons: { NO_MATCH: 5, AMBIGUOUS: 5, UNDETERMINED: 10, OTHER: 3 },
+    });
+  });
+
+  it('does not mutate the original summary', () => {
+    const summary: ShadowExecutionSummary = createEmptyApplyAllShadowSummary();
+    const original = { ...summary, divergenceReasons: { ...summary.divergenceReasons } };
+    toPersistencePayload(summary);
+    expect(summary).toEqual(original);
   });
 });

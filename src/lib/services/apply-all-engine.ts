@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { db } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import {
@@ -11,6 +12,21 @@ import {
 import type { RuleRecord } from '@/lib/services/rule-precedence-import-resolver';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
+import {
+  isRulePrecedenceShadowEnabled,
+  toRulePrecedenceRule,
+  runShadowComparison,
+  createEmptyApplyAllShadowSummary,
+  accumulateApplyAllShadowSummary,
+  classifyDivergenceReason,
+  toPersistencePayload,
+  persistShadowSummaryBestEffort,
+  type ShadowExecutionSummary,
+  type ComparisonEvidence,
+  type DivergenceClassification,
+} from '@/lib/services/rule-precedence-shadow';
+import type { RulePrecedenceRule, RulePrecedenceTransaction } from '@/lib/services/rule-precedence-engine';
+import { isRuleEngineAdapterEnabled } from '@/lib/rule-engine/flag';
 
 function toRuleRecord(rule: {
   id: string;
@@ -146,6 +162,17 @@ export async function matchTransactions(
   };
   const ruleRecords = rules.map(toRuleRecord);
 
+  const shadowEnabled = isRulePrecedenceShadowEnabled() && !isRuleEngineAdapterEnabled();
+  let shadowRules: RulePrecedenceRule[] | undefined;
+  let shadowSummary: ShadowExecutionSummary | undefined;
+  let batchId: string | undefined;
+
+  if (shadowEnabled) {
+    shadowRules = rules.map(toRulePrecedenceRule);
+    shadowSummary = createEmptyApplyAllShadowSummary();
+    batchId = `apply-all-${crypto.randomUUID()}`;
+  }
+
   for (const tx of unmatchedTransactions) {
     const resolution = await resolveApplyAllRule(
       {
@@ -160,6 +187,35 @@ export async function matchTransactions(
       legacyCtx,
     );
 
+    if (shadowEnabled && shadowRules && shadowSummary) {
+      const txData: RulePrecedenceTransaction = {
+        id: tx.id,
+        date: tx.date,
+        description: tx.description,
+        amount: Number(tx.amount),
+        bankAccountId: bankAccountByStatement.get(tx.statementId),
+      };
+
+      const shadowResult = runShadowComparison(txData, shadowRules, resolution.matchedRuleId, {
+        companyId,
+        transactionId: tx.id,
+      });
+
+      let classification: DivergenceClassification | undefined;
+
+      if (shadowResult.ok) {
+        const evidence: ComparisonEvidence = {
+          productiveWinnerId: shadowResult.comparison.productiveWinnerId,
+          canonicalWinnerId: shadowResult.comparison.canonicalWinnerId,
+          canonicalReason: shadowResult.comparison.canonicalReason,
+        };
+
+        classification = classifyDivergenceReason(evidence);
+      }
+
+      shadowSummary = accumulateApplyAllShadowSummary(shadowSummary, shadowResult, classification);
+    }
+
     if (!resolution.resolvedRule) continue;
 
     const existing = winnerMap.get(resolution.resolvedRule.id);
@@ -172,6 +228,17 @@ export async function matchTransactions(
         txIds: [tx.id],
       });
     }
+  }
+
+  // Persist shadow summary after the loop (best-effort)
+  if (shadowSummary && shadowSummary.totalEvaluated > 0 && batchId) {
+    const payload = toPersistencePayload(shadowSummary);
+    await persistShadowSummaryBestEffort({
+      companyId,
+      entity: 'ApplyAllBatch',
+      entityId: batchId,
+      summary: payload,
+    });
   }
 
   // Build structured result

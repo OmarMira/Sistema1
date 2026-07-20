@@ -47,7 +47,13 @@ function makeSuccessResult(overrides = {}) {
     },
     shadow: {
       batchId: 'apply-all-test-batch',
-      summary: { totalEvaluated: 1, sameWinner: 1, diverged: 0, errors: 0 },
+      summary: {
+        totalEvaluated: 1,
+        sameWinner: 1,
+        differentWinner: 0,
+        shadowErrors: 0,
+        divergenceReasons: { NO_MATCH: 0, AMBIGUOUS: 0, UNDETERMINED: 0, OTHER: 0 },
+      },
     },
     ...overrides,
   };
@@ -70,7 +76,13 @@ describe('S7-05A: executeApplyAllUseCase', () => {
       companyId: 'c1',
       entity: 'ApplyAllBatch',
       entityId: 'apply-all-test-batch',
-      summary: { totalEvaluated: 1, sameWinner: 1, diverged: 0, errors: 0 },
+      summary: {
+        totalEvaluated: 1,
+        sameWinner: 1,
+        differentWinner: 0,
+        shadowErrors: 0,
+        divergenceReasons: { NO_MATCH: 0, AMBIGUOUS: 0, UNDETERMINED: 0, OTHER: 0 },
+      },
     });
     expect(result.matchResult.totalCount).toBe(1);
     expect(result.applyResult.appliedCount).toBe(1);

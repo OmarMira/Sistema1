@@ -147,21 +147,6 @@ describe('S7-04C: Apply All with Shadow ON/OFF', () => {
     expect(result.totalCount).toBe(3);
   });
 
-  it('Shadow ON + Adapter OFF: persistShadowSummaryBestEffort is called with ApplyAllBatch', async () => {
-    process.env.RULE_PRECEDENCE_SHADOW_ENABLED = 'true';
-
-    await matchTransactions('c1');
-
-    expect(mockPersist).toHaveBeenCalledTimes(1);
-    const callArg = mockPersist.mock.calls[0][0];
-    expect(callArg.entity).toBe('ApplyAllBatch');
-    expect(callArg.entityId).toMatch(/^apply-all-/);
-    expect(callArg.companyId).toBe('c1');
-    expect(callArg.summary).toBeDefined();
-    expect(callArg.summary.totalEvaluated).toBe(4);
-    expect(callArg.summary.sameWinner).toBeGreaterThanOrEqual(0);
-  });
-
   it('Shadow ON + Adapter ON: shadow is NOT executed', async () => {
     process.env.RULE_PRECEDENCE_SHADOW_ENABLED = 'true';
     process.env.RULE_ENGINE_ADAPTER_ENABLED = 'true';

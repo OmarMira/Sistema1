@@ -20,8 +20,8 @@ import {
   accumulateApplyAllShadowSummary,
   classifyDivergenceReason,
   toPersistencePayload,
-  persistShadowSummaryBestEffort,
   type ShadowExecutionSummary,
+  type ShadowPersistencePayload,
   type ComparisonEvidence,
   type DivergenceClassification,
 } from '@/lib/services/rule-precedence-shadow';
@@ -59,7 +59,6 @@ function toRuleRecord(rule: {
 }
 
 // ─── Constants ──────────────────────────────────────────────
-// Task 4.1: Replace the old MAX_SAFETY = 5000 with MAX_PER_BATCH = 200
 const MAX_PER_BATCH = 200;
 
 // ─── Types ──────────────────────────────────────────────────
@@ -81,48 +80,65 @@ export interface MatchOptions {
   limit?: number;
 }
 
-// ─── matchTransactions — Read-only matching ────────────────
-// Task 1.1: Extract the read-only matching logic from route.ts into a pure function.
-// Both POST and preview endpoints call this.
+// Internal — not exported
+type MatchingMode =
+  | { shadow: 'disabled' }
+  | { shadow: 'collect' };
 
-export async function matchTransactions(
+export interface ShadowCollectionResult {
+  summary: ShadowPersistencePayload;
+  batchId: string;
+}
+
+export type MatchTransactionsWithShadowResult =
+  | {
+      kind: 'without-shadow';
+      matchResult: MatchResult;
+    }
+  | {
+      kind: 'with-shadow';
+      matchResult: MatchResult;
+      shadow: ShadowCollectionResult;
+    };
+
+interface ExecuteMatchingResult {
+  matchResult: MatchResult;
+  shadowSummary?: ShadowExecutionSummary;
+}
+
+async function executeMatching(
   companyId: string,
+  mode: MatchingMode,
   options?: MatchOptions,
-): Promise<MatchResult> {
-  // Load entity-first context for SOCIO conflict detection
+): Promise<ExecuteMatchingResult> {
   const efCtx = await loadEntityFirstContext(companyId);
 
-  // Get all active rules sorted by priority
   const rules = await db.bankRule.findMany({
     where: { companyId, isActive: true },
     orderBy: { priority: 'asc' },
   });
 
-  // Task 4.3: Early return if no active rules
   if (rules.length === 0) {
     return {
-      matchedRules: [],
-      transactions: [],
-      totalAmount: 0,
-      totalCount: 0,
-      remaining: 0,
+      matchResult: {
+        matchedRules: [],
+        transactions: [],
+        totalAmount: 0,
+        totalCount: 0,
+        remaining: 0,
+      },
     };
   }
 
-  // Read company's maxApplyTransactions cap
   const company = await db.company.findUnique({
     where: { id: companyId },
     select: { maxApplyTransactions: true },
   });
 
-  // Task 4.2: Compute effective cap
-  // MIN(company?.maxApplyTransactions ?? MAX_PER_BATCH, MAX_PER_BATCH)
-  // 0 is a valid cap (apply nothing) — must be distinguished from null/undefined
   const effectiveCap = company?.maxApplyTransactions !== null && company?.maxApplyTransactions !== undefined
     ? Math.min(company.maxApplyTransactions, MAX_PER_BATCH)
     : MAX_PER_BATCH;
 
-  // Get all unmatched transactions for this company
   const companyStatements = await db.bankStatement.findMany({
     where: { companyId },
     select: { id: true, bankAccountId: true },
@@ -141,13 +157,11 @@ export async function matchTransactions(
   const totalUnmatched = unmatchedTransactions.length;
   let remaining = 0;
 
-  // Apply cap
   if (unmatchedTransactions.length > effectiveCap) {
     unmatchedTransactions = unmatchedTransactions.slice(0, effectiveCap);
     remaining = totalUnmatched - effectiveCap;
   }
 
-  // Run rule matching loop using the unified resolver
   const winnerMap = new Map<string, { ruleId: string; ruleName: string; txIds: string[] }>();
   const rolePriorities = await loadRolePriorities();
   const entityContexts = await db.entityContext.findMany({
@@ -162,15 +176,15 @@ export async function matchTransactions(
   };
   const ruleRecords = rules.map(toRuleRecord);
 
-  const shadowEnabled = isRulePrecedenceShadowEnabled() && !isRuleEngineAdapterEnabled();
+  const shadowEnabled = mode.shadow === 'collect'
+    && isRulePrecedenceShadowEnabled()
+    && !isRuleEngineAdapterEnabled();
   let shadowRules: RulePrecedenceRule[] | undefined;
   let shadowSummary: ShadowExecutionSummary | undefined;
-  let batchId: string | undefined;
 
   if (shadowEnabled) {
     shadowRules = rules.map(toRulePrecedenceRule);
     shadowSummary = createEmptyApplyAllShadowSummary();
-    batchId = `apply-all-${crypto.randomUUID()}`;
   }
 
   for (const tx of unmatchedTransactions) {
@@ -230,48 +244,75 @@ export async function matchTransactions(
     }
   }
 
-  // Persist shadow summary after the loop (best-effort)
-  if (shadowSummary && shadowSummary.totalEvaluated > 0 && batchId) {
-    const payload = toPersistencePayload(shadowSummary);
-    await persistShadowSummaryBestEffort({
-      companyId,
-      entity: 'ApplyAllBatch',
-      entityId: batchId,
-      summary: payload,
+  const matchResult: MatchResult = (() => {
+    const matchedRules = Array.from(winnerMap.entries()).map(([ruleId, entry]) => {
+      const rule = rules.find((r) => r.id === ruleId);
+      return {
+        rule: { id: ruleId, name: entry.ruleName, priority: rule?.priority ?? null },
+        txIds: entry.txIds,
+      };
     });
-  }
 
-  // Build structured result
-  const matchedRules = Array.from(winnerMap.entries()).map(([ruleId, entry]) => {
-    const rule = rules.find((r) => r.id === ruleId);
+    const matchedTxIds = new Set(matchedRules.flatMap((r) => r.txIds));
+    const matchedTransactions = unmatchedTransactions.filter((tx) => matchedTxIds.has(tx.id));
+
+    const totalAmount = matchedTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
+    const totalCount = matchedTransactions.length;
+
     return {
-      rule: { id: ruleId, name: entry.ruleName, priority: rule?.priority ?? null },
-      txIds: entry.txIds,
+      matchedRules,
+      transactions: matchedTransactions.map((tx) => ({
+        id: tx.id,
+        amount: Number(tx.amount),
+        description: tx.description,
+      })),
+      totalAmount,
+      totalCount,
+      remaining,
     };
-  });
-
-  const matchedTxIds = new Set(matchedRules.flatMap((r) => r.txIds));
-  const matchedTransactions = unmatchedTransactions.filter((tx) => matchedTxIds.has(tx.id));
-
-  const totalAmount = matchedTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
-  const totalCount = matchedTransactions.length;
+  })();
 
   return {
-    matchedRules,
-    transactions: matchedTransactions.map((tx) => ({
-      id: tx.id,
-      amount: Number(tx.amount),
-      description: tx.description,
-    })),
-    totalAmount,
-    totalCount,
-    remaining,
+    matchResult,
+    shadowSummary: shadowEnabled ? shadowSummary : undefined,
+  };
+}
+
+// ─── matchTransactions — Read-only matching ────────────────
+
+export async function matchTransactions(
+  companyId: string,
+  options?: MatchOptions,
+): Promise<MatchResult> {
+  const { matchResult } = await executeMatching(companyId, { shadow: 'disabled' }, options);
+  return matchResult;
+}
+
+// ─── matchTransactionsWithShadow — Matching + shadow collection ──
+
+export async function matchTransactionsWithShadow(
+  companyId: string,
+  options?: MatchOptions,
+): Promise<MatchTransactionsWithShadowResult> {
+  const { matchResult, shadowSummary } = await executeMatching(
+    companyId, { shadow: 'collect' }, options,
+  );
+
+  if (!shadowSummary) {
+    return { kind: 'without-shadow', matchResult };
+  }
+
+  return {
+    kind: 'with-shadow',
+    matchResult,
+    shadow: {
+      batchId: `apply-all-${crypto.randomUUID()}`,
+      summary: toPersistencePayload(shadowSummary),
+    },
   };
 }
 
 // ─── executeApplyAll — All mutations inside a transaction ──
-// Task 1.2: Takes a Prisma transaction client `tx` and performs ALL mutations.
-// Called INSIDE db.$transaction() — does NOT call $transaction itself.
 
 export async function executeApplyAll(
   companyId: string,
@@ -282,7 +323,6 @@ export async function executeApplyAll(
   const allCandidateIds: string[] = [];
   const rulesMap = new Map<string, { debitGlAccountId?: string | null; creditGlAccountId?: string | null; glAccountId?: string | null }>();
 
-  // Load the full rule data for GL account mapping
   const dbRules = await db.bankRule.findMany({
     where: { companyId, isActive: true },
     select: { id: true, debitGlAccountId: true, creditGlAccountId: true, glAccountId: true },
@@ -291,8 +331,6 @@ export async function executeApplyAll(
     rulesMap.set(r.id, r);
   }
 
-  // TOCTOU mitigation: verify transactions are still unmatched inside the tx
-  // before applying. This prevents double-matching when concurrent requests race.
   const allTxIds = matchResult.matchedRules.flatMap((r) => r.txIds);
   const stillUnmatched = await tx.bankTransaction.findMany({
     where: eligibleForClassificationWhere({
@@ -309,12 +347,10 @@ export async function executeApplyAll(
     const debitGlAccountId = ruleData.debitGlAccountId || ruleData.glAccountId;
     const creditGlAccountId = ruleData.creditGlAccountId || ruleData.glAccountId;
 
-    // Split into debits (amount < 0) and credits (amount >= 0)
     const debitIds: string[] = [];
     const creditIds: string[] = [];
 
     for (const txId of txIds) {
-      // Skip transactions that were already matched by another request
       if (!unmatchedSet.has(txId)) continue;
       const tx = matchResult.transactions.find((t) => t.id === txId);
       if (!tx) continue;
@@ -322,14 +358,9 @@ export async function executeApplyAll(
       else creditIds.push(txId);
     }
 
-    // Sort IDs ascending within each group (deadlock mitigation)
     debitIds.sort();
     creditIds.sort();
 
-    // Process debits first, then credits (consistent lock order)
-    // TOCTOU defense: batch updateMany re-evaluates the invariant filter
-    // at UPDATE time via the WHERE clause. Protected transactions are
-    // silently excluded — result.count reflects only real updates.
     if (debitIds.length > 0) {
       const result = await tx.bankTransaction.updateMany({
         where: eligibleForClassificationWhere({ id: { in: debitIds } }),
@@ -349,17 +380,11 @@ export async function executeApplyAll(
     }
   }
 
-  // Re-fetch candidate transactions that now have a GL account, for
-  // downstream journal entry processing. This query does NOT identify which
-  // rows were updated by this operation — it may include transactions that
-  // obtained glAccountId from another concurrent process between our SELECT
-  // and UPDATE (see Race Analysis below).
   const matchedTxs = await tx.bankTransaction.findMany({
     where: { id: { in: allCandidateIds }, glAccountId: { not: null }, journalEntryId: null },
     select: { id: true, date: true, amount: true, description: true, glAccountId: true, statementId: true },
   });
 
-  // Load statement → bankAccount → bankGL mapping (using tx client)
   const statementIds = [...new Set<string>(matchedTxs.map((t: any) => t.statementId))];
   const statements = await tx.bankStatement.findMany({
     where: { id: { in: statementIds } },
@@ -377,7 +402,6 @@ export async function executeApplyAll(
     if (ba) bankGlByStatement.set(st.id, ba.glAccountId);
   }
 
-  // Create journal entries (inside the same transaction)
   let journalEntryCount = 0;
   for (const bt of matchedTxs) {
     const bankGl = bankGlByStatement.get(bt.statementId);

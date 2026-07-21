@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useAuthStore } from '@/store/auth-store';
 import { useLanguageStore } from '@/store/language-store';
 import { createInitialReadinessForm, type ReadinessForm } from '@/lib/readiness/default-readiness-profile';
-import { buildReadinessQueryParams } from '@/lib/readiness/build-readiness-query-params';
-import type { CanonicalReadiness } from '@/lib/services/canonical-readiness-service';
+import { buildPolicyQueryParams } from '@/lib/readiness/build-policy-query-params';
+import type { OperationalPolicyDecision, OperationalContext } from '@/lib/operational-policy/types';
 import { logger } from '@/lib/logger';
 import ReadinessCriteriaForm from '@/components/spa/admin/readiness/ReadinessCriteriaForm';
 import ReadinessStatusCard from '@/components/spa/admin/readiness/ReadinessStatusCard';
@@ -14,16 +14,33 @@ import ReadinessRatesGrid from '@/components/spa/admin/readiness/ReadinessRatesG
 import ReadinessChecksTable from '@/components/spa/admin/readiness/ReadinessChecksTable';
 import ReadinessRecommendationBanner from '@/components/spa/admin/readiness/ReadinessRecommendationBanner';
 import TrustPolicyWarning from '@/components/spa/admin/readiness/TrustPolicyWarning';
+import PolicyDecisionCard from '@/components/spa/admin/readiness/PolicyDecisionCard';
 import { Info, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+
+type DashboardForm = ReadinessForm & { context: OperationalContext };
+
+const CONTEXT_OPTIONS: OperationalContext[] = ['APPLY_ALL', 'IMPORT', 'RECONCILIATION'];
 
 export default function AdminReadinessDashboardPage() {
   const t = useLanguageStore((s) => s.t);
   const { adminSelectedCompanyId } = useAuthStore();
 
-  const [draftForm, setDraftForm] = useState<ReadinessForm>(() => createInitialReadinessForm());
-  const [appliedQuery, setAppliedQuery] = useState<ReadinessForm | null>(null);
-  const [readinessResult, setReadinessResult] = useState<CanonicalReadiness | null>(null);
+  const initialForm = (): DashboardForm => ({
+    ...createInitialReadinessForm(),
+    context: 'APPLY_ALL',
+  });
+
+  const [draftForm, setDraftForm] = useState<DashboardForm>(initialForm);
+  const [appliedQuery, setAppliedQuery] = useState<DashboardForm | null>(null);
+  const [policyResult, setPolicyResult] = useState<OperationalPolicyDecision | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasExistingData, setHasExistingData] = useState(false);
@@ -31,34 +48,34 @@ export default function AdminReadinessDashboardPage() {
   const abortRef = useRef<AbortController | null>(null);
   const requestIdRef = useRef(0);
 
-  const fetchReadiness = useCallback(async (query: ReadinessForm, companyId: string) => {
+  const fetchPolicy = useCallback(async (query: DashboardForm, companyId: string) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     const currentId = ++requestIdRef.current;
 
-    const params = buildReadinessQueryParams(query, companyId);
+    const params = buildPolicyQueryParams(query, companyId);
 
     try {
       setLoading(true);
       setError(null);
       const res = await fetch(
-        `/api/admin/shadow-metrics/readiness?${params.toString()}`,
+        `/api/admin/shadow-metrics/policy?${params.toString()}`,
         { credentials: 'include', signal: controller.signal },
       );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body?.error || `HTTP ${res.status}`);
       }
-      const data: CanonicalReadiness = await res.json();
+      const data: OperationalPolicyDecision = await res.json();
 
       if (currentId !== requestIdRef.current) return;
-      setReadinessResult(data);
+      setPolicyResult(data);
       setHasExistingData(true);
     } catch (err) {
       if (currentId !== requestIdRef.current) return;
       if ((err as Error)?.name === 'AbortError') return;
-      logger.error('Readiness fetch failed', { error: String(err) });
+      logger.error('Policy fetch failed', { error: String(err) });
       if (!hasExistingData) {
         setError(String(err));
       }
@@ -73,21 +90,27 @@ export default function AdminReadinessDashboardPage() {
     setDraftForm(prev => ({ ...prev, [field]: value }));
   }, []);
 
+  const handleContextChange = useCallback((value: string) => {
+    setDraftForm(prev => ({ ...prev, context: value as OperationalContext }));
+  }, []);
+
   const handleApply = useCallback(() => {
     setAppliedQuery(draftForm);
     if (adminSelectedCompanyId) {
-      fetchReadiness(draftForm, adminSelectedCompanyId);
+      fetchPolicy(draftForm, adminSelectedCompanyId);
     }
-  }, [draftForm, adminSelectedCompanyId, fetchReadiness]);
+  }, [draftForm, adminSelectedCompanyId, fetchPolicy]);
 
   useEffect(() => {
-    const mountedForm = createInitialReadinessForm();
+    const mountedForm = initialForm();
     setDraftForm(mountedForm);
     if (adminSelectedCompanyId) {
       setAppliedQuery(mountedForm);
-      fetchReadiness(mountedForm, adminSelectedCompanyId);
+      fetchPolicy(mountedForm, adminSelectedCompanyId);
     }
   }, [adminSelectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const readinessResult = policyResult?.readiness ?? null;
 
   if (!adminSelectedCompanyId) {
     return (
@@ -119,6 +142,23 @@ export default function AdminReadinessDashboardPage() {
         t={t}
       />
 
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-medium text-muted-foreground">Operational Context:</label>
+        <Select
+          value={draftForm.context}
+          onValueChange={handleContextChange}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {CONTEXT_OPTIONS.map((opt) => (
+              <SelectItem key={opt} value={opt}>{opt}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {error && !hasExistingData && (
         <div className="flex flex-col items-center justify-center gap-4 rounded-2xl border border-red-200 bg-red-50 dark:bg-red-950/20 p-8 text-center">
           <AlertCircle className="size-8 text-red-500" />
@@ -126,7 +166,7 @@ export default function AdminReadinessDashboardPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => appliedQuery && adminSelectedCompanyId && fetchReadiness(appliedQuery, adminSelectedCompanyId)}
+            onClick={() => appliedQuery && adminSelectedCompanyId && fetchPolicy(appliedQuery, adminSelectedCompanyId)}
           >
             {t('admin.readiness.retry')}
           </Button>
@@ -147,38 +187,39 @@ export default function AdminReadinessDashboardPage() {
         </div>
       )}
 
-      {readinessResult && (
+      {policyResult && (
         <>
+          <PolicyDecisionCard decision={policyResult} />
           <ReadinessStatusCard
-            status={readinessResult.status}
-            reasons={'reasons' in readinessResult ? readinessResult.reasons : undefined}
+            status={readinessResult!.status}
+            reasons={'reasons' in readinessResult! ? readinessResult!.reasons : undefined}
             t={t}
           />
           <ReadinessMetricsGrid
-            metrics={readinessResult.metrics}
+            metrics={readinessResult!.metrics}
             loading={loading}
             t={t}
           />
           <ReadinessRatesGrid
-            metrics={readinessResult.metrics}
-            checks={readinessResult.checks}
+            metrics={readinessResult!.metrics}
+            checks={readinessResult!.checks}
             loading={loading}
             t={t}
           />
           {appliedQuery && (
             <TrustPolicyWarning
               trustPolicy={appliedQuery.trustPolicy}
-              legacyUntrustedBatches={readinessResult.metrics.legacyUntrustedBatches}
+              legacyUntrustedBatches={readinessResult!.metrics.legacyUntrustedBatches}
               t={t}
             />
           )}
           <ReadinessChecksTable
-            checks={readinessResult.checks}
-            failedChecks={'failedChecks' in readinessResult ? readinessResult.failedChecks : undefined}
+            checks={readinessResult!.checks}
+            failedChecks={'failedChecks' in readinessResult! ? readinessResult!.failedChecks : undefined}
             t={t}
           />
           <ReadinessRecommendationBanner
-            status={readinessResult.status}
+            status={readinessResult!.status}
             t={t}
           />
         </>

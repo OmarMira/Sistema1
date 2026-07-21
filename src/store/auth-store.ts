@@ -42,6 +42,7 @@ export type ViewName =
   | 'admin-company-detail'
   | 'admin-users'
   | 'admin-audit-logs'
+  | 'admin-readiness'
   | 'admin-dashboard'
   | 'workflow'
   | 'entity-management'

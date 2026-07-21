@@ -5,6 +5,7 @@ import {
   Building2,
   Users,
   Activity,
+  BarChart3,
   ArrowLeft,
   ShieldAlert,
   Cpu,
@@ -21,6 +22,7 @@ import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import AdminCompaniesPage from './AdminCompaniesPage';
 import AdminUsersPage from './AdminUsersPage';
 import AdminAuditLogsPage from './AdminAuditLogsPage';
+import AdminReadinessDashboardPage from './AdminReadinessDashboardPage';
 import AdminCompanyDetailPage from './AdminCompanyDetailPage';
 import { logger } from '@/lib/logger';
 import { AdminStatCards, AdminQuickActions } from '@/components/dashboard/DashboardPageBlocks';
@@ -141,6 +143,13 @@ export default function SuperAdminDashboardPage() {
               icon={Activity}
               label={t('superAdmin.logs')}
             />
+            <NavBtn
+              viewName="admin-readiness"
+              currentView={currentView}
+              setCurrentView={setCurrentView}
+              icon={BarChart3}
+              label={t('superAdmin.readiness')}
+            />
           </div>
         </div>
 
@@ -177,6 +186,7 @@ export default function SuperAdminDashboardPage() {
               {currentView === 'admin-company-detail' && t('superAdmin.companyDetailTitle')}
               {currentView === 'admin-users' && t('superAdmin.manageUsersTitle')}
               {currentView === 'admin-audit-logs' && t('superAdmin.logsTitle')}
+              {currentView === 'admin-readiness' && t('superAdmin.readinessTitle')}
             </h2>
           </div>
 
@@ -231,6 +241,7 @@ export default function SuperAdminDashboardPage() {
             {currentView === 'admin-company-detail' && <AdminCompanyDetailPage />}
             {currentView === 'admin-users' && <AdminUsersPage />}
             {currentView === 'admin-audit-logs' && <AdminAuditLogsPage />}
+            {currentView === 'admin-readiness' && <AdminReadinessDashboardPage />}
           </div>
         </main>
       </div>

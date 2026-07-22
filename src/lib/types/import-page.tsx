@@ -2,6 +2,7 @@ import React from 'react';
 import { FileSpreadsheet, FileText, File } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import type { PolicyObservationResponse } from '@/lib/operational-policy/types';
 
 /* ─── Types ──────────────────────────────────────────────────────────── */
 
@@ -36,6 +37,7 @@ export interface ImportResult {
   newAccountCreated: boolean;
   bankAccountName: string;
   skippedNote?: string;
+  policyObservation?: PolicyObservationResponse;
 }
 
 export interface ValidationResult {

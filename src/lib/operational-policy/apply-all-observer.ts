@@ -3,24 +3,21 @@ import type { ShadowMetricsQuery } from '@/lib/services/shadow-metrics-reader';
 import { evaluateOperationalPolicy } from '@/lib/operational-policy/policy-service';
 import { APPLY_ALL_OBSERVATION_CONFIG } from '@/lib/operational-policy/apply-all-observation-config';
 import type { OperationalContext, OperationalPolicyDecision } from './types';
+import type {
+  PolicyObservationResponse,
+  PolicyObservationStatus,
+  PolicyObservationAvailable,
+  PolicyObservationUnavailable,
+} from './types';
 
-// ─── Types ──────────────────────────────────────────────────
+// ─── Types (re-exported from domain) ────────────────────────
 
-export type PolicyObservationStatus = 'AVAILABLE' | 'UNAVAILABLE';
-
-export interface PolicyObservationAvailable {
-  status: 'AVAILABLE';
-  decision: OperationalPolicyDecision;
-}
-
-export interface PolicyObservationUnavailable {
-  status: 'UNAVAILABLE';
-  errorCode: string;
-}
-
-export type PolicyObservationResponse =
-  | PolicyObservationAvailable
-  | PolicyObservationUnavailable;
+export type {
+  PolicyObservationResponse,
+  PolicyObservationStatus,
+  PolicyObservationAvailable,
+  PolicyObservationUnavailable,
+};
 
 export interface ObservePolicyParams {
   companyId: string;

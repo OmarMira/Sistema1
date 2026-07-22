@@ -51,4 +51,22 @@ export interface OperationalPolicyInput {
   metricsQuery: ShadowMetricsQuery;
 }
 
+// ─── Observation contract (shared across all consumers) ───
+
+export type PolicyObservationStatus = 'AVAILABLE' | 'UNAVAILABLE';
+
+export interface PolicyObservationAvailable {
+  status: 'AVAILABLE';
+  decision: OperationalPolicyDecision;
+}
+
+export interface PolicyObservationUnavailable {
+  status: 'UNAVAILABLE';
+  errorCode: string;
+}
+
+export type PolicyObservationResponse =
+  | PolicyObservationAvailable
+  | PolicyObservationUnavailable;
+
 export type { ShadowMetricsQuery, ReadinessCriteria, CanonicalReadiness };

@@ -16,6 +16,7 @@ import {
   ConflictError,
   BankAccountRequiredError,
   MathMismatchError,
+  AppError,
 } from '@/lib/api-error';
 import { trackPDFParseDuration } from '@/lib/metrics';
 import { withTiming } from '@/lib/timing';
@@ -32,6 +33,13 @@ import {
   persistShadowSummaryBestEffort,
   createEmptyShadowImportSummary,
 } from '@/lib/services/rule-precedence-shadow';
+import { ShadowMetricsReader } from '@/lib/services/shadow-metrics-reader';
+import type { ShadowMetricsQuery } from '@/lib/services/shadow-metrics-reader';
+import { PrismaAuditLogRepository } from '@/lib/db/audit-log-repository';
+import { isOperationalPolicyImportObservationEnabled } from '@/lib/rule-engine/flag';
+import { evaluateOperationalPolicy } from '@/lib/operational-policy/policy-service';
+import { IMPORT_OBSERVATION_CONFIG } from '@/lib/operational-policy/import-observation-config';
+import type { PolicyObservationResponse, OperationalPolicyDecision } from '@/lib/operational-policy/types';
 
 export interface ImportResult {
   statementId: string;
@@ -40,6 +48,7 @@ export interface ImportResult {
   duplicatesSkipped: number;
   newAccountCreated: boolean;
   bankAccountName: string;
+  policyObservation?: PolicyObservationResponse;
 }
 
 export class ImportService {
@@ -547,11 +556,55 @@ export class ImportService {
       });
     }
 
+    // ─── S7-09: Operational Policy Observation (best-effort, inline) ───
+    let policyObservation: PolicyObservationResponse | undefined;
+
+    if (isOperationalPolicyImportObservationEnabled() && shadowSummary) {
+      try {
+        const provider = new ShadowMetricsReader(
+          new PrismaAuditLogRepository(db),
+        );
+        const metricsWindow = buildObservationWindow(
+          new Date(),
+          IMPORT_OBSERVATION_CONFIG.windowDays,
+        );
+
+        const metricsQuery: ShadowMetricsQuery = {
+          ...IMPORT_OBSERVATION_CONFIG.metricsQueryTemplate,
+          companyId,
+          from: metricsWindow.from,
+          to: metricsWindow.to,
+        };
+
+        const decision = await evaluateOperationalPolicy(
+          { context: 'IMPORT' as const, metricsQuery },
+          IMPORT_OBSERVATION_CONFIG.criteria,
+          provider,
+          IMPORT_OBSERVATION_CONFIG.profile,
+        );
+
+        policyObservation = { status: 'AVAILABLE', decision };
+
+        await persistImportPolicyObservation({
+          companyId,
+          entityId: result.statementId,
+          decision,
+          metricsWindow,
+        });
+      } catch (error) {
+        policyObservation = {
+          status: 'UNAVAILABLE',
+          errorCode: classifyImportPolicyObservationError(error),
+        };
+      }
+    }
+
     return {
       statementId: result.statementId,
       transactionCount: uniqueTransactions.length,
       autoCategorizedCount: result.autoCategorizedCount,
       duplicatesSkipped,
+      ...(policyObservation !== undefined && { policyObservation }),
     };
   }
 
@@ -608,5 +661,70 @@ export class ImportService {
         balance: newest!.closingBalance,
       },
     });
+  }
+
+}
+
+// ─── S7-09 Helpers ──────────────────────────────────────────
+
+function buildObservationWindow(
+  now: Date,
+  windowDays: number,
+): { from: Date; to: Date } {
+  const from = new Date(now);
+  from.setDate(from.getDate() - windowDays);
+  from.setUTCHours(0, 0, 0, 0);
+
+  const to = new Date(now);
+  to.setUTCHours(23, 59, 59, 999);
+
+  return { from, to };
+}
+
+function classifyImportPolicyObservationError(error: unknown): string {
+  if (error instanceof ValidationError) {
+    return 'POLICY_VALIDATION_ERROR';
+  }
+  if (error instanceof AppError) {
+    return 'POLICY_PROVIDER_ERROR';
+  }
+  return 'POLICY_INTERNAL_ERROR';
+}
+
+async function persistImportPolicyObservation(params: {
+  companyId: string;
+  entityId: string;
+  decision: OperationalPolicyDecision;
+  metricsWindow: { from: Date; to: Date };
+}): Promise<void> {
+  const { companyId, entityId, decision, metricsWindow } = params;
+  const payload = {
+    policySchemaVersion: 1,
+    context: 'IMPORT',
+    profileId: decision.profileId,
+    profileVersion: decision.profileVersion,
+    action: decision.action,
+    reasonCode: decision.reasons.reasonCode,
+    readinessStatus: decision.readiness.status,
+    metricsWindow: {
+      from: metricsWindow.from.toISOString(),
+      to: metricsWindow.to.toISOString(),
+      source: 'IMPORT',
+      trustPolicy: IMPORT_OBSERVATION_CONFIG.metricsQueryTemplate.trustPolicy,
+    },
+  };
+
+  try {
+    await db.auditLog.create({
+      data: {
+        companyId,
+        action: 'OPERATIONAL_POLICY_OBSERVATION',
+        entity: 'BankStatement',
+        entityId,
+        details: JSON.stringify(payload),
+      },
+    });
+  } catch {
+    // Best-effort: failure does NOT degrade AVAILABLE (I8)
   }
 }

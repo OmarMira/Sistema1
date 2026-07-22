@@ -23,7 +23,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
   const locale = request.headers.get('x-locale') || 'es';
 
-  const { matchResult, applyResult } = await executeApplyAllUseCase(companyId);
+  const { matchResult, applyResult, policyObservation } = await executeApplyAllUseCase(companyId);
 
   let warning: string | undefined;
   if (matchResult.remaining > 0) {
@@ -47,6 +47,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     rulesApplied,
   };
   if (warning) response.warning = warning;
+  if (policyObservation) response.policyObservation = policyObservation;
 
   return NextResponse.json(response);
 });

@@ -24,6 +24,17 @@ const mockObservePolicy = vi.hoisted(() => vi.fn());
 const mockShadowMetricsReader = vi.hoisted(() => vi.fn());
 const mockPrismaAuditLogRepo = vi.hoisted(() => vi.fn());
 
+// S7-11 enforcement mock (default ALLOW so enforcement never blocks test flow)
+const mockEvaluateEnforcement = vi.hoisted(() => vi.fn().mockResolvedValue({
+  action: 'ALLOW' as const,
+  context: 'APPLY_ALL' as const,
+  profileId: 'standard-enforcement-v1',
+  profileVersion: '1.0.0',
+  readiness: { status: 'READY' as const, metrics: {}, failedChecks: [], checks: [] },
+  rules: [],
+  reasons: { reasonCode: 'DEFAULT_ACTION', summary: 'Default ALLOW' },
+}));
+
 vi.mock('@/lib/db', () => ({ db: mockDb }));
 
 vi.mock('@/lib/services/apply-all-engine', async () => {
@@ -54,6 +65,11 @@ vi.mock('@/lib/services/shadow-metrics-reader', () => ({
 vi.mock('@/lib/db/audit-log-repository', () => ({
   PrismaAuditLogRepository: mockPrismaAuditLogRepo,
 }));
+
+vi.mock('@/lib/operational-policy/policy-service', async () => {
+  const actual = await vi.importActual<typeof import('@/lib/operational-policy/policy-service')>('@/lib/operational-policy/policy-service');
+  return { ...actual, evaluateOperationalPolicy: mockEvaluateEnforcement };
+});
 
 import { executeApplyAllUseCase } from '@/lib/services/apply-all-use-case';
 

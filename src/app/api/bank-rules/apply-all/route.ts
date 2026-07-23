@@ -20,18 +20,19 @@ import { executeApplyAllUseCase } from '@/lib/services/apply-all-use-case';
 // the enforcement mechanism. No additional filter is needed here.
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
-
   const locale = request.headers.get('x-locale') || 'es';
 
-  const { matchResult, applyResult, policyObservation } = await executeApplyAllUseCase(companyId);
-
-  let warning: string | undefined;
-  if (matchResult.remaining > 0) {
-    warning = serverT(locale, 'bankRules.applyAllCapWarning')
-      .replace('{applied}', String(applyResult.appliedCount))
-      .replace('{total}', String(matchResult.totalCount + matchResult.remaining))
-      .replace('{remaining}', String(matchResult.remaining));
+  // Read confirmed flag from body (first call = undefined, confirmation call = true)
+  let confirmed: boolean | undefined;
+  try {
+    const data = await request.json();
+    if (typeof data?.confirmed === 'boolean') confirmed = data.confirmed;
+  } catch {
+    // Body already validated by apiHandler — this path is a safeguard
   }
+
+  const result = await executeApplyAllUseCase(companyId, { confirmed });
+  const { matchResult, applyResult, policyObservation, enforcement } = result;
 
   const rulesApplied = matchResult.matchedRules.map((entry) => ({
     ruleId: entry.rule.id,
@@ -39,15 +40,59 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     count: entry.txIds.length,
   }));
 
-  const response: Record<string, unknown> = {
+  // Legacy cap warning (computed when transactions exceed server-side limit)
+  let capWarning: string | undefined;
+  if (matchResult.remaining > 0) {
+    capWarning = serverT(locale, 'bankRules.applyAllCapWarning')
+      .replace('{applied}', String(applyResult.appliedCount))
+      .replace('{total}', String(matchResult.totalCount + matchResult.remaining))
+      .replace('{remaining}', String(matchResult.remaining));
+  }
+
+  // ── S7-11: Map enforcement result to HTTP response ──────────
+  if (enforcement) {
+    switch (enforcement.status) {
+      case 'EXECUTED': {
+        const body: Record<string, unknown> = {
+          status: 'EXECUTED',
+          success: true,
+          matched: applyResult.appliedCount,
+          total: matchResult.totalCount + matchResult.remaining,
+          remaining: matchResult.remaining,
+          rulesApplied,
+        };
+        if (enforcement.policyWarning) body.policyWarning = enforcement.policyWarning;
+        if (enforcement.policyUnavailable) body.policyUnavailable = enforcement.policyUnavailable;
+        if (capWarning) body.warning = capWarning;
+        if (policyObservation) body.policyObservation = policyObservation;
+        return NextResponse.json(body);
+      }
+
+      case 'CONFIRMATION_REQUIRED':
+        return NextResponse.json({
+          status: 'CONFIRMATION_REQUIRED',
+          decision: enforcement.decision,
+          context: enforcement.context,
+        });
+
+      case 'BLOCKED':
+        return NextResponse.json({
+          status: 'BLOCKED',
+          ...enforcement.block,
+        });
+    }
+  }
+  // ─────────────────────────────────────────────────────────────
+
+  // Fallback: no enforcement (backward compat for edge cases)
+  const body: Record<string, unknown> = {
     success: true,
     matched: applyResult.appliedCount,
     total: matchResult.totalCount + matchResult.remaining,
     remaining: matchResult.remaining,
     rulesApplied,
   };
-  if (warning) response.warning = warning;
-  if (policyObservation) response.policyObservation = policyObservation;
-
-  return NextResponse.json(response);
+  if (capWarning) body.warning = capWarning;
+  if (policyObservation) body.policyObservation = policyObservation;
+  return NextResponse.json(body);
 });

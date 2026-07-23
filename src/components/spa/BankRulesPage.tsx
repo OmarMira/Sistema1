@@ -63,6 +63,36 @@ import { EntityOnboardingModal } from '@/components/learning/EntityOnboardingMod
 import { AIRulesGeneratorTab } from './settings/AIRulesGeneratorTab';
 
 /* ─── Types ─── */
+
+interface ApplyAllExecuted {
+  status: 'EXECUTED';
+  success: boolean;
+  matched: number;
+  total: number;
+  remaining: number;
+  rulesApplied: Array<{ ruleId: string; ruleName: string; count: number }>;
+  policyWarning?: { reasonCode: string; transactionCount: number; profileId: string; profileVersion: string };
+  policyUnavailable?: { errorCode: string };
+  warning?: string;
+  policyObservation?: unknown;
+}
+
+interface ApplyAllConfirmation {
+  status: 'CONFIRMATION_REQUIRED';
+  decision: { reasonCode: string; summary: string; profileId: string; profileVersion: string; readinessStatus: string };
+  context: { transactionCount: number; matchedRuleCount: number };
+}
+
+interface ApplyAllBlocked {
+  status: 'BLOCKED';
+  reasonCode: string;
+  summary: string;
+  profileId: string;
+  profileVersion: string;
+}
+
+type ApplyAllResponse = ApplyAllExecuted | ApplyAllConfirmation | ApplyAllBlocked;
+
 interface GlAccount {
   id: string;
   code: string;
@@ -227,8 +257,10 @@ export function BankRulesPage() {
 
   // Apply all dialog
   const [applyDialogOpen, setApplyDialogOpen] = useState(false);
-  const [applying, setApplying] = useState(false);
-  const [applyResult, setApplyResult] = useState<{ matched: number; total: number } | null>(null);
+  const [applyState, setApplyState] = useState<{
+    view: 'idle' | 'loading' | 'result' | 'confirm' | 'blocked';
+    data: ApplyAllResponse | null;
+  }>({ view: 'idle', data: null });
 
   // AI Rule Generator Modal state
   const [aiModalOpen, setAiModalOpen] = useState(false);
@@ -432,28 +464,41 @@ export function BankRulesPage() {
   };
 
   // Apply all rules
-  const handleApplyAll = async () => {
+  const handleApplyAll = async (confirmed = false) => {
     if (!activeCompany?.id) return;
-    setApplying(true);
-    setApplyResult(null);
+    setApplyState({ view: 'loading', data: null });
     try {
+      const body: Record<string, unknown> = { companyId: activeCompany.id };
+      if (confirmed) body.confirmed = true;
       const res = await fetch('/api/bank-rules/apply-all', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId: activeCompany.id }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         const data = await res.json();
-        setApplyResult(data);
-        fetchRules();
+        if (data.status === 'CONFIRMATION_REQUIRED') {
+          setApplyState({ view: 'confirm', data });
+        } else if (data.status === 'BLOCKED') {
+          setApplyState({ view: 'blocked', data });
+        } else {
+          setApplyState({ view: 'result', data });
+          fetchRules();
+        }
       } else {
+        setApplyState({ view: 'idle', data: null });
         toast.error(t('bankRules.errors.applyAllFailed'));
       }
     } catch {
+      setApplyState({ view: 'idle', data: null });
       toast.error(t('bankRules.errors.applyAllFailed'));
-    } finally {
-      setApplying(false);
     }
+  };
+
+  const handleConfirmApplyAll = () => handleApplyAll(true);
+  const handleCancelApplyAll = () => {
+    setApplyDialogOpen(false);
+    setApplyState({ view: 'idle', data: null });
   };
 
   /* ─── Render ─── */
@@ -499,7 +544,7 @@ export function BankRulesPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              setApplyResult(null);
+              setApplyState({ view: 'idle', data: null });
               setApplyDialogOpen(true);
             }}
             className="gap-2"
@@ -835,40 +880,146 @@ export function BankRulesPage() {
       </AlertDialog>
 
       {/* Apply All Confirmation */}
-      <Dialog open={applyDialogOpen} onOpenChange={setApplyDialogOpen}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>{t('bankRules.applyAllTitle')}</DialogTitle>
-            <DialogDescription>{t('bankRules.applyAllDesc')}</DialogDescription>
-          </DialogHeader>
+      <Dialog
+        open={applyDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) setApplyState({ view: 'idle', data: null });
+          setApplyDialogOpen(open);
+        }}
+      >
+        <DialogContent className="sm:max-w-[500px]">
+          {/* ── loading ── */}
+          {applyState.view === 'loading' && (
+            <div className="flex flex-col items-center justify-center py-8 gap-3">
+              <Loader2 className="size-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">{t('bankRules.applying')}</p>
+            </div>
+          )}
 
-          {applyResult ? (
+          {/* ── confirm (CONFIRMATION_REQUIRED) ── */}
+          {applyState.data?.status === 'CONFIRMATION_REQUIRED' && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t('bankRules.confirmationRequired')}</DialogTitle>
+                <DialogDescription>
+                  {applyState.data.decision.summary}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-3 py-2">
+                <Card className="bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800">
+                  <CardContent className="p-4 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">{t('bankRules.reason')}</span>
+                      <span className="font-medium">{applyState.data.decision.reasonCode}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">{t('bankRules.readiness')}</span>
+                      <span className="font-medium">{applyState.data.decision.readinessStatus}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">{t('bankRules.transactionsToProcess')}</span>
+                      <span className="font-medium">{applyState.data.context.transactionCount}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">{t('bankRules.matchedRules')}</span>
+                      <span className="font-medium">{applyState.data.context.matchedRuleCount}</span>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={handleCancelApplyAll}>
+                  {t('common.cancel')}
+                </Button>
+                <Button onClick={handleConfirmApplyAll} className="gap-2">
+                  <Zap className="size-4" />
+                  {t('common.confirm')}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* ── result (EXECUTED) ── */}
+          {applyState.data?.status === 'EXECUTED' && (
             <div className="space-y-4">
+              <DialogHeader>
+                <DialogTitle>{t('bankRules.applyAllTitle')}</DialogTitle>
+                <DialogDescription>{t('bankRules.applyAllDesc')}</DialogDescription>
+              </DialogHeader>
+              {applyState.data.policyWarning && (
+                <Card className="bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-800">
+                  <CardContent className="p-3 text-sm flex items-start gap-2">
+                    <span className="text-amber-600 dark:text-amber-400">
+                      {applyState.data.policyWarning.reasonCode}
+                    </span>
+                    <span className="text-amber-700 dark:text-amber-300">
+                      {'—'} {t('bankRules.policyWarningSuffix')}
+                    </span>
+                  </CardContent>
+                </Card>
+              )}
               <Card className="bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800">
                 <CardContent className="p-4 text-center">
                   <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-                    {applyResult.matched}
+                    {applyState.data.matched}
                   </p>
                   <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
                     {t('bankRules.transactionsCategorized')}
                   </p>
                 </CardContent>
               </Card>
+              {applyState.data.warning && (
+                <p className="text-sm text-muted-foreground">{applyState.data.warning}</p>
+              )}
               <DialogFooter>
-                <Button onClick={() => setApplyDialogOpen(false)}>{t('common.confirm')}</Button>
+                <Button onClick={handleCancelApplyAll}>{t('common.confirm')}</Button>
               </DialogFooter>
             </div>
-          ) : (
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setApplyDialogOpen(false)}>
-                {t('common.cancel')}
-              </Button>
-              <Button onClick={handleApplyAll} disabled={applying} className="gap-2">
-                {applying && <Loader2 className="size-4 animate-spin" />}
-                <Zap className="size-4" />
-                {t('bankRules.applyAll')}
-              </Button>
-            </DialogFooter>
+          )}
+
+          {/* ── blocked ── */}
+          {applyState.data?.status === 'BLOCKED' && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t('bankRules.applyAllBlocked')}</DialogTitle>
+                <DialogDescription>{t('bankRules.applyAllBlockedDesc')}</DialogDescription>
+              </DialogHeader>
+              <Card className="bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800">
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">{t('bankRules.reason')}</span>
+                    <span className="font-medium text-red-700 dark:text-red-300">
+                      {applyState.data.reasonCode}
+                    </span>
+                  </div>
+                  <p className="text-sm text-red-600 dark:text-red-400">
+                    {applyState.data.summary}
+                  </p>
+                </CardContent>
+              </Card>
+              <DialogFooter>
+                <Button onClick={handleCancelApplyAll}>{t('common.close')}</Button>
+              </DialogFooter>
+            </>
+          )}
+
+          {/* ── idle (initial) ── */}
+          {applyState.view === 'idle' && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{t('bankRules.applyAllTitle')}</DialogTitle>
+                <DialogDescription>{t('bankRules.applyAllDesc')}</DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setApplyDialogOpen(false)}>
+                  {t('common.cancel')}
+                </Button>
+                <Button onClick={() => handleApplyAll()} className="gap-2">
+                  <Zap className="size-4" />
+                  {t('bankRules.applyAll')}
+                </Button>
+              </DialogFooter>
+            </>
           )}
         </DialogContent>
       </Dialog>

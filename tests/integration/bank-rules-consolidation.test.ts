@@ -209,7 +209,7 @@ describe('Bank Rules Consolidation — Integration Tests', () => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ companyId: company.id }),
+        body: JSON.stringify({ companyId: company.id, confirmed: true }),
       });
       const res = await applyAll(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(200);
@@ -269,7 +269,7 @@ describe('Bank Rules Consolidation — Integration Tests', () => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ companyId: company.id }),
+        body: JSON.stringify({ companyId: company.id, confirmed: true }),
       });
       const res = await applyAll(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(200);
@@ -323,7 +323,7 @@ describe('Bank Rules Consolidation — Integration Tests', () => {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ companyId: company.id }),
+        body: JSON.stringify({ companyId: company.id, confirmed: true }),
       });
       const res = await applyAll(req, { params: Promise.resolve({}) });
       expect(res.status).toBe(200);

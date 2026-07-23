@@ -3,6 +3,8 @@ import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
+import { createAuditLogWithRetry } from '@/lib/audit';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import {
   transactionMatchesRule,
   loadEntityFirstContext,
@@ -245,6 +247,9 @@ export const POST = apiHandler(async (request: NextRequest) => {
             },
           },
         });
+
+        await JournalEntryService.recalculateBalance(tx as any, debitAccountId);
+        await JournalEntryService.recalculateBalance(tx as any, creditAccountId);
         journalEntriesCreated++;
       }
     }
@@ -260,8 +265,25 @@ export const POST = apiHandler(async (request: NextRequest) => {
       });
     }
 
+    const totalMatched = matchedTxIds.size;
+
+    await createAuditLogWithRetry({
+      companyId,
+      userId,
+      action: 'auto_reconcile',
+      entity: 'BankTransaction',
+      details: JSON.stringify({
+        bankAccountId,
+        matchedByRule,
+        matchedByAmount,
+        totalMatched,
+        journalEntriesCreated,
+        periodId,
+      }),
+    }, tx as any);
+
     return {
-      matched: matchedTxIds.size,
+      matched: totalMatched,
       matchedByRule,
       matchedByAmount,
       journalEntriesCreated,
@@ -283,24 +305,6 @@ export const POST = apiHandler(async (request: NextRequest) => {
       message: result.message,
     });
   }
-
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      companyId,
-      userId,
-      action: 'auto_reconcile',
-      entity: 'BankTransaction',
-      details: JSON.stringify({
-        bankAccountId,
-        matchedByRule: result.matchedByRule,
-        matchedByAmount: result.matchedByAmount,
-        totalMatched: result.matched,
-        journalEntriesCreated: result.journalEntriesCreated,
-        periodId,
-      }),
-    },
-  });
 
   return NextResponse.json({
     success: true,

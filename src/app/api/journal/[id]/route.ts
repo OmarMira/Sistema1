@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
+import { createAuditLogWithRetry } from '@/lib/audit';
 
 // ─── GET /api/journal/[id] ──────────────────────────────────────────
 // Get a single journal entry with all lines and GL account info.
@@ -225,29 +228,46 @@ export const POST = apiHandler(
     const body = await request.json();
     const { action } = body;
 
+    const glAccountIds = [...new Set(entry.lines.map((l) => l.glAccountId))];
+
     if (action === 'post') {
       if (entry.status !== 'draft') {
         return NextResponse.json({ error: 'Only draft entries can be posted' }, { status: 400 });
       }
 
-      const updated = await db.journalEntry.update({
-        where: { id },
-        data: { status: 'posted' },
-        include: {
-          lines: {
-            include: {
-              glAccount: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                  accountType: true,
-                  normalBalance: true,
+      await assertActiveFiscalPeriod(entry.companyId, entry.date);
+
+      const updated = await db.$transaction(async (tx) => {
+        const result = await tx.journalEntry.update({
+          where: { id },
+          data: { status: 'posted' },
+          include: {
+            lines: {
+              include: {
+                glAccount: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    accountType: true,
+                    normalBalance: true,
+                  },
                 },
               },
             },
           },
-        },
+        });
+
+        await createAuditLogWithRetry(
+          { companyId: entry.companyId, userId, action: 'post', entity: 'journalEntry', entityId: id },
+          tx as any,
+        );
+
+        for (const glAccountId of glAccountIds) {
+          await JournalEntryService.recalculateBalance(tx as any, glAccountId);
+        }
+
+        return result;
       });
 
       return NextResponse.json({
@@ -263,24 +283,39 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'Only posted entries can be voided' }, { status: 400 });
       }
 
-      const updated = await db.journalEntry.update({
-        where: { id },
-        data: { status: 'void' },
-        include: {
-          lines: {
-            include: {
-              glAccount: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                  accountType: true,
-                  normalBalance: true,
+      await assertActiveFiscalPeriod(entry.companyId, entry.date);
+
+      const updated = await db.$transaction(async (tx) => {
+        const result = await tx.journalEntry.update({
+          where: { id },
+          data: { status: 'void' },
+          include: {
+            lines: {
+              include: {
+                glAccount: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    accountType: true,
+                    normalBalance: true,
+                  },
                 },
               },
             },
           },
-        },
+        });
+
+        await createAuditLogWithRetry(
+          { companyId: entry.companyId, userId, action: 'void', entity: 'journalEntry', entityId: id },
+          tx as any,
+        );
+
+        for (const glAccountId of glAccountIds) {
+          await JournalEntryService.recalculateBalance(tx as any, glAccountId);
+        }
+
+        return result;
       });
 
       return NextResponse.json({

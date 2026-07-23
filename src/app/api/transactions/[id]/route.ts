@@ -51,17 +51,16 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
     );
   }
 
-  // If transaction already has a journal entry, unlink it first
-  if (transaction.journalEntryId) {
-    await db.bankTransaction.update({
-      where: { id },
-      data: { journalEntryId: null },
-    });
-  }
-
   const bankGlAccountId = transaction.statement.bankAccount.glAccountId;
 
   const result = await db.$transaction(async (tx) => {
+    // If transaction already has a journal entry, unlink it first
+    if (transaction.journalEntryId) {
+      await tx.bankTransaction.update({
+        where: { id },
+        data: { journalEntryId: null },
+      });
+    }
     // Update the transaction with the new GL account
     const updated = await tx.bankTransaction.update({
       where: { id },

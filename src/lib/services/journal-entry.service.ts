@@ -78,7 +78,10 @@ export class JournalEntryService {
     glAccountId: string,
   ): Promise<void> {
     const totals = await prisma.journalLine.aggregate({
-      where: { glAccountId },
+      where: {
+        glAccountId,
+        entry: { status: 'posted' },
+      },
       _sum: { debit: true, credit: true },
     });
 

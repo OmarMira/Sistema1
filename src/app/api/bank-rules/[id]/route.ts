@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { validateDirectionProfile } from '@/lib/services/direction-validation';
 import { serverT } from '@/lib/server-i18n';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
@@ -423,9 +424,14 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     )
     .map((tx) => tx.id);
 
-  // Update matched transactions with TOCTOU defense
-  // Batch updateMany re-evaluates the invariant filter at UPDATE time,
-  // so protected transactions are silently excluded without per-ID looping.
+  // Collect unique dates from matched transactions for fiscal period guard
+  const matchedTxs = unmatchedTransactions.filter((t) => matchedIds.includes(t.id));
+  const uniqueDates = [...new Set(matchedTxs.map((t) => t.date.toISOString()))];
+  for (const dateStr of uniqueDates) {
+    await assertActiveFiscalPeriod(companyId, dateStr);
+  }
+
+  // Apply in a single transaction — both updateMany + audit log
   let actualMatched = 0;
 
   if (matchedIds.length > 0) {
@@ -440,23 +446,43 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       }
     }
 
-    if (debitIds.length > 0) {
-      const debitAccountId = rule.debitGlAccountId || rule.glAccountId;
-      const result = await db.bankTransaction.updateMany({
-        where: eligibleForClassificationWhere({ id: { in: debitIds } }),
-        data: { glAccountId: debitAccountId, matchedRuleId: rule.id },
-      });
-      actualMatched += result.count;
-    }
+    await db.$transaction(async (tx) => {
+      if (debitIds.length > 0) {
+        const debitAccountId = rule.debitGlAccountId || rule.glAccountId;
+        const result = await tx.bankTransaction.updateMany({
+          where: eligibleForClassificationWhere({ id: { in: debitIds } }),
+          data: { glAccountId: debitAccountId, matchedRuleId: rule.id },
+        });
+        actualMatched += result.count;
+      }
 
-    if (creditIds.length > 0) {
-      const creditAccountId = rule.creditGlAccountId || rule.glAccountId;
-      const result = await db.bankTransaction.updateMany({
-        where: eligibleForClassificationWhere({ id: { in: creditIds } }),
-        data: { glAccountId: creditAccountId, matchedRuleId: rule.id },
-      });
-      actualMatched += result.count;
-    }
+      if (creditIds.length > 0) {
+        const creditAccountId = rule.creditGlAccountId || rule.glAccountId;
+        const result = await tx.bankTransaction.updateMany({
+          where: eligibleForClassificationWhere({ id: { in: creditIds } }),
+          data: { glAccountId: creditAccountId, matchedRuleId: rule.id },
+        });
+        actualMatched += result.count;
+      }
+
+      await createAuditLogWithRetry({
+        companyId,
+        userId,
+        action: 'RULE_APPLIED',
+        entity: 'BankRule',
+        entityId: rule.id,
+        details: JSON.stringify({ matchedCount: actualMatched, ruleName: rule.name }),
+      }, tx as any);
+    });
+  } else {
+    await createAuditLogWithRetry({
+      companyId,
+      userId,
+      action: 'RULE_APPLIED',
+      entity: 'BankRule',
+      entityId: rule.id,
+      details: JSON.stringify({ matchedCount: 0, ruleName: rule.name }),
+    });
   }
 
   if (actualMatched < matchedIds.length) {
@@ -465,15 +491,6 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       `candidate transactions were protected and not updated (TOCTOU).`,
     );
   }
-
-  await createAuditLogWithRetry({
-    companyId,
-    userId,
-    action: 'RULE_APPLIED',
-    entity: 'BankRule',
-    entityId: rule.id,
-    details: JSON.stringify({ matchedCount: actualMatched, ruleName: rule.name }),
-  });
 
   return NextResponse.json({
     success: true,

@@ -922,6 +922,8 @@ const en = {
     connectionSuccess: 'Connection successful! The key is valid.',
     invalidKey: 'Invalid key.',
     networkErrorVerify: 'Network error during verification.',
+    notConfiguredTitle: 'AI Assistant not configured',
+    notConfiguredDesc: 'Set up a provider and API key to activate AI features.',
   },
   onboarding: {
     title: 'Welcome to AccountExpress',

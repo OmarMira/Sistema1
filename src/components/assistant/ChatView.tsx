@@ -53,6 +53,7 @@ export function ChatView({
   const t = useLanguageStore.getState().t;
   const setCurrentView = useAuthStore((s) => s.setCurrentView);
   const setAiAssistantOpen = useAuthStore((s) => s.setAiAssistantOpen);
+  const setSettingsActiveTab = useAuthStore((s) => s.setSettingsActiveTab);
 
   const hasMessages = messages.length > 0;
 
@@ -80,6 +81,7 @@ export function ChatView({
             onClick={(e) => {
               e.preventDefault();
               window.history.pushState({}, '', url);
+              if (viewPath === 'settings') setSettingsActiveTab('ai-config');
               setCurrentView(viewPath as any);
               setAiAssistantOpen(false);
             }}

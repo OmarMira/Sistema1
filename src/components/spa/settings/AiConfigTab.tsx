@@ -274,6 +274,17 @@ export default function AiConfigTab() {
       </h2>
       <p className="text-sm text-gray-500 mb-6">{t('aiAssistant.configDescription')}</p>
 
+      {!isSaved && (
+        <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+          <p className="text-sm font-semibold text-gray-700">
+            {t('aiAssistant.notConfiguredTitle')}
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {t('aiAssistant.notConfiguredDesc')}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Columna izquierda: Instrucciones del proveedor */}
         <div className="lg:col-span-7 space-y-5">

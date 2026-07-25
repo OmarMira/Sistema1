@@ -936,6 +936,8 @@ const es = {
     connectionSuccess: '¡Conexión exitosa! La clave es válida.',
     invalidKey: 'Clave inválida.',
     networkErrorVerify: 'Error de red al verificar.',
+    notConfiguredTitle: 'Asistente de IA no configurado',
+    notConfiguredDesc: 'Configurá un proveedor y una API key para activar las funciones de IA.',
   },
   onboarding: {
     title: 'Bienvenido a AccountExpress',

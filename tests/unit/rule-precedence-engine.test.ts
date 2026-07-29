@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   evaluateTransactionAgainstRules,
+  toMatchConfidenceLabel,
   type RulePrecedenceRule,
   type RulePrecedenceTransaction,
 } from '@/lib/services/rule-precedence-engine';
@@ -531,5 +532,110 @@ describe('rulePrecedenceEngine', () => {
 
     const result = evaluateTransactionAgainstRules(tx, rules);
     expect(result.reason).toBe('NO_MATCH');
+  });
+
+  // ── toMatchConfidenceLabel boundary tests ────────────────────
+
+  describe('toMatchConfidenceLabel', () => {
+    it('0.8 → high', () => {
+      expect(toMatchConfidenceLabel(0.8)).toBe('high');
+    });
+
+    it('0.799... → medium', () => {
+      expect(toMatchConfidenceLabel(0.799)).toBe('medium');
+    });
+
+    it('0.5 → medium', () => {
+      expect(toMatchConfidenceLabel(0.5)).toBe('medium');
+    });
+
+    it('0.499... → low', () => {
+      expect(toMatchConfidenceLabel(0.499)).toBe('low');
+    });
+
+    it('1.0 → high', () => {
+      expect(toMatchConfidenceLabel(1.0)).toBe('high');
+    });
+
+    it('0.0 → low', () => {
+      expect(toMatchConfidenceLabel(0.0)).toBe('low');
+    });
+  });
+
+  // ── confidenceLabel on candidates ────────────────────────────
+
+  describe('confidenceLabel on candidates', () => {
+    it('winner carries confidenceLabel', () => {
+      const tx: RulePrecedenceTransaction = { description: 'APPLE.COM BILLING', amount: 150, date: DEFAULT_DATE };
+      const rules = [rule({ id: 'r1', conditionType: 'contains', conditionValue: 'APPLE' })];
+
+      const result = evaluateTransactionAgainstRules(tx, rules);
+
+      expect(result.reason).toBe('WINNER');
+      expect(result.winner?.confidenceLabel).toBeDefined();
+      expect(['high', 'medium', 'low']).toContain(result.winner!.confidenceLabel);
+    });
+
+    it('all candidates carry confidenceLabel', () => {
+      const tx: RulePrecedenceTransaction = { description: 'APPLE.COM BILLING', amount: 150, date: DEFAULT_DATE };
+      const rules = [
+        rule({ id: 'r1', conditionType: 'contains', conditionValue: 'APPLE' }),
+        rule({ id: 'r2', conditionType: 'contains', conditionValue: 'APPLE.COM' }),
+      ];
+
+      const result = evaluateTransactionAgainstRules(tx, rules);
+
+      expect(result.reason).toBe('WINNER');
+      for (const c of result.candidates) {
+        expect(c.confidenceLabel).toBeDefined();
+        expect(['high', 'medium', 'low']).toContain(c.confidenceLabel);
+      }
+    });
+
+    it('ambiguous candidates carry confidenceLabel', () => {
+      const tx: RulePrecedenceTransaction = { description: 'APPLE.COM', amount: 150, date: DEFAULT_DATE };
+      const rules = [
+        rule({ id: 'A', conditionType: 'contains', conditionValue: 'APPLE', priority: 10 }),
+        rule({ id: 'B', conditionType: 'contains', conditionValue: 'APPLE', priority: 10 }),
+      ];
+
+      const result = evaluateTransactionAgainstRules(tx, rules);
+
+      expect(result.reason).toBe('AMBIGUOUS');
+      expect(result.winner).toBeUndefined();
+      expect(result.candidates.length).toBeGreaterThanOrEqual(2);
+      for (const c of result.candidates) {
+        expect(c.confidenceLabel).toBeDefined();
+        expect(typeof c.matchQuality).toBe('number');
+        expect(typeof c.specificityScore).toBe('number');
+        expect(c.ruleId).toBeDefined();
+      }
+    });
+  });
+
+  // ── confidence mode when direction pre-filter applies ───────
+
+  it('single matching candidate after direction filter has confidenceLabel', () => {
+    const txPos: RulePrecedenceTransaction = { description: 'TX', amount: 100, date: DEFAULT_DATE };
+    const rules: RulePrecedenceRule[] = [
+      rule({
+        id: 'credit-rule',
+        conditionType: 'contains',
+        conditionValue: 'TX',
+        transactionDirection: 'credit',
+      }),
+      rule({
+        id: 'debit-rule',
+        conditionType: 'contains',
+        conditionValue: 'TX',
+        transactionDirection: 'debit',
+      }),
+    ];
+
+    const result = evaluateTransactionAgainstRules(txPos, rules);
+
+    expect(result.reason).toBe('WINNER');
+    expect(result.winner?.ruleId).toBe('credit-rule');
+    expect(result.winner?.confidenceLabel).toBeDefined();
   });
 });

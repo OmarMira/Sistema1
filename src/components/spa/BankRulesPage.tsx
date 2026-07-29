@@ -70,7 +70,12 @@ interface ApplyAllExecuted {
   matched: number;
   total: number;
   remaining: number;
-  rulesApplied: Array<{ ruleId: string; ruleName: string; count: number }>;
+  rulesApplied: Array<{
+    ruleId: string;
+    ruleName: string;
+    count: number;
+    confidenceDistribution: { high: number; medium: number; low: number };
+  }>;
   policyWarning?: { reasonCode: string; transactionCount: number; profileId: string; profileVersion: string };
   policyUnavailable?: { errorCode: string };
   warning?: string;
@@ -968,6 +973,42 @@ export function BankRulesPage() {
                   </p>
                 </CardContent>
               </Card>
+              {applyState.data.rulesApplied.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    {t('bankRules.rulesApplied')}
+                  </p>
+                  <div className="divide-y rounded-lg border">
+                    {applyState.data.rulesApplied.map((r) => {
+                      const dist = r.confidenceDistribution;
+                      const total = dist.high + dist.medium + dist.low;
+                      return (
+                        <div key={r.ruleId} className="flex items-center justify-between px-3 py-2 text-sm">
+                          <span className="truncate font-medium max-w-[200px]">{r.ruleName}</span>
+                          <span className="text-muted-foreground ml-2">{r.count} tx</span>
+                          <div className="flex items-center gap-2 ml-auto">
+                            {dist.high > 0 && (
+                              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">
+                                {t('bankRules.confidenceHigh')} {dist.high}
+                              </span>
+                            )}
+                            {dist.medium > 0 && (
+                              <span className="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                                {t('bankRules.confidenceMedium')} {dist.medium}
+                              </span>
+                            )}
+                            {dist.low > 0 && (
+                              <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                                {t('bankRules.confidenceLow')} {dist.low}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               {applyState.data.warning && (
                 <p className="text-sm text-muted-foreground">{applyState.data.warning}</p>
               )}

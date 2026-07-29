@@ -28,6 +28,9 @@ export interface ApplyAllResolvedRule {
 
 export interface ApplyAllRuleResolution extends RuleResolution {
   resolvedRule: ApplyAllResolvedRule | null;
+  confidenceLabel?: 'high' | 'medium' | 'low';
+  matchQuality?: number;
+  specificityScore?: number;
 }
 
 export function importAdapter(
@@ -62,6 +65,9 @@ export function applyAllAdapter(
       debitGlAccountId: rule.debitGlAccountId ?? null,
       creditGlAccountId: rule.creditGlAccountId ?? null,
     },
+    confidenceLabel: match.winner.confidenceLabel,
+    matchQuality: match.winner.matchQuality,
+    specificityScore: match.winner.specificityScore,
   };
 }
 

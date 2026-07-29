@@ -31,6 +31,7 @@ export interface RankedCandidate {
   priority: number;
   specificityScore: number;
   matchQuality: number;
+  confidenceLabel: 'high' | 'medium' | 'low';
 }
 
 export interface RuleMatchOutput {
@@ -97,6 +98,19 @@ function computeMatchQuality(evaluated: EvaluatedCondition[]): number {
   return min + 0.25 * (avg - min);
 }
 
+const MATCH_CONFIDENCE_HIGH = 0.8;
+const MATCH_CONFIDENCE_MEDIUM = 0.5;
+
+export function toMatchConfidenceLabel(matchQuality: number): 'high' | 'medium' | 'low' {
+  if (matchQuality >= MATCH_CONFIDENCE_HIGH) return 'high';
+  if (matchQuality >= MATCH_CONFIDENCE_MEDIUM) return 'medium';
+  return 'low';
+}
+// NOTE: These thresholds (0.8/0.5) are specific to matchQuality semantics.
+// Although they numerically match toConfidenceLabel() in decision-engine.ts,
+// they measure a different magnitude: condition-match precision, not
+// holistic classification confidence. They may evolve independently.
+
 // ─── Main entry point ────────────────────────────────────────────────────
 
 export function evaluateTransactionAgainstRules(
@@ -140,6 +154,7 @@ export function evaluateTransactionAgainstRules(
       priority: rule.priority,
       specificityScore,
       matchQuality,
+      confidenceLabel: toMatchConfidenceLabel(matchQuality),
     });
   }
 

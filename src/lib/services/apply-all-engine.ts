@@ -64,7 +64,11 @@ const MAX_PER_BATCH = 200;
 // ─── Types ──────────────────────────────────────────────────
 
 export interface MatchResult {
-  matchedRules: Array<{ rule: { id: string; name: string; priority: number | null }; txIds: string[] }>;
+  matchedRules: Array<{
+    rule: { id: string; name: string; priority: number | null };
+    txIds: string[];
+    confidenceDistribution: { high: number; medium: number; low: number };
+  }>;
   transactions: Array<{ id: string; amount: number; description: string }>;
   totalAmount: number;
   totalCount: number;
@@ -162,7 +166,12 @@ async function executeMatching(
     remaining = totalUnmatched - effectiveCap;
   }
 
-  const winnerMap = new Map<string, { ruleId: string; ruleName: string; txIds: string[] }>();
+  const winnerMap = new Map<string, {
+    ruleId: string;
+    ruleName: string;
+    txIds: string[];
+    confidenceDistribution: { high: number; medium: number; low: number };
+  }>();
   const rolePriorities = await loadRolePriorities();
   const entityContexts = await db.entityContext.findMany({
     where: { companyId },
@@ -235,11 +244,19 @@ async function executeMatching(
     const existing = winnerMap.get(resolution.resolvedRule.id);
     if (existing) {
       existing.txIds.push(tx.id);
+      if (resolution.confidenceLabel) {
+        existing.confidenceDistribution[resolution.confidenceLabel]++;
+      }
     } else {
       winnerMap.set(resolution.resolvedRule.id, {
         ruleId: resolution.resolvedRule.id,
         ruleName: resolution.resolvedRule.name,
         txIds: [tx.id],
+        confidenceDistribution: {
+          high: resolution.confidenceLabel === 'high' ? 1 : 0,
+          medium: resolution.confidenceLabel === 'medium' ? 1 : 0,
+          low: resolution.confidenceLabel === 'low' ? 1 : 0,
+        },
       });
     }
   }
@@ -250,6 +267,7 @@ async function executeMatching(
       return {
         rule: { id: ruleId, name: entry.ruleName, priority: rule?.priority ?? null },
         txIds: entry.txIds,
+        confidenceDistribution: entry.confidenceDistribution,
       };
     });
 

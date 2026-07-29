@@ -27,4 +27,15 @@ describe('S7-05A: Contract characterization', () => {
     expect(keys).not.toContain('shadowBatchId');
     expect(keys).not.toContain('shadow');
   });
+
+  describe('confidenceDistribution invariant', () => {
+    it('high + medium + low === txIds.length for each matched rule', async () => {
+      const result = await matchTransactions('c1', { limit: 200 });
+      for (const matched of result.matchedRules) {
+        const d = matched.confidenceDistribution;
+        const labelSum = d.high + d.medium + d.low;
+        expect(labelSum).toBe(matched.txIds.length);
+      }
+    });
+  });
 });

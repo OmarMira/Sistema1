@@ -38,6 +38,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     ruleId: entry.rule.id,
     ruleName: entry.rule.name,
     count: entry.txIds.length,
+    confidenceDistribution: entry.confidenceDistribution,
   }));
 
   // Legacy cap warning (computed when transactions exceed server-side limit)

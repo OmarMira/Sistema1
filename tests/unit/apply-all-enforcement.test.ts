@@ -73,14 +73,22 @@ import { executeApplyAllUseCase } from '@/lib/services/apply-all-use-case';
 // ─── Factories ────────────────────────────────────────────────────────
 
 function makeMatchResult(overrides: Partial<{
-  matchedRules: Array<{ rule: { id: string; name: string; priority: number }; txIds: string[] }>;
+  matchedRules: Array<{
+    rule: { id: string; name: string; priority: number };
+    txIds: string[];
+    confidenceDistribution: { high: number; medium: number; low: number };
+  }>;
   transactions: Array<{ id: string; amount: number; description: string }>;
   totalAmount: number;
   totalCount: number;
   remaining: number;
 }> = {}) {
   return {
-    matchedRules: [{ rule: { id: 'r1', name: 'Rule 1', priority: 1 }, txIds: ['tx-1'] }],
+    matchedRules: [{
+      rule: { id: 'r1', name: 'Rule 1', priority: 1 },
+      txIds: ['tx-1'],
+      confidenceDistribution: { high: 1, medium: 0, low: 0 },
+    }],
     transactions: [{ id: 'tx-1', amount: -100, description: 'test' }],
     totalAmount: -100,
     totalCount: 1,
@@ -197,7 +205,7 @@ describe('S7-11: Baseline — current behavior regression', () => {
   it('early returns on totalCount 0 — no transaction, no shadow, no observation', async () => {
     mockMatchTransactionsWithShadow.mockResolvedValue({
       ...buildEmptyResult(),
-      matchResult: { matchedRules: [{ rule: { id: 'r1', name: 'Rule 1', priority: 1 }, txIds: [] }], transactions: [], totalAmount: 0, totalCount: 0, remaining: 10 },
+      matchResult: { matchedRules: [{ rule: { id: 'r1', name: 'Rule 1', priority: 1 }, txIds: [], confidenceDistribution: { high: 0, medium: 0, low: 0 } }], transactions: [], totalAmount: 0, totalCount: 0, remaining: 10 },
     });
     enableObservation();
 

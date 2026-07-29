@@ -77,7 +77,11 @@ function makeSuccessResult(overrides = {}) {
   return {
     kind: 'with-shadow' as const,
     matchResult: {
-      matchedRules: [{ rule: { id: 'r1', name: 'Rule 1', priority: 1 }, txIds: ['tx-1'] }],
+      matchedRules: [{
+        rule: { id: 'r1', name: 'Rule 1', priority: 1 },
+        txIds: ['tx-1'],
+        confidenceDistribution: { high: 1, medium: 0, low: 0 },
+      }],
       transactions: [{ id: 'tx-1', amount: -100, description: 'test' }],
       totalAmount: -100,
       totalCount: 1,
@@ -175,7 +179,11 @@ describe('S7-05A: executeApplyAllUseCase', () => {
     mockMatchTransactionsWithShadow.mockResolvedValue({
       kind: 'without-shadow',
       matchResult: {
-        matchedRules: [{ rule: { id: 'r1', name: 'Rule 1', priority: 1 }, txIds: ['tx-1'] }],
+        matchedRules: [{
+          rule: { id: 'r1', name: 'Rule 1', priority: 1 },
+          txIds: ['tx-1'],
+          confidenceDistribution: { high: 1, medium: 0, low: 0 },
+        }],
         transactions: [{ id: 'tx-1', amount: -100, description: 'test' }],
         totalAmount: -100,
         totalCount: 1,
@@ -335,7 +343,11 @@ describe('S7-08: observational policy block', () => {
     mockMatchTransactionsWithShadow.mockResolvedValue({
       kind: 'without-shadow',
       matchResult: {
-        matchedRules: [{ rule: { id: 'r1', name: 'Rule 1', priority: 1 }, txIds: ['tx-1'] }],
+        matchedRules: [{
+          rule: { id: 'r1', name: 'Rule 1', priority: 1 },
+          txIds: ['tx-1'],
+          confidenceDistribution: { high: 1, medium: 0, low: 0 },
+        }],
         transactions: [{ id: 'tx-1', amount: -100, description: 'test' }],
         totalAmount: -100,
         totalCount: 1,

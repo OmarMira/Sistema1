@@ -59,14 +59,13 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   for (const line of journalLines) {
     const aType = line.glAccount.accountType;
     if (!(aType in typeBalances)) continue;
+    const acctKey = aType as keyof typeof typeBalances;
 
     const net = line.debit - Number(line.credit);
-    // For assets/expenses (normal debit): net debit increases balance
-    // For liabilities/equity/revenue (normal credit): net credit increases balance
     if (line.glAccount.normalBalance === 'debit') {
-      typeBalances[aType]! += net;
+      typeBalances[acctKey]! += net;
     } else {
-      typeBalances[aType]! -= net;
+      typeBalances[acctKey]! -= net;
     }
   }
 
@@ -101,21 +100,19 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 
     const aType = tx.glAccount.accountType;
     if (!(aType in typeBalances)) continue;
+    const acctKey = aType as keyof typeof typeBalances;
 
-    // For BankTransactions: amount > 0 is a deposit (increases asset, credits assigned account)
-    // amount < 0 is a payment (decreases asset, debits assigned account)
     const isDeposit = Number(tx.amount) > 0;
     const absAmount = Math.abs(tx.amount);
 
-    // We affect the assigned account
     const netDebit = isDeposit ? 0 : absAmount;
     const netCredit = isDeposit ? absAmount : 0;
     const net = netDebit - netCredit;
 
     if (tx.glAccount.normalBalance === 'debit') {
-      typeBalances[aType]! += net;
+      typeBalances[acctKey]! += net;
     } else {
-      typeBalances[aType]! -= net;
+      typeBalances[acctKey]! -= net;
     }
 
     // We also affect the bank asset account implicitly if we wanted to balance,

@@ -7,7 +7,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Checkbox } from '@/components/ui/checkbox';
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, type MouseEvent } from 'react';
 
 interface DualPaneItem {
   id: string;
@@ -104,7 +104,7 @@ export function DualPaneView({
                   <Checkbox
                     checked={isSelected}
                     onCheckedChange={toggleSelect}
-                    onClick={(e) => e.stopPropagation()}
+                    onClick={(e: MouseEvent<HTMLElement>) => e.stopPropagation()}
                   />
                 </TableCell>
                 {config.layout.visibleColumns.map((col: string) => (

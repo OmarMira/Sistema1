@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type FocusEvent } from 'react';
 import { useAddressAutocomplete } from '@/hooks/useAddressAutocomplete';
 import { Input } from '@/components/ui/input';
 import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
@@ -95,8 +95,8 @@ export function AddressAutocomplete({
       <PopoverContent
         className="w-[300px] sm:w-[480px] p-0"
         align="start"
-        onOpenAutoFocus={(e) => e.preventDefault()}
-        onCloseAutoFocus={(e) => e.preventDefault()}
+        onOpenAutoFocus={(e: FocusEvent<HTMLElement>) => e.preventDefault()}
+        onCloseAutoFocus={(e: FocusEvent<HTMLElement>) => e.preventDefault()}
       >
         <Command className="w-full">
           <CommandList className="max-h-[220px] overflow-y-auto">

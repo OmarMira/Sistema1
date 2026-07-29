@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { toast } from 'sonner';
 import { Trash2, Loader2, Plus } from 'lucide-react';
@@ -72,9 +73,13 @@ const ROLES = UI_ROLES.map((role) => ({
   key: `entityManagement.role.${role}`,
 }));
 
+type TabView = 'all' | 'otros';
+
 export function EntityManagementPage() {
   const t = useLanguageStore((s) => s.t);
   const activeCompany = useAuthStore((s) => s.activeCompany);
+
+  const [tab, setTab] = useState<TabView>('all');
 
   const [entities, setEntities] = useState<EntityItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,33 +103,61 @@ export function EntityManagementPage() {
   const [accounts, setAccounts] = useState<GlAccountOption[]>([]);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
 
+  // ─── Batch reclassify state ─────────────────────────────────────────
+  const [reclassifyDialogOpen, setReclassifyDialogOpen] = useState(false);
+  const [reclassifyRole, setReclassifyRole] = useState('');
+  const [reclassifying, setReclassifying] = useState(false);
+
   const loadEntities = useCallback(async (p: number) => {
     if (!activeCompany?.id) return;
     setLoading(true);
     try {
-      const roleQuery = roleFilter !== 'all' ? `&role=${roleFilter}` : '';
-      const searchQuery = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : '';
-      const res = await fetch(`/api/entity-context?page=${p}&limit=20&sortBy=createdAt&sortDir=desc${searchQuery}${roleQuery}&companyId=${activeCompany.id}`);
-      if (!res.ok) throw new Error('loadFailed');
-      const json: PaginatedResponse = await res.json();
-      const data = json.data || [];
-      setEntities(data);
-      setPage(json.pagination.page);
-      setTotalPages(json.pagination.totalPages);
-
-      setEntityLookup((prev) => {
-        const next = { ...prev };
-        data.forEach((item) => {
-          next[item.id] = item;
+      if (tab === 'otros') {
+        const res = await fetch(`/api/learning/classify-entity?includeOtro=true&companyId=${activeCompany.id}`);
+        if (!res.ok) throw new Error('loadFailed');
+        const json = await res.json();
+        const data: EntityItem[] = (json.data || []).map((item: Record<string, unknown>) => ({
+          id: item.id as string,
+          pattern: item.pattern as string,
+          role: item.role as string,
+          source: item.source as string,
+          createdAt: (item.createdAt as string) ?? (item.updatedAt as string),
+          userDescription: item.userDescription as string | null | undefined,
+        }));
+        setEntities(data);
+        setPage(1);
+        setTotalPages(1);
+        setEntityLookup((prev) => {
+          const next = { ...prev };
+          data.forEach((item) => {
+            next[item.id] = item;
+          });
+          return next;
         });
-        return next;
-      });
+      } else {
+        const roleQuery = roleFilter !== 'all' ? `&role=${roleFilter}` : '';
+        const searchQuery = search.trim() ? `&search=${encodeURIComponent(search.trim())}` : '';
+        const res = await fetch(`/api/entity-context?page=${p}&limit=20&sortBy=createdAt&sortDir=desc${searchQuery}${roleQuery}&companyId=${activeCompany.id}`);
+        if (!res.ok) throw new Error('loadFailed');
+        const json: PaginatedResponse = await res.json();
+        const data = json.data || [];
+        setEntities(data);
+        setPage(json.pagination.page);
+        setTotalPages(json.pagination.totalPages);
+        setEntityLookup((prev) => {
+          const next = { ...prev };
+          data.forEach((item) => {
+            next[item.id] = item;
+          });
+          return next;
+        });
+      }
     } catch {
       toast.error(t('entityManagement.errors.loadFailed'));
     } finally {
       setLoading(false);
     }
-  }, [t, search, roleFilter, activeCompany?.id]);
+  }, [t, search, roleFilter, activeCompany?.id, tab]);
 
   useEffect(() => {
     loadEntities(1);
@@ -203,6 +236,32 @@ export function EntityManagementPage() {
     }
   };
 
+  const handleBatchReclassify = async () => {
+    if (!reclassifyRole || selected.size === 0) return;
+    setReclassifying(true);
+    try {
+      const selectedIds = Array.from(selected);
+      await Promise.all(
+        selectedIds.map((id) =>
+          fetch(`/api/entity-context/${id}?companyId=${activeCompany?.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ role: reclassifyRole }),
+          }),
+        ),
+      );
+      toast.success(t('entityManagement.reclassify.success').replace('{count}', String(selected.size)));
+      setReclassifyDialogOpen(false);
+      setReclassifyRole('');
+      setSelected(new Set());
+      loadEntities(1);
+    } catch {
+      toast.error(t('entityManagement.errors.updateFailed'));
+    } finally {
+      setReclassifying(false);
+    }
+  };
+
   const toggleSelect = (id: string) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -237,7 +296,6 @@ export function EntityManagementPage() {
     }
   };
 
-  // ─── Fetch accounts for AccountSelector ─────────────────────────────
   const fetchAccounts = useCallback(async () => {
     if (!activeCompany?.id) return;
     setLoadingAccounts(true);
@@ -258,7 +316,6 @@ export function EntityManagementPage() {
     fetchAccounts();
   }, [fetchAccounts]);
 
-  // ─── Create entity handler ──────────────────────────────────────────
   const handleCreateEntity = async () => {
     if (!createPattern.trim() || !createRole) {
       toast.error(t('entityManagement.create.validationError'));
@@ -296,6 +353,12 @@ export function EntityManagementPage() {
     }
   };
 
+  const handleTabChange = (value: string) => {
+    const newTab = value as TabView;
+    setTab(newTab);
+    setSelected(new Set());
+  };
+
   if (loading) {
     return (
       <div className="space-y-4 p-4">
@@ -312,42 +375,57 @@ export function EntityManagementPage() {
         <p className="text-sm text-muted-foreground">{t('entityManagement.description')}</p>
       </div>
 
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-          <div className="flex flex-col gap-1.5 flex-1 max-w-sm">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t('entityManagement.search.label')}
-            </label>
-            <Input
-              placeholder={t('entityManagement.search.placeholder')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+      <Tabs value={tab} onValueChange={handleTabChange}>
+        <TabsList>
+          <TabsTrigger value="all">{t('entityManagement.allEntities')}</TabsTrigger>
+          <TabsTrigger value="otros">{t('entityManagement.otrosReview')}</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="all" className="space-y-4">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+              <div className="flex flex-col gap-1.5 flex-1 max-w-sm">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t('entityManagement.search.label')}
+                </label>
+                <Input
+                  placeholder={t('entityManagement.search.placeholder')}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5 w-full sm:w-48">
+                <label className="text-xs font-medium text-muted-foreground">
+                  {t('entityManagement.filter.roleLabel')}
+                </label>
+                <Select value={roleFilter} onValueChange={setRoleFilter}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">{t('entityManagement.filter.allRoles')}</SelectItem>
+                    {ROLES.map((r) => (
+                      <SelectItem key={r.value} value={r.value}>
+                        {t(r.key as string)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="mr-2 size-4" />
+              {t('entityManagement.create.title')}
+            </Button>
           </div>
-          <div className="flex flex-col gap-1.5 w-full sm:w-48">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t('entityManagement.filter.roleLabel')}
-            </label>
-            <Select value={roleFilter} onValueChange={setRoleFilter}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">{t('entityManagement.filter.allRoles')}</SelectItem>
-                {ROLES.map((r) => (
-                  <SelectItem key={r.value} value={r.value}>
-                    {t(r.key as string)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <Button onClick={() => setCreateDialogOpen(true)}>
-          <Plus className="mr-2 size-4" />
-          {t('entityManagement.create.title')}
-        </Button>
-      </div>
+        </TabsContent>
+
+        <TabsContent value="otros" className="space-y-4">
+          <p className="text-sm text-muted-foreground">
+            {t('entityManagement.reclassify.noOtros')}
+          </p>
+        </TabsContent>
+      </Tabs>
 
       {entities.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-4 py-20 text-center">
@@ -357,6 +435,21 @@ export function EntityManagementPage() {
         <>
           {selected.size > 0 && (
             <div className="flex items-center gap-2">
+              {tab === 'otros' && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    if (selected.size === 0) {
+                      toast.error(t('entityManagement.reclassify.noSelection'));
+                      return;
+                    }
+                    setReclassifyDialogOpen(true);
+                  }}
+                >
+                  {t('entityManagement.actions.bulkReclassify')} ({selected.size})
+                </Button>
+              )}
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button variant="destructive" size="sm" disabled={bulkDeleting}>
@@ -400,7 +493,7 @@ export function EntityManagementPage() {
                   <TableHead>{t('entityManagement.columns.description')}</TableHead>
                   <TableHead>{t('entityManagement.columns.source')}</TableHead>
                   <TableHead>{t('entityManagement.columns.createdAt')}</TableHead>
-                  <TableHead className="w-16">{t('entityManagement.columns.actions')}</TableHead>
+                  <TableHead className="w-24">{t('entityManagement.columns.actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -428,27 +521,41 @@ export function EntityManagementPage() {
                     <TableCell>{entity.source}</TableCell>
                     <TableCell>{formatDate(entity.createdAt)}</TableCell>
                     <TableCell onClick={(e) => e.stopPropagation()}>
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <Trash2 className="size-4 text-destructive" />
+                      <div className="flex items-center gap-1">
+                        {tab === 'otros' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setSelected(new Set([entity.id]));
+                              setReclassifyDialogOpen(true);
+                            }}
+                          >
+                            {t('entityManagement.actions.reclassify')}
                           </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{t('entityManagement.delete.title')}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              {t('entityManagement.delete.confirm')}
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDelete(entity.id)}>
-                              {t('common.delete')}
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                        )}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon">
+                              <Trash2 className="size-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{t('entityManagement.delete.title')}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                {t('entityManagement.delete.confirm')}
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleDelete(entity.id)}>
+                                {t('common.delete')}
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -456,7 +563,7 @@ export function EntityManagementPage() {
             </Table>
           </div>
 
-          {totalPages > 1 && (
+          {totalPages > 1 && tab === 'all' && (
             <div className="flex items-center justify-center gap-2">
               <Button
                 variant="outline"
@@ -517,6 +624,49 @@ export function EntityManagementPage() {
             <Button onClick={handleSaveEdit} disabled={saving}>
               {saving && <Loader2 className="mr-2 size-4 animate-spin" />}
               {t('entityManagement.edit.save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Batch Reclassify Dialog ──────────────────────────────────── */}
+      <Dialog open={reclassifyDialogOpen} onOpenChange={setReclassifyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('entityManagement.reclassify.title')}</DialogTitle>
+            <DialogDescription>
+              {t('entityManagement.reclassify.description').replace('{count}', String(selected.size))}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                {t('entityManagement.reclassify.roleLabel')}
+              </label>
+              <Select value={reclassifyRole} onValueChange={setReclassifyRole}>
+                <SelectTrigger>
+                  <SelectValue placeholder={t('entityManagement.edit.roleLabel')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {ROLES.filter((r) => r.value !== 'OTRO').map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {t(r.key as string)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="rounded-md bg-muted p-3 text-xs text-muted-foreground">
+              {t('entityManagement.warning.combinedRules')}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReclassifyDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button onClick={handleBatchReclassify} disabled={reclassifying || !reclassifyRole}>
+              {reclassifying && <Loader2 className="mr-2 size-4 animate-spin" />}
+              {t('entityManagement.reclassify.submit')}
             </Button>
           </DialogFooter>
         </DialogContent>

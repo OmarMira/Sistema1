@@ -39,18 +39,23 @@ Generado: 2026-07-29
 
 ## C3 — Operation Controller: 4 documentos en conflicto
 
-**Severidad**: ALTA (pero mitigada por congelamiento)
+**Severidad**: ALTA → **RESUELTO (2026-07-29)**
 **Archivos**:
-1. `openspec/operation-controller/` — diseño oficial, congelado
-2. `DESIGN-v4.md` — no trackeado, sin relación documentada con #1
-3. `PHASE3_BASELINE.md` — no trackeado, sin relación documentada con #1
-4. `docs/architecture/operation-controller-v3.1.md` — no trackeado, sin relación documentada con #1
+1. `openspec/operation-controller/` — CANONICAL (congelado)
+2. `openspec/archive/operation-controller-v4-exploration.md` — REPLACED_BY openspec
+3. `openspec/archive/operation-controller-v3.1.md` — REPLACED_BY openspec (histórico)
+4. `PHASE3_BASELINE.md` — IMPLEMENTATION_PLAN (subordinado)
 
-**Hallazgo**: Cuatro documentos describiendo el mismo componente a diferentes versiones, sin registro de cuál es la relación entre ellos. Se sabe que el componente está **congelado**, pero los documentos no trackeados podrían contener decisiones relevantes.
+**Hallazgo**: Cuatro documentos describiendo el mismo componente a diferentes versiones. v3.1 contenía Planner, Plan Guard, retry/rollback y stateHash — decisiones deliberadamente descartadas en openspec. v4 era una exploración que eliminó el Execution Contract.
 
-**Riesgo**: Si se descongela Operation Controller en el futuro, habrá que reconciliar 4 documentos.
+**Resolución**:
+- DESIGN-v4.md archivado como exploración descartada
+- operation-controller-v3.1.md archivado como histórico REPLACED
+- openspec/operation-controller/ ratificado como CANONICAL
+- PHASE3_BASELINE.md mantenido en raíz como IMPLEMENTATION_PLAN
+- `src/internal/operation-controller/` auditado: 100% alineado con openspec (sin Planner, sin Plan Guard, sin retry/rollback, sin stateHash)
 
-**Acción requerida**: Actualmente mitigado por el congelamiento. Se recomienda archivar `DESIGN-v4.md`, `PHASE3_BASELINE.md`, y `operation-controller-v3.1.md` en `openspec/archive/` con una nota de que están congelados y subordinados al diseño oficial. No bloquear — postergar hasta después de Sprint 0.
+**Riesgo mitigado**: No hay divergencia entre código y diseño. Los documentos históricos están marcados como REPLACED y no representan decisiones vigentes.
 
 ---
 

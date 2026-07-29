@@ -67,19 +67,30 @@ Propósito: Única fuente de verdad sobre el estado y autoridad de cada document
 | Documento | Dominio |
 |---|---|
 | `AUDIT_CONTRACT.md` | Auditoría (558 líneas, v1.0) |
-| `DESIGN-v4.md` | Operation Controller v4 |
-| `PHASE3_BASELINE.md` | Operation Controller Fase 3 |
-| `docs/architecture/operation-controller-v3.1.md` | Operation Controller v3.1 |
+| `PHASE3_BASELINE.md` | Operation Controller — Implementation Plan |
 | `agent-ctx/15-audit-migration-design.md` | Migración Audit Contract |
 
-## FROZEN
+## FROZEN / CANONICAL
 
 | Documento | Motivo |
 |---|---|
-| `openspec/operation-controller/` | Congelado indefinidamente por decisión del arquitecto |
-| `DESIGN-v4.md` | De facto congelado por la decisión anterior |
-| `PHASE3_BASELINE.md` | De facto congelado por la decisión anterior |
-| `docs/architecture/operation-controller-v3.1.md` | De facto congelado por la decisión anterior |
+| `openspec/operation-controller/` | CANONICAL — diseño oficial. Congelado indefinidamente. |
+| `PHASE3_BASELINE.md` | IMPLEMENTATION_PLAN — subordinado al design/spec de openspec/operation-controller/ |
+
+## ARCHIVED (Sprint 0 — Lote B)
+
+| Documento | Estado |
+|---|---|
+| `openspec/archive/operation-controller-v4-exploration.md` | REPLACED_BY openspec/operation-controller/ — exploración descartada |
+| `openspec/archive/operation-controller-v3.1.md` | REPLACED_BY openspec/operation-controller/ — histórico, referencia para Planner/Plan Guard/stateHash |
+
+## NOTA IMPORTANTE — Operation Controller
+
+- **openspec/operation-controller/** es la autoridad canónica. Especifica el pipeline `Intent → Policy → Execution Contract → Execute → Verify + Evidence`.
+- **v3.1** (archivado) contenía Planner, Plan Guard, retry/rollback y stateHash — decisiones deliberadamente descartadas en openspec. Existe como referencia histórica pero no representa decisiones vigentes.
+- **v4** (archivado) era una exploración que eliminó el Execution Contract — descartada.
+- **PHASE3_BASELINE.md** es el plan de integración con OpenCode. Describe fielmente la implementación en `src/internal/operation-controller/`, la cual está alineada con openspec (sin Planner, sin retry, sin Plan Guard).
+- **Regla**: Código existente en `src/internal/operation-controller/` implementa openspec. No implementar Planner, Plan Guard, retry/rollback ni stateHash sin una propuesta formal que modifique el diseño openspec primero.
 
 ## OBSOLETO / REDUNDANTE (requiere verificación)
 

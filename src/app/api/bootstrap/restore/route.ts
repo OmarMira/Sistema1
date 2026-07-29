@@ -70,7 +70,7 @@ export const POST = apiHandler(
     }
 
     const companyId = backupData.manifest.companyId;
-    const result = await restoreBackup(companyId, backupData, { bootstrap: true });
+    const result = await restoreBackup(companyId, backupData, 'system_bootstrap', { bootstrap: true });
 
     if (!result.success) {
       return NextResponse.json({ error: result.message }, { status: 400 });

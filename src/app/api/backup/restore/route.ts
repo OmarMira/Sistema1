@@ -10,7 +10,7 @@ import { restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
  * Body (FormData): companyId (field) + file (File attachment)
  */
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
-  const { companyId } = requireCompanyContext();
+  const { userId, companyId } = requireCompanyContext();
 
   let backupData: BackupData;
 
@@ -84,7 +84,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   }
 
   // Execute restore
-  const result = await restoreBackup(companyId, backupData);
+  const result = await restoreBackup(companyId, backupData, userId);
 
   if (!result.success) {
     return NextResponse.json({ error: result.message }, { status: 400 });

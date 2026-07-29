@@ -53,6 +53,9 @@ vi.mock('@/lib/db', () => ({
       currentTx = buildTx();
       return cb(currentTx);
     }),
+    auditLog: {
+      create: vi.fn().mockResolvedValue({ id: 'audit-log' }),
+    },
   },
 }));
 
@@ -173,7 +176,7 @@ describe('restoreBackup', () => {
   it('restores company, users, and GL accounts on clean DB', async () => {
     const data = buildBackupData();
 
-    const result = await restoreBackup('company-1', data);
+    const result = await restoreBackup('company-1', data, 'test-user');
 
     expect(result.success).toBe(true);
 
@@ -210,7 +213,7 @@ describe('restoreBackup', () => {
     ];
     data.manifest.recordCounts.glAccounts = 2;
 
-    const result = await restoreBackup('company-1', data);
+    const result = await restoreBackup('company-1', data, 'test-user');
 
     expect(result.success).toBe(true);
     expect(glAccountCreates).toHaveLength(2);
@@ -221,7 +224,7 @@ describe('restoreBackup', () => {
   it('rejects mismatched companyId', async () => {
     const data = buildBackupData();
 
-    const result = await restoreBackup('other-company', data);
+    const result = await restoreBackup('other-company', data, 'test-user');
 
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/does not match/i);
@@ -231,7 +234,7 @@ describe('restoreBackup', () => {
   it('rejects invalid backup structure', async () => {
     const invalid = { manifest: {}, data: {} } as any;
 
-    const result = await restoreBackup('company-1', invalid);
+    const result = await restoreBackup('company-1', invalid, 'test-user');
 
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/invalid backup/i);
@@ -244,7 +247,7 @@ describe('restoreBackup', () => {
     // because the mock tx finds no company. Or better: make the tx throw.
     (db.$transaction as Mock).mockRejectedValueOnce(new Error('DB locked'));
 
-    const result = await restoreBackup('company-1', data);
+    const result = await restoreBackup('company-1', data, 'test-user');
 
     expect(result.success).toBe(false);
     expect(result.message).toMatch(/DB locked/);
@@ -264,7 +267,7 @@ describe('computeDepths', () => {
       makeGlAccount({ code: '1000', parentId: null }),
     ];
 
-    const result = await restoreBackup('company-1', data);
+    const result = await restoreBackup('company-1', data, 'test-user');
 
     expect(result.success).toBe(true);
     expect(glAccountCreates).toHaveLength(3);

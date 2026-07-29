@@ -521,6 +521,7 @@ function computeDepths(accounts: Record<string, unknown>[]): Map<string, number>
 export async function restoreBackup(
   companyId: string,
   backupData: BackupData,
+  userId: string,
   options?: { bootstrap?: boolean },
 ): Promise<{ success: boolean; message: string; restoredCounts: Record<string, number> }> {
   const validation = validateBackup(backupData);
@@ -539,6 +540,28 @@ export async function restoreBackup(
       message: 'Backup does not match the selected company',
       restoredCounts: {},
     };
+  }
+
+  // Audit Contract v1 — SecurityEvent: restore initiated
+  const restoreId = crypto.randomUUID();
+  try {
+    await db.auditLog.create({
+      data: {
+        companyId,
+        userId,
+        action: 'SECURITY_RESTORE_INITIATED',
+        entity: 'Backup',
+        entityId: restoreId,
+        details: JSON.stringify({
+          contractVersion: 1,
+          bootstrap: !!options?.bootstrap,
+          backupCompanyId: backupData.manifest.companyId,
+          recordCounts: backupData.manifest.recordCounts,
+        }),
+      },
+    });
+  } catch {
+    // SecurityEvent nunca bloquea (principio 0.9 — AuditLog no debe impedir recuperar el sistema)
   }
 
   try {
@@ -780,6 +803,23 @@ export async function restoreBackup(
         fs.writeFileSync(configPath, JSON.stringify(allConfig, null, 2), 'utf-8');
         restoredCounts.companyConfig = 1;
       }
+
+      // Audit Contract v1 — RESTORE_COMPLETED dentro de la transacción
+      await tx.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'RESTORE_COMPLETED',
+          entity: 'Backup',
+          entityId: restoreId,
+          details: JSON.stringify({
+            contractVersion: 1,
+            bootstrap: !!options?.bootstrap,
+            restoredCounts,
+            backupCreatedAt: backupData.manifest.createdAt,
+          }),
+        },
+      });
     });
 
     return {
@@ -790,6 +830,26 @@ export async function restoreBackup(
   } catch (error) {
     const errMsg = error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error';
     logger.error('[BACKUP RESTORE ERROR]', { error: errMsg });
+
+    // Audit Contract v1 — RESTORE_FAILED fuera de la transacción (ya hizo rollback)
+    try {
+      await db.auditLog.create({
+        data: {
+          companyId,
+          userId,
+          action: 'RESTORE_FAILED',
+          entity: 'Backup',
+          entityId: restoreId,
+          details: JSON.stringify({
+            contractVersion: 1,
+            error: errMsg,
+          }),
+        },
+      });
+    } catch {
+      // Auditoría de fallo nunca debe impedir la respuesta (principio 0.9)
+    }
+
     return {
       success: false,
       message: `Restore failed. The database was rolled back to its previous state. Error: ${errMsg}`,

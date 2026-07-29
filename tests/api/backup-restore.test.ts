@@ -72,6 +72,40 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     cleanTestBackups(createdBackups);
   });
 
+  it('debe crear AuditLog (BACKUP_CREATED) al crear backup, cumpliendo Audit Contract v1', async () => {
+    const user = await createTestUser('backup-audit@example.com');
+    const company = await createTestCompany('Backup Audit Test');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+    await createTestFixture(company.id);
+
+    const req = new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const res = await backupPOST(req, { params: Promise.resolve({}) });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    createdBackups.push(body.filename);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { companyId: company.id, action: 'BACKUP_CREATED' },
+    });
+    expect(auditLogs).toHaveLength(1);
+
+    const log = auditLogs[0];
+    expect(log.userId).toBe(user.id);
+    expect(log.entity).toBe('Backup');
+    expect(log.entityId).toBe(body.id);
+
+    const details = JSON.parse(log.details || '{}');
+    expect(details.contractVersion).toBe(1);
+    expect(details.filename).toBe(body.filename);
+    expect(details.size).toBeGreaterThan(0);
+    expect(details.recordCounts).toBeDefined();
+    expect(details.recordCounts.glAccounts).toBeGreaterThanOrEqual(1);
+  });
+
   it('debe crear backup y restaurar datos (GL accounts, bank accounts, transacciones, asientos) en una empresa existente', async () => {
     const user = await createTestUser('backup-full@example.com');
     const company = await createTestCompany('Backup Full Test');
@@ -153,6 +187,28 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     // Verify journal entries restored
     const entriesRestored = await db.journalEntry.findMany({ where: { companyId: company.id } });
     expect(entriesRestored).toHaveLength(entriesBefore.length);
+
+    // Audit Contract v1 — verificar RESTORE_COMPLETED
+    const restoreAudit = await db.auditLog.findMany({
+      where: { companyId: company.id, action: 'RESTORE_COMPLETED' },
+    });
+    expect(restoreAudit).toHaveLength(1);
+    const restoreLog = restoreAudit[0];
+    expect(restoreLog.userId).toBe(user.id);
+    expect(restoreLog.entity).toBe('Backup');
+    const restoreDetails = JSON.parse(restoreLog.details || '{}');
+    expect(restoreDetails.contractVersion).toBe(1);
+    expect(restoreDetails.restoredCounts.glAccounts).toBeGreaterThanOrEqual(1);
+
+    // Audit Contract v1 — verificar SECURITY_RESTORE_INITIATED
+    const securityAudit = await db.auditLog.findMany({
+      where: { companyId: company.id, action: 'SECURITY_RESTORE_INITIATED' },
+    });
+    expect(securityAudit).toHaveLength(1);
+    const securityLog = securityAudit[0];
+    expect(securityLog.userId).toBe(user.id);
+    const securityDetails = JSON.parse(securityLog.details || '{}');
+    expect(securityDetails.contractVersion).toBe(1);
   });
 
   it('debe rechazar restauracion con backup de otra empresa', async () => {

@@ -3,15 +3,30 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { createBackup, listBackups, deleteBackup } from '@/lib/backup';
+import { createAuditLogWithRetry } from '@/lib/audit';
 
 /**
  * POST /api/backup — Create a full backup for a company
- * Body: { companyId: string }
  */
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
-  const { companyId } = requireCompanyContext();
+  const { userId, companyId } = requireCompanyContext();
 
   const result = await createBackup(companyId);
+
+  // Audit Contract v1 — BACKUP_CREATED
+  await createAuditLogWithRetry({
+    companyId,
+    userId,
+    action: 'BACKUP_CREATED',
+    entity: 'Backup',
+    entityId: result.id,
+    details: JSON.stringify({
+      contractVersion: 1,
+      filename: result.filename,
+      size: result.size,
+      recordCounts: result.recordCounts,
+    }),
+  });
 
   return NextResponse.json({
     id: result.id,
@@ -40,7 +55,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
  * Body: { companyId: string, filename: string }
  */
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
-  const { companyId } = requireCompanyContext();
+  const { userId, companyId } = requireCompanyContext();
   const body = await request.json();
   const { filename } = body;
 
@@ -58,6 +73,19 @@ export const DELETE = apiHandler(async (request: NextRequest, context: RouteCont
   if (!success) {
     return NextResponse.json({ error: 'Backup file not found' }, { status: 404 });
   }
+
+  // Audit Contract v1 — BACKUP_DELETED
+  await createAuditLogWithRetry({
+    companyId,
+    userId,
+    action: 'BACKUP_DELETED',
+    entity: 'Backup',
+    entityId: filename,
+    details: JSON.stringify({
+      contractVersion: 1,
+      filename,
+    }),
+  });
 
   return NextResponse.json({ success: true, message: 'Backup deleted' });
 });

@@ -26,11 +26,22 @@ export interface ApplyAllResolvedRule {
   creditGlAccountId: string | null;
 }
 
+export interface AmbiguousCandidate {
+  ruleId: string;
+  ruleName: string;
+  confidenceLabel: 'high' | 'medium' | 'low';
+  matchQuality: number;
+  specificityScore: number;
+  evaluatedConditions: { type: string; detail: string }[];
+}
+
 export interface ApplyAllRuleResolution extends RuleResolution {
   resolvedRule: ApplyAllResolvedRule | null;
   confidenceLabel?: 'high' | 'medium' | 'low';
   matchQuality?: number;
   specificityScore?: number;
+  evaluatedConditions?: { type: string; detail: string }[];
+  ambiguousCandidates?: AmbiguousCandidate[];
 }
 
 export function importAdapter(
@@ -50,7 +61,25 @@ export function applyAllAdapter(
   match: RuleMatchOutput,
   rules: AdapterRule[],
 ): ApplyAllRuleResolution {
-  if (!match.winner) return { matchedRuleId: null, resolvedRule: null };
+  if (!match.winner) {
+    return {
+      matchedRuleId: null,
+      resolvedRule: null,
+      ambiguousCandidates: match.ambiguous
+        ? match.candidates.map((c) => {
+            const ruleInfo = rules.find((r) => r.id === c.ruleId);
+            return {
+              ruleId: c.ruleId,
+              ruleName: ruleInfo?.name ?? c.ruleId,
+              confidenceLabel: c.confidenceLabel,
+              matchQuality: c.matchQuality,
+              specificityScore: c.specificityScore,
+              evaluatedConditions: c.evaluatedConditions,
+            };
+          })
+        : undefined,
+    };
+  }
 
   const rule = rules.find((r) => r.id === match.winner!.ruleId);
   if (!rule) return { matchedRuleId: match.winner.ruleId, resolvedRule: null };
@@ -68,6 +97,7 @@ export function applyAllAdapter(
     confidenceLabel: match.winner.confidenceLabel,
     matchQuality: match.winner.matchQuality,
     specificityScore: match.winner.specificityScore,
+    evaluatedConditions: match.winner.evaluatedConditions,
   };
 }
 

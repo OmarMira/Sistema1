@@ -22,16 +22,22 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   const { userId, companyId } = requireCompanyContext();
   const locale = request.headers.get('x-locale') || 'es';
 
-  // Read confirmed flag from body (first call = undefined, confirmation call = true)
+  // Read params from body
   let confirmed: boolean | undefined;
+  let mode: 'batch' | 'single' | undefined;
+  let transactionId: string | undefined;
+  let forcedRuleId: string | undefined;
   try {
     const data = await request.json();
     if (typeof data?.confirmed === 'boolean') confirmed = data.confirmed;
+    if (data?.mode === 'single') mode = 'single';
+    if (typeof data?.transactionId === 'string') transactionId = data.transactionId;
+    if (typeof data?.forcedRuleId === 'string') forcedRuleId = data.forcedRuleId;
   } catch {
     // Body already validated by apiHandler — this path is a safeguard
   }
 
-  const result = await executeApplyAllUseCase(companyId, { confirmed });
+  const result = await executeApplyAllUseCase(companyId, { confirmed, mode, transactionId, forcedRuleId });
   const { matchResult, applyResult, policyObservation, enforcement } = result;
 
   const rulesApplied = matchResult.matchedRules.map((entry) => ({
@@ -39,6 +45,18 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     ruleName: entry.rule.name,
     count: entry.txIds.length,
     confidenceDistribution: entry.confidenceDistribution,
+  }));
+
+  const ambiguousTransactions = matchResult.ambiguousTransactions?.map((entry) => ({
+    transactionId: entry.transactionId,
+    candidates: entry.candidates.map((c) => ({
+      ruleId: c.ruleId,
+      ruleName: c.ruleName,
+      confidenceLabel: c.confidenceLabel,
+      matchQuality: c.matchQuality,
+      specificityScore: c.specificityScore,
+      evaluatedConditions: c.evaluatedConditions,
+    })),
   }));
 
   // Legacy cap warning (computed when transactions exceed server-side limit)
@@ -66,6 +84,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         if (enforcement.policyUnavailable) body.policyUnavailable = enforcement.policyUnavailable;
         if (capWarning) body.warning = capWarning;
         if (policyObservation) body.policyObservation = policyObservation;
+        if (ambiguousTransactions && ambiguousTransactions.length > 0) {
+          body.ambiguousTransactions = ambiguousTransactions;
+        }
         return NextResponse.json(body);
       }
 
@@ -95,5 +116,8 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   };
   if (capWarning) body.warning = capWarning;
   if (policyObservation) body.policyObservation = policyObservation;
+  if (ambiguousTransactions && ambiguousTransactions.length > 0) {
+    body.ambiguousTransactions = ambiguousTransactions;
+  }
   return NextResponse.json(body);
 });

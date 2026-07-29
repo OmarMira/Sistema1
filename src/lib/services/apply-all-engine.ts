@@ -63,6 +63,18 @@ const MAX_PER_BATCH = 200;
 
 // ─── Types ──────────────────────────────────────────────────
 
+export interface AmbiguousTxEntry {
+  transactionId: string;
+  candidates: Array<{
+    ruleId: string;
+    ruleName: string;
+    confidenceLabel: 'high' | 'medium' | 'low';
+    matchQuality: number;
+    specificityScore: number;
+    evaluatedConditions: { type: string; detail: string }[];
+  }>;
+}
+
 export interface MatchResult {
   matchedRules: Array<{
     rule: { id: string; name: string; priority: number | null };
@@ -73,6 +85,7 @@ export interface MatchResult {
   totalAmount: number;
   totalCount: number;
   remaining: number;
+  ambiguousTransactions?: AmbiguousTxEntry[];
 }
 
 export interface ApplyResult {
@@ -172,6 +185,7 @@ async function executeMatching(
     txIds: string[];
     confidenceDistribution: { high: number; medium: number; low: number };
   }>();
+  const ambiguousTxs: AmbiguousTxEntry[] = [];
   const rolePriorities = await loadRolePriorities();
   const entityContexts = await db.entityContext.findMany({
     where: { companyId },
@@ -239,7 +253,15 @@ async function executeMatching(
       shadowSummary = accumulateApplyAllShadowSummary(shadowSummary, shadowResult, classification);
     }
 
-    if (!resolution.resolvedRule) continue;
+    if (!resolution.resolvedRule) {
+      if (resolution.ambiguousCandidates && resolution.ambiguousCandidates.length > 0) {
+        ambiguousTxs.push({
+          transactionId: tx.id,
+          candidates: resolution.ambiguousCandidates,
+        });
+      }
+      continue;
+    }
 
     const existing = winnerMap.get(resolution.resolvedRule.id);
     if (existing) {
@@ -287,6 +309,7 @@ async function executeMatching(
       totalAmount,
       totalCount,
       remaining,
+      ambiguousTransactions: ambiguousTxs.length > 0 ? ambiguousTxs : undefined,
     };
   })();
 

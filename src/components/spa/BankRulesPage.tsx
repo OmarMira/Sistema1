@@ -64,6 +64,20 @@ import { AIRulesGeneratorTab } from './settings/AIRulesGeneratorTab';
 
 /* ─── Types ─── */
 
+interface AmbiguousCandidate {
+  ruleId: string;
+  ruleName: string;
+  confidenceLabel: 'high' | 'medium' | 'low';
+  matchQuality: number;
+  specificityScore: number;
+  evaluatedConditions: { type: string; detail: string }[];
+}
+
+interface AmbiguousTx {
+  transactionId: string;
+  candidates: AmbiguousCandidate[];
+}
+
 interface ApplyAllExecuted {
   status: 'EXECUTED';
   success: boolean;
@@ -80,6 +94,7 @@ interface ApplyAllExecuted {
   policyUnavailable?: { errorCode: string };
   warning?: string;
   policyObservation?: unknown;
+  ambiguousTransactions?: AmbiguousTx[];
 }
 
 interface ApplyAllConfirmation {
@@ -504,6 +519,38 @@ export function BankRulesPage() {
   const handleCancelApplyAll = () => {
     setApplyDialogOpen(false);
     setApplyState({ view: 'idle', data: null });
+  };
+
+  const [resolvingTxId, setResolvingTxId] = useState<string | null>(null);
+
+  const handleResolveAmbiguity = async (transactionId: string, forcedRuleId: string) => {
+    if (!activeCompany?.id) return;
+    setResolvingTxId(transactionId);
+    try {
+      const res = await fetch('/api/bank-rules/apply-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          companyId: activeCompany.id,
+          mode: 'single',
+          transactionId,
+          forcedRuleId,
+        }),
+      });
+      if (res.ok) {
+        toast.success(t('bankRules.ambiguityResolved'));
+        setApplyDialogOpen(false);
+        setApplyState({ view: 'idle', data: null });
+        fetchRules();
+      } else {
+        const err = await res.json().catch(() => ({}));
+        toast.error(err.message || t('bankRules.errors.resolveFailed'));
+      }
+    } catch {
+      toast.error(t('bankRules.errors.resolveFailed'));
+    } finally {
+      setResolvingTxId(null);
+    }
   };
 
   /* ─── Render ─── */
@@ -1009,6 +1056,66 @@ export function BankRulesPage() {
                   </div>
                 </div>
               )}
+              {/* ── ambiguous transactions ── */}
+              {applyState.data.ambiguousTransactions && applyState.data.ambiguousTransactions.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                    {t('bankRules.ambiguousTxTitle')}
+                  </p>
+                  <div className="divide-y rounded-lg border border-amber-200 dark:border-amber-800">
+                    {applyState.data.ambiguousTransactions.map((ambTx) => (
+                      <div key={ambTx.transactionId} className="px-3 py-2 text-sm">
+                        <p className="font-mono text-xs text-muted-foreground mb-2">
+                          {t('bankRules.transaction')} #{ambTx.transactionId.slice(-6)}
+                        </p>
+                        {ambTx.candidates.map((cand) => (
+                          <div key={cand.ruleId} className="flex items-start justify-between py-1 border-b last:border-0 border-dashed border-gray-200 dark:border-gray-700">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium truncate">{cand.ruleName}</span>
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                  cand.confidenceLabel === 'high'
+                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
+                                    : cand.confidenceLabel === 'medium'
+                                      ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+                                      : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
+                                }`}>
+                                  {cand.confidenceLabel === 'high'
+                                    ? t('bankRules.confidenceHigh')
+                                    : cand.confidenceLabel === 'medium'
+                                      ? t('bankRules.confidenceMedium')
+                                      : t('bankRules.confidenceLow')}
+                                </span>
+                              </div>
+                              {cand.evaluatedConditions.length > 0 && (
+                                <div className="mt-1 space-y-0.5">
+                                  {cand.evaluatedConditions.map((ec, i) => (
+                                    <p key={i} className="text-xs text-muted-foreground pl-2">
+                                      ✓ {ec.detail || ec.type}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="ml-2 shrink-0"
+                              disabled={resolvingTxId === ambTx.transactionId}
+                              onClick={() => handleResolveAmbiguity(ambTx.transactionId, cand.ruleId)}
+                            >
+                              {resolvingTxId === ambTx.transactionId
+                                ? <Loader2 className="size-3 animate-spin" />
+                                : t('bankRules.applySelectedRule')}
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {applyState.data.warning && (
                 <p className="text-sm text-muted-foreground">{applyState.data.warning}</p>
               )}

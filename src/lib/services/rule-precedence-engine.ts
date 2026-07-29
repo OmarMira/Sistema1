@@ -32,6 +32,7 @@ export interface RankedCandidate {
   specificityScore: number;
   matchQuality: number;
   confidenceLabel: 'high' | 'medium' | 'low';
+  evaluatedConditions: { type: string; detail: string }[];
 }
 
 export interface RuleMatchOutput {
@@ -155,6 +156,9 @@ export function evaluateTransactionAgainstRules(
       specificityScore,
       matchQuality,
       confidenceLabel: toMatchConfidenceLabel(matchQuality),
+      evaluatedConditions: evaluated
+        .filter((e) => e.match)
+        .map((e) => ({ type: e.type, detail: e.detail })),
     });
   }
 

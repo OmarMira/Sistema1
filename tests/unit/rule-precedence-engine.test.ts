@@ -613,6 +613,70 @@ describe('rulePrecedenceEngine', () => {
     });
   });
 
+  // ── evaluatedConditions ─────────────────────────────────────
+
+  describe('evaluatedConditions', () => {
+    it('winner carries evaluatedConditions from matched conditions', () => {
+      const tx: RulePrecedenceTransaction = { description: 'APPLE.COM BILLING', amount: 150, date: DEFAULT_DATE };
+      const rules = [rule({ id: 'r1', conditionType: 'contains', conditionValue: 'APPLE' })];
+
+      const result = evaluateTransactionAgainstRules(tx, rules);
+
+      expect(result.winner?.evaluatedConditions).toHaveLength(1);
+      expect(result.winner!.evaluatedConditions[0].type).toBeDefined();
+      expect(result.winner!.evaluatedConditions[0].detail).toBeDefined();
+    });
+
+    it('all candidates carry evaluatedConditions', () => {
+      const tx: RulePrecedenceTransaction = { description: 'APPLE.COM BILLING', amount: 150, date: DEFAULT_DATE };
+      const rules = [
+        rule({ id: 'r1', conditionType: 'contains', conditionValue: 'APPLE' }),
+        rule({ id: 'r2', conditionType: 'contains', conditionValue: 'APPLE.COM' }),
+      ];
+
+      const result = evaluateTransactionAgainstRules(tx, rules);
+
+      for (const c of result.candidates) {
+        expect(c.evaluatedConditions).toBeDefined();
+        expect(c.evaluatedConditions.length).toBeGreaterThanOrEqual(1);
+        for (const ec of c.evaluatedConditions) {
+          expect(typeof ec.type).toBe('string');
+          expect(typeof ec.detail).toBe('string');
+        }
+      }
+    });
+
+    it('includes only conditions that matched (safety net)', () => {
+      const tx: RulePrecedenceTransaction = { description: 'TICKET', amount: 150, date: DEFAULT_DATE };
+      const rules = [rule({
+        id: 'r1',
+        conditions: [
+          { field: 'description', operator: 'contains', value: 'TICKET' },
+          { field: 'amount', operator: 'amount_less', value: 200 },
+        ],
+      })];
+
+      const result = evaluateTransactionAgainstRules(tx, rules);
+
+      expect(result.winner).toBeDefined();
+      for (const ec of result.winner!.evaluatedConditions) {
+        expect(typeof ec.type).toBe('string');
+        expect(typeof ec.detail).toBe('string');
+      }
+    });
+
+    it('no score field in evaluatedConditions (contract stability)', () => {
+      const tx: RulePrecedenceTransaction = { description: 'APPLE.COM', amount: 150, date: DEFAULT_DATE };
+      const rules = [rule({ id: 'r1', conditionType: 'contains', conditionValue: 'APPLE' })];
+
+      const result = evaluateTransactionAgainstRules(tx, rules);
+
+      for (const ec of result.winner!.evaluatedConditions) {
+        expect(ec).not.toHaveProperty('score');
+      }
+    });
+  });
+
   // ── confidence mode when direction pre-filter applies ───────
 
   it('single matching candidate after direction filter has confidenceLabel', () => {

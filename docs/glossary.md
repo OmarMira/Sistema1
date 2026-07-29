@@ -17,3 +17,17 @@
 | **Session** | Sesión de usuario (cookie-based, bcryptjs, sin JWT) |
 | **SystemMemory** | Memoria persistente del sistema. Almacena contexto para decisiones futuras, con embeddings |
 | **SystemConfig** | Configuración global del sistema. No pertenece a ninguna empresa en particular |
+
+---
+
+## Readiness
+
+Readiness no es un concepto de dominio único. Existen dos dominios distintos que usan el mismo nombre:
+
+### Shadow Rules Readiness
+Evaluación de madurez operativa de un modelo de IA en shadow mode para determinar si está listo para promoverse a modo activo. Dominio: admin/sre. Módulo: `src/lib/readiness/`.
+
+### Accounting Readiness (Período Contable)
+Evaluación del estado de un período contable para determinar si está listo para cerrarse. Incluye blockers, warnings, health score y recomendaciones. Dominio: contable. Módulo: `src/lib/accounting-readiness/`.
+
+**Regla arquitectónica**: Estos dominios no deben compartir contratos, servicios ni terminología sin mapeo explícito. La colisión de nombres es documental, no funcional.

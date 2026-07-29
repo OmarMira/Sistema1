@@ -278,13 +278,12 @@ function buildMiniMatchResult(
   };
 }
 
-async function executeSingleUseCase(
-  companyId: string,
-  options: Required<Pick<ApplyAllUseCaseOptions, 'transactionId' | 'forcedRuleId'>> & { confirmed?: boolean },
-): Promise<ApplyAllUseCaseResult> {
-  const { transactionId, forcedRuleId, confirmed } = options;
+// ── Single-mode validators ──────────────────────────────────────────
 
-  // 1. Validate transaction exists and belongs to company
+async function getTransactionOrThrow(
+  companyId: string,
+  transactionId: string,
+) {
   const bankTx = await db.bankTransaction.findUnique({
     where: { id: transactionId },
     include: {
@@ -296,39 +295,59 @@ async function executeSingleUseCase(
     throw new ValidationError('TRANSACTION_NOT_FOUND', 'Transacción no encontrada o no pertenece a la empresa');
   }
 
-  // 2. Validate forced rule exists and belongs to company
-  const forcedRule = await db.bankRule.findUnique({
-    where: { id: forcedRuleId },
-  });
+  return bankTx;
+}
 
-  if (!forcedRule || forcedRule.companyId !== companyId) {
+async function getActiveRuleOrThrow(
+  companyId: string,
+  ruleId: string,
+) {
+  const rule = await db.bankRule.findUnique({ where: { id: ruleId } });
+
+  if (!rule || rule.companyId !== companyId) {
     throw new ValidationError('RULE_NOT_FOUND', 'Regla no encontrada o no pertenece a la empresa');
   }
 
-  // 3. Validate forced rule is active
-  if (!forcedRule.isActive) {
+  if (!rule.isActive) {
     throw new ValidationError('RULE_INACTIVE', 'La regla seleccionada no está activa');
   }
 
-  // 4. Validate transaction has no journal entry yet
+  return rule;
+}
+
+function verifyNotAlreadyApplied(bankTx: { journalEntryId: string | null }): void {
   if (bankTx.journalEntryId) {
     throw new ValidationError('TRANSACTION_ALREADY_MATCHED', 'La transacción ya tiene un asiento contable');
   }
+}
 
-  // 5. Validate fiscal period is not locked
+async function verifyPeriodNotLocked(companyId: string, txDate: Date): Promise<void> {
   const fiscalPeriod = await db.fiscalPeriod.findFirst({
     where: {
       companyId,
-      startDate: { lte: bankTx.date },
-      endDate: { gte: bankTx.date },
+      startDate: { lte: txDate },
+      endDate: { gte: txDate },
     },
   });
 
   if (fiscalPeriod?.isLocked) {
     throw new ValidationError('PERIOD_LOCKED', 'El período contable está bloqueado');
   }
+}
 
-  // 6. Run matching for this single transaction → get candidates
+// ── Single-mode resolution ─────────────────────────────────────────
+
+async function resolveCandidateForSingleTx(
+  companyId: string,
+  bankTx: {
+    id: string;
+    date: Date;
+    description: string;
+    amount: number;
+    statement: { bankAccountId: string };
+  },
+  forcedRule: { id: string; name: string; priority: number | null },
+): Promise<{ matchResult: MatchResult }> {
   const activeRules = await db.bankRule.findMany({
     where: { companyId, isActive: true },
     orderBy: { priority: 'asc' },
@@ -349,8 +368,7 @@ async function executeSingleUseCase(
 
   const match = evaluateTransactionAgainstRules(txData, engineRules);
 
-  // 7. Validate forcedRuleId is in candidates
-  const isCandidate = match.candidates.some((c) => c.ruleId === forcedRuleId);
+  const isCandidate = match.candidates.some((c) => c.ruleId === forcedRule.id);
   if (!isCandidate) {
     throw new ValidationError(
       'RULE_NOT_CANDIDATE',
@@ -358,43 +376,33 @@ async function executeSingleUseCase(
     );
   }
 
-  const winnerCandidate = match.candidates.find((c) => c.ruleId === forcedRuleId)!;
-
-  // 8. Build mini MatchResult
-  const singleTx = {
-    id: bankTx.id,
-    amount: Number(bankTx.amount),
-    description: bankTx.description,
-  };
+  const winner = match.candidates.find((c) => c.ruleId === forcedRule.id)!;
 
   const matchResult = buildMiniMatchResult(
-    singleTx,
+    { id: bankTx.id, amount: Number(bankTx.amount), description: bankTx.description },
     { id: forcedRule.id, name: forcedRule.name, priority: forcedRule.priority },
-    winnerCandidate.confidenceLabel,
+    winner.confidenceLabel,
   );
 
-  // 9. Evaluate Operational Policy (respecting confirmed)
-  const enforcementResult = await evaluatePolicy(companyId, matchResult, confirmed);
+  return { matchResult };
+}
 
-  if (enforcementResult.status === 'CONFIRMATION_REQUIRED' || enforcementResult.status === 'BLOCKED') {
-    return {
-      matchResult,
-      applyResult: { appliedCount: 0, journalEntryCount: 0 },
-      enforcement: enforcementResult,
-    };
-  }
+// ── Single-mode apply + audit ──────────────────────────────────────
 
-  // 10. Execute apply inside transaction
+async function applySingleTransaction(
+  companyId: string,
+  matchResult: MatchResult,
+  forcedRuleId: string,
+  transactionId: string,
+): Promise<ApplyResult> {
   const applyResult = await db.$transaction(async (tx) => {
     return executeApplyAll(companyId, tx, matchResult);
   });
 
-  // 11. Audit with resolutionSource: USER (only after successful apply)
   try {
     await db.auditLog.create({
       data: {
         companyId,
-        userId: undefined, // caller should set this
         action: 'RULE_AMBIGUITY_RESOLUTION',
         entity: 'ApplyAllBatch',
         details: JSON.stringify({
@@ -410,11 +418,39 @@ async function executeSingleUseCase(
     // best-effort — apply already succeeded
   }
 
-  return {
-    matchResult,
-    applyResult,
-    enforcement: enforcementResult,
-  };
+  return applyResult;
+}
+
+// ── Single-mode orchestrator ───────────────────────────────────────
+
+async function executeSingleUseCase(
+  companyId: string,
+  options: Required<Pick<ApplyAllUseCaseOptions, 'transactionId' | 'forcedRuleId'>> & { confirmed?: boolean },
+): Promise<ApplyAllUseCaseResult> {
+  const { transactionId, forcedRuleId, confirmed } = options;
+
+  const bankTx = await getTransactionOrThrow(companyId, transactionId);
+  const forcedRule = await getActiveRuleOrThrow(companyId, forcedRuleId);
+
+  verifyNotAlreadyApplied(bankTx);
+
+  await verifyPeriodNotLocked(companyId, bankTx.date);
+
+  const { matchResult } = await resolveCandidateForSingleTx(companyId, bankTx, forcedRule);
+
+  const enforcementResult = await evaluatePolicy(companyId, matchResult, confirmed);
+
+  if (enforcementResult.status === 'CONFIRMATION_REQUIRED' || enforcementResult.status === 'BLOCKED') {
+    return {
+      matchResult,
+      applyResult: { appliedCount: 0, journalEntryCount: 0 },
+      enforcement: enforcementResult,
+    };
+  }
+
+  const applyResult = await applySingleTransaction(companyId, matchResult, forcedRuleId, transactionId);
+
+  return { matchResult, applyResult, enforcement: enforcementResult };
 }
 
 export async function executeApplyAllUseCase(

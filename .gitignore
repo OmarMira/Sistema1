@@ -72,6 +72,9 @@ server.log
 # Backups
 db/backups/
 *.sql
+
+# Audit evidence (intentional snapshots)
+!gate-a2d-evidence/**/*.sql
 test-restore.js
 
 # Runtime data (generated at runtime, not source code)

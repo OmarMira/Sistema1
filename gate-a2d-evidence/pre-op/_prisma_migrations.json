@@ -1,0 +1,34 @@
+[
+  {
+    "migration_name": "20260706_add_company_knowledge",
+    "applied_steps_count": 1,
+    "checksum": "e48a1918b957ee62ad761a505379531c09eaa43f62bd5560a11ddc339ebc591f",
+    "started_at": "2026-07-07T01:18:07.724Z",
+    "finished_at": "2026-07-07T01:18:07.840Z",
+    "rolled_back_at": null
+  },
+  {
+    "migration_name": "20260711_add_lifecycle_status",
+    "applied_steps_count": 0,
+    "checksum": "65fc4cbb17354318a04ef92f5ff53e4af06e8963a3c746e82ab956cdd8dc3b5f",
+    "started_at": "2026-07-11T20:34:46.618Z",
+    "finished_at": "2026-07-11T20:34:46.618Z",
+    "rolled_back_at": null
+  },
+  {
+    "migration_name": "20260629152642_add_transaction_intent",
+    "applied_steps_count": 0,
+    "checksum": "6a1717c127532e0b5a8ac3116df1c78004949e121c263e4d77d2cd0d58f92c42",
+    "started_at": "2026-07-12T13:48:29.799Z",
+    "finished_at": "2026-07-12T13:48:29.799Z",
+    "rolled_back_at": null
+  },
+  {
+    "migration_name": "20260701_initial_schema",
+    "applied_steps_count": 0,
+    "checksum": "848e229c34d306cb581afc4811a3ef2323fbdf05310f7e97877a2e3d4a48b9a2",
+    "started_at": "2026-07-12T13:48:36.171Z",
+    "finished_at": "2026-07-12T13:48:36.171Z",
+    "rolled_back_at": null
+  }
+]

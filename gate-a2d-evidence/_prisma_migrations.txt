@@ -1,0 +1,36 @@
+Gate A.2d — Evidencia de _prisma_migrations (2026-07-26)
+====================================================
+
+Registros en PostgreSQL (tabla _prisma_migrations):
+
+1. 20260706_add_company_knowledge
+   - applied_steps_count: 1
+   - checksum: e48a1918b957ee62ad761a505379531c09eaa43f62bd5560a11ddc339ebc591f
+   - started_at: 2026-07-07T01:18:07.724Z
+   - finished_at: 2026-07-07T01:18:07.840Z
+   - rolled_back_at: null
+   - Estado: ✅ Archivo presente en main, migración real aplicada
+
+2. 20260711_add_lifecycle_status
+   - applied_steps_count: 0
+   - checksum: 65fc4cbb17354318a04ef92f5ff53e4af06e8963a3c746e82ab956cdd8dc3b5f
+   - started_at: 2026-07-11T20:34:46.618Z
+   - finished_at: 2026-07-11T20:34:46.618Z
+   - rolled_back_at: null
+   - Estado: ⚠️ Marcada como aplicada, sin archivo en main
+
+3. 20260629152642_add_transaction_intent
+   - applied_steps_count: 0
+   - checksum: 6a1717c127532e0b5a8ac3116df1c78004949e121c263e4d77d2cd0d58f92c42
+   - started_at: 2026-07-12T13:48:29.799Z
+   - finished_at: 2026-07-12T13:48:29.799Z
+   - rolled_back_at: null
+   - Estado: ⚠️ Marcada como aplicada, archivo existe en ramas legacy pero no en main
+
+4. 20260701_initial_schema
+   - applied_steps_count: 0
+   - checksum: 848e229c34d306cb581afc4811a3ef2323fbdf05310f7e97877a2e3d4a48b9a2
+   - started_at: 2026-07-12T13:48:36.171Z
+   - finished_at: 2026-07-12T13:48:36.171Z
+   - rolled_back_at: null
+   - Estado: ⚠️ Marcada como aplicada, sin archivo en main

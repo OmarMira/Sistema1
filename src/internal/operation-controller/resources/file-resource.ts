@@ -79,7 +79,14 @@ export class FileResource implements Driver {
           return { success: false, error: 'No content in expectedState for create' };
         }
         try {
+          const parentDir = path.dirname(targetPath);
+
+          if (!fs.existsSync(parentDir)) {
+            fs.mkdirSync(parentDir, { recursive: true });
+          }
+
           fs.writeFileSync(targetPath, content, 'utf-8');
+
           return { success: true };
         } catch (err) {
           return { success: false, error: err instanceof Error ? err.message : 'Create failed' };
@@ -240,21 +247,39 @@ export class FileResource implements Driver {
       }
       return { ok: true, path: real };
     } catch {
-      const dir = path.dirname(resolved);
-      try {
-        const realDir = fs.realpathSync(dir);
-        const dirRelative = path.relative(this.workspaceRoot, realDir);
-        if (
-          dirRelative === '..' ||
-          dirRelative.startsWith(`..${path.sep}`) ||
-          path.isAbsolute(dirRelative)
-        ) {
-          return { ok: false, error: 'Parent directory symlink points outside workspace' };
+      let current = resolved;
+      let existingDir: string | null = null;
+
+      while (current !== path.dirname(current)) {
+        current = path.dirname(current);
+
+        try {
+          const real = fs.realpathSync(current);
+
+          if (fs.statSync(real).isDirectory()) {
+            existingDir = real;
+            break;
+          }
+        } catch {
+          // continuar buscando un ancestro existente
         }
-        return { ok: true, path: resolved };
-      } catch {
-        return { ok: false, error: 'Parent directory does not exist or is not accessible' };
       }
+
+      if (!existingDir) {
+        return { ok: false, error: 'No existing ancestor directory found' };
+      }
+
+      const dirRelative = path.relative(this.workspaceRoot, existingDir);
+
+      if (
+        dirRelative === '..' ||
+        dirRelative.startsWith(`..${path.sep}`) ||
+        path.isAbsolute(dirRelative)
+      ) {
+        return { ok: false, error: 'Ancestor directory lies outside workspace' };
+      }
+
+      return { ok: true, path: resolved };
     }
   }
 }

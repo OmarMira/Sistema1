@@ -258,6 +258,77 @@ describe('FileResource', () => {
     }
   });
 
+  // ── MW-001: creación segura de directorios padre ──────────────────────
+
+  it('TEST 1 — create con directorios padre inexistentes crea la estructura', () => {
+    const nestedPath = 'newsubdir/deep/nested.txt';
+    const result = ws.execute(makeContract({
+      target: nestedPath,
+      operation: 'create',
+      allowedEffects: ['create'],
+      expectedState: { [nestedPath]: 'contenido anidado' },
+    }));
+    expect(result.success).toBe(true);
+    expect(ws.readFile(nestedPath)).toBe('contenido anidado');
+    expect(fs.existsSync(path.join(tempDir, 'newsubdir', 'deep', 'nested.txt'))).toBe(true);
+    expect(fs.statSync(path.join(tempDir, 'newsubdir')).isDirectory()).toBe(true);
+    expect(fs.statSync(path.join(tempDir, 'newsubdir', 'deep')).isDirectory()).toBe(true);
+  });
+
+  it('TEST 2 — create en Protected Zone .opencode es rechazado', () => {
+    const protectedPath = '.opencode/nuevo-helper.ts';
+    const result = ws.execute(makeContract({
+      target: protectedPath,
+      operation: 'create',
+      allowedEffects: ['create'],
+      expectedState: { [protectedPath]: 'test' },
+    }));
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Protected zone');
+  });
+
+  it('TEST 3 — create en kernel Operation Controller es rechazado', () => {
+    const kernelPath = 'src/internal/operation-controller/test.ts';
+    const result = ws.execute(makeContract({
+      target: kernelPath,
+      operation: 'create',
+      allowedEffects: ['create'],
+      expectedState: { [kernelPath]: 'test' },
+    }));
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Protected zone');
+  });
+
+  it('TEST 4 — create con path traversal fuera del workspace es rechazado', () => {
+    const result = ws.execute(makeContract({
+      target: '../../outside.txt',
+      operation: 'create',
+      allowedEffects: ['create'],
+      expectedState: { '../../outside.txt': 'test' },
+    }));
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('outside');
+  });
+
+  it.skipIf(!canSymlink)('TEST 5 — symlink apuntando fuera: modify sobre symlink externo es rechazado', () => {
+    const symlinkTarget = path.join(os.tmpdir(), `oc-mw-sym-${Date.now()}.txt`);
+    const symlinkPath = path.join(tempDir, 'mw-external-link.txt');
+    try {
+      fs.writeFileSync(symlinkTarget, 'external content', 'utf-8');
+      fs.symlinkSync(symlinkTarget, symlinkPath, 'file');
+
+      const result = ws.execute(makeContract({
+        target: 'mw-external-link.txt',
+        operation: 'modify',
+        expectedState: { 'mw-external-link.txt': 'nuevo contenido' },
+      }));
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('outside');
+    } finally {
+      try { fs.unlinkSync(symlinkTarget); } catch { /* ignore */ }
+    }
+  });
+
   describe('snapshotObserved', () => {
     it('solo incluye rutas observadas', () => {
       const file1 = path.join(tempDir, 'a.txt');

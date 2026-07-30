@@ -80,10 +80,6 @@ export default tool({
       throw new Error(reason)
     }
 
-    return {
-      status: 'completed',
-      filePath: args.filePath,
-      evidence: result.evidence,
-    }
+    return { output: `Completed: ${args.filePath}` }
   },
 })

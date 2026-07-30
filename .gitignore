@@ -87,3 +87,9 @@ rules/learning-events-archive-*.jsonl
 
 # Temp
 tsc-errors.txt
+
+# Agent session context (temporary)
+agent-ctx/
+
+# Database dump artifacts (local snapshots)
+*.dump

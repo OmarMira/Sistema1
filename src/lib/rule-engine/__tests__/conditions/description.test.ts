@@ -17,11 +17,11 @@ describe('description_eq', () => {
     expect(result.score).toBe(1);
   });
 
-  it('does not match when differs (case-sensitive)', () => {
+  it('matches when differs only by case (case-insensitive)', () => {
     const tx = makeTransaction({ description: 'Netflix' });
     const result = evaluateDescriptionEq(makeCondition('description_eq', 'netflix'), tx);
-    expect(result.match).toBe(false);
-    expect(result.score).toBe(0);
+    expect(result.match).toBe(true);
+    expect(result.score).toBe(1);
   });
 });
 
@@ -47,10 +47,10 @@ describe('description_contains', () => {
     expect(result.score).toBe(0);
   });
 
-  it('handles empty value', () => {
+  it('handles empty value (contract: no match)', () => {
     const tx = makeTransaction({ description: 'anything' });
     const result = evaluateDescriptionContains(makeCondition('description_contains', ''), tx);
-    expect(result.match).toBe(true);
+    expect(result.match).toBe(false);
   });
 
   it('guards against value longer than description', () => {

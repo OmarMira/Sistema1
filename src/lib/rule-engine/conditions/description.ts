@@ -1,19 +1,25 @@
 import type { RuleCondition, Transaction, EvaluatedCondition } from '../types';
 import { InvalidRegex } from '../errors';
+import { normalizeText } from './normalize';
 
 export function evaluateDescriptionEq(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const desc = transaction.description ?? '';
-  const value = String(condition.value);
+  const desc = normalizeText(transaction.description ?? '');
+  const value = normalizeText(condition.value);
+  if (value.length === 0) {
+    return { type: condition.type, score: 0, match: false, detail: `desc "${desc}" === "${value}": false` };
+  }
   const match = desc === value;
   return { type: condition.type, score: match ? 1 : 0, match, detail: `desc "${desc}" === "${value}": ${match}` };
 }
 
 export function evaluateDescriptionContains(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const desc = transaction.description ?? '';
-  const value = String(condition.value);
-  if (desc.length === 0 || value.length === 0 || value.length > desc.length) {
-    const match = value.length === 0;
-    return { type: condition.type, score: match ? 1 : 0, match, detail: `desc contains "${value}": ${match}` };
+  const desc = normalizeText(transaction.description ?? '');
+  const value = normalizeText(condition.value);
+  if (value.length === 0) {
+    return { type: condition.type, score: 0, match: false, detail: `desc contains "${value}": false` };
+  }
+  if (desc.length === 0 || value.length > desc.length) {
+    return { type: condition.type, score: 0, match: false, detail: `desc contains "${value}": false` };
   }
   const score = desc.includes(value) ? value.length / desc.length : 0;
   const match = score > 0;
@@ -21,15 +27,21 @@ export function evaluateDescriptionContains(condition: RuleCondition, transactio
 }
 
 export function evaluateDescriptionStartsWith(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const desc = transaction.description ?? '';
-  const value = String(condition.value);
+  const desc = normalizeText(transaction.description ?? '');
+  const value = normalizeText(condition.value);
+  if (value.length === 0) {
+    return { type: condition.type, score: 0, match: false, detail: `desc starts with "${value}": false` };
+  }
   const match = desc.startsWith(value);
   return { type: condition.type, score: match ? 1 : 0, match, detail: `desc starts with "${value}": ${match}` };
 }
 
 export function evaluateDescriptionEndsWith(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
-  const desc = transaction.description ?? '';
-  const value = String(condition.value);
+  const desc = normalizeText(transaction.description ?? '');
+  const value = normalizeText(condition.value);
+  if (value.length === 0) {
+    return { type: condition.type, score: 0, match: false, detail: `desc ends with "${value}": false` };
+  }
   const match = desc.endsWith(value);
   return { type: condition.type, score: match ? 1 : 0, match, detail: `desc ends with "${value}": ${match}` };
 }

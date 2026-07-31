@@ -13,11 +13,11 @@ function discardInvalidConfiguration(availableRules: RuleInput['context']['avail
   return availableRules.filter((rule) => rule.conditions && rule.conditions.length > 0);
 }
 
-export function evaluateRules(input: RuleInput): RuleEngineExecution {
-  if (!isRuleEngineV2Enabled()) {
-    return { output: { candidates: [], decision: undefined } };
-  }
+export interface EvaluateRulesOptions {
+  persistAudit?: boolean;
+}
 
+export function evaluateRulesPure(input: RuleInput): RuleEngineExecution {
   if (input.transaction == null) throw new MissingTransaction();
   if (input.context == null) throw new MissingContext();
   if (!Array.isArray(input.context.availableRules)) throw new MissingContext({ reason: 'availableRules must be an array' });
@@ -53,8 +53,6 @@ export function evaluateRules(input: RuleInput): RuleEngineExecution {
       trace: cloneDecisionTrace(trace),
     };
 
-    persistRuleExecutionAudit(audit).catch(() => {});
-
     return { output: { candidates: decision.candidateList, decision }, trace, audit };
   } catch (err) {
     const stageEvents: TraceEvent[] = (err as any).__ruleEngineEvents ?? [];
@@ -73,6 +71,19 @@ export function evaluateRules(input: RuleInput): RuleEngineExecution {
 
     throw err;
   }
+}
+
+export function evaluateRules(input: RuleInput, opts: EvaluateRulesOptions = {}): RuleEngineExecution {
+  if (!isRuleEngineV2Enabled()) {
+    return { output: { candidates: [], decision: undefined } };
+  }
+
+  const execution = evaluateRulesPure(input);
+
+  if (opts.persistAudit === false) return execution;
+  if (execution.audit) persistRuleExecutionAudit(execution.audit).catch(() => {});
+
+  return execution;
 }
 
 export type {

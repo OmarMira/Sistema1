@@ -2,12 +2,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { EngineDecision, EntityResolution } from '@/lib/rule-engine/types'
 
 const mockEvaluateRules = vi.fn()
+const mockEvaluateRulesPure = vi.fn()
 
 vi.mock('@/lib/rule-engine', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
+  evaluateRulesPure: (...args: unknown[]) => mockEvaluateRulesPure(...args),
 }))
 
-import { runRuleEngineV2 } from '@/lib/services/rule-engine-adapter'
+import { runRuleEngineV2, runRuleEngineV2Shadow } from '@/lib/services/rule-engine-adapter'
 import type { ParsedTransaction, PrismaBankRule } from '@/lib/services/rule-engine-adapter'
 
 function makeTxn(overrides: Partial<ParsedTransaction> = {}): ParsedTransaction {
@@ -214,5 +216,84 @@ describe('runRuleEngineV2 — edge cases', () => {
     const result = await runRuleEngineV2(makeTxn(), [rule], defaultEntityResolution, 'company-1')
 
     expect(result.outcome).toBe('pending')
+  })
+})
+
+describe('runRuleEngineV2 — options forwarding', () => {
+  it('forwards persistAudit:false to evaluateRules', async () => {
+    mockEvaluateRules.mockReturnValueOnce({
+      output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+    })
+
+    await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1', {
+      persistAudit: false,
+    })
+
+    expect(mockEvaluateRules).toHaveBeenCalledTimes(1)
+    expect(mockEvaluateRules).toHaveBeenCalledWith(expect.anything(), { persistAudit: false })
+  })
+
+  it('forwards undefined opts when no options are provided', async () => {
+    mockEvaluateRules.mockReturnValueOnce({
+      output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+    })
+
+    await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
+
+    expect(mockEvaluateRules).toHaveBeenCalledWith(expect.anything(), undefined)
+  })
+})
+
+describe('runRuleEngineV2Shadow — pure shadow evaluation', () => {
+  it('evaluates via evaluateRulesPure and never via evaluateRules', async () => {
+    mockEvaluateRulesPure.mockReturnValueOnce({
+      output: { candidates: [], decision: makeEngineDecision() },
+    })
+
+    const result = runRuleEngineV2Shadow(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
+
+    expect(mockEvaluateRulesPure).toHaveBeenCalledTimes(1)
+    expect(mockEvaluateRules).not.toHaveBeenCalled()
+    expect(result.outcome).toBe('matched')
+    if (result.outcome === 'matched') {
+      expect(result.matchedRuleId).toBe('rule-1')
+      expect(result.classification.glAccountId).toBe('gl-001')
+    }
+  })
+
+  it('maps no_match to pending without errorCode', () => {
+    mockEvaluateRulesPure.mockReturnValueOnce({
+      output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+    })
+
+    const result = runRuleEngineV2Shadow(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
+
+    expect(result.outcome).toBe('pending')
+    if (result.outcome === 'pending') {
+      expect(result.errorCode).toBeUndefined()
+    }
+  })
+
+  it('catches null conditions normalization errors', () => {
+    const rule = makeRule({ conditions: null as unknown as PrismaBankRule['conditions'] })
+    const result = runRuleEngineV2Shadow(makeTxn(), [rule], defaultEntityResolution, 'company-1')
+
+    expect(result.outcome).toBe('pending')
+    if (result.outcome === 'pending') {
+      expect(result.errorCode).toBe('conditions_normalization_failed')
+    }
+  })
+
+  it('returns pending with errorCode when pure evaluation throws', () => {
+    mockEvaluateRulesPure.mockImplementationOnce(() => {
+      throw new Error('boom')
+    })
+
+    const result = runRuleEngineV2Shadow(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
+
+    expect(result.outcome).toBe('pending')
+    if (result.outcome === 'pending') {
+      expect(result.errorCode).toBe('engine_execution_error')
+    }
   })
 })

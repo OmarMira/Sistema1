@@ -1,4 +1,4 @@
-import { evaluateRules } from '@/lib/rule-engine'
+import { evaluateRules, evaluateRulesPure } from '@/lib/rule-engine'
 import type { RuleInput, BankRule, RuleEngineExecution, EntityResolution } from '@/lib/rule-engine/types'
 import { normalize, NormalizationError } from './conditions-normalizer'
 import type { MatchResult, ParsedTransaction, PrismaBankRule } from './types'
@@ -51,34 +51,63 @@ function mapDecisionToResult(execution: RuleEngineExecution): MatchResult {
   }
 }
 
+export interface RunRuleEngineV2Options {
+  persistAudit?: boolean;
+}
+
+function buildRuleInput(
+  txn: ParsedTransaction,
+  bankRules: PrismaBankRule[],
+  entityResolution: EntityResolution,
+  companyId: string,
+): RuleInput {
+  const activeRules = bankRules.filter((r) => r.isActive)
+  const engineRules: BankRule[] = activeRules.map(buildEngineRule)
+
+  return {
+    transaction: {
+      id: txn.id,
+      date: txn.date,
+      description: txn.description,
+      amount: txn.amount,
+      bankAccountId: txn.bankAccountId,
+      companyId,
+    },
+    context: {
+      availableRules: engineRules,
+      entityContexts: [],
+      historicalMatches: [],
+      entityResolution,
+    },
+  }
+}
+
 export async function runRuleEngineV2(
   txn: ParsedTransaction,
   bankRules: PrismaBankRule[],
   entityResolution: EntityResolution,
   companyId: string,
+  opts?: RunRuleEngineV2Options,
 ): Promise<MatchResult> {
   try {
-    const activeRules = bankRules.filter((r) => r.isActive)
-    const engineRules: BankRule[] = activeRules.map(buildEngineRule)
-
-    const input: RuleInput = {
-      transaction: {
-        id: txn.id,
-        date: txn.date,
-        description: txn.description,
-        amount: txn.amount,
-        bankAccountId: txn.bankAccountId,
-        companyId,
-      },
-      context: {
-        availableRules: engineRules,
-        entityContexts: [],
-        historicalMatches: [],
-        entityResolution,
-      },
+    const execution = evaluateRules(buildRuleInput(txn, bankRules, entityResolution, companyId), opts)
+    return mapDecisionToResult(execution)
+  } catch (error) {
+    if (error instanceof NormalizationError) {
+      return { outcome: 'pending', errorCode: 'conditions_normalization_failed' }
     }
+    return { outcome: 'pending', errorCode: 'engine_execution_error' }
+  }
+}
 
-    const execution = evaluateRules(input)
+export function runRuleEngineV2Shadow(
+  txn: ParsedTransaction,
+  bankRules: PrismaBankRule[],
+  entityResolution: EntityResolution,
+  companyId: string,
+): MatchResult {
+  try {
+    const execution = evaluateRulesPure(buildRuleInput(txn, bankRules, entityResolution, companyId))
     return mapDecisionToResult(execution)
   } catch (error) {
     if (error instanceof NormalizationError) {

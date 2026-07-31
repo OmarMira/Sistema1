@@ -1,6 +1,9 @@
 import { normalize } from '@/lib/services/rule-engine-adapter/conditions-normalizer';
 import type { RuleCondition, Transaction } from '@/lib/rule-engine/types';
 import type { RulePrecedenceRule } from './rule-precedence-engine';
+import { normalizeText } from '@/lib/rule-engine/conditions/normalize';
+
+export { normalizeText };
 
 const AMOUNT_OPERATORS = new Set([
   'amount_greater', 'amount_less', 'greater_than', 'less_than',
@@ -9,10 +12,6 @@ const AMOUNT_OPERATORS = new Set([
 
 function isAmountOperator(op: string): boolean {
   return AMOUNT_OPERATORS.has(op);
-}
-
-export function normalizeText(val: string | number): string {
-  return String(val).toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
 /**

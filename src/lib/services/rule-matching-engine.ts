@@ -3,6 +3,7 @@ import { join } from 'path';
 import { loadConfig, extractComponents } from '@/lib/services/entity-detector';
 import { getKnownSocioPatterns } from '@/lib/services/entity-classifier';
 import { db } from '@/lib/db';
+import { normalizeText } from '@/lib/rule-engine/conditions/normalize';
 import type { RuleCondition } from '@/lib/types/shared';
 
 export interface EntityContext {
@@ -38,8 +39,8 @@ function evaluateCondition(tx: Transaction, cond: RuleCondition): boolean {
   if (txValue === undefined || txValue === null) return false;
 
   // Normalize: lowercase, trim, and collapse multiple spaces to single space
-  const strTxVal = String(txValue).toLowerCase().trim().replace(/\s+/g, ' ');
-  const strCondVal = String(value).toLowerCase().trim().replace(/\s+/g, ' ');
+  const strTxVal = normalizeText(txValue);
+  const strCondVal = normalizeText(value);
 
   // Empty conditions after normalization never match (skip silently)
   if (!strCondVal) return false;

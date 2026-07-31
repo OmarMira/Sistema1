@@ -2,12 +2,19 @@ import type { RuleInput, BankRule, EvaluatedCondition, PipelineArtifacts, Transa
 import { evaluateCondition } from './conditions/index';
 import { attachTraceToError } from './trace';
 
+function matchesDirection(rule: BankRule, transaction: Transaction): boolean {
+  if (rule.direction === 'debit') return transaction.amount < 0;
+  if (rule.direction === 'credit') return transaction.amount >= 0;
+  return true;
+}
+
 function collectCandidates(input: RuleInput): BankRule[] {
   return input.context.availableRules.filter(
     (rule) =>
       rule.isActive &&
       rule.companyId === input.transaction.companyId &&
-      (rule.lifecycleStatus === 'active' || rule.lifecycleStatus === 'testing'),
+      (rule.lifecycleStatus === 'active' || rule.lifecycleStatus === 'testing') &&
+      matchesDirection(rule, input.transaction),
   );
 }
 

@@ -5,12 +5,16 @@ import type { MatchResult, ParsedTransaction, PrismaBankRule } from './types'
 
 function buildEngineRule(rule: PrismaBankRule): BankRule {
   const conditions = normalize(rule.conditions)
+  const direction = rule.transactionDirection === 'debit' || rule.transactionDirection === 'credit'
+    ? rule.transactionDirection
+    : undefined
 
   return {
     id: rule.id,
     companyId: rule.companyId,
     priority: rule.priority,
     conditions,
+    direction,
     action: {
       glAccountId: rule.glAccountId ?? rule.debitGlAccountId ?? rule.creditGlAccountId ?? undefined,
     },

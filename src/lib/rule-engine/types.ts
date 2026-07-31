@@ -14,6 +14,8 @@ export type RuleConditionType =
   | 'date_before'
   | 'date_after';
 
+export type RuleDirection = 'any' | 'debit' | 'credit';
+
 export interface RuleCondition {
   type: RuleConditionType;
   value: string | number;
@@ -25,6 +27,7 @@ export interface BankRule {
   companyId: string;
   priority: number;
   conditions: RuleCondition[];
+  direction?: RuleDirection;
   action: {
     category?: string;
     entityId?: string;

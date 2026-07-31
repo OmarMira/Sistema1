@@ -4,8 +4,7 @@ import {
   type ImportRuleResolution,
 } from './rule-precedence-adapters';
 import {
-  isRuleEngineAdapterEnabled,
-  isRuleEngineV2Enabled,
+  getEngineMode,
 } from '@/lib/rule-engine/flag';
 import { evaluateTransactionAgainstRules } from './rule-precedence-engine';
 import { toRulePrecedenceRule } from './rule-precedence-shadow';
@@ -125,11 +124,12 @@ export async function resolveImportRule(
   bankRules: RuleRecord[],
   companyId: string,
 ): Promise<ImportRuleResolution> {
-  if (isRuleEngineAdapterEnabled()) {
-    return resolveWithAdapter(txData, bankRules);
+  switch (getEngineMode()) {
+    case 'precedence':
+      return resolveWithAdapter(txData, bankRules);
+    case 'v2':
+      return resolveWithV2(txData, bankRules, companyId);
+    case 'legacy':
+      return resolveWithLegacy(txData, bankRules, companyId);
   }
-  if (isRuleEngineV2Enabled()) {
-    return resolveWithV2(txData, bankRules, companyId);
-  }
-  return resolveWithLegacy(txData, bankRules, companyId);
 }

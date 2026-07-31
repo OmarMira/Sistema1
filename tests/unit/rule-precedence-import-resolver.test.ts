@@ -4,12 +4,10 @@ const mockEvaluate = vi.hoisted(() => ({ fn: vi.fn() }));
 const mockImportAdapter = vi.hoisted(() => ({ fn: vi.fn() }));
 const mockRunV2 = vi.hoisted(() => ({ fn: vi.fn() }));
 const mockFindMatching = vi.hoisted(() => ({ fn: vi.fn() }));
-const mockIsAdapter = vi.hoisted(() => ({ fn: vi.fn() }));
-const mockIsV2 = vi.hoisted(() => ({ fn: vi.fn() }));
+const mockGetEngineMode = vi.hoisted(() => ({ fn: vi.fn() }));
 
 vi.mock('@/lib/rule-engine/flag', () => ({
-  isRuleEngineAdapterEnabled: mockIsAdapter.fn,
-  isRuleEngineV2Enabled: mockIsV2.fn,
+  getEngineMode: mockGetEngineMode.fn,
 }));
 
 vi.mock('@/lib/services/rule-precedence-engine', () => ({
@@ -77,10 +75,9 @@ beforeEach(() => {
 });
 
 describe('resolveImportRule', () => {
-  describe('adapter path (RULE_ENGINE_ADAPTER_ENABLED = true)', () => {
+  describe('adapter path (mode = precedence)', () => {
     beforeEach(() => {
-      mockIsAdapter.fn.mockReturnValue(true);
-      mockIsV2.fn.mockReturnValue(false);
+      mockGetEngineMode.fn.mockReturnValue('precedence');
     });
 
     it('calls evaluateTransactionAgainstRules and importAdapter when adapter flag is on', async () => {
@@ -117,10 +114,9 @@ describe('resolveImportRule', () => {
     });
   });
 
-  describe('V2 path (RULE_ENGINE_V2_ENABLED = true)', () => {
+  describe('V2 path (mode = v2)', () => {
     beforeEach(() => {
-      mockIsAdapter.fn.mockReturnValue(false);
-      mockIsV2.fn.mockReturnValue(true);
+      mockGetEngineMode.fn.mockReturnValue('v2');
     });
 
     it('calls runRuleEngineV2 when V2 flag is on', async () => {
@@ -183,10 +179,9 @@ describe('resolveImportRule', () => {
     });
   });
 
-  describe('legacy path (both flags off)', () => {
+  describe('legacy path (mode = legacy)', () => {
     beforeEach(() => {
-      mockIsAdapter.fn.mockReturnValue(false);
-      mockIsV2.fn.mockReturnValue(false);
+      mockGetEngineMode.fn.mockReturnValue('legacy');
     });
 
     it('calls findMatchingRule when both flags are off', async () => {

@@ -266,8 +266,28 @@ model BankRule {
   entityContext        EntityContext?    @relation(fields: [entityContextId], references: [id], onDelete: SetNull)
   company              Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   transactions         BankTransaction[]
+  ruleExecutionAudits  RuleExecutionAudit[]
 
   @@index([companyId, isActive, priority])
+}
+
+model RuleExecutionAudit {
+  id             String   @id @default(cuid())
+  engineVersion  String
+  transactionId  String
+  companyId      String
+  result         String   // 'MATCHED' | 'AMBIGUOUS' | 'NO_MATCH' | 'ERROR'
+  winnerRuleId   String?
+  candidateCount Int
+  trace          String?  // JSON string
+  executedAt     DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  winnerRule    BankRule? @relation(fields: [winnerRuleId], references: [id])
+
+  @@index([companyId])
+  @@index([transactionId])
+  @@index([executedAt])
 }
 
 model JournalEntry {

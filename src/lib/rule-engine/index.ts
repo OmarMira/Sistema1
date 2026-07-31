@@ -4,6 +4,7 @@ import { runPipeline } from './pipeline';
 import { scoreCandidates } from './scoring';
 import { rankCandidates } from './ranking';
 import { makeDecision } from './decision';
+import { persistRuleExecutionAudit } from './audit';
 import { MissingTransaction, MissingContext, InvalidTransaction, RuleEngineError } from './errors';
 import { buildDecisionTrace, cloneDecisionTrace } from './trace';
 import { RULE_ENGINE_VERSION } from './version';
@@ -51,6 +52,8 @@ export function evaluateRules(input: RuleInput): RuleEngineExecution {
       candidateCount: decision.candidateList.length,
       trace: cloneDecisionTrace(trace),
     };
+
+    persistRuleExecutionAudit(audit).catch(() => {});
 
     return { output: { candidates: decision.candidateList, decision }, trace, audit };
   } catch (err) {

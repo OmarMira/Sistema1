@@ -36,7 +36,12 @@ import {
 import { ShadowMetricsReader } from '@/lib/services/shadow-metrics-reader';
 import type { ShadowMetricsQuery } from '@/lib/services/shadow-metrics-reader';
 import { PrismaAuditLogRepository } from '@/lib/db/audit-log-repository';
-import { isOperationalPolicyImportObservationEnabled } from '@/lib/rule-engine/flag';
+import { isOperationalPolicyImportObservationEnabled, getEngineMode } from '@/lib/rule-engine/flag';
+import type { EngineMode } from '@/lib/rule-engine/flag';
+import { buildDivergenceEvent } from '@/lib/rule-engine/events';
+import type { V2EngineResult, PrecedenceEngineResult, RuleEngineDivergenceEvent } from '@/lib/rule-engine/events';
+import { runRuleEngineV2Shadow } from '@/lib/services/rule-engine-adapter';
+import type { PrismaBankRule } from '@/lib/services/rule-engine-adapter';
 import { evaluateOperationalPolicy } from '@/lib/operational-policy/policy-service';
 import { IMPORT_OBSERVATION_CONFIG } from '@/lib/operational-policy/import-observation-config';
 import type { PolicyObservationResponse, OperationalPolicyDecision } from '@/lib/operational-policy/types';
@@ -49,6 +54,61 @@ export interface ImportResult {
   newAccountCreated: boolean;
   bankAccountName: string;
   policyObservation?: PolicyObservationResponse;
+}
+
+interface BuildV2ShadowDivergenceEventParams {
+  transactionId: string;
+  companyId: string;
+  productiveMode: EngineMode;
+  productiveMatchedRuleId: string | null;
+  v2Txn: {
+    id: string;
+    date: Date;
+    description: string;
+    amount: number;
+    bankAccountId: string;
+    reference?: string;
+  };
+  bankRules: PrismaBankRule[];
+  precedenceResult: PrecedenceEngineResult;
+}
+
+function buildV2ShadowDivergenceEvent(params: BuildV2ShadowDivergenceEventParams): RuleEngineDivergenceEvent | null {
+  const { transactionId, companyId, productiveMode, productiveMatchedRuleId } = params;
+
+  let v2Result: V2EngineResult;
+  if (productiveMode === 'v2') {
+    // V2 is productive: reuse the real productive result — no second execution.
+    v2Result = {
+      outcome: productiveMatchedRuleId ? 'matched' : 'pending',
+      matchedRuleId: productiveMatchedRuleId ?? undefined,
+    };
+  } else {
+    try {
+      const match = runRuleEngineV2Shadow(
+        params.v2Txn,
+        params.bankRules,
+        { status: 'not_run' },
+        companyId,
+      );
+      if (match.outcome === 'matched') {
+        v2Result = { outcome: 'matched', matchedRuleId: match.matchedRuleId };
+      } else if (match.outcome === 'pending') {
+        v2Result = { outcome: 'pending', errorCode: match.errorCode };
+      } else {
+        v2Result = { outcome: 'pending' };
+      }
+    } catch (error) {
+      logger.error('[RULE ENGINE V2 SHADOW ERROR]', {
+        error: String(error),
+        companyId,
+        transactionId,
+      });
+      v2Result = { outcome: 'pending', errorCode: 'v2_shadow_evaluation_error' };
+    }
+  }
+
+  return buildDivergenceEvent(transactionId, companyId, v2Result, params.precedenceResult);
 }
 
 export class ImportService {
@@ -503,6 +563,32 @@ export class ImportService {
             { companyId, transactionId: uniqueHashes[idx] },
           );
           shadowSummary = accumulateShadowSummary(shadowSummary, execResult);
+
+          if (execResult.ok) {
+            const divergenceEvent = buildV2ShadowDivergenceEvent({
+              transactionId: uniqueHashes[idx]!,
+              companyId,
+              productiveMode: getEngineMode(),
+              productiveMatchedRuleId: matchedRuleId,
+              v2Txn: {
+                id: uniqueHashes[idx]!,
+                date: txn.date,
+                description: txn.description,
+                amount: txn.amount,
+                bankAccountId,
+                reference: txn.reference,
+              },
+              bankRules: bankRules as PrismaBankRule[],
+              precedenceResult: {
+                reason: execResult.comparison.canonicalReason,
+                winnerRuleId: execResult.comparison.canonicalWinnerId,
+                ambiguous: execResult.comparison.canonicalAmbiguous,
+              },
+            });
+            if (divergenceEvent) {
+              logger.warn('[RULE ENGINE V2 DIVERGENCE]', { event: divergenceEvent });
+            }
+          }
         }
 
         transactionsToInsert.push({

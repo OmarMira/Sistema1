@@ -70,8 +70,9 @@ Hechos de comportamiento (frontera del fixture):
 - **Precedence falla SILENCIOSO:** regex inválida o tipo de condición desconocido → condición con
   `match:false`, sin excepción (`rule-precedence-engine.ts:56-61`).
 - **Semántica de monto:** Legacy y Precedence comparan magnitud (`Math.abs` en ambos lados:
-  `rule-matching-engine.ts:53-70`, `rule-precedence-compat.ts:60-79`); V2 compara signed
-  (`conditions/amount.ts:11-56`).
+  `rule-matching-engine.ts:53-70`, `rule-precedence-compat.ts:60-79`); V2 comparaba signed
+  (`conditions/amount.ts:11-56`) — **contrato unificado por magnitud en BRE-006**, post-implementación los
+  tres motores comparan `Math.abs`.
 - **Wildcard `*`: solo Legacy** lo trata como "cualquier descripción no vacía"
   (`rule-matching-engine.ts:49`); Precedence y V2 lo tratan literalmente.
 - **Ranking:** Legacy ordena `rolePriority → dbPriority` (`rule-matching-engine.ts:309-314`);
@@ -97,7 +98,7 @@ es 100 % sintético.
 | R-DIR | credit | `description_contains` (valor sintético) | 10 | Control de dirección (BRE-007) |
 | R-AMT1 | debit | `amount_greater_than` 100 | 10 | Monto, cruce de signo |
 | R-AMT1C | credit | `amount_greater_than` 100 | 10 | Equivalente credit de R-AMT1, SOLO para el control M-control |
-| R-AMT2 | (sin dirección) | `amount_equals` 150 | 10 | Monto, igualdad con cruce de signo |
+| R-AMT2 | (sin dirección) | `equals` 150 | 10 | Monto, igualdad con cruce de signo |
 | R-WLD | (sin dirección) | `description_contains` con `conditionValue '*'` | 10 | Wildcard legacy-only |
 | R-A | (sin dirección) | `description_contains` "mercado" + `description_contains` "pago" | 10 | Ranking: dos condiciones contiene |
 | R-B | (sin dirección) | `description_starts_with` "mercado" | 10 | Ranking: una condición starts_with |
@@ -136,9 +137,9 @@ usan solo dentro de `tests/measure-rule-parity.test.ts`; el reporte JSON y la co
 | 2 | C-neg | control | R-CTRL | "sin coincidencia", -100 | sin match | NO_MATCH | pending | ninguna | L-vs-P `BOTH_NO_MATCH` + V-vs-P `SAME` |
 | 3 | D-pos | dirección | R-DIR | "pago de servicio", +200 | WINNER | WINNER | matched | ninguna | L-vs-P `SAME_WINNER` + V-vs-P `SAME` |
 | 4 | D-neg | dirección | R-DIR | "pago de servicio", -200 | sin match | NO_MATCH | pending | ninguna | L-vs-P `BOTH_NO_MATCH` + V-vs-P `SAME` |
-| 5 | M-1 | monto | R-AMT1 | "compra", -200 | WINNER | WINNER | pending | `V2_NO_MATCH_PRECEDENCE_MATCH` | divergencia observada en V-vs-P + acuerdo en L-vs-P |
+| 5 | M-1 | monto | R-AMT1 | "compra", -200 | WINNER | WINNER | matched | ninguna | L-vs-P `SAME_WINNER` + V-vs-P `SAME` |
 | 6 | M-2 | monto | R-AMT1 | "compra", -50 | sin match | NO_MATCH | pending | ninguna | L-vs-P `BOTH_NO_MATCH` + V-vs-P `SAME` |
-| 7 | M-3 | monto | R-AMT2 | "compra", -150 | WINNER | WINNER | pending | `V2_NO_MATCH_PRECEDENCE_MATCH` | divergencia observada en V-vs-P |
+| 7 | M-3 | monto | R-AMT2 | "compra", -150 | WINNER | WINNER | matched | ninguna | L-vs-P `SAME_WINNER` + V-vs-P `SAME` |
 | 8 | M-control | monto | R-AMT1C (credit) | "compra", +200 | WINNER | WINNER | matched | ninguna | L-vs-P `SAME_WINNER` + V-vs-P `SAME` |
 | 9 | W-1 | wildcard | R-WLD | "cualquier cosa", -100 | WINNER | NO_MATCH | pending | `PRODUCTIVE_MATCH_CANONICAL_NO_MATCH` (solo L-vs-P) | L-vs-P señal de wildcard; V-vs-P `SAME` |
 | 10 | R-1 | ranking | R-A + R-B (orden fijo `[R-A, R-B]`) | "mercado pago sa", -100 | WINNER (R-A por orden estable) | WINNER (R-A por specificity) | matched (R-B por tier) | `DIFFERENT_WINNER` (V-vs-P) | divergencia observada en V-vs-P; L-vs-P `SAME_WINNER` |
@@ -150,14 +151,14 @@ usan solo dentro de `tests/measure-rule-parity.test.ts`; el reporte JSON y la co
 **Caso 5 (M-1), monto con cruce de signo:** R-AMT1 es debit + `amount_greater_than 100`.
 - Legacy: `Math.abs(-200) > Math.abs(100)` → true → WINNER.
 - Precedence: `Math.abs(-200) > Math.abs(100)` → true → WINNER.
-- V2: `-200 > 100` → false (signed) → pending sin errorCode.
-- Señal V-vs-P: `V2_NO_MATCH_PRECEDENCE_MATCH` (`events.ts:40-42`). L-vs-P: `SAME_WINNER`.
+- V2 (post-BRE-006): `Math.abs(-200) > Math.abs(100)` → true (magnitud) → matched.
+- Señal V-vs-P: `SAME` (`events.ts:50-52`). L-vs-P: `SAME_WINNER`.
 
-**Caso 7 (M-3), igualdad con cruce de signo:** R-AMT2 sin dirección + `amount_equals 150`.
+**Caso 7 (M-3), igualdad con cruce de signo:** R-AMT2 sin dirección + `equals 150`.
 - Legacy: `Math.abs(-150) === Math.abs(150)` → true → WINNER.
 - Precedence: idem → WINNER.
-- V2: `-150 === 150` → false (signed) → pending.
-- Señal V-vs-P: `V2_NO_MATCH_PRECEDENCE_MATCH`.
+- V2 (post-BRE-006): `Math.abs(-150) === Math.abs(150)` → true (magnitud) → matched.
+- Señal V-vs-P: `SAME`.
 
 **Caso 8 (M-control), control de monto positivo:** R-AMT1C es **credit** + `amount_greater_than 100`.
 - ¿Por qué credit y no debit? El control exige que los tres motores *matcheen* en rango positivo (`+200`).
@@ -166,7 +167,7 @@ usan solo dentro de `tests/measure-rule-parity.test.ts`; el reporte JSON y la co
   llega a la evaluación de monto.
 - Legacy: `Math.abs(200) > Math.abs(100)` → true → WINNER.
 - Precedence: `Math.abs(200) > Math.abs(100)` → true → WINNER.
-- V2: `200 > 100` → true (signed) → matched.
+- V2 (post-BRE-006): `Math.abs(200) > Math.abs(100)` → true (magnitud) → matched.
 - Este caso demuestra que el harness no está sesgado a divergir: tres motores en acuerdo sobre un monto
   en rango con signo positivo.
 
@@ -307,19 +308,19 @@ se reportan en `recall_c` y `falsePositive_c` con su eje.
 | 2 | C-neg | pending | NO_MATCH | `SAME` | ✔ acuerdo |
 | 3 | D-pos | matched | WINNER | `SAME` | ✔ acuerdo |
 | 4 | D-neg | pending | NO_MATCH | `SAME` | ✔ acuerdo |
-| 5 | M-1 | pending | WINNER | `V2_NO_MATCH_PRECEDENCE_MATCH` | ✘ divergencia |
+| 5 | M-1 | matched | WINNER | `SAME` | ✔ acuerdo |
 | 6 | M-2 | pending | NO_MATCH | `SAME` | ✔ acuerdo |
-| 7 | M-3 | pending | WINNER | `V2_NO_MATCH_PRECEDENCE_MATCH` | ✘ divergencia |
+| 7 | M-3 | matched | WINNER | `SAME` | ✔ acuerdo |
 | 8 | M-control | matched | WINNER | `SAME` | ✔ acuerdo |
 | 9 | W-1 | pending | NO_MATCH | `SAME` | ✔ acuerdo |
 | 10 | R-1 | matched (R-B) | WINNER (R-A) | `DIFFERENT_WINNER` | ✘ divergencia |
 | 11 | R-2 | matched (R-B) | WINNER (R-B) | `SAME` | ✔ acuerdo |
 | 12 | X-1 | pending (`engine_execution_error`) | NO_MATCH | `V2_ERROR` | ✘ error |
 
-- `v2PrecedenceAgree` = **8** (C-pos, C-neg, D-pos, D-neg, M-2, M-control, W-1, R-2)
-- `v2DivergenceCount` = **3** (M-1, M-3 → `V2_NO_MATCH_PRECEDENCE_MATCH`; R-1 → `DIFFERENT_WINNER`)
+- `v2PrecedenceAgree` = **10** (C-pos, C-neg, D-pos, D-neg, M-1, M-2, M-3, M-control, W-1, R-2)
+- `v2DivergenceCount` = **1** (R-1 → `DIFFERENT_WINNER`)
 - `v2ErrorCount` = **1** (X-1 → `V2_ERROR`; no se suma a la divergencia)
-- `v2PrecedenceAgreementRate` = **8/12**
+- `v2PrecedenceAgreementRate` = **10/12**
 - `v2ErrorRate` = **1/12**
 - `precedenceErrorRate` = **0** (hecho medido, no señal)
 
@@ -331,9 +332,9 @@ se reportan en `recall_c` y `falsePositive_c` con su eje.
 
 W-1 es divergente en el eje A (Legacy wildcard `*` vs Precedence literal) pero acuerda en el eje B
 (V2 y Precedence tratan `'*'` literalmente). Por eso `legacyPrecedenceAgreementRate = 11/12` y
-`v2PrecedenceAgreementRate = 8/12` miden **ejes distintos**: la suma 11 + 8 no tiene significado.
+`v2PrecedenceAgreementRate = 10/12` miden **ejes distintos**: la suma 11 + 10 no tiene significado.
 
-Sanidad contable: en el eje B, `8 acuerdos + 3 divergencias + 1 error = 12`. En el eje A,
+Sanidad contable: en el eje B, `10 acuerdos + 1 divergencia + 1 error = 12`. En el eje A,
 `11 acuerdos + 1 divergencia = 12`. Ambos totalizan 12 sin solapamiento ni doble conteo.
 
 `recall_c = 1` y `falsePositive_c = 0` en las 6 categorías y en ambos ejes (recall para
@@ -341,7 +342,16 @@ control/direccion es 0/0 → 1, ya que no tienen divergencia diseñada).
 
 **Nota de cálculo:** todas las cifras derivan de las dos matrices de 12 filas de esta sección. Si el
 fixture cambia, estas métricas deben recalcularse desde cero; no son constantes independientes de la
-matriz.
+matriz. Tras BRE-006 (contrato de monto por magnitud, M-1/M-3 → `SAME`), el `fixtureVersion` se
+recalcula de `fnv1a-4c99a7c8380b` a **`fnv1a-2c2a9680ae63`** (hash real del run post-implementación).
+
+**Historial de estado (pre-BRE-006):** antes del contrato de monto por magnitud, el eje B medía
+`v2PrecedenceAgree = 8`, `v2DivergenceCount = 3` (M-1, M-3 → `V2_NO_MATCH_PRECEDENCE_MATCH`; R-1 →
+`DIFFERENT_WINNER`) y `v2PrecedenceAgreementRate = 8/12`, con `fixtureVersion fnv1a-4c99a7c8380b`. Ese
+estado disparó el gatillo formal de BRE-006 (sección homónima) y sus señales esperadas quedaron
+registradas en el DoD de esta especificación. Tras BRE-006, el eje B pasó a `10/12` con divergencia
+solo en R-1; las matrices y métricas de esta sección reflejan el estado **posterior**. El estado previo
+completo (filas M-1/M-3 con `pending` + señal) es recuperable en el historial git del spec.
 
 ---
 
@@ -499,7 +509,8 @@ test.
 2. ✅ BRE-007 (dirección como concepto de primer orden en V2)
 3. ✅ BRE-008 (paridad de normalización de texto de descripción)
 4. 🔄 **BRE-009 (este work item):** protocolo reproducible de medición de conformance
-5. 🔜 **BRE-006:** decidir el contrato de monto (signed vs magnitud) con la evidencia de M-1/M-3
+5. ✅ **BRE-006 (resuelto):** contrato de monto por magnitud, decidido con la evidencia de M-1/M-3 de este
+   protocolo e implementado en `conditions/amount.ts`; esta especificación refleja el estado post-BRE-006.
 
 BRE-009 no modifica ningún motor: construye la red de medición reproducible que reemplaza las auditorías
 read-only de datos locales como fuente de evidencia.

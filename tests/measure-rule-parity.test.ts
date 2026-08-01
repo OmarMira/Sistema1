@@ -31,6 +31,15 @@ import {
 } from '@/lib/rule-engine/events';
 import type { EntityResolution } from '@/lib/rule-engine/types';
 import type { RuleCondition as SharedRuleCondition } from '@/lib/types/shared';
+import { evaluateRulesPure } from '@/lib/rule-engine';
+import type {
+  RuleInput,
+  Transaction,
+  BankRule,
+  RuleCondition,
+  RuleEngineExecution,
+  TraceEvent,
+} from '@/lib/rule-engine';
 
 const COMPANY_ID = 'company-bre-009';
 const SYNTHETIC_GL = 'gl-synthetic-001';
@@ -185,7 +194,7 @@ const VECTORS: VectorDef[] = [
     description: 'compra',
     amount: -200,
     expectedAxisA: 'SAME_WINNER',
-    expectedAxisB: 'V2_NO_MATCH_PRECEDENCE_MATCH',
+    expectedAxisB: 'SAME',
   },
   {
     caseId: 'M-2',
@@ -203,7 +212,7 @@ const VECTORS: VectorDef[] = [
     description: 'compra',
     amount: -150,
     expectedAxisA: 'SAME_WINNER',
-    expectedAxisB: 'V2_NO_MATCH_PRECEDENCE_MATCH',
+    expectedAxisB: 'SAME',
   },
   {
     caseId: 'M-control',
@@ -870,18 +879,18 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     expect(m.legacyPrecedenceAgreementRate).toBeCloseTo(11 / 12, 10);
   });
 
-  it('axis B metrics match the spec: 8 agreements / 3 divergences / 1 error / rate 8/12', () => {
+  it('axis B metrics match the spec: 10 agreements / 1 divergence / 1 error / rate 10/12', () => {
     const m = protocol.metrics;
     expect(m.v2PrecedenceTotal).toBe(12);
-    expect(m.v2PrecedenceAgree).toBe(8);
-    expect(m.v2DivergenceCount).toBe(3);
+    expect(m.v2PrecedenceAgree).toBe(10);
+    expect(m.v2DivergenceCount).toBe(1);
     expect(m.v2ErrorCount).toBe(1);
-    expect(m.v2PrecedenceAgreementRate).toBeCloseTo(8 / 12, 10);
+    expect(m.v2PrecedenceAgreementRate).toBeCloseTo(10 / 12, 10);
     expect(m.v2ErrorRate).toBeCloseTo(1 / 12, 10);
     expect(m.precedenceErrorRate).toBe(0);
   });
 
-  it('accounting sanity per axis: A 11+1=12, B 8+3+1=12, no double counting', () => {
+  it('accounting sanity per axis: A 11+1=12, B 10+1+1=12, no double counting', () => {
     const m = protocol.metrics;
     expect(m.legacyPrecedenceAgree + m.legacyPrecedenceDivergence).toBe(12);
     expect(m.v2PrecedenceAgree + m.v2DivergenceCount + m.v2ErrorCount).toBe(12);
@@ -964,7 +973,7 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     expect(report.axisB).toHaveLength(12);
     expect(report.categories).toHaveLength(6);
     expect(report.metrics.legacyPrecedenceAgreementRate).toBeCloseTo(11 / 12, 10);
-    expect(report.metrics.v2PrecedenceAgreementRate).toBeCloseTo(8 / 12, 10);
+    expect(report.metrics.v2PrecedenceAgreementRate).toBeCloseTo(10 / 12, 10);
     expect(report.metrics.v2ErrorRate).toBeCloseTo(1 / 12, 10);
     expect(report.metrics.precedenceErrorRate).toBe(0);
     expect(report.fixtureVersion).toMatch(/^fnv1a-/);
@@ -986,5 +995,168 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     }
     expect(reportText).not.toContain(SYNTHETIC_GL);
     expect(reportText).not.toContain(COMPANY_ID);
+  });
+});
+
+type ContractOperator = 'amount_gt' | 'amount_gte' | 'amount_lt' | 'amount_lte' | 'amount_eq' | 'amount_range';
+
+interface ContractCase {
+  caseId: string;
+  operator: ContractOperator;
+  value: number;
+  range?: [number, number];
+  amount: number;
+  direction: 'debit' | 'credit' | 'any';
+  expected: boolean;
+  invariant: boolean;
+}
+
+const CONTRACT_CASES: ContractCase[] = [
+  // amount_gt — value 100
+  { caseId: 'GT-1', operator: 'amount_gt', value: 100, amount: -200, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'GT-2', operator: 'amount_gt', value: 100, amount: -100, direction: 'debit', expected: false, invariant: false },
+  { caseId: 'GT-3', operator: 'amount_gt', value: 100, amount: 50, direction: 'credit', expected: false, invariant: false },
+  { caseId: 'GT-4', operator: 'amount_gt', value: 100, amount: -150, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'GT-5', operator: 'amount_gt', value: 100, amount: -200, direction: 'credit', expected: false, invariant: true },
+  // amount_gte — value 100
+  { caseId: 'GTE-1', operator: 'amount_gte', value: 100, amount: -200, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'GTE-2', operator: 'amount_gte', value: 100, amount: -100, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'GTE-3', operator: 'amount_gte', value: 100, amount: 50, direction: 'credit', expected: false, invariant: false },
+  { caseId: 'GTE-4', operator: 'amount_gte', value: 100, amount: -100, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'GTE-5', operator: 'amount_gte', value: 100, amount: -100, direction: 'credit', expected: false, invariant: true },
+  // amount_lt — value 200
+  { caseId: 'LT-1', operator: 'amount_lt', value: 200, amount: -150, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'LT-2', operator: 'amount_lt', value: 200, amount: -200, direction: 'debit', expected: false, invariant: false },
+  { caseId: 'LT-3', operator: 'amount_lt', value: 200, amount: 250, direction: 'credit', expected: false, invariant: false },
+  { caseId: 'LT-4', operator: 'amount_lt', value: 200, amount: -150, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'LT-5', operator: 'amount_lt', value: 200, amount: -150, direction: 'credit', expected: false, invariant: true },
+  // amount_lte — value 200
+  { caseId: 'LTE-1', operator: 'amount_lte', value: 200, amount: -150, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'LTE-2', operator: 'amount_lte', value: 200, amount: -200, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'LTE-3', operator: 'amount_lte', value: 200, amount: 250, direction: 'credit', expected: false, invariant: false },
+  { caseId: 'LTE-4', operator: 'amount_lte', value: 200, amount: -200, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'LTE-5', operator: 'amount_lte', value: 200, amount: -200, direction: 'credit', expected: false, invariant: true },
+  // amount_eq — value 150
+  { caseId: 'EQ-1', operator: 'amount_eq', value: 150, amount: -150, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'EQ-2', operator: 'amount_eq', value: 150, amount: 150, direction: 'credit', expected: true, invariant: false },
+  { caseId: 'EQ-3', operator: 'amount_eq', value: 150, amount: -149, direction: 'any', expected: false, invariant: false },
+  { caseId: 'EQ-4', operator: 'amount_eq', value: 150, amount: -150, direction: 'any', expected: true, invariant: false },
+  { caseId: 'EQ-5', operator: 'amount_eq', value: 150, amount: -150, direction: 'credit', expected: false, invariant: true },
+  // amount_range — bounds [100,500] unless redefined
+  { caseId: 'RNG-1', operator: 'amount_range', value: 0, range: [100, 500], amount: 200, direction: 'any', expected: true, invariant: false },
+  { caseId: 'RNG-2', operator: 'amount_range', value: 0, range: [-500, -100], amount: -200, direction: 'any', expected: true, invariant: false },
+  { caseId: 'RNG-3', operator: 'amount_range', value: 0, range: [500, 100], amount: 200, direction: 'any', expected: true, invariant: false },
+  { caseId: 'RNG-4', operator: 'amount_range', value: 0, range: [150, 150], amount: -150, direction: 'any', expected: true, invariant: false },
+  { caseId: 'RNG-5', operator: 'amount_range', value: 0, range: [150, 150], amount: -149, direction: 'any', expected: false, invariant: false },
+  { caseId: 'RNG-6', operator: 'amount_range', value: 0, range: [100, 500], amount: 300, direction: 'any', expected: true, invariant: false },
+  { caseId: 'RNG-7', operator: 'amount_range', value: 0, range: [100, 500], amount: 600, direction: 'any', expected: false, invariant: false },
+  { caseId: 'RNG-8', operator: 'amount_range', value: 0, range: [100, 500], amount: 50, direction: 'any', expected: false, invariant: false },
+  { caseId: 'RNG-9', operator: 'amount_range', value: 0, range: [100, 500], amount: -200, direction: 'debit', expected: true, invariant: false },
+  { caseId: 'RNG-10', operator: 'amount_range', value: 0, range: [100, 500], amount: -200, direction: 'credit', expected: false, invariant: true },
+];
+
+function contractCondition(c: ContractCase): RuleCondition {
+  if (c.operator === 'amount_range') {
+    return { type: 'amount_range', value: 0, range: c.range };
+  }
+  return { type: c.operator, value: c.value };
+}
+
+function runContract(c: ContractCase): { execution: RuleEngineExecution; rule: BankRule } {
+  const rule: BankRule = {
+    id: c.caseId,
+    companyId: COMPANY_ID,
+    priority: 10,
+    conditions: [contractCondition(c)],
+    direction: c.direction,
+    action: { glAccountId: SYNTHETIC_GL },
+    isActive: true,
+    lifecycleStatus: 'active',
+  };
+  const tx: Transaction = {
+    id: `tx-${c.caseId}`,
+    date: FIXED_DATE,
+    description: 'contrato monto',
+    amount: c.amount,
+    bankAccountId: 'acc-synthetic',
+    companyId: COMPANY_ID,
+  };
+  const execution = evaluateRulesPure({
+    transaction: tx,
+    context: {
+      availableRules: [rule],
+      entityContexts: [],
+      historicalMatches: [],
+      entityResolution: NOT_RUN_RESOLUTION,
+    },
+  });
+  return { execution, rule };
+}
+
+function candidatesCollected(execution: RuleEngineExecution): number {
+  for (const e of execution.trace?.events ?? []) {
+    if (e.event === 'candidates_collected') return e.count;
+  }
+  return -1;
+}
+
+function amountConditionsEvaluated(execution: RuleEngineExecution): Extract<TraceEvent, { event: 'condition_evaluated' }>[] {
+  return (execution.trace?.events ?? []).filter(
+    (e): e is Extract<TraceEvent, { event: 'condition_evaluated' }> =>
+      e.event === 'condition_evaluated' && e.conditionType.startsWith('amount_'),
+  );
+}
+
+describe('BRE-006: amount semantics contract (magnitude)', () => {
+  const operatorGroups: Array<{ operator: ContractOperator; group: string }> = [
+    { operator: 'amount_gt', group: 'GT' },
+    { operator: 'amount_gte', group: 'GTE' },
+    { operator: 'amount_lt', group: 'LT' },
+    { operator: 'amount_lte', group: 'LTE' },
+    { operator: 'amount_eq', group: 'EQ' },
+    { operator: 'amount_range', group: 'RNG' },
+  ];
+
+  for (const { operator, group } of operatorGroups) {
+    it(`contract ${group}: magnitude semantics for ${operator}`, () => {
+      const cases = CONTRACT_CASES.filter((c) => c.operator === operator);
+      expect(cases.length).toBe(group === 'RNG' ? 10 : 5);
+      for (const c of cases) {
+        const { execution, rule } = runContract(c);
+        const decision = execution.output.decision!;
+        if (c.expected) {
+          expect(decision.result, `${c.caseId}: expected match by magnitude`).toBe('winner');
+          expect(decision.ruleId, `${c.caseId}: expected winner rule`).toBe(rule.id);
+        } else {
+          expect(decision.result, `${c.caseId}: expected no match`).toBe('no_match');
+        }
+        if (c.invariant) {
+          expect(candidatesCollected(execution), `${c.caseId}: direction pre-filter discards before amount`).toBe(0);
+        } else {
+          expect(candidatesCollected(execution), `${c.caseId}: direction-compatible rule reaches amount evaluation`).toBe(1);
+        }
+      }
+    });
+  }
+
+  it('contract invariants: contrary direction is discarded by the pre-filter BEFORE amount evaluation (GT-5, GTE-5, LT-5, LTE-5, EQ-5, RNG-10)', () => {
+    const invariantCases = CONTRACT_CASES.filter((c) => c.invariant);
+    expect(invariantCases.map((c) => c.caseId)).toEqual(['GT-5', 'GTE-5', 'LT-5', 'LTE-5', 'EQ-5', 'RNG-10']);
+
+    for (const c of invariantCases) {
+      const { execution } = runContract(c);
+      const events = execution.trace?.events ?? [];
+      const decision = execution.output.decision!;
+
+      expect(decision.result, `${c.caseId}: contrary direction yields no match`).toBe('no_match');
+
+      const collected = events.filter((e) => e.event === 'candidates_collected');
+      expect(collected, `${c.caseId}: candidates_collected trace event exists`).toHaveLength(1);
+      expect(candidatesCollected(execution), `${c.caseId}: zero candidates after direction pre-filter`).toBe(0);
+
+      const evaluated = events.filter((e) => e.event === 'condition_evaluated');
+      expect(evaluated, `${c.caseId}: zero conditions evaluated (discard precedes conditions/amount.ts)`).toHaveLength(0);
+      expect(amountConditionsEvaluated(execution), `${c.caseId}: zero amount_* conditions evaluated`).toHaveLength(0);
+    }
   });
 });

@@ -10,49 +10,51 @@ function toNumber(value: string | number, conditionType: string): number {
 
 export function evaluateAmountGt(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
   const value = toNumber(condition.value, condition.type);
-  const match = transaction.amount > value;
-  return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} > ${value}: ${match}` };
+  const match = Math.abs(transaction.amount) > Math.abs(value);
+  return { type: condition.type, score: match ? 1 : 0, match, detail: `|amount| ${Math.abs(transaction.amount)} > |value| ${Math.abs(value)}: ${match}` };
 }
 
 export function evaluateAmountGte(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
   const value = toNumber(condition.value, condition.type);
-  const match = transaction.amount >= value;
-  return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} >= ${value}: ${match}` };
+  const match = Math.abs(transaction.amount) >= Math.abs(value);
+  return { type: condition.type, score: match ? 1 : 0, match, detail: `|amount| ${Math.abs(transaction.amount)} >= |value| ${Math.abs(value)}: ${match}` };
 }
 
 export function evaluateAmountLt(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
   const value = toNumber(condition.value, condition.type);
-  const match = transaction.amount < value;
-  return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} < ${value}: ${match}` };
+  const match = Math.abs(transaction.amount) < Math.abs(value);
+  return { type: condition.type, score: match ? 1 : 0, match, detail: `|amount| ${Math.abs(transaction.amount)} < |value| ${Math.abs(value)}: ${match}` };
 }
 
 export function evaluateAmountLte(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
   const value = toNumber(condition.value, condition.type);
-  const match = transaction.amount <= value;
-  return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} <= ${value}: ${match}` };
+  const match = Math.abs(transaction.amount) <= Math.abs(value);
+  return { type: condition.type, score: match ? 1 : 0, match, detail: `|amount| ${Math.abs(transaction.amount)} <= |value| ${Math.abs(value)}: ${match}` };
 }
 
 export function evaluateAmountEq(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
   const value = toNumber(condition.value, condition.type);
-  const match = transaction.amount === value;
-  return { type: condition.type, score: match ? 1 : 0, match, detail: `amount ${transaction.amount} === ${value}: ${match}` };
+  const match = Math.abs(transaction.amount) === Math.abs(value);
+  return { type: condition.type, score: match ? 1 : 0, match, detail: `|amount| ${Math.abs(transaction.amount)} === |value| ${Math.abs(value)}: ${match}` };
 }
 
 export function evaluateAmountRange(condition: RuleCondition, transaction: Transaction): EvaluatedCondition {
   if (!condition.range) {
     return { type: condition.type, score: 0, match: false, detail: 'No range defined' };
   }
-  const [min, max] = condition.range;
-  const amount = transaction.amount;
+  const [boundA, boundB] = condition.range;
+  const min = Math.min(Math.abs(boundA), Math.abs(boundB));
+  const max = Math.max(Math.abs(boundA), Math.abs(boundB));
+  const amount = Math.abs(transaction.amount);
 
   if (min === max) {
     const match = amount === min;
-    return { type: condition.type, score: match ? 1 : 0, match, detail: `amount_range [${min},${max}] degenerate, amount ${amount} === ${min}: ${match}` };
+    return { type: condition.type, score: match ? 1 : 0, match, detail: `amount_range [${min},${max}] degenerate, |amount| ${amount} === ${min}: ${match}` };
   }
 
   const match = amount >= min && amount <= max;
   const score = match ? 1 - Math.abs(amount - (min + max) / 2) / ((max - min) / 2) : 0;
-  return { type: condition.type, score, match, detail: `amount ${amount} in [${min},${max}]: ${match}` };
+  return { type: condition.type, score, match, detail: `|amount| ${amount} in [${min},${max}]: ${match}` };
 }
 
 export const amountEvaluators = {

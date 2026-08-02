@@ -702,4 +702,43 @@ describe('rulePrecedenceEngine', () => {
     expect(result.winner?.ruleId).toBe('credit-rule');
     expect(result.winner?.confidenceLabel).toBeDefined();
   });
+
+  // ── BRE-011 wildcard inheritance via the shared V2 dispatcher ─────
+
+  it('inherits the wildcard guard: description_eq("*") matches any non-empty description', () => {
+    const tx: RulePrecedenceTransaction = { description: 'APPLE.COM BILLING', amount: 150, date: DEFAULT_DATE };
+    const rules = [rule({ id: 'wild-eq', conditions: [{ type: 'description_eq', value: '*' }] })];
+
+    const result = evaluateTransactionAgainstRules(tx, rules);
+
+    expect(result.reason).toBe('WINNER');
+    expect(result.winner?.ruleId).toBe('wild-eq');
+  });
+
+  it('inherits the empty-value guard: description_eq("*") does not match an empty description', () => {
+    const tx: RulePrecedenceTransaction = { description: '', amount: 150, date: DEFAULT_DATE };
+    const rules = [rule({ id: 'wild-eq', conditions: [{ type: 'description_eq', value: '*' }] })];
+
+    const result = evaluateTransactionAgainstRules(tx, rules);
+
+    expect(result.reason).toBe('NO_MATCH');
+  });
+
+  it('routes amount "*" to explicit no-match (never coerces to NaN)', () => {
+    const tx: RulePrecedenceTransaction = { description: 'TX', amount: 100, date: DEFAULT_DATE };
+    const rules = [rule({ id: 'wild-amount', conditions: [{ type: 'amount_gt', value: '*' }] })];
+
+    const result = evaluateTransactionAgainstRules(tx, rules);
+
+    expect(result.reason).toBe('NO_MATCH');
+  });
+
+  it('routes description_matches("*") to explicit no-match (never throws InvalidRegex)', () => {
+    const tx: RulePrecedenceTransaction = { description: 'TX', amount: 100, date: DEFAULT_DATE };
+    const rules = [rule({ id: 'wild-regex', conditions: [{ type: 'description_matches', value: '*' }] })];
+
+    const result = evaluateTransactionAgainstRules(tx, rules);
+
+    expect(result.reason).toBe('NO_MATCH');
+  });
 });

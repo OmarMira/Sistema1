@@ -9,11 +9,11 @@ phases:
   spec: done
   design: done
   tasks: done
-  apply: pending
-  verify: pending
-  archive: pending
+  apply: done
+  verify: done
+  archive: done
 
-next_recommended: sdd-apply (no blockers — both Open Questions RESOLVED 2026-08-02)
+next_recommended: none (change closed)
 
 artifacts:
   explore: openspec/changes/bre-011-wildcard-semantics/01-explore.md

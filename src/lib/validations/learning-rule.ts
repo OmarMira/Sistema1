@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { wildcardExclusionError } from '@/lib/rule-engine/wildcard';
 
 export const conditionSchema = z.object({
   field: z.enum(['description', 'amount']),
@@ -33,4 +34,13 @@ export const createLearningRuleSchema = z
   })
   .refine((data) => data.pattern || (data.conditions && data.conditions.length > 0), {
     message: 'pattern or conditions are required',
+  })
+  .superRefine((data, ctx) => {
+    // BRE-011 Decision #1 — shared barrier (not UI-only): reject '*' on
+    // excluded operators (amount, regex) at rule write/import.
+    if (!data.conditions || data.conditions.length === 0) return;
+    const error = wildcardExclusionError(data.conditions);
+    if (error) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: error, path: ['conditions'] });
+    }
   });

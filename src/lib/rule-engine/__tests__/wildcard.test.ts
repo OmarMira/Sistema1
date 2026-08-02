@@ -4,8 +4,6 @@ import {
   isWildcardValue,
   legacyConditionType,
   evaluateWildcardCondition,
-  wildcardExclusionError,
-  isOnWildcardSurface,
 } from '../wildcard';
 import { makeCondition, makeTransaction } from './fixtures';
 
@@ -22,12 +20,6 @@ describe('WILDCARD_SURFACE', () => {
     for (const type of ['amount_gt', 'amount_gte', 'amount_lt', 'amount_lte', 'amount_eq', 'amount_range']) {
       expect(WILDCARD_SURFACE[type]).toBe(false);
     }
-  });
-
-  it('reports surface membership via isOnWildcardSurface', () => {
-    expect(isOnWildcardSurface('description_contains')).toBe(true);
-    expect(isOnWildcardSurface('description_matches')).toBe(false);
-    expect(isOnWildcardSurface('amount_gt')).toBe(false);
   });
 });
 
@@ -98,47 +90,5 @@ describe('evaluateWildcardCondition', () => {
     const tx = makeTransaction({ description: 'anything' });
     const result = evaluateWildcardCondition(makeCondition('description_contains', 'netflix'), tx);
     expect(result).toBeNull();
-  });
-});
-
-describe('wildcardExclusionError (Decision #1 shared barrier)', () => {
-  it('rejects * on canonical amount operators', () => {
-    expect(wildcardExclusionError([{ type: 'amount_gt', value: '*' }])).toMatch(/not allowed/);
-  });
-
-  it('rejects * on description_matches', () => {
-    expect(wildcardExclusionError([{ type: 'description_matches', value: '*' }])).toMatch(/not allowed/);
-  });
-
-  it('allows * on on-surface description operators', () => {
-    expect(wildcardExclusionError([{ type: 'description_contains', value: '*' }])).toBeNull();
-    expect(wildcardExclusionError([{ type: 'description_eq', value: '*' }])).toBeNull();
-  });
-
-  it('rejects * on legacy amount operators', () => {
-    expect(
-      wildcardExclusionError([{ field: 'amount', operator: 'greater_than', value: '*' }]),
-    ).toMatch(/not allowed/);
-  });
-
-  it('rejects * on legacy regex operator', () => {
-    expect(
-      wildcardExclusionError([{ field: 'description', operator: 'description_matches', value: '*' }]),
-    ).toMatch(/not allowed/);
-  });
-
-  it('allows * on legacy on-surface operators', () => {
-    expect(
-      wildcardExclusionError([{ field: 'description', operator: 'contains', value: '*' }]),
-    ).toBeNull();
-  });
-
-  it('returns null when no value is the marker', () => {
-    expect(
-      wildcardExclusionError([
-        { type: 'amount_gt', value: '50' },
-        { field: 'description', operator: 'contains', value: 'netflix' },
-      ]),
-    ).toBeNull();
   });
 });

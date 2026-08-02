@@ -289,8 +289,10 @@ export function collectRawAnalyses(rawRules) {
 export function buildScrubbedRules(rawRules, magnitudeRemap, dateRemap) {
   return rawRules.map((raw, i) => {
     const scrubbed = scrubRule(raw, { ruleIndex: i + 1, magnitudeRemap, dateRemap });
+    const ruleKind = raw.isTrap ? 'trap' : raw.isControl ? 'control' : 'real';
     return {
       ...scrubbed,
+      ruleKind,
       priority: raw.priority ?? 10,
       transactionDirection: raw.transactionDirection ?? 'any',
     };
@@ -305,6 +307,7 @@ export function fixtureRuleView(rule) {
     priority: rule.priority,
     transactionDirection: rule.transactionDirection,
     representationOrigin: rule.representationOrigin,
+    ruleKind: rule.ruleKind,
     conditions: rule.conditions,
     legacyView: rule.legacyView,
     v2View: rule.v2View,

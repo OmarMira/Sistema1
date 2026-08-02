@@ -34,6 +34,16 @@ const STRING_CANARY = 'BRE010_CANARY_STR_9f1c2d3e';
 const NUMERIC_CANARY = '424242.42';
 const DEAD_LABEL: DivergenceType = 'V2_PENDING_PRECEDENCE_MATCH';
 
+type RuleKind = 'real' | 'control' | 'trap';
+
+function isSyntheticRuleId(id: string): boolean {
+  return id.startsWith('ctrl-');
+}
+
+function isRealRule(r: { ruleKind?: RuleKind; id: string }): boolean {
+  return r.ruleKind === undefined ? !isSyntheticRuleId(r.id) : r.ruleKind === 'real';
+}
+
 type Direction = 'any' | 'debit' | 'credit';
 type Category = 'control' | 'direccion' | 'monto' | 'wildcard' | 'ranking' | 'regex';
 type RepresentationOrigin = 'json' | 'legacy' | 'both';
@@ -70,6 +80,7 @@ interface FixtureRule {
   priority: number;
   transactionDirection: Direction;
   representationOrigin: RepresentationOrigin;
+  ruleKind?: RuleKind;
   conditions: RuleCondition[];
   legacyView: LegacyView;
   v2View: V2View;
@@ -553,7 +564,9 @@ function computePerBre(f: Fixture, outcomes: MeasuredVector[]): PerBre {
       o.axisACode === 'PRODUCTIVE_MATCH_CANONICAL_NO_MATCH',
   ).length;
 
-  const multiConditionRuleCount = f.rules.filter((r) => r.conditions.length >= 2).length;
+  const multiConditionRuleCount = f.rules.filter(
+    (r) => isRealRule(r) && r.conditions.length >= 2,
+  ).length;
   const rankingVectorCount = outcomes.filter((o) => o.category === 'ranking').length;
   const axisBDifferentWinnerCount = outcomes.filter((o) => o.axisBCode === 'DIFFERENT_WINNER').length;
   const axisADifferentWinnerCount = outcomes.filter((o) => o.axisACode === 'DIFFERENT_WINNER').length;
@@ -1122,6 +1135,7 @@ describe('BRE-010: hermetic real-rule parity harness (Phase 2)', () => {
     expect(pb.bre011.wildcardRuleCount).toBe(fixture!.metadata.wildcardRuleCount);
     expect(pb.bre011.wildcardPrevalence).toBeGreaterThanOrEqual(0);
     expect(pb.bre011.wildcardPrevalence).toBeLessThanOrEqual(1);
+    expect(pb.bre012.multiConditionRuleCount).toBe(fixture!.metadata.multiConditionRuleCount);
     expect(pb.bre012.overlappingRuleCount).toBe(fixture!.metadata.overlappingRuleCount);
     expect(pb.bre012.priorityBandDistribution).toEqual(fixture!.metadata.priorityBandDistribution);
     expect(pb.bre013.regexRuleCount).toBe(fixture!.metadata.regexRuleCount);
@@ -1136,6 +1150,29 @@ describe('BRE-010: hermetic real-rule parity harness (Phase 2)', () => {
     expect(pb.bre013.normalizationFailureCount).toBe(
       pb.bre013.errorCodeDistribution.conditions_normalization_failed,
     );
+  });
+
+  it('multiConditionRuleCount excludes synthetic rules via ruleKind (§6.2 BRE-012)', () => {
+    const trap = fixture!.rules.filter((r) => r.ruleKind === 'trap');
+    const control = fixture!.rules.filter((r) => r.ruleKind === 'control');
+    const real = fixture!.rules.filter((r) => isRealRule(r));
+    expect(trap.length).toBeGreaterThan(0);
+    expect(control.length).toBeGreaterThan(0);
+    expect(real.length).toBeGreaterThan(0);
+
+    for (const r of trap) {
+      expect(r.conditions.length).toBeGreaterThanOrEqual(2);
+      expect(isRealRule(r)).toBe(false);
+    }
+    for (const r of control) {
+      expect(isRealRule(r)).toBe(false);
+    }
+
+    const realMulti = real.filter((r) => r.conditions.length >= 2).length;
+    const syntheticMulti = [...trap, ...control].filter((r) => r.conditions.length >= 2).length;
+    expect(realMulti).toBe(fixture!.metadata.multiConditionRuleCount);
+    expect(report!.perBre.bre012.multiConditionRuleCount).toBe(realMulti);
+    expect(syntheticMulti).toBeGreaterThan(0);
   });
 
   it('data-quality metadata (§6.3) mirrors the fixture and provenance stamps', () => {

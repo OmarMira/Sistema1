@@ -1,10 +1,26 @@
 import { evaluateRules, evaluateRulesPure } from '@/lib/rule-engine'
-import type { RuleInput, BankRule, RuleEngineExecution, EntityResolution } from '@/lib/rule-engine/types'
+import type { RuleInput, BankRule, RuleEngineExecution, EntityResolution, RuleCondition } from '@/lib/rule-engine/types'
 import { normalize, NormalizationError } from './conditions-normalizer'
 import type { MatchResult, ParsedTransaction, PrismaBankRule } from './types'
 
 function buildEngineRule(rule: PrismaBankRule): BankRule {
-  const conditions = normalize(rule.conditions)
+  let conditions: RuleCondition[];
+  try {
+    conditions = normalize(rule.conditions);
+  } catch {
+    // Decision #2 — legacy-column fallback: when `conditions` is not usable,
+    // normalize conditionType/conditionValue to the canonical model.
+    if (rule.conditionType && rule.conditionValue != null) {
+      const field =
+        rule.conditionType === 'amount_greater' || rule.conditionType === 'amount_less'
+          ? 'amount'
+          : 'description';
+      conditions = normalize([{ field, operator: rule.conditionType, value: rule.conditionValue }]);
+    } else {
+      // Fail closed: never mis-evaluate a rule with no usable representation.
+      throw new NormalizationError('No usable conditions or legacy columns');
+    }
+  }
   const direction = rule.transactionDirection === 'debit' || rule.transactionDirection === 'credit'
     ? rule.transactionDirection
     : undefined

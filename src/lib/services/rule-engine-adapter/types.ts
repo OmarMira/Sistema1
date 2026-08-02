@@ -25,6 +25,8 @@ export interface PrismaBankRule {
   companyId: string
   priority: number
   conditions: unknown
+  conditionType?: string | null
+  conditionValue?: string | number | null
   transactionDirection?: string | null
   glAccountId: string | null
   debitGlAccountId: string | null

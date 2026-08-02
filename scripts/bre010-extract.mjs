@@ -557,7 +557,7 @@ export function buildControlVectors(scrubbedRules, analyses) {
       description: `TX synthetique ${rankToken}`,
       amount: 0,
       expectedAxisA: 'SAME_WINNER',
-      expectedAxisB: 'SAME',
+      expectedAxisB: 'V2_NO_MATCH_PRECEDENCE_MATCH',
     });
   }
 

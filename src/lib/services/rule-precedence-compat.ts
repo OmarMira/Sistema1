@@ -2,6 +2,7 @@ import { normalize } from '@/lib/services/rule-engine-adapter/conditions-normali
 import type { RuleCondition, Transaction } from '@/lib/rule-engine/types';
 import type { RulePrecedenceRule } from './rule-precedence-engine';
 import { normalizeText } from '@/lib/rule-engine/conditions/normalize';
+import { isWildcardValue } from '@/lib/rule-engine/wildcard';
 
 export { normalizeText };
 
@@ -45,6 +46,12 @@ export function normalizeInputsForCompatibility(
   cond: RuleCondition,
   tx: Transaction,
 ): { cond: RuleCondition; tx: Transaction } {
+  // BRE-011: `*` is routed by the shared wildcard contract — leave it untouched
+  // so the dispatcher can short-circuit it before any evaluator coercion.
+  if (isWildcardValue(cond.value)) {
+    return { cond, tx };
+  }
+
   let finalCond = cond;
   let finalTx = tx;
 

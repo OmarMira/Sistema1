@@ -4,6 +4,12 @@ import { loadConfig, extractComponents } from '@/lib/services/entity-detector';
 import { getKnownSocioPatterns } from '@/lib/services/entity-classifier';
 import { db } from '@/lib/db';
 import { normalizeText } from '@/lib/rule-engine/conditions/normalize';
+import {
+  evaluateWildcardCondition,
+  isWildcardValue,
+  legacyConditionType,
+} from '@/lib/rule-engine/wildcard';
+import type { RuleConditionType } from '@/lib/rule-engine/types';
 import type { RuleCondition } from '@/lib/types/shared';
 
 export interface EntityContext {
@@ -45,8 +51,17 @@ function evaluateCondition(tx: Transaction, cond: RuleCondition): boolean {
   // Empty conditions after normalization never match (skip silently)
   if (!strCondVal) return false;
 
-  // Wildcard '*' matches any non-empty value
-  if (strCondVal === '*') return strTxVal.length > 0;
+  // Wildcard '*' via shared contract (BRE-011): on the bounded surface it
+  // matches any non-empty value; excluded operators (regex, amount) route to
+  // an explicit no-match instead of being evaluated literally.
+  if (isWildcardValue(cond.value)) {
+    const wildcardResult = evaluateWildcardCondition(
+      { type: legacyConditionType(field, operator) as RuleConditionType, value: cond.value },
+      { description: strTxVal },
+    );
+    if (wildcardResult !== null) return wildcardResult.match;
+    return false;
+  }
 
   switch (operator) {
     case 'equals':

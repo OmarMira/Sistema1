@@ -1,5 +1,5 @@
 import { normalizeText } from './conditions/normalize';
-import type { EvaluatedCondition, RuleCondition, RuleConditionType } from './types';
+import type { EvaluatedCondition, RuleCondition } from './types';
 
 /**
  * Wildcard surface — the set of condition types for which the literal `*`
@@ -19,15 +19,6 @@ export const WILDCARD_SURFACE: Readonly<Record<string, boolean>> = {
   amount_eq: false,
   amount_range: false,
 };
-
-const AMOUNT_LEGACY_OPERATORS = new Set([
-  'amount_greater',
-  'amount_less',
-  'greater_than',
-  'greaterThan',
-  'less_than',
-  'lessThan',
-]);
 
 /** True iff the normalized value is exactly the wildcard marker `*`. */
 export function isWildcardValue(value: unknown): boolean {
@@ -85,44 +76,4 @@ export function evaluateWildcardCondition(
     match,
     detail: `wildcard "*" matches any non-empty description: ${match}`,
   };
-}
-
-/** Accepted condition shapes: canonical (`type`/`value`) or legacy (`field`/`operator`/`value`). */
-export type WildcardConditionInput = {
-  field?: string;
-  operator?: string;
-  type?: string;
-  value: unknown;
-};
-
-function isExcludedWildcardOperator(cond: WildcardConditionInput): boolean {
-  const type = cond.type ?? legacyConditionType(cond.field, cond.operator);
-  if (type === 'description_matches') return true;
-  if (type.startsWith('amount_')) return true;
-  if (cond.field === 'amount') return true;
-  if (cond.operator !== undefined && AMOUNT_LEGACY_OPERATORS.has(cond.operator)) return true;
-  return false;
-}
-
-/**
- * Decision #1 — shared domain/API validation barrier for rule write and
- * import: `*` on amount operators or `description_matches` is rejected.
- * Returns the rejection message, or `null` when valid.
- */
-export function wildcardExclusionError(
-  conditions: readonly WildcardConditionInput[],
-): string | null {
-  for (const cond of conditions) {
-    if (!isWildcardValue(cond.value)) continue;
-    if (isExcludedWildcardOperator(cond)) {
-      const operator = cond.operator ?? cond.type ?? 'unknown';
-      return `The wildcard "*" is not allowed on operator "${operator}"`;
-    }
-  }
-  return null;
-}
-
-/** Canonical types that carry a wildcard value legally. */
-export function isOnWildcardSurface(type: RuleConditionType | string): boolean {
-  return WILDCARD_SURFACE[type] === true;
 }

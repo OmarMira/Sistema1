@@ -19,9 +19,11 @@ Antes de declarar una tarea o hito como "completado" o "done", el agente **debe*
 1. **Estado de Git:** `git status` limpio, sin cambios locales pendientes ni archivos temporales sueltos.
 2. **Pipeline de Verificación:** 
    - Compilación exitosa (`npx tsc --noEmit`)
-   - Linter sin errores (`npm run lint`)
+   - **Linter sin errores nuevos introducidos por el cambio.** Ejecutar `npm run lint` y reportar explícitamente cualquier error o advertencia preexistente fuera del alcance.
    - Suite de tests pasando al 100% (`npm test` o similar)
 3. **Persistencia Física:** Toda la evidencia o estado debe estar en el filesystem del repositorio, nunca únicamente en la memoria (Engram) del agente.
+
+   > **Procedencia explícita en fixtures de auditoría.** Todo artefacto sintético **debe** identificarse en el origen mediante un campo explícito (por ejemplo `ruleKind: "real" | "control" | "trap"`). Está prohibido inferir dicha procedencia en el consumidor después del scrubbing o la anonimización.
 
 ---
 
@@ -63,6 +65,11 @@ Los commits de documentación deben ser independientes de los commits de lógica
 ---
 
 ## Historial de Cambios
+
+### v1.1 (2026-08-01)
+- Refinada la regla del linter en §1.2: se reporta "sin errores nuevos introducidos por el cambio" y se declaran explícitamente los errores/advertencias preexistentes fuera del alcance, en lugar de afirmar un estado limpio del proyecto.
+- Agregada en §1.3 la regla de procedencia explícita en fixtures de auditoría (p. ej. `ruleKind: "real" | "control" | "trap"`), prohibiendo inferir sintéticos en el consumidor tras scrubbing.
+- Ambas reglas surgieron del cierre de BRE-010, donde la verificación detectó que el harness sobrecontaba reglas sintéticas porque el scrubber borraba su identidad y el consumidor intentaba reconstruirla.
 
 ### v1.0 (2026-07-30)
 - Creación del protocolo de cierre documental tras la finalización de la etapa de estabilización del Operation Controller.

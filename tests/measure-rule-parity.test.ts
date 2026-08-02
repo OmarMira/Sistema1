@@ -229,7 +229,7 @@ const VECTORS: VectorDef[] = [
     ruleIds: ['R-WLD'],
     description: 'cualquier cosa',
     amount: -100,
-    expectedAxisA: 'PRODUCTIVE_MATCH_CANONICAL_NO_MATCH',
+    expectedAxisA: 'SAME_WINNER',
     expectedAxisB: 'SAME',
   },
   {
@@ -871,12 +871,12 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     }
   });
 
-  it('axis A metrics match the spec: 11 agreements / 1 divergence / rate 11/12', () => {
+  it('axis A metrics match the spec: 12 agreements / 0 divergence / rate 12/12 (BRE-011 W-1 closed)', () => {
     const m = protocol.metrics;
     expect(m.legacyPrecedenceTotal).toBe(12);
-    expect(m.legacyPrecedenceAgree).toBe(11);
-    expect(m.legacyPrecedenceDivergence).toBe(1);
-    expect(m.legacyPrecedenceAgreementRate).toBeCloseTo(11 / 12, 10);
+    expect(m.legacyPrecedenceAgree).toBe(12);
+    expect(m.legacyPrecedenceDivergence).toBe(0);
+    expect(m.legacyPrecedenceAgreementRate).toBeCloseTo(12 / 12, 10);
   });
 
   it('axis B metrics match the spec: 10 agreements / 1 divergence / 1 error / rate 10/12', () => {
@@ -972,7 +972,7 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     expect(report.axisA).toHaveLength(12);
     expect(report.axisB).toHaveLength(12);
     expect(report.categories).toHaveLength(6);
-    expect(report.metrics.legacyPrecedenceAgreementRate).toBeCloseTo(11 / 12, 10);
+    expect(report.metrics.legacyPrecedenceAgreementRate).toBeCloseTo(12 / 12, 10);
     expect(report.metrics.v2PrecedenceAgreementRate).toBeCloseTo(10 / 12, 10);
     expect(report.metrics.v2ErrorRate).toBeCloseTo(1 / 12, 10);
     expect(report.metrics.precedenceErrorRate).toBe(0);

@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { validateDirectionProfile } from '@/lib/services/direction-validation';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
+import { wildcardExclusionError } from '@/lib/rule-engine/wildcard';
 
 const bankRuleEntityContextAuditSelect = {
   id: true,
@@ -239,6 +240,14 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
           value: conditionValue.trim(),
         },
       ];
+    }
+
+    // BRE-011 Decision #1 — reject '*' on excluded operators (amount, regex) at write time
+    const wildcardError = wildcardExclusionError(
+      (conditions ?? []) as { field?: string; operator?: string; type?: string; value: unknown }[],
+    );
+    if (wildcardError) {
+      return NextResponse.json({ error: wildcardError }, { status: 400 });
     }
 
     // Resolve direction

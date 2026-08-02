@@ -7,6 +7,7 @@ import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { validateDirectionProfile } from '@/lib/services/direction-validation';
 import { serverT } from '@/lib/server-i18n';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
+import { wildcardExclusionError } from '@/lib/rule-engine/wildcard';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 import {
@@ -191,6 +192,17 @@ export const PUT = apiHandler(async (request: NextRequest, context: RouteContext
         { status: 400 },
       );
     }
+  }
+
+  // BRE-011 Decision #1 — shared write/import barrier: reject '*' on excluded
+  // operators (amount, regex) on update too, mirroring the create path.
+  const wildcardError = wildcardExclusionError(
+    (conditions ?? [
+      { field: 'description', operator: conditionType, value: conditionValue },
+    ]) as { field?: string; operator?: string; type?: string; value: unknown }[],
+  );
+  if (wildcardError) {
+    return NextResponse.json({ error: wildcardError }, { status: 400 });
   }
 
   const glAccountIdsToCheck: string[] = [];

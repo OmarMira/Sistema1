@@ -1,0 +1,29 @@
+schema: spec-driven
+change: bre-011-wildcard-semantics
+project: Sistema1
+updated: 2026-08-02
+
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: pending
+  verify: pending
+  archive: pending
+
+next_recommended: sdd-apply (no blockers — both Open Questions RESOLVED 2026-08-02)
+
+artifacts:
+  explore: openspec/changes/bre-011-wildcard-semantics/01-explore.md
+  proposal: openspec/changes/bre-011-wildcard-semantics/02-proposal.md
+  spec_new: openspec/specs/rule-wildcard-semantics/spec.md
+  spec_delta: openspec/changes/bre-011-wildcard-semantics/specs/rule-engine-integration/spec.md
+  design: openspec/changes/bre-011-wildcard-semantics/design.md
+  tasks: openspec/changes/bre-011-wildcard-semantics/tasks.md
+
+decision: option-a-explicit-limited-wildcard
+resolved_decisions:
+  - no-match-vs-validation-failure — RESOLVED 2026-08-02 (Decision #1: runtime no-match + write/import rejection, shared domain/API layer)
+  - legacy-column-passthrough-canonicalization (case 4) — RESOLVED 2026-08-02 (Decision #2: conditions-first, fallback legacy → canonical, fail closed)

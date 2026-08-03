@@ -1,0 +1,33 @@
+schema: spec-driven
+change: bre-012-ranking-semantics
+project: Sistema1
+updated: 2026-08-03
+
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: done
+
+next_recommended: none (change closed)
+
+artifacts:
+  explore: openspec/changes/bre-012-ranking-semantics/01-explore.md
+  proposal: openspec/changes/bre-012-ranking-semantics/02-proposal.md
+  spec_delta: openspec/changes/bre-012-ranking-semantics/specs/rule-ranking-contract/spec.md
+  design: openspec/changes/bre-012-ranking-semantics/design.md
+  tasks: openspec/changes/bre-012-ranking-semantics/tasks.md
+  archive_report: openspec/changes/bre-012-ranking-semantics/archive-report.md
+
+decision: option-a-shared-canonical-comparator
+resolved_decisions:
+  - d1-legacy-shared-scoring — RESOLVED 2026-08-03 (evaluateWinningRule builds CanonicalCandidate from shared evaluateCondition/computeSpecificity/computeMatchQuality; no Legacy-specific scoring)
+  - d2-no-new-flag — RESOLVED 2026-08-03 (Legacy cutover gated behind existing RULE_ENGINE_V2_ENABLED; BANK_RULE_ENGINE not reused; flag.ts still 5 keys)
+  - open1-flag-for-legacy-cutover — RESOLVED 2026-08-03 (RULE_ENGINE_V2_ENABLED via isRuleEngineV2Enabled)
+  - open2-ruleid-lexical-order — RESOLVED 2026-08-03 (single shared localeCompare in canonical-ranking.ts)
+  - open3-ambiguous-mapping — RESOLVED 2026-08-03 (matchedRuleId=null / glAccountId=null like pending; wired in findMatchingRule, auto route, resolveApplyAllRule)
+  - direction-is-prefilter-not-ranking-key — RESOLVED 2026-08-03 (declared-direction-only differences are a full semantic tie → AMBIGUOUS)

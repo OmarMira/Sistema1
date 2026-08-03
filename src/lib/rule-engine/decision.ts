@@ -1,7 +1,19 @@
 import type { ScoredCandidate, Candidate, EngineDecision, DecisionReason, TraceEvent } from './types';
 import { attachTraceToError } from './trace';
+import { classifyCanonical, AMBIGUITY_DELTA_THRESHOLD } from './canonical-ranking';
+import type { CanonicalReason } from './canonical-ranking';
 
-export const AMBIGUITY_DELTA_THRESHOLD = 0.10;
+export { AMBIGUITY_DELTA_THRESHOLD };
+
+const REASON_MAP: Record<CanonicalReason, DecisionReason> = {
+  no_candidates: 'no_candidates',
+  single_candidate: 'single_candidate',
+  higher_specificity_tier: 'higher_specificity_tier',
+  higher_specificity_weight: 'higher_specificity_weight',
+  higher_priority: 'higher_priority',
+  delta_above_threshold: 'delta_above_threshold',
+  delta_below_threshold: 'delta_below_threshold',
+};
 
 export function classify(scored: ScoredCandidate[]): {
   winner?: ScoredCandidate;
@@ -10,34 +22,34 @@ export function classify(scored: ScoredCandidate[]): {
   reason: DecisionReason;
   delta?: number;
 } {
-  if (scored.length === 0) {
-    return { winner: undefined, isAmbiguous: false, explanation: 'No matching rules found', reason: 'no_candidates' };
-  }
-  if (scored.length === 1) {
-    return { winner: scored[0], isAmbiguous: false, explanation: 'Single candidate', reason: 'single_candidate' };
-  }
-
-  const top = scored[0];
-  const second = scored[1];
-
-  if (top.specificityScore.highestTier !== second.specificityScore.highestTier) {
-    return { winner: top, isAmbiguous: false, explanation: 'Top candidate wins by specificity tier', reason: 'higher_specificity_tier' };
-  }
-  if (top.specificityScore.weightWithinTier !== second.specificityScore.weightWithinTier) {
-    return { winner: top, isAmbiguous: false, explanation: 'Top candidate wins by specificity weight', reason: 'higher_specificity_weight' };
-  }
-
-  const delta = top.matchQuality - second.matchQuality;
-  if (delta + Number.EPSILON >= AMBIGUITY_DELTA_THRESHOLD) {
-    return { winner: top, isAmbiguous: false, explanation: `DELTA ${delta} exceeds threshold 0.10`, reason: 'delta_above_threshold', delta };
-  }
+  const decision = classifyCanonical(scored);
+  const explanation = explain(decision.reason, decision.delta);
   return {
-    winner: undefined,
-    isAmbiguous: true,
-    explanation: `DELTA ${delta} below threshold 0.10 — ambiguous`,
-    reason: 'delta_below_threshold',
-    delta,
+    winner: decision.winner as ScoredCandidate | undefined,
+    isAmbiguous: decision.ambiguous,
+    explanation,
+    reason: REASON_MAP[decision.reason],
+    ...(decision.delta !== undefined ? { delta: decision.delta } : {}),
   };
+}
+
+function explain(reason: CanonicalReason, delta?: number): string {
+  switch (reason) {
+    case 'no_candidates':
+      return 'No matching rules found';
+    case 'single_candidate':
+      return 'Single candidate';
+    case 'higher_specificity_tier':
+      return 'Top candidate wins by specificity tier';
+    case 'higher_specificity_weight':
+      return 'Top candidate wins by specificity weight';
+    case 'higher_priority':
+      return 'Top candidate wins by manual priority';
+    case 'delta_above_threshold':
+      return `DELTA ${delta} exceeds threshold 0.10`;
+    case 'delta_below_threshold':
+      return `DELTA ${delta} below threshold 0.10 — ambiguous`;
+  }
 }
 
 function extractClassification(scored: ScoredCandidate[]): {

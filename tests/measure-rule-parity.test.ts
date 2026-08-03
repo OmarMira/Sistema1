@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -239,7 +239,11 @@ const VECTORS: VectorDef[] = [
     description: 'mercado pago sa',
     amount: -100,
     expectedAxisA: 'SAME_WINNER',
-    expectedAxisB: 'DIFFERENT_WINNER',
+    // BRE-012 closure: R-1 was designed to show V2-vs-Precedence divergence
+    // (Precedence summed weights and picked R-A; V2 tier-first picked R-B).
+    // Precedence now adopts the shared canonical tier-first comparator, so both
+    // engines converge on R-B → axis B is SAME, not DIFFERENT_WINNER.
+    expectedAxisB: 'SAME',
   },
   {
     caseId: 'R-2',
@@ -338,7 +342,7 @@ function runLegacy(
     return { state: 'NO_MATCH', winnerId: null };
   }
   const winner = evaluateWinningRule(matching, tx, COMPANY_ID, {}, []);
-  return { state: 'WINNER', winnerId: winner.id };
+  return { state: 'WINNER', winnerId: winner?.id ?? null };
 }
 
 function runPrecedence(tx: RulePrecedenceTransaction, rules: RulePrecedenceRule[]) {
@@ -703,6 +707,10 @@ let tempDir: string | null = null;
 let tempFilePath: string | null = null;
 
 beforeAll(() => {
+  // BRE-012 (D2): the Legacy winner cutover is gated behind RULE_ENGINE_V2_ENABLED.
+  // This harness measures parity of the canonical comparator, so it runs with the
+  // flag ON (Legacy → canonical winner selection). No new flag is introduced.
+  vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
   protocol = runProtocol();
   const report = buildReportJson(protocol);
   validateReportJson(report);
@@ -713,6 +721,7 @@ beforeAll(() => {
 });
 
 afterAll(() => {
+  vi.unstubAllEnvs();
   if (tempDir !== null) {
     try {
       fs.rmSync(tempDir, { recursive: true, force: true });
@@ -879,13 +888,13 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     expect(m.legacyPrecedenceAgreementRate).toBeCloseTo(12 / 12, 10);
   });
 
-  it('axis B metrics match the spec: 10 agreements / 1 divergence / 1 error / rate 10/12', () => {
+  it('axis B metrics match the spec: 11 agreements / 0 divergence / 1 error / rate 11/12 (BRE-012 R-1 closed)', () => {
     const m = protocol.metrics;
     expect(m.v2PrecedenceTotal).toBe(12);
-    expect(m.v2PrecedenceAgree).toBe(10);
-    expect(m.v2DivergenceCount).toBe(1);
+    expect(m.v2PrecedenceAgree).toBe(11);
+    expect(m.v2DivergenceCount).toBe(0);
     expect(m.v2ErrorCount).toBe(1);
-    expect(m.v2PrecedenceAgreementRate).toBeCloseTo(10 / 12, 10);
+    expect(m.v2PrecedenceAgreementRate).toBeCloseTo(11 / 12, 10);
     expect(m.v2ErrorRate).toBeCloseTo(1 / 12, 10);
     expect(m.precedenceErrorRate).toBe(0);
   });
@@ -951,11 +960,14 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     }
   });
 
-  it('R-1: input order [R-A, R-B] is load-bearing for the Legacy engine', () => {
+  it('R-1: input order no longer decides the Legacy winner (BRE-012 canonical comparator)', () => {
+    // BRE-012: Legacy's input-order stable-sort tiebreak is removed and replaced
+    // by the shared canonical comparator. Tier-first selects R-B regardless of
+    // array order; the winner is reproducible and order-insensitive.
     const tx = { description: 'mercado pago sa', amount: -100 };
     const forward = [toLegacyRule(RULES['R-A']!), toLegacyRule(RULES['R-B']!)];
     const reversed = [toLegacyRule(RULES['R-B']!), toLegacyRule(RULES['R-A']!)];
-    expect(runLegacy(tx, forward).winnerId).toBe('R-A');
+    expect(runLegacy(tx, forward).winnerId).toBe('R-B');
     expect(runLegacy(tx, reversed).winnerId).toBe('R-B');
   });
 
@@ -973,7 +985,7 @@ describe('BRE-009: reproducible shadow measurement protocol', () => {
     expect(report.axisB).toHaveLength(12);
     expect(report.categories).toHaveLength(6);
     expect(report.metrics.legacyPrecedenceAgreementRate).toBeCloseTo(12 / 12, 10);
-    expect(report.metrics.v2PrecedenceAgreementRate).toBeCloseTo(10 / 12, 10);
+    expect(report.metrics.v2PrecedenceAgreementRate).toBeCloseTo(11 / 12, 10);
     expect(report.metrics.v2ErrorRate).toBeCloseTo(1 / 12, 10);
     expect(report.metrics.precedenceErrorRate).toBe(0);
     expect(report.fixtureVersion).toMatch(/^fnv1a-/);

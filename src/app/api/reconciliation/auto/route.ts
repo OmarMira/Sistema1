@@ -106,6 +106,9 @@ export const POST = apiHandler(async (request: NextRequest) => {
           rolePriorities,
           entityContexts,
         );
+        // BRE-012: canonical classifier may emit AMBIGUOUS (semantic tie) — no
+        // winner, the transaction is left unmatched (like V2's ambiguous path).
+        if (!winner) continue;
         matchedTxIds.add(t.id);
         matchMap.set(t.id, {
           ruleId: winner.id,

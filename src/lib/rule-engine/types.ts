@@ -126,6 +126,7 @@ export type DecisionReason =
   | 'single_candidate'
   | 'higher_specificity_tier'
   | 'higher_specificity_weight'
+  | 'higher_priority'
   | 'delta_above_threshold'
   | 'delta_below_threshold';
 

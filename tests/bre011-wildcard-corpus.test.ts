@@ -268,7 +268,7 @@ function measureCase(c: CorpusCase, companyId: string): ObservedOutcome {
 
   const matching = legacyRules.filter((r) => transactionMatchesRule(legacyTx, r, [], false));
   const legacyState = matching.length === 0 ? 'NO_MATCH' : 'WINNER';
-  const legacyWinnerId = matching.length === 0 ? null : evaluateWinningRule(matching, legacyTx, companyId, {}, []).id;
+  const legacyWinnerId = matching.length === 0 ? null : (evaluateWinningRule(matching, legacyTx, companyId, {}, [])?.id ?? null);
 
   const precedenceOutput = evaluateTransactionAgainstRules(precedenceTx, precedenceRules);
   const precedenceState = precedenceOutput.reason;

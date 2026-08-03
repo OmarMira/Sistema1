@@ -369,6 +369,7 @@ describe('decision trace events', () => {
       'single_candidate',
       'higher_specificity_tier',
       'higher_specificity_weight',
+      'higher_priority',
       'delta_above_threshold',
       'delta_below_threshold',
     ];
@@ -378,6 +379,7 @@ describe('decision trace events', () => {
         case 'single_candidate': break;
         case 'higher_specificity_tier': break;
         case 'higher_specificity_weight': break;
+        case 'higher_priority': break;
         case 'delta_above_threshold': break;
         case 'delta_below_threshold': break;
         default: { const _exhaustive: never = reason; expect(_exhaustive).toBe(reason); }

@@ -319,7 +319,7 @@ function runLegacy(
     return { state: 'NO_MATCH', winnerId: null };
   }
   const winner = evaluateWinningRule(matching, tx, companyId, {}, []);
-  return { state: 'WINNER', winnerId: winner.id };
+  return { state: 'WINNER', winnerId: winner?.id ?? null };
 }
 
 function runPrecedence(tx: RulePrecedenceTransaction, rules: RulePrecedenceRule[]) {

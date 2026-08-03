@@ -187,6 +187,16 @@ describe('resolveApplyAllRule', () => {
       expect(result.resolvedRule).toBeNull();
     });
 
+    it('returns null/null when evaluateWinningRule emits AMBIGUOUS (BRE-012 no-winner)', async () => {
+      mockTransactionMatchesRule.fn.mockReturnValue(true);
+      mockEvaluateWinningRule.fn.mockReturnValue(undefined);
+
+      const result = await resolveApplyAllRule(TX_DATA, RULES, COMPANY_ID, LEGACY_CTX);
+
+      expect(result.matchedRuleId).toBeNull();
+      expect(result.resolvedRule).toBeNull();
+    });
+
     it('does NOT call adapter path functions', async () => {
       mockTransactionMatchesRule.fn.mockReturnValue(false);
 

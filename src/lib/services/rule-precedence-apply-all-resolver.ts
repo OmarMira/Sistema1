@@ -96,6 +96,12 @@ function resolveWithLegacy(
     legacyCtx.entityContexts,
   );
 
+  if (!winner) {
+    // BRE-012: canonical classifier emitted AMBIGUOUS (semantic tie) — no winner,
+    // surface as no resolution like V2's ambiguous/pending path.
+    return { matchedRuleId: null, resolvedRule: null };
+  }
+
   return {
     matchedRuleId: winner.id,
     resolvedRule: {

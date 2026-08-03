@@ -9,6 +9,18 @@ import {
   isWildcardValue,
   legacyConditionType,
 } from '@/lib/rule-engine/wildcard';
+import { evaluateCondition as evaluateCanonicalCondition } from '@/lib/rule-engine/conditions';
+import { computeSpecificity } from '@/lib/rule-engine/specificity';
+import { computeMatchQuality } from '@/lib/rule-engine/scoring';
+import { rankCanonical, classifyCanonical } from '@/lib/rule-engine/canonical-ranking';
+import type { CanonicalCandidate } from '@/lib/rule-engine/canonical-ranking';
+import { isRuleEngineV2Enabled } from '@/lib/rule-engine/flag';
+import type { EvaluatedCondition, Transaction as CanonicalTransaction } from '@/lib/rule-engine/types';
+import {
+  normalizeRuleForPrecedence,
+  normalizeInputsForCompatibility,
+} from './rule-precedence-compat';
+import type { RulePrecedenceRule } from './rule-precedence-engine';
 import type { RuleConditionType } from '@/lib/rule-engine/types';
 import type { RuleCondition } from '@/lib/types/shared';
 
@@ -273,6 +285,12 @@ export async function findMatchingRule(
 
   const winner = evaluateWinningRule(matchingRules, tx, companyId, rolePriorities);
 
+  if (!winner) {
+    // BRE-012: canonical classifier emitted AMBIGUOUS (semantic tie) — no winner,
+    // surface as pending/no-match like V2's ambiguous path.
+    return { matchedRuleId: null, glAccountId: null };
+  }
+
   return {
     matchedRuleId: winner.id,
     glAccountId:
@@ -280,16 +298,18 @@ export async function findMatchingRule(
   };
 }
 
-export function evaluateWinningRule(
+/**
+ * Previous Legacy winner selector (BRE-012 D2 fallback): orders candidates by
+ * `rolePriority → dbPriority → stable input order`. Retained temporarily behind
+ * the existing `RULE_ENGINE_V2_ENABLED` flag so production behavior is unchanged
+ * until the canonical cutover is enabled. Removable in a later change.
+ */
+function selectLegacyWinner(
   matchingRules: MatchingRule[],
   tx: Transaction,
-  companyId: string,
-  rolePriorities: Record<string, number> = loadRolePrioritiesSync(),
+  rolePriorities: Record<string, number>,
   contexts?: Array<{ pattern: string; role: string }>,
 ): MatchingRule {
-  if (matchingRules.length <= 1) return matchingRules[0]!;
-
-  const rolePrios = rolePriorities;
   const descLower = tx.description.toLowerCase();
 
   const scored = matchingRules.map((rule) => {
@@ -299,7 +319,13 @@ export function evaluateWinningRule(
       Array.isArray(rule.conditions) && rule.conditions.length > 0
         ? rule.conditions
         : rule.conditionValue
-          ? [{ field: 'description' as const, operator: (rule.conditionType || 'contains') as RuleCondition['operator'], value: rule.conditionValue }]
+          ? [
+              {
+                field: 'description' as const,
+                operator: (rule.conditionType || 'contains') as RuleCondition['operator'],
+                value: rule.conditionValue,
+              },
+            ]
           : [];
 
     for (const cond of conditions) {
@@ -308,7 +334,7 @@ export function evaluateWinningRule(
         if (descLower.includes(condValue) && contexts) {
           for (const ctx of contexts) {
             if (condValue.includes(ctx.pattern.toLowerCase())) {
-              const prio = rolePrios[ctx.role.toUpperCase()] ?? 99;
+              const prio = rolePriorities[ctx.role.toUpperCase()] ?? 99;
               if (prio < highestRolePriority) {
                 highestRolePriority = prio;
               }
@@ -327,4 +353,76 @@ export function evaluateWinningRule(
   });
 
   return scored[0]!.rule;
+}
+
+export function evaluateWinningRule(
+  matchingRules: MatchingRule[],
+  tx: Transaction,
+  companyId: string,
+  rolePriorities: Record<string, number> = loadRolePrioritiesSync(),
+  contexts?: Array<{ pattern: string; role: string }>,
+): MatchingRule | undefined {
+  if (matchingRules.length === 0) return undefined;
+  if (matchingRules.length === 1) return matchingRules[0]!;
+
+  // BRE-012 (D2): the Legacy winner cutover to the shared canonical comparator is
+  // gated behind the EXISTING `RULE_ENGINE_V2_ENABLED` flag — no new flag is
+  // introduced and `BANK_RULE_ENGINE` (global engine mode selector) is not reused
+  // for this internal branch. Flag OFF preserves the previous Legacy ordering
+  // (rolePriority → dbPriority → input order); flag ON uses the canonical
+  // comparator.
+  if (!isRuleEngineV2Enabled()) {
+    return selectLegacyWinner(matchingRules, tx, rolePriorities, contexts);
+  }
+
+  // BRE-012 (D1): rank with the SHARED canonical comparator using ONLY the shared
+  // scoring pipeline (evaluateCondition + computeSpecificity + computeMatchQuality).
+  // rolePriority/dbPriority/input order are no longer ranking signals.
+  const fullTx: CanonicalTransaction = {
+    id: 'dummy-id',
+    date: new Date(),
+    description: tx.description,
+    amount: tx.amount,
+    bankAccountId: 'dummy-bank',
+    companyId,
+  };
+
+  const canonicalCandidates: CanonicalCandidate[] = [];
+
+  for (const rule of matchingRules) {
+    const conditions = normalizeRuleForPrecedence(rule as unknown as RulePrecedenceRule);
+    if (conditions.length === 0) continue;
+
+    const evaluated: EvaluatedCondition[] = [];
+    let allMatch = true;
+    for (const cond of conditions) {
+      const { cond: compatCond, tx: compatTx } = normalizeInputsForCompatibility(cond, fullTx);
+      let result: EvaluatedCondition;
+      try {
+        result = evaluateCanonicalCondition(compatCond, compatTx);
+      } catch {
+        result = { type: cond.type, score: 0, match: false, detail: 'Unsupported type' };
+      }
+      evaluated.push(result);
+      if (!result.match) allMatch = false;
+    }
+
+    if (!allMatch) continue;
+
+    canonicalCandidates.push({
+      ruleId: rule.id,
+      specificityScore: computeSpecificity(evaluated),
+      matchQuality: computeMatchQuality(evaluated.map((e) => e.score)),
+      priority: rule.priority ?? 99,
+    });
+  }
+
+  if (canonicalCandidates.length === 0) return undefined;
+
+  const ranked = rankCanonical(canonicalCandidates);
+  const decision = classifyCanonical(ranked);
+
+  if (decision.ambiguous || !decision.winner) return undefined;
+
+  return matchingRules.find((r) => r.id === decision.winner!.ruleId);
 }

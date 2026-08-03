@@ -102,7 +102,10 @@ describe('rulePrecedenceEngine', () => {
   });
 
   // 4. Dirección definida vs any
-  it('defined direction adds specificity over any', () => {
+  // BRE-012: direction is a PRE-FILTER, not a ranking key. The canonical
+  // comparator keys are tier/weight/quality/priority/ruleId only, so two rules
+  // that differ solely by declared direction are a full semantic tie → AMBIGUOUS.
+  it('defined direction is a pre-filter, not a ranking signal (BRE-012)', () => {
     const tx: RulePrecedenceTransaction = { description: 'TX', amount: -150, date: DEFAULT_DATE };
     const rules: RulePrecedenceRule[] = [
       rule({
@@ -121,8 +124,8 @@ describe('rulePrecedenceEngine', () => {
 
     const result = evaluateTransactionAgainstRules(tx, rules);
 
-    expect(result.reason).toBe('WINNER');
-    expect(result.winner?.ruleId).toBe('debit-dir');
+    expect(result.reason).toBe('AMBIGUOUS');
+    expect(result.winner).toBeUndefined();
   });
 
   // 5. Multi-condición suma especificidad

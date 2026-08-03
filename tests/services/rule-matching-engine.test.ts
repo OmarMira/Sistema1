@@ -9,7 +9,7 @@ vi.mock('@/lib/db', () => ({
   },
 }));
 
-import { transactionMatchesRule, findMatchingRule } from '@/lib/services/rule-matching-engine';
+import { transactionMatchesRule, findMatchingRule, evaluateWinningRule } from '@/lib/services/rule-matching-engine';
 import type { Transaction, Rule, MatchingRule } from '@/lib/services/rule-matching-engine';
 
 function tx(overrides: Partial<Transaction> = {}): Transaction {
@@ -167,6 +167,16 @@ describe('transactionMatchesRule', () => {
   });
 });
 
+// BRE-012 (D2): the Legacy winner cutover is gated behind the EXISTING
+// RULE_ENGINE_V2_ENABLED flag. The canonical comparator tests below run with the
+// flag ON; a dedicated describe exercises the flag OFF (Legacy preserved) path.
+beforeEach(() => {
+  vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
+});
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
 // ── findMatchingRule ─────────────────────────────────────
 function matchingRule(overrides: Partial<MatchingRule> = {}): MatchingRule {
   return {
@@ -220,7 +230,10 @@ describe('findMatchingRule', () => {
     expect(result.glAccountId).toBe('gl-high');
   });
 
-  it('same priority — first rule wins', async () => {
+  it('same priority — full semantic tie is AMBIGUOUS (BRE-012), not first-rule-wins', async () => {
+    // BRE-012: two rules identical on every canonical key (tier, weight, quality,
+    // priority) are semantically indistinguishable → AMBIGUOUS. The old
+    // input-order stable-sort tiebreak is removed; ruleId never fabricates a winner.
     const rules = [
       matchingRule({
         id: 'rule-first',
@@ -240,8 +253,8 @@ describe('findMatchingRule', () => {
       rules,
       'company-1',
     );
-    expect(result.matchedRuleId).toBe('rule-first');
-    expect(result.glAccountId).toBe('gl-first');
+    expect(result.matchedRuleId).toBeNull();
+    expect(result.glAccountId).toBeNull();
   });
 
   it('wildcard * condition matches any non-empty value', async () => {
@@ -287,5 +300,187 @@ describe('findMatchingRule', () => {
       'company-1',
     );
     expect(result.matchedRuleId).toBeNull();
+  });
+});
+
+// ── evaluateWinningRule (BRE-012 canonical winner selection) ─────────────
+describe('evaluateWinningRule', () => {
+  it('single candidate wins directly', () => {
+    const winner = evaluateWinningRule(
+      [matchingRule({ id: 'only', priority: 5 })],
+      { description: 'interes bancario', amount: -500 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner.id).toBe('only');
+  });
+
+  it('higher manual priority wins over lower (key 4, priority ASC)', () => {
+    const winner = evaluateWinningRule(
+      [
+        matchingRule({ id: 'low', priority: 99, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+        matchingRule({ id: 'high', priority: 1, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+      ],
+      { description: 'interes bancario', amount: -500 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner.id).toBe('high');
+  });
+
+  it('R-1 closure: tier-2 starts_with beats two tier-1 contains (BRE-012)', () => {
+    // R-1 parity vector: R-B (description_starts_with, tier 2) vs R-A
+    // (two description_contains, tier 1). Legacy must adopt the shared
+    // tier-first canonical comparator and pick R-B, matching V2/Precedence.
+    const winner = evaluateWinningRule(
+      [
+        matchingRule({
+          id: 'R-A',
+          priority: 10,
+          conditions: [
+            { field: 'description', operator: 'contains', value: 'mercado' },
+            { field: 'description', operator: 'contains', value: 'pago' },
+          ],
+        }),
+        matchingRule({
+          id: 'R-B',
+          priority: 10,
+          conditions: [{ field: 'description', operator: 'starts_with', value: 'mercado' }],
+        }),
+      ],
+      { description: 'mercado pago sa', amount: -100 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner.id).toBe('R-B');
+  });
+
+  it('full semantic tie (identical canonical keys) resolves to no winner (BRE-012)', () => {
+    // Two rules differing only by ruleId tie on tier/weight/quality/priority:
+    // classifyCanonical emits AMBIGUOUS, ruleId never fabricates a business winner.
+    const winner = evaluateWinningRule(
+      [
+        matchingRule({ id: 'A', priority: 5, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+        matchingRule({ id: 'B', priority: 5, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+      ],
+      { description: 'interes bancario', amount: -500 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner).toBeUndefined();
+  });
+
+  it('input order does not decide the winner (order-insensitive, BRE-012)', () => {
+    const ruleA = matchingRule({ id: 'A', priority: 10, conditions: [{ field: 'description', operator: 'contains', value: 'mercado' }, { field: 'description', operator: 'contains', value: 'pago' }] });
+    const ruleB = matchingRule({ id: 'B', priority: 10, conditions: [{ field: 'description', operator: 'starts_with', value: 'mercado' }] });
+    const winner = evaluateWinningRule(
+      [ruleB, ruleA],
+      { description: 'mercado pago sa', amount: -100 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner.id).toBe('B');
+  });
+});
+
+// ── BRE-012 D2: flag-gated Legacy cutover ─────────────────
+// The Legacy winner-selection switch to the canonical comparator must be gated
+// behind the existing RULE_ENGINE_V2_ENABLED flag (no new flag). These tests
+// pin BOTH states: OFF (Legacy rolePriority → dbPriority → input order retained)
+// and ON (canonical comparator decides).
+describe('evaluateWinningRule — BRE-012 D2 flag gate (RULE_ENGINE_V2_ENABLED)', () => {
+  // R-1 parity vector: R-A (two tier-1 contains) vs R-B (tier-2 starts_with).
+  // Canonical tier-first picks R-B; Legacy input-order picks R-A.
+  const r1Rules = (): MatchingRule[] => [
+    matchingRule({
+      id: 'R-A',
+      priority: 10,
+      conditions: [
+        { field: 'description', operator: 'contains', value: 'mercado' },
+        { field: 'description', operator: 'contains', value: 'pago' },
+      ],
+    }),
+    matchingRule({
+      id: 'R-B',
+      priority: 10,
+      conditions: [{ field: 'description', operator: 'starts_with', value: 'mercado' }],
+    }),
+  ];
+
+  it('flag OFF keeps the previous Legacy winner (R-1 → R-A by input order)', () => {
+    vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'false');
+    const winner = evaluateWinningRule(
+      r1Rules(),
+      { description: 'mercado pago sa', amount: -100 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner?.id).toBe('R-A');
+  });
+
+  it('flag ON produces R-1 → R-B via the canonical comparator', () => {
+    vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
+    const winner = evaluateWinningRule(
+      r1Rules(),
+      { description: 'mercado pago sa', amount: -100 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner?.id).toBe('R-B');
+  });
+
+  it('no new flag exists: Legacy preserves input order when RULE_ENGINE_V2_ENABLED is unset', () => {
+    // The gate reads the pre-existing RULE_ENGINE_V2_ENABLED env key only; no
+    // new flag is introduced. Unset behaves like OFF (Legacy path).
+    delete process.env.RULE_ENGINE_V2_ENABLED;
+    const winner = evaluateWinningRule(
+      r1Rules(),
+      { description: 'mercado pago sa', amount: -100 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner?.id).toBe('R-A');
+  });
+
+  it('AMBIGUOUS fail-safe applies only in the canonical (enabled) path', () => {
+    const identical = () => [
+      matchingRule({ id: 'A', priority: 5, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+      matchingRule({ id: 'B', priority: 5, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+    ];
+
+    // ON: full semantic tie → AMBIGUOUS → no winner.
+    vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
+    expect(
+      evaluateWinningRule(identical(), { description: 'interes bancario', amount: -500 }, 'company-1', {}, []),
+    ).toBeUndefined();
+
+    // OFF: Legacy retains the input-order tiebreak → a winner always exists.
+    vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'false');
+    expect(
+      evaluateWinningRule(identical(), { description: 'interes bancario', amount: -500 }, 'company-1', {}, [])?.id,
+    ).toBe('A');
+  });
+
+  it('canonical path still emits AMBIGUOUS → undefined (flag ON) for full semantic tie', () => {
+    vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
+    const winner = evaluateWinningRule(
+      [
+        matchingRule({ id: 'A', priority: 5, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+        matchingRule({ id: 'B', priority: 5, conditions: [{ field: 'description', operator: 'contains', value: 'interes' }] }),
+      ],
+      { description: 'interes bancario', amount: -500 },
+      'company-1',
+      {},
+      [],
+    );
+    expect(winner).toBeUndefined();
   });
 });

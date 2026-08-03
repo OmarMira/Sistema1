@@ -1,6 +1,12 @@
 import { evaluateCondition } from '@/lib/rule-engine/conditions';
 import { normalizeInputsForCompatibility, normalizeRuleForPrecedence } from './rule-precedence-compat';
 import type { RuleCondition, EvaluatedCondition, Transaction } from '@/lib/rule-engine/types';
+import { computeSpecificity } from '@/lib/rule-engine/specificity';
+import { computeMatchQuality } from '@/lib/rule-engine/scoring';
+import {
+  rankCanonical,
+  classifyCanonical,
+} from '@/lib/rule-engine/canonical-ranking';
 
 // ─── Types ───────────────────────────────────────────────────────────────
 
@@ -29,6 +35,7 @@ export interface RulePrecedenceRule {
 export interface RankedCandidate {
   ruleId: string;
   priority: number;
+  /** Canonical specificity weight within the matched tier (numeric projection of the canonical tier-first model). */
   specificityScore: number;
   matchQuality: number;
   confidenceLabel: 'high' | 'medium' | 'low';
@@ -42,7 +49,6 @@ export interface RuleMatchOutput {
   reason: 'NO_MATCH' | 'WINNER' | 'AMBIGUOUS';
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────
 // ─── Helpers (normalization imported from compat) ─────────────────────────
 
 // ─── Single condition evaluation via V2 SSOT ──────────────────────────────
@@ -60,44 +66,7 @@ function evaluateSingleCondition(
   }
 }
 
-// ─── Specificity scoring ─────────────────────────────────────────────────
-
-const CONDITION_SPECIFICITY: Record<string, number> = {
-  description_eq: 100,
-  amount_eq: 100,
-  amount_range: 80,
-  description_starts_with: 60,
-  description_ends_with: 60,
-  description_contains: 40,
-  amount_gt: 40,
-  amount_gte: 40,
-  amount_lt: 40,
-  amount_lte: 40,
-  description_matches: 40,
-};
-
-function directionSpecificity(direction: string | null): number {
-  return (direction === 'debit' || direction === 'credit') ? 20 : 0;
-}
-
-function computeSpecificityScore(conditions: RuleCondition[], direction: string | null): number {
-  let score = 0;
-  for (const c of conditions) {
-    score += CONDITION_SPECIFICITY[c.type] ?? 10;
-  }
-  score += directionSpecificity(direction);
-  return score;
-}
-
-// ─── Match quality ───────────────────────────────────────────────────────
-
-function computeMatchQuality(evaluated: EvaluatedCondition[]): number {
-  if (evaluated.length === 0) return 0;
-  const scores = evaluated.map((e) => e.score);
-  const min = Math.min(...scores);
-  const avg = scores.reduce((s, v) => s + v, 0) / scores.length;
-  return min + 0.25 * (avg - min);
-}
+// ─── Match quality (shared with V2) ──────────────────────────────────────
 
 const MATCH_CONFIDENCE_HIGH = 0.8;
 const MATCH_CONFIDENCE_MEDIUM = 0.5;
@@ -129,6 +98,8 @@ export function evaluateTransactionAgainstRules(
     companyId: tx.companyId ?? 'dummy-company',
   };
 
+  const canonicalSpecificity = new Map<string, ReturnType<typeof computeSpecificity>>();
+
   for (const rule of rules) {
     if (!rule.isActive) continue;
 
@@ -147,54 +118,52 @@ export function evaluateTransactionAgainstRules(
     // Discard if any condition doesn't match
     if (!evaluated.every((e) => e.match)) continue;
 
-    const specificityScore = computeSpecificityScore(normalized, direction);
-    const matchQuality = computeMatchQuality(evaluated);
+    const specificity = computeSpecificity(evaluated);
+    const matchQuality = computeMatchQuality(evaluated.map((e) => e.score));
 
     candidates.push({
       ruleId: rule.id,
       priority: rule.priority,
-      specificityScore,
+      specificityScore: specificity.weightWithinTier,
       matchQuality,
       confidenceLabel: toMatchConfidenceLabel(matchQuality),
       evaluatedConditions: evaluated
         .filter((e) => e.match)
         .map((e) => ({ type: e.type, detail: e.detail })),
     });
+    canonicalSpecificity.set(rule.id, specificity);
   }
 
   if (candidates.length === 0) {
     return { winner: undefined, candidates: [], ambiguous: false, reason: 'NO_MATCH' };
   }
 
-  // Rank
-  candidates.sort((a, b) => {
-    if (b.specificityScore !== a.specificityScore) return b.specificityScore - a.specificityScore;
-    if (b.matchQuality !== a.matchQuality) return b.matchQuality - a.matchQuality;
-    if (a.priority !== b.priority) return a.priority - b.priority;
-    return a.ruleId.localeCompare(b.ruleId);
-  });
+  // Rank and classify through the shared canonical comparator (BRE-012)
+  const ranked = rankCanonical(candidates.map((c) => ({
+    ruleId: c.ruleId,
+    specificityScore: canonicalSpecificity.get(c.ruleId)!,
+    matchQuality: c.matchQuality,
+    priority: c.priority,
+  })));
+  const decision = classifyCanonical(ranked);
 
-  // Ambiguity: same specificityScore AND close matchQuality AND same priority
-  if (candidates.length >= 2) {
-    const top = candidates[0];
-    const second = candidates[1];
-    if (
-      top.specificityScore === second.specificityScore &&
-      Math.abs(top.matchQuality - second.matchQuality) < 0.10 &&
-      top.priority === second.priority
-    ) {
-      return {
-        winner: undefined,
-        candidates,
-        ambiguous: true,
-        reason: 'AMBIGUOUS',
-      };
-    }
+  const byRuleId = new Map(candidates.map((c) => [c.ruleId, c]));
+  const rankedCandidates = ranked.map((c) => byRuleId.get(c.ruleId)!);
+
+  if (decision.ambiguous) {
+    return {
+      winner: undefined,
+      candidates: rankedCandidates,
+      ambiguous: true,
+      reason: 'AMBIGUOUS',
+    };
   }
 
+  const winner = rankedCandidates[0];
+
   return {
-    winner: candidates[0],
-    candidates,
+    winner,
+    candidates: rankedCandidates,
     ambiguous: false,
     reason: 'WINNER',
   };

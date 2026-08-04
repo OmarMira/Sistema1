@@ -73,6 +73,9 @@ server.log
 db/backups/
 *.sql
 
+# Prisma migrations must be versioned (only extraction/snapshot SQL is ignored above)
+!prisma/migrations/**/migration.sql
+
 # Audit evidence (intentional snapshots)
 !gate-a2d-evidence/**/*.sql
 test-restore.js

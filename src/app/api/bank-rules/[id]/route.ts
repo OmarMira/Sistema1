@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
@@ -475,6 +476,26 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
           data: { glAccountId: creditAccountId, matchedRuleId: rule.id },
         });
         actualMatched += result.count;
+      }
+
+      // Durable anchor: classification-only single-rule apply creates a
+      // RuleApplyRecord (no journal). Reversal is classification-only.
+      const record = await tx.ruleApplyRecord.create({
+        data: {
+          companyId,
+          origin: 'single-rule',
+          ruleId: rule.id,
+          userId,
+          state: 'applied',
+          idempotencyKey: crypto.randomUUID(),
+        },
+      });
+      const affectedIds = [...new Set([...debitIds, ...creditIds])];
+      if (affectedIds.length > 0) {
+        await tx.bankTransaction.updateMany({
+          where: { id: { in: affectedIds } },
+          data: { ruleApplyRecordId: record.id },
+        });
       }
 
       await createAuditLogWithRetry({

@@ -37,7 +37,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     // Body already validated by apiHandler — this path is a safeguard
   }
 
-  const result = await executeApplyAllUseCase(companyId, { confirmed, mode, transactionId, forcedRuleId });
+  const result = await executeApplyAllUseCase(companyId, { confirmed, mode, transactionId, forcedRuleId, userId });
   const { matchResult, applyResult, policyObservation, enforcement } = result;
 
   const rulesApplied = matchResult.matchedRules.map((entry) => ({

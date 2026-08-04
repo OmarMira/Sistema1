@@ -58,6 +58,7 @@ model User {
   companyMemberships    CompanyMember[]
   reconciliationPeriods ReconciliationPeriod[] @relation("ReconUser")
   sessions              Session[]
+  ruleApplyRecords      RuleApplyRecord[]
 }
 
 model Company {
@@ -94,6 +95,7 @@ model Company {
   systemMemories        SystemMemory[]
   detectionConfig       DetectionConfig?
   companyKnowledge      CompanyKnowledge[]
+  ruleApplyRecords      RuleApplyRecord[]
 }
 
 model CompanyMember {
@@ -199,6 +201,7 @@ model BankTransaction {
   importHash             String?               @unique
   journalEntryId         String?               @unique
   journalLineId          String?               @unique
+  ruleApplyRecordId      String?
   createdAt              DateTime              @default(now())
   updatedAt              DateTime              @updatedAt
   journalEntry           JournalEntry?         @relation(fields: [journalEntryId], references: [id])
@@ -207,6 +210,7 @@ model BankTransaction {
   matchedRule            BankRule?              @relation(fields: [matchedRuleId], references: [id])
   glAccount              GlAccount?             @relation(fields: [glAccountId], references: [id])
   statement              BankStatement          @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  ruleApplyRecord        RuleApplyRecord?       @relation(fields: [ruleApplyRecordId], references: [id], onDelete: SetNull)
 
   @@index([statementId])
   @@index([glAccountId])
@@ -218,6 +222,7 @@ model BankTransaction {
   @@index([statementId, date])
   @@index([importHash])
   @@index([isReconciled, journalEntryId, date])
+  @@index([ruleApplyRecordId])
 }
 
 model ReconciliationPeriod {
@@ -267,6 +272,7 @@ model BankRule {
   company              Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   transactions         BankTransaction[]
   ruleExecutionAudits  RuleExecutionAudit[]
+  ruleApplyRecords     RuleApplyRecord[]
 
   @@index([companyId, isActive, priority])
 }
@@ -299,13 +305,16 @@ model JournalEntry {
   status          String            @default("draft")
   hash            String?
   previousHash    String?
+  ruleApplyRecordId String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   lines           JournalLine[]
   transactions    BankTransaction[]
+  ruleApplyRecord RuleApplyRecord?  @relation(fields: [ruleApplyRecordId], references: [id], onDelete: SetNull)
 
   @@index([companyId, date])
+  @@index([ruleApplyRecordId])
 }
 
 model JournalLine {
@@ -322,6 +331,35 @@ model JournalLine {
   @@index([entryId])
   @@index([glAccountId])
   @@index([glAccountId, entryId])
+}
+
+/// Durable anchor for a covered rule application. Created inside the same
+/// atomic transaction that performs classification and journaling, and later
+/// flipped to a terminal state by the rollback/compensation transaction.
+/// FKs on BankTransaction and JournalEntry point to the ACTIVE record.
+/// Re-apply overwrites FKs; historical audit via AuditLog events.
+model RuleApplyRecord {
+  id             String              @id @default(cuid())
+  companyId      String
+  origin         String              @default("batch")
+  ruleId         String?
+  userId         String
+  state          String              @default("applied")
+  appliedAt      DateTime            @default(now())
+  idempotencyKey String              @unique
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  rule           BankRule?           @relation(fields: [ruleId], references: [id], onDelete: SetNull)
+  user           User                @relation(fields: [userId], references: [id])
+  transactions   BankTransaction[]
+  journalEntries JournalEntry[]
+
+  @@index([companyId])
+  @@index([ruleId])
+  @@index([state])
+  @@index([companyId, state])
+  @@index([appliedAt])
 }
 
 model FiscalPeriod {

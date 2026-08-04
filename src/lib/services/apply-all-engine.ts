@@ -1,6 +1,7 @@
 import crypto from 'crypto';
 import { db } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import {
   loadEntityFirstContext,
   loadRolePriorities,
@@ -59,7 +60,7 @@ function toRuleRecord(rule: {
 }
 
 // ─── Constants ──────────────────────────────────────────────
-const MAX_PER_BATCH = 200;
+export const MAX_PER_BATCH = 200;
 
 // ─── Types ──────────────────────────────────────────────────
 
@@ -91,6 +92,15 @@ export interface MatchResult {
 export interface ApplyResult {
   appliedCount: number;
   journalEntryCount: number;
+  /** Durable apply record id created inside the same transaction, when an apply context was provided. */
+  applyRecordId?: string;
+}
+
+export interface ApplyExecutionContext {
+  userId: string;
+  origin: 'batch' | 'single';
+  ruleId?: string | null;
+  idempotencyKey?: string;
 }
 
 export interface MatchOptions {
@@ -359,6 +369,7 @@ export async function executeApplyAll(
   companyId: string,
   tx: any,
   matchResult: MatchResult,
+  ctx?: ApplyExecutionContext,
 ): Promise<ApplyResult> {
   let appliedCount = 0;
   const allCandidateIds: string[] = [];
@@ -380,6 +391,18 @@ export async function executeApplyAll(
     select: { id: true },
   });
   const unmatchedSet = new Set(stillUnmatched.map((t: any) => t.id));
+
+  // Fiscal-period guard: validate every targeted transaction date inside the
+  // same transaction. If ANY falls in a closed/locked period the whole apply
+  // aborts with no partial classification (spec: Requirement "Fiscal period
+  // guard applies per-transaction").
+  const guardTransactions = await tx.bankTransaction.findMany({
+    where: { id: { in: allTxIds } },
+    select: { id: true, date: true },
+  });
+  for (const gt of guardTransactions) {
+    await assertActiveFiscalPeriod(companyId, gt.date, tx);
+  }
 
   for (const { rule, txIds } of matchResult.matchedRules) {
     const ruleData = rulesMap.get(rule.id);
@@ -444,6 +467,7 @@ export async function executeApplyAll(
   }
 
   let journalEntryCount = 0;
+  const journalEntryByTx = new Map<string, string>();
   for (const bt of matchedTxs) {
     const bankGl = bankGlByStatement.get(bt.statementId);
     if (!bankGl || !bt.glAccountId) continue;
@@ -458,11 +482,50 @@ export async function executeApplyAll(
       companyId,
     });
 
-    if (entryId) journalEntryCount++;
+    if (entryId) {
+      journalEntryCount++;
+      journalEntryByTx.set(bt.id, entryId);
+    }
+  }
+
+  // Durable anchor: create the RuleApplyRecord and link via FK on affected
+  // BankTransactions and generated JournalEntries inside the SAME transaction.
+  // Re-apply overwrites FKs; historical audit via AuditLog events.
+  let applyRecordId: string | undefined;
+  if (ctx) {
+    const header = await tx.ruleApplyRecord.create({
+      data: {
+        companyId,
+        origin: ctx.origin,
+        ruleId: ctx.ruleId ?? null,
+        userId: ctx.userId,
+        state: 'applied',
+        idempotencyKey: ctx.idempotencyKey ?? crypto.randomUUID(),
+      },
+    });
+    applyRecordId = header.id;
+
+    // Link affected BankTransactions to this record
+    if (allCandidateIds.length > 0) {
+      await tx.bankTransaction.updateMany({
+        where: { id: { in: allCandidateIds } },
+        data: { ruleApplyRecordId: header.id },
+      });
+    }
+
+    // Link generated JournalEntries to this record
+    const journalIds = [...journalEntryByTx.values()];
+    if (journalIds.length > 0) {
+      await tx.journalEntry.updateMany({
+        where: { id: { in: journalIds } },
+        data: { ruleApplyRecordId: header.id },
+      });
+    }
   }
 
   return {
     appliedCount,
     journalEntryCount,
+    applyRecordId,
   };
 }

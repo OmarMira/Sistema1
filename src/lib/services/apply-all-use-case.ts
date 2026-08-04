@@ -252,6 +252,7 @@ export interface ApplyAllUseCaseOptions {
   mode?: 'batch' | 'single';
   transactionId?: string;
   forcedRuleId?: string;
+  userId?: string;
 }
 
 /**
@@ -394,9 +395,14 @@ async function applySingleTransaction(
   matchResult: MatchResult,
   forcedRuleId: string,
   transactionId: string,
+  userId: string,
 ): Promise<ApplyResult> {
   const applyResult = await db.$transaction(async (tx) => {
-    return executeApplyAll(companyId, tx, matchResult);
+    return executeApplyAll(companyId, tx, matchResult, {
+      userId,
+      origin: 'single',
+      ruleId: forcedRuleId,
+    });
   });
 
   try {
@@ -425,9 +431,9 @@ async function applySingleTransaction(
 
 async function executeSingleUseCase(
   companyId: string,
-  options: Required<Pick<ApplyAllUseCaseOptions, 'transactionId' | 'forcedRuleId'>> & { confirmed?: boolean },
+  options: Required<Pick<ApplyAllUseCaseOptions, 'transactionId' | 'forcedRuleId' | 'userId'>> & { confirmed?: boolean },
 ): Promise<ApplyAllUseCaseResult> {
-  const { transactionId, forcedRuleId, confirmed } = options;
+  const { transactionId, forcedRuleId, confirmed, userId } = options;
 
   const bankTx = await getTransactionOrThrow(companyId, transactionId);
   const forcedRule = await getActiveRuleOrThrow(companyId, forcedRuleId);
@@ -448,7 +454,7 @@ async function executeSingleUseCase(
     };
   }
 
-  const applyResult = await applySingleTransaction(companyId, matchResult, forcedRuleId, transactionId);
+  const applyResult = await applySingleTransaction(companyId, matchResult, forcedRuleId, transactionId, userId ?? 'system');
 
   return { matchResult, applyResult, enforcement: enforcementResult };
 }
@@ -465,6 +471,7 @@ export async function executeApplyAllUseCase(
       transactionId: options.transactionId,
       forcedRuleId: options.forcedRuleId,
       confirmed: options.confirmed,
+      userId: options.userId ?? 'system',
     });
   }
   const result = await matchTransactionsWithShadow(companyId, { limit: 200 });
@@ -491,7 +498,10 @@ export async function executeApplyAllUseCase(
 
   // ── Transaction ────────────────────────────────────────
   const applyResult = await db.$transaction(async (tx) => {
-    return executeApplyAll(companyId, tx, matchResult);
+    return executeApplyAll(companyId, tx, matchResult, {
+      userId: options?.userId ?? 'system',
+      origin: 'batch',
+    });
   });
 
   // ── Shadow persist ─────────────────────────────────────

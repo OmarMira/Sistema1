@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
@@ -10,6 +9,7 @@ import { serverT } from '@/lib/server-i18n';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
 import { wildcardExclusionError } from '@/lib/rule-engine/wildcard';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
+import { executeSingleRuleClassificationApply } from '@/lib/services/single-rule-apply.service';
 
 import {
   transactionMatchesRule,
@@ -459,54 +459,22 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       }
     }
 
-    await db.$transaction(async (tx) => {
-      if (debitIds.length > 0) {
-        const debitAccountId = rule.debitGlAccountId || rule.glAccountId;
-        const result = await tx.bankTransaction.updateMany({
-          where: eligibleForClassificationWhere({ id: { in: debitIds } }),
-          data: { glAccountId: debitAccountId, matchedRuleId: rule.id },
-        });
-        actualMatched += result.count;
-      }
-
-      if (creditIds.length > 0) {
-        const creditAccountId = rule.creditGlAccountId || rule.glAccountId;
-        const result = await tx.bankTransaction.updateMany({
-          where: eligibleForClassificationWhere({ id: { in: creditIds } }),
-          data: { glAccountId: creditAccountId, matchedRuleId: rule.id },
-        });
-        actualMatched += result.count;
-      }
-
-      // Durable anchor: classification-only single-rule apply creates a
-      // RuleApplyRecord (no journal). Reversal is classification-only.
-      const record = await tx.ruleApplyRecord.create({
-        data: {
-          companyId,
-          origin: 'single-rule',
-          ruleId: rule.id,
-          userId,
-          state: 'applied',
-          idempotencyKey: crypto.randomUUID(),
-        },
-      });
-      const affectedIds = [...new Set([...debitIds, ...creditIds])];
-      if (affectedIds.length > 0) {
-        await tx.bankTransaction.updateMany({
-          where: { id: { in: affectedIds } },
-          data: { ruleApplyRecordId: record.id },
-        });
-      }
-
-      await createAuditLogWithRetry({
+    const result = await db.$transaction(async (tx) => {
+      return executeSingleRuleClassificationApply(tx, {
         companyId,
         userId,
-        action: 'RULE_APPLIED',
-        entity: 'BankRule',
-        entityId: rule.id,
-        details: JSON.stringify({ matchedCount: actualMatched, ruleName: rule.name }),
-      }, tx as any);
+        rule: {
+          id: rule.id,
+          name: rule.name,
+          glAccountId: rule.glAccountId,
+          debitGlAccountId: rule.debitGlAccountId,
+          creditGlAccountId: rule.creditGlAccountId,
+        },
+        debitIds,
+        creditIds,
+      });
     });
+    actualMatched = result.actualMatched;
   } else {
     await createAuditLogWithRetry({
       companyId,

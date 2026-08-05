@@ -375,7 +375,7 @@ export async function executeApplyAll(
   const allCandidateIds: string[] = [];
   const rulesMap = new Map<string, { debitGlAccountId?: string | null; creditGlAccountId?: string | null; glAccountId?: string | null }>();
 
-  const dbRules = await db.bankRule.findMany({
+  const dbRules = await tx.bankRule.findMany({
     where: { companyId, isActive: true },
     select: { id: true, debitGlAccountId: true, creditGlAccountId: true, glAccountId: true },
   });
@@ -426,21 +426,23 @@ export async function executeApplyAll(
     creditIds.sort();
 
     if (debitIds.length > 0) {
-      const result = await tx.bankTransaction.updateMany({
+      const updatedRows = await tx.bankTransaction.updateManyAndReturn({
         where: eligibleForClassificationWhere({ id: { in: debitIds } }),
         data: { glAccountId: debitGlAccountId, matchedRuleId: rule.id },
+        select: { id: true },
       });
-      appliedCount += result.count;
-      allCandidateIds.push(...debitIds);
+      appliedCount += updatedRows.length;
+      allCandidateIds.push(...updatedRows.map((r: any) => r.id));
     }
 
     if (creditIds.length > 0) {
-      const result = await tx.bankTransaction.updateMany({
+      const updatedRows = await tx.bankTransaction.updateManyAndReturn({
         where: eligibleForClassificationWhere({ id: { in: creditIds } }),
         data: { glAccountId: creditGlAccountId, matchedRuleId: rule.id },
+        select: { id: true },
       });
-      appliedCount += result.count;
-      allCandidateIds.push(...creditIds);
+      appliedCount += updatedRows.length;
+      allCandidateIds.push(...updatedRows.map((r: any) => r.id));
     }
   }
 
@@ -492,7 +494,7 @@ export async function executeApplyAll(
   // BankTransactions and generated JournalEntries inside the SAME transaction.
   // Re-apply overwrites FKs; historical audit via AuditLog events.
   let applyRecordId: string | undefined;
-  if (ctx) {
+  if (ctx && allCandidateIds.length > 0) {
     const header = await tx.ruleApplyRecord.create({
       data: {
         companyId,
@@ -506,12 +508,10 @@ export async function executeApplyAll(
     applyRecordId = header.id;
 
     // Link affected BankTransactions to this record
-    if (allCandidateIds.length > 0) {
-      await tx.bankTransaction.updateMany({
-        where: { id: { in: allCandidateIds } },
-        data: { ruleApplyRecordId: header.id },
-      });
-    }
+    await tx.bankTransaction.updateMany({
+      where: { id: { in: allCandidateIds } },
+      data: { ruleApplyRecordId: header.id },
+    });
 
     // Link generated JournalEntries to this record
     const journalIds = [...journalEntryByTx.values()];

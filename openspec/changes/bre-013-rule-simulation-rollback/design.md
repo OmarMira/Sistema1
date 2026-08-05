@@ -58,6 +58,26 @@ The simulation service calls `matchTransactions` with `{ shadow: 'disabled' }` a
 
 New route `POST /api/bank-rules/applications/[applicationId]/rollback` delegating to a new `revertApplyRecord(companyId, applicationId, userId)` service. Kept separate from `bank-rules/[id]` (rule CRUD) and from the `apply-all` funnel. The existing journal `void` handler (`journal/[id]/route.ts`) is NOT reused because it does not unlink `journalEntryId` — compensation here must also null the links (exploration fact).
 
+### Decision: Acquisition is the single source of truth (apply-vs-apply concurrency)
+
+Post-implementation corrective (`e1ffff7`). Two concurrent applies over the same disputed
+row could persist a spurious `RuleApplyRecord`: the engine treated pre-transaction
+candidate IDs as acquired, so a loser that acquired ZERO rows (the winner already claimed
+them via the eligibility-filtered UPDATE) still created a record and re-pointed the disputed
+row's `ruleApplyRecordId` at its empty record.
+
+| Option | Tradeoff | Decision |
+|---|---|---|
+| `updateManyAndReturn` returning ACTUAL acquired ids; record only when acquired > 0 | Winner claims rows atomically and is the only writer of `ruleApplyRecordId`; loser acquires 0 → writes nothing; no long-held row locks | **Chosen** |
+| Keep `updateMany` + candidate ids, gate on in-transaction eligibility recompute | Recomputation is a second read that still drifts from the atomic claim; empty loser record remains possible | Not selected for this implementation |
+| `SELECT ... FOR UPDATE` on candidate rows | Serializes applies; raw SQL; deadlock surface; overkill for the loser-writes-nothing contract | Not selected for this implementation |
+
+Mechanism: `executeApplyAll` and `executeSingleRuleClassificationApply` claim rows with
+`updateManyAndReturn({ where: eligibleForClassificationWhere(...), data: {...}, select: { id: true } })`
+and collect the RETURNED ids. The durable record and the `ruleApplyRecordId` link are created
+only when rows were actually acquired. The record's existence and the row's FK become a direct
+consequence of the atomic claim, closing the apply-vs-apply race.
+
 ## Data Flow
 
 ```

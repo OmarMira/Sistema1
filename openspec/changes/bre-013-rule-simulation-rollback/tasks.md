@@ -79,3 +79,32 @@ Coverage ledger — what each layer actually proves (avoid overclaiming):
   - No rollback-of-rollback: once `reverted`, `revertApplyRecord` returns `already-reverted` (idempotent no-op, `rollback-apply.service.ts:46-48`); re-apply is a fresh record, never a revert-of-revert.
 - [x] 5.3 Update design Open Questions (`idempotencyKey` unique, simulation coexistence) with implementation decisions.
   - `design.md` Open Questions now all [x]. Coexistence resolved: `/api/bank-rules/simulate` (BRE-013 faithful over real matcher) coexists with `/api/learning/rules/simulate` (legacy conditions simulator); no route replaced/removed. Bulk cap documented as **current implemented cap** `MAX_PER_BATCH = 200` (single source of truth via `parseSimulateLimit`), explicitly NOT a future-scalability decision; chunking/resumable execution out of scope.
+
+## Phase 6: Concurrency hardening — apply-vs-apply (post-implementation corrective, e1ffff7)
+
+Post-implementation defect discovered after the original slices shipped: two concurrent
+applies over the SAME disputed BankTransaction row could persist a spurious
+`RuleApplyRecord`. Root cause: the engine treated pre-transaction candidate IDs as if they
+were acquired, so a concurrent loser that acquired ZERO rows (the winner already claimed
+them via the eligibility-filtered UPDATE) still created a durable record and re-pointed the
+disputed row's `ruleApplyRecordId` at its empty record.
+
+- [x] 6.1 Defect fix — acquisition is the single source of truth. `executeApplyAll` and the new
+  `executeSingleRuleClassificationApply` claim rows via `updateManyAndReturn` and push only the
+  RETURNED ids; the `RuleApplyRecord` is created and linked ONLY when rows were actually
+  acquired. A loser acquiring zero rows creates no durable record and cannot overwrite another
+  apply's `ruleApplyRecordId`. Evidence: `src/lib/services/apply-all-engine.ts`,
+  `src/lib/services/single-rule-apply.service.ts`.
+- [x] 6.2 Integration (engine): deterministic concurrent `executeApplyAll` vs `executeApplyAll` over
+  one disputed row — exactly ONE legit record, one journal with two lines, `ruleApplyRecordId` →
+  winner. Evidence: `tests/integration/bre013-concurrent-apply-engine-40.test.ts` (passed).
+- [x] 6.3 Integration (single-rule): deterministic concurrent `executeSingleRuleClassificationApply`
+  vs itself — exactly ONE legit record, no spurious empty record, `ruleApplyRecordId` → winner.
+  Evidence: `tests/integration/bre013-concurrent-single-rule-40.test.ts` (passed).
+- [x] 6.4 Concurrency helper: deterministic lock race over a single disputed row using independent
+  single-connection clients; an observer confirms both operations are waiting before releasing the
+  blocker. Evidence: `tests/helpers/concurrency.ts`.
+- [x] 6.5 Validation: `npx tsc --noEmit` exit 0; `npx prisma validate` OK; `npx eslint` clean on the 6
+  touched files (test files excluded by the repo eslint config). The 2 failures in
+  `tests/api/apply-all-enforcement-contract.test.ts` are OUT OF SCOPE for this change — tracked as a
+  separate incident against `S7-11A-apply-all-enforcement-contract`.

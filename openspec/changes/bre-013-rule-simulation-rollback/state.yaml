@@ -1,0 +1,35 @@
+schema: spec-driven
+change: bre-013-rule-simulation-rollback
+project: Sistema1
+updated: 2026-08-05
+
+phases:
+  explore: done
+  propose: done
+  spec: done
+  design: done
+  tasks: done
+  apply: done
+  verify: done
+  archive: done
+
+next_recommended: none
+status: archived
+
+artifacts:
+  explore: openspec/changes/bre-013-rule-simulation-rollback/01-explore.md
+  proposal: openspec/changes/bre-013-rule-simulation-rollback/02-proposal.md
+  spec_delta: openspec/changes/bre-013-rule-simulation-rollback/specs/rule-simulation-and-rollback/spec.md
+  design: openspec/changes/bre-013-rule-simulation-rollback/design.md
+  tasks: openspec/changes/bre-013-rule-simulation-rollback/tasks.md
+  archive_report: openspec/changes/bre-013-rule-simulation-rollback/archive-report.md
+
+decision: durable-ruleapplyrecord-atomic-rollback
+resolved_decisions:
+  - d1-ruleapplyrecord-name-shape — RESOLVED 2026-08-05 (1-table model, nullable FKs on BankTransaction/JournalEntry, idempotencyKey @unique)
+  - d2-state-machine — RESOLVED 2026-08-05 (applied → reverted unidirectional, all-or-nothing, no reversalOfId)
+  - d3-revert-concurrency-cas — RESOLVED 2026-08-05 (state-guarded updateMany; loser aborts; idempotent already-reverted)
+  - d4-fiscal-guard-in-tx — RESOLVED 2026-08-05 (assertActiveFiscalPeriod per date inside apply/revert tx)
+  - d5-simulation-readonly — RESOLVED 2026-08-05 (matchTransactions shadow disabled, canonical order, no ledger claim)
+  - d6-rollback-entrypoint — RESOLVED 2026-08-05 (POST /applications/[id]/rollback → revertApplyRecord)
+  - d7-apply-concurrency-acquisition — RESOLVED 2026-08-05 (updateManyAndReturn; record only with acquired rows; corrective e1ffff7)

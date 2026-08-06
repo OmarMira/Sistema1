@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { apiHandler, RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { hashPassword } from '@/lib/auth';
+import { deleteAllUserSessions } from '@/lib/sessions';
 import { saveLogo, deleteLogo } from '@/lib/uploads/logo-service';
 import { updateUserSchema } from '@/lib/validations/admin';
 import { parseAdminBody } from '@/lib/parse-admin-body';
@@ -78,34 +79,45 @@ export const PATCH = apiHandler(
       data.avatar = newAvatarPath === '' ? '' : newAvatarPath;
     }
 
-    const updatedUser = await db.user.update({
-      where: { id },
-      data,
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        role: true,
-        isActive: true,
-        phone: true,
-        streetLine1: true,
-        streetLine2: true,
-        city: true,
-        state: true,
-        zipCode: true,
-        avatar: true,
-      },
-    });
+    // If a password was set, the user's new hash is committed AND all their
+    // sessions are revoked atomically (F-8 policy C: admin reset invalidates
+    // every session of the target user, forcing a fresh login).
+    const updatedUser = await db.$transaction(async (tx) => {
+      const user = await tx.user.update({
+        where: { id },
+        data,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isActive: true,
+          phone: true,
+          streetLine1: true,
+          streetLine2: true,
+          city: true,
+          state: true,
+          zipCode: true,
+          avatar: true,
+        },
+      });
 
-    await db.auditLog.create({
-      data: {
-        userId,
-        action: 'update_user',
-        entity: 'User',
-        entityId: updatedUser.id,
-        details: `Updated user ${updatedUser.email}`,
-      },
+      if (data.passwordHash) {
+        await deleteAllUserSessions(id, tx);
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'update_user',
+          entity: 'User',
+          entityId: user.id,
+          details: `Updated user ${user.email}`,
+        },
+      });
+
+      return user;
     });
 
     return NextResponse.json({ user: updatedUser });

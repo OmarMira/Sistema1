@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { deleteAllUserSessions } from '@/lib/sessions';
 
 /**
  * POST /api/settings/password — Change user password
@@ -45,21 +46,27 @@ export const POST = apiHandler(
       return NextResponse.json({ error: 'Current password is incorrect' }, { status: 400 });
     }
 
-    // Hash and save new password
+    // Hash and save new password, then invalidate ALL sessions (F-8 policy C:
+    // the changing session is revoked too, forcing a fresh login). Atomic — if
+    // the session invalidation fails, the password change rolls back with it.
     const newHash = await hashPassword(newPassword);
-    await db.user.update({
-      where: { id: userId },
-      data: { passwordHash: newHash },
-    });
+    await db.$transaction(async (tx) => {
+      await tx.user.update({
+        where: { id: userId },
+        data: { passwordHash: newHash },
+      });
 
-    // Log audit
-    await db.auditLog.create({
-      data: {
-        userId,
-        action: 'change_password',
-        entity: 'User',
-        entityId: userId,
-      },
+      // Log audit
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'change_password',
+          entity: 'User',
+          entityId: userId,
+        },
+      });
+
+      await deleteAllUserSessions(userId, tx);
     });
 
     return NextResponse.json({ message: 'Password changed successfully' });

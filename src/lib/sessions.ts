@@ -58,6 +58,20 @@ export async function destroySession(rawToken: string): Promise<void> {
   await db.session.delete({ where: { token: hashedToken } }).catch(() => {});
 }
 
+type SessionStore = {
+  session: {
+    deleteMany(args: { where: { userId: string } }): Promise<{ count: number }>;
+  };
+};
+
+export async function deleteAllUserSessions(
+  userId: string,
+  client: SessionStore = db,
+): Promise<number> {
+  const result = await client.session.deleteMany({ where: { userId } });
+  return result.count;
+}
+
 export function getSessionToken(request: NextRequest): string | null {
   const isProd = process.env.NODE_ENV === 'production';
   const cookieName = isProd ? '__Host-session' : 'session';

@@ -246,7 +246,6 @@ export async function createBackup(companyId: string): Promise<{
             state: true,
             zipCode: true,
             avatar: true,
-            passwordHash: true,
             createdAt: true,
             updatedAt: true,
           },

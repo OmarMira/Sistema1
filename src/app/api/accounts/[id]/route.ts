@@ -42,7 +42,6 @@ export const GET = apiHandler(
 
     return NextResponse.json({ account });
   },
-  { requireMembership: false },
 );
 
 // ─── PUT /api/accounts/[id] ────────────────────────────────────────────
@@ -161,7 +160,6 @@ export const PUT = apiHandler(
 
     return NextResponse.json({ account });
   },
-  { requireMembership: false },
 );
 
 // ─── Recursively collect descendant account IDs ──────────────────────
@@ -268,5 +266,4 @@ export const DELETE = apiHandler(
 
     return NextResponse.json({ account: deleted });
   },
-  { requireMembership: false },
 );

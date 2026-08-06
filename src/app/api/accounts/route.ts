@@ -91,7 +91,6 @@ export const GET = apiHandler(
 
     return NextResponse.json({ accounts });
   },
-  { requireMembership: false },
 );
 
 const createAccountSchema = z.object({
@@ -189,6 +188,5 @@ export const POST = apiHandler(
 
     return NextResponse.json({ account }, { status: 201 });
   },
-  { requireMembership: false },
 );
 

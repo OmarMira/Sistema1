@@ -24,7 +24,7 @@ function authHeaders(token: string): Headers {
   return h;
 }
 
-describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
+describe('F-2 — Cross-tenant IDOR on chart of accounts (regression)', () => {
   beforeEach(async () => {
     await clearDatabase();
   });
@@ -46,7 +46,7 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
     log('AFTER-ALL DB STATE: users =', leftoverUsers, '| tenant companies =', leftoverCompanies);
   });
 
-  it('No middleware/proxy validation blocks the cross-tenant request (proxy() lets it through)', async () => {
+  it('The proxy does not gate tenants (200) — the 403 must come from apiHandler membership', async () => {
     const attacker = await createTestUser('attacker-f2proxy@example.com');
     const tenantA = await createTestCompany('Tenant A Corp');
     await createTestCompanyMember(attacker.id, tenantA.id);
@@ -64,17 +64,16 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
     const status = proxied.status;
     const bodyText = status === 200 ? '(next/streaming)' : await proxied.text();
     log('PROXY CHECK: GET /api/accounts?companyId=<victim> -> proxy status =', status, '| body =', bodyText);
-    // A blocking response would be 401 (no session) or 403 (CSRF). next() has status 200.
     expect(status).toBe(200);
 
     const res = await accountsGET(req, { params: Promise.resolve({}) });
     const body = await res.json();
-    log('POST-PROXY HANDLER: status =', res.status, '| accounts =', JSON.stringify(body.accounts));
-    expect(res.status).toBe(200);
+    log('POST-PROXY HANDLER: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
   });
 
-  it('GET /api/accounts?companyId=<victim> leaks the victim tenant chart of accounts to a non-member', async () => {
-    // Setup: attacker belongs ONLY to Tenant A; victim company B has secret accounts
+  it('GET /api/accounts?companyId=<victim> returns 403 and leaks no rows to a non-member', async () => {
     const attacker = await createTestUser('attacker-f2@example.com');
     const tenantA = await createTestCompany('Tenant A Corp');
     await createTestCompanyMember(attacker.id, tenantA.id);
@@ -89,8 +88,9 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
     createdCompanyIds.add(victimB.id);
     log('SEEDED: attacker member of Tenant A only | victim company B id =', victimB.id, '| victim account =', victimGl.code, victimGl.name);
 
-    // 1. Control: GET with attacker OWN company returns only Tenant A accounts (no victim data)
     const token = await createSession(attacker.id);
+
+    // 1. Control: GET with attacker OWN company returns only Tenant A accounts (no victim data)
     const resOwn = await accountsGET(
       new NextRequest(`http://localhost/api/accounts?companyId=${tenantA.id}`, {
         method: 'GET',
@@ -116,19 +116,13 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
     const victimCodes = (victimBody.accounts ?? []).map((a: { code: string }) => a.code);
     log('ATTACK GET (victim tenant): status =', resVictim.status, '| codes =', JSON.stringify(victimCodes));
     log('VICTIM ACCOUNT LEAKED:', victimCodes.includes('9999'));
-    expect(victimCodes).toContain('9999');
-    expect(victimCodes).toContain(victimGl.code);
-
-    // 3. Evidence the companyId sent reached the Prisma query verbatim:
-    // the returned row carries the victim companyId, proving the filter used
-    // the declared value and not the attacker's own tenant.
-    const leaked = (victimBody.accounts ?? []).find((a: { code: string }) => a.code === '9999');
-    log('COMPANYID PROPAGATION: sent =', victimB.id, '| returned row companyId =', leaked?.companyId);
-    expect(leaked?.companyId).toBe(victimB.id);
-    expect(leaked?.companyId).not.toBe(tenantA.id);
+    expect(resVictim.status).toBe(403);
+    expect(victimBody.error).toBe('Forbidden');
+    expect(victimCodes).not.toContain('9999');
+    expect(victimCodes).not.toContain(victimGl.code);
   });
 
-  it('POST /api/accounts?companyId=<victim> creates an account inside the victim tenant', async () => {
+  it('POST /api/accounts?companyId=<victim> returns 403 and creates no account in the victim tenant', async () => {
     const attacker = await createTestUser('attacker-f2b@example.com');
     const tenantA = await createTestCompany('Tenant A Corp');
     await createTestCompanyMember(attacker.id, tenantA.id);
@@ -153,17 +147,18 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    log('ATTACK POST (victim tenant): status =', res.status, '| created account =', JSON.stringify(body.account));
+    log('ATTACK POST (victim tenant): status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
 
     const created = await db.glAccount.findUnique({
       where: { companyId_code: { companyId: victimB.id, code: '7777' } },
     });
-    log('DB CHECK: account 7777 exists in victim tenant B =', Boolean(created), '| companyId =', created?.companyId);
-    expect(created?.companyId).toBe(victimB.id);
-    expect(created?.companyId).not.toBe(tenantA.id);
+    log('DB CHECK: account 7777 exists in victim tenant B =', Boolean(created));
+    expect(created).toBeNull();
   });
 
-  it('PUT /api/accounts/[id]?companyId=<victim> modifies a victim account', async () => {
+  it('PUT /api/accounts/[id]?companyId=<victim> returns 403 and modifies no victim account', async () => {
     const attacker = await createTestUser('attacker-f2c@example.com');
     const tenantA = await createTestCompany('Tenant A Corp');
     await createTestCompanyMember(attacker.id, tenantA.id);
@@ -188,14 +183,18 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
       { params: Promise.resolve({ id: victimGl.id }) },
     );
     const body = await res.json();
-    log('ATTACK PUT (victim account): status =', res.status, '| renamed to =', JSON.stringify(body.account?.name));
+    log('ATTACK PUT (victim account): status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
 
     const stored = await db.glAccount.findUnique({ where: { id: victimGl.id } });
-    log('DB CHECK: victim account name after PUT =', stored?.name);
-    expect(stored?.name).toBe('DEFACED by attacker');
+    log('DB CHECK: victim account name after PUT =', stored?.name, '| code =', stored?.code);
+    expect(stored).not.toBeNull();
+    expect(stored?.name).toBe('Victim Account to Modify');
+    expect(stored?.code).toBe('5555');
   });
 
-  it('DELETE /api/accounts/[id]?companyId=<victim> deletes a victim account', async () => {
+  it('DELETE /api/accounts/[id]?companyId=<victim> returns 403 and deletes no victim account', async () => {
     const attacker = await createTestUser('attacker-f2d@example.com');
     const tenantA = await createTestCompany('Tenant A Corp');
     await createTestCompanyMember(attacker.id, tenantA.id);
@@ -219,11 +218,40 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (dynamic PoC)', () => {
       { params: Promise.resolve({ id: victimGl.id }) },
     );
     const body = await res.json();
-    log('ATTACK DELETE (victim account): status =', res.status, '| body =', JSON.stringify(body));
+    log('ATTACK DELETE (victim account): status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
 
     const stored = await db.glAccount.findUnique({ where: { id: victimGl.id } });
     log('DB CHECK: victim account exists after DELETE =', Boolean(stored));
+    expect(stored).not.toBeNull();
+  });
+
+  it('super_admin keeps legitimate cross-tenant access (bypass is intentional)', async () => {
+    const admin = await createTestUser('superadmin-f2@example.com');
+    await db.user.update({ where: { id: admin.id }, data: { role: 'super_admin' } });
+
+    const victimB = await createTestCompany('Tenant B Corp');
+    const victimGl = await createTestGlAccount({
+      companyId: victimB.id,
+      code: '8888',
+      name: 'Victim Account Visible To Super Admin',
+    });
+    createdCompanyIds.add(victimB.id);
+    log('SEEDED: super_admin (no membership) | victim company B id =', victimB.id, '| victim account =', victimGl.code);
+
+    const token = await createSession(admin.id);
+    const res = await accountsGET(
+      new NextRequest(`http://localhost/api/accounts?companyId=${victimB.id}`, {
+        method: 'GET',
+        headers: authHeaders(token),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body = await res.json();
+    const codes = (body.accounts ?? []).map((a: { code: string }) => a.code);
+    log('SUPER_ADMIN GET (victim tenant): status =', res.status, '| codes =', JSON.stringify(codes));
     expect(res.status).toBe(200);
-    expect(stored).toBeNull();
+    expect(codes).toContain('8888');
   });
 });

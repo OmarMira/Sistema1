@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
@@ -12,6 +13,25 @@ export const POST = apiHandler(
         { error: 'El sistema ya tiene datos. No se puede inicializar desde un respaldo.', code: 'DB_NOT_EMPTY' },
         { status: 409 },
       );
+    }
+
+    const setupToken = process.env.BOOTSTRAP_SETUP_TOKEN;
+    if (!setupToken) {
+      return NextResponse.json(
+        { error: 'El servicio de inicialización no está habilitado en este servidor.' },
+        { status: 503 },
+      );
+    }
+
+    const receivedToken = request.headers.get('x-bootstrap-token') ?? '';
+    if (!receivedToken) {
+      return NextResponse.json({ error: 'Se requiere un token de inicialización.' }, { status: 403 });
+    }
+
+    const expectedHash = createHash('sha256').update(setupToken).digest();
+    const receivedHash = createHash('sha256').update(receivedToken).digest();
+    if (expectedHash.length !== receivedHash.length || !timingSafeEqual(expectedHash, receivedHash)) {
+      return NextResponse.json({ error: 'Token de inicialización inválido.' }, { status: 403 });
     }
 
     let backupData: BackupData;

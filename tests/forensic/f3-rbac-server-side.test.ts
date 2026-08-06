@@ -32,7 +32,27 @@ function authHeaders(token: string): Headers {
   return h;
 }
 
-describe('F-3 — Sensitive routes validate membership but apply no role checks server-side (dynamic PoC)', () => {
+async function seedEntry(companyId: string, description = 'Draft entry', status = 'draft') {
+  const gl1 = await createTestGlAccount({ companyId, code: '1000', name: 'Cash' });
+  const gl2 = await createTestGlAccount({ companyId, code: '2000', name: 'AP' });
+  const entry = await db.journalEntry.create({
+    data: {
+      companyId,
+      date: new Date('2026-03-01'),
+      description,
+      status,
+      lines: {
+        create: [
+          { glAccountId: gl1.id, debit: 100, credit: 0 },
+          { glAccountId: gl2.id, debit: 0, credit: 100 },
+        ],
+      },
+    },
+  });
+  return { gl1, gl2, entry };
+}
+
+describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regression)', () => {
   beforeEach(async () => {
     await clearDatabase();
   });
@@ -70,18 +90,18 @@ describe('F-3 — Sensitive routes validate membership but apply no role checks 
 
   afterAll(async () => {
     const leftoverUsers = await db.user.count({ where: { email: { contains: '@example.com' } } });
-    const leftoverCompanies = await db.company.count({ where: { legalName: { in: ['RBAC Test Corp'] } } });
+    const leftoverCompanies = await db.company.count({ where: { legalName: { in: ['RBAC Test Corp', 'RBAC Other Corp'] } } });
     log('AFTER-ALL DB STATE: users =', leftoverUsers, '| rbac companies =', leftoverCompanies);
   });
 
-  it('Policy data point: rbac-config.json declares journal_entries.post for [super_admin,accountant], not viewer', async () => {
+  it('Policy data point: rbac-config.json declares journal_entries.post for [super_admin,accountant], not viewer/employee', async () => {
     const allowed = (config.permissions as Record<string, Record<string, string[]>>).journal_entries.post;
     log('RBAC CONFIG DATA POINT: journal_entries.post allowed roles =', JSON.stringify(allowed));
     expect(allowed).not.toContain('viewer');
     expect(allowed).not.toContain('employee');
   });
 
-  it('viewer can POST a new journal entry (write op intended for accountant/admin)', async () => {
+  it('viewer cannot POST a new journal entry (403)', async () => {
     const user = await createTestUser('viewer-f3@example.com');
     const company = await createTestCompany('RBAC Test Corp');
     await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'viewer' } });
@@ -109,35 +129,87 @@ describe('F-3 — Sensitive routes validate membership but apply no role checks 
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    log('VIEWER POST /api/journal: status =', res.status, '| entry id =', body.id);
-    expect(res.status).toBe(201);
+    log('VIEWER POST /api/journal: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
   });
 
-  it('viewer can POST /api/journal/[id] { action: post } — posts the entry (write op intended for accountant)', async () => {
-    const user = await createTestUser('viewer-f3b@example.com');
+  it('employee cannot POST a new journal entry (403)', async () => {
+    const user = await createTestUser('employee-f3@example.com');
     const company = await createTestCompany('RBAC Test Corp');
-    await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'viewer' } });
+    await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'employee' } });
     createdCompanyIds.add(company.id);
 
     const gl1 = await createTestGlAccount({ companyId: company.id, code: '1000', name: 'Cash' });
     const gl2 = await createTestGlAccount({ companyId: company.id, code: '2000', name: 'AP' });
-    const entry = await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2026-03-01'),
-        description: 'Draft to be posted by viewer',
-        status: 'draft',
-        lines: { create: [
-          { glAccountId: gl1.id, debit: 100, credit: 0 },
-          { glAccountId: gl2.id, debit: 0, credit: 100 },
-        ] },
-      },
-    });
+
+    const token = await createSession(user.id);
+    const res = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          companyId: company.id,
+          date: '2026-03-01',
+          description: 'Employee-created entry',
+          status: 'draft',
+          lines: [
+            { glAccountId: gl1.id, debit: 100, credit: 0 },
+            { glAccountId: gl2.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body = await res.json();
+    log('EMPLOYEE POST /api/journal: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
+  });
+
+  it('company_admin control: can POST a new journal entry (201)', async () => {
+    const user = await createTestUser('admin-f3@example.com');
+    const company = await createTestCompany('RBAC Test Corp');
+    await createTestCompanyMember(user.id, company.id);
+    createdCompanyIds.add(company.id);
+
+    const gl1 = await createTestGlAccount({ companyId: company.id, code: '1000', name: 'Cash' });
+    const gl2 = await createTestGlAccount({ companyId: company.id, code: '2000', name: 'AP' });
+
+    const token = await createSession(user.id);
+    const res = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          companyId: company.id,
+          date: '2026-03-01',
+          description: 'Admin-created entry',
+          status: 'draft',
+          lines: [
+            { glAccountId: gl1.id, debit: 100, credit: 0 },
+            { glAccountId: gl2.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body = await res.json();
+    log('COMPANY_ADMIN POST /api/journal: status =', res.status, '| entry id =', body.id);
+    expect(res.status).toBe(201);
+  });
+
+  it('viewer cannot post /api/journal/[id] { action: post } (403) and the entry stays unchanged', async () => {
+    const user = await createTestUser('viewer-f3b@example.com');
+    const company = await createTestCompany('RBAC Test Corp');
+    await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'viewer' } });
+    createdCompanyIds.add(company.id);
+    const { entry } = await seedEntry(company.id, 'Draft to be posted by viewer');
     log('SEEDED draft entry id =', entry.id);
 
     const token = await createSession(user.id);
     const res = await journalActionPOST(
-      new NextRequest(`http://localhost/api/journal/${entry.id}?companyId=${company.id}`, {
+      new NextRequest(`http://localhost/api/journal/${entry.id}`, {
         method: 'POST',
         headers: authHeaders(token),
         body: JSON.stringify({ action: 'post' }),
@@ -145,16 +217,147 @@ describe('F-3 — Sensitive routes validate membership but apply no role checks 
       { params: Promise.resolve({ id: entry.id }) },
     );
     const body = await res.json();
-    log('VIEWER POST action=post: status =', res.status, '| entry status =', body.status);
+    log('VIEWER POST action=post (no companyId sent): status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
+
+    const stored = await db.journalEntry.findUnique({ where: { id: entry.id }, select: { status: true } });
+    log('DB CHECK: entry status after viewer post attempt =', stored?.status);
+    expect(stored?.status).toBe('draft');
+  });
+
+  it('viewer cannot void /api/journal/[id] { action: void } (403) and the entry stays unchanged', async () => {
+    const user = await createTestUser('viewer-f3void@example.com');
+    const company = await createTestCompany('RBAC Test Corp');
+    await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'viewer' } });
+    createdCompanyIds.add(company.id);
+    const { entry } = await seedEntry(company.id, 'Draft to be voided by viewer');
+
+    const token = await createSession(user.id);
+    const res = await journalActionPOST(
+      new NextRequest(`http://localhost/api/journal/${entry.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({ action: 'void' }),
+      }),
+      { params: Promise.resolve({ id: entry.id }) },
+    );
+    const body = await res.json();
+    log('VIEWER POST action=void: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
+
+    const stored = await db.journalEntry.findUnique({ where: { id: entry.id }, select: { status: true } });
+    log('DB CHECK: entry status after viewer void attempt =', stored?.status);
+    expect(stored?.status).toBe('draft');
+  });
+
+  it('member of ANOTHER company cannot post /api/journal/[id] (403, resource-scoped, no companyId sent)', async () => {
+    const attacker = await createTestUser('other-f3@example.com');
+    const attackerCompany = await createTestCompany('RBAC Other Corp');
+    await createTestCompanyMember(attacker.id, attackerCompany.id);
+    createdCompanyIds.add(attackerCompany.id);
+
+    const victimCompany = await createTestCompany('RBAC Test Corp');
+    createdCompanyIds.add(victimCompany.id);
+    const { entry } = await seedEntry(victimCompany.id, 'Victim draft to protect');
+    log('SEEDED: attacker member of OTHER company | victim entry id =', entry.id);
+
+    const token = await createSession(attacker.id);
+    const res = await journalActionPOST(
+      new NextRequest(`http://localhost/api/journal/${entry.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({ action: 'post' }),
+      }),
+      { params: Promise.resolve({ id: entry.id }) },
+    );
+    const body = await res.json();
+    log('OTHER-COMPANY POST action=post: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+
+    const stored = await db.journalEntry.findUnique({ where: { id: entry.id }, select: { status: true } });
+    log('DB CHECK: victim entry status after attack =', stored?.status);
+    expect(stored?.status).toBe('draft');
+  });
+
+  it('a fake companyId sent by the client does NOT prevail over entry.companyId (403)', async () => {
+    const attacker = await createTestUser('fakecid-f3@example.com');
+    const attackerCompany = await createTestCompany('RBAC Other Corp');
+    await createTestCompanyMember(attacker.id, attackerCompany.id);
+    createdCompanyIds.add(attackerCompany.id);
+
+    const victimCompany = await createTestCompany('RBAC Test Corp');
+    createdCompanyIds.add(victimCompany.id);
+    const { entry } = await seedEntry(victimCompany.id, 'Victim entry with fake companyId');
+    log('SEEDED victim entry id =', entry.id, '| attacker sends fake companyId =', victimCompany.id);
+
+    const token = await createSession(attacker.id);
+    const res = await journalActionPOST(
+      new NextRequest(`http://localhost/api/journal/${entry.id}?companyId=${victimCompany.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({ action: 'post', companyId: victimCompany.id }),
+      }),
+      { params: Promise.resolve({ id: entry.id }) },
+    );
+    const body = await res.json();
+    log('FAKE COMPANYID ATTACK: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+
+    const stored = await db.journalEntry.findUnique({ where: { id: entry.id }, select: { status: true } });
+    expect(stored?.status).toBe('draft');
+  });
+
+  it('company_admin of the owning company can post with NO companyId sent (200, resource-scoped)', async () => {
+    const user = await createTestUser('own-admin-f3@example.com');
+    const company = await createTestCompany('RBAC Test Corp');
+    await createTestCompanyMember(user.id, company.id);
+    createdCompanyIds.add(company.id);
+    const { entry } = await seedEntry(company.id, 'Draft to be posted by owning admin');
+
+    const token = await createSession(user.id);
+    const res = await journalActionPOST(
+      new NextRequest(`http://localhost/api/journal/${entry.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({ action: 'post' }),
+      }),
+      { params: Promise.resolve({ id: entry.id }) },
+    );
+    const body = await res.json();
+    log('OWNING COMPANY_ADMIN POST action=post (no companyId): status =', res.status, '| status =', body.status);
     expect(res.status).toBe(200);
     expect(body.status).toBe('posted');
 
     const stored = await db.journalEntry.findUnique({ where: { id: entry.id }, select: { status: true } });
-    log('DB CHECK: entry status after viewer post =', stored?.status);
     expect(stored?.status).toBe('posted');
   });
 
-  it('viewer can POST /api/bank-rules/apply-all — runs automatic classification (write op)', async () => {
+  it('super_admin without membership keeps bypass on /api/journal/[id] (200)', async () => {
+    const admin = await createTestUser('superadmin-f3@example.com');
+    await db.user.update({ where: { id: admin.id }, data: { role: 'super_admin' } });
+    const company = await createTestCompany('RBAC Test Corp');
+    createdCompanyIds.add(company.id);
+    const { entry } = await seedEntry(company.id, 'Draft to be posted by super_admin');
+    log('SEEDED: super_admin with NO membership row | entry id =', entry.id);
+
+    const token = await createSession(admin.id);
+    const res = await journalActionPOST(
+      new NextRequest(`http://localhost/api/journal/${entry.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({ action: 'post' }),
+      }),
+      { params: Promise.resolve({ id: entry.id }) },
+    );
+    const body = await res.json();
+    log('SUPER_ADMIN POST action=post (no membership): status =', res.status, '| status =', body.status);
+    expect(res.status).toBe(200);
+    expect(body.status).toBe('posted');
+  });
+
+  it('viewer cannot POST /api/bank-rules/apply-all (403)', async () => {
     const user = await createTestUser('viewer-f3c@example.com');
     const company = await createTestCompany('RBAC Test Corp');
     await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'viewer' } });
@@ -170,15 +373,36 @@ describe('F-3 — Sensitive routes validate membership but apply no role checks 
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    log('VIEWER POST apply-all: status =', res.status, '| body =', JSON.stringify(body));
-    // apply-all with no transactions returns EXECUTED/success 200 — NOT 403
-    expect([200, 201]).toContain(res.status);
+    log('VIEWER POST apply-all: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
   });
 
-  it('viewer can POST /api/backup — exports full company backup (write op intended for admin)', async () => {
+  it('viewer cannot POST /api/backup (403)', async () => {
     const user = await createTestUser('viewer-f3d@example.com');
     const company = await createTestCompany('RBAC Test Corp');
     await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'viewer' } });
+    createdCompanyIds.add(company.id);
+
+    const token = await createSession(user.id);
+    const res = await backupPOST(
+      new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({}),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body = await res.json();
+    log('VIEWER POST /api/backup: status =', res.status, '| error =', JSON.stringify(body.error));
+    expect(res.status).toBe(403);
+    expect(body.error).toBe('Forbidden');
+  });
+
+  it('company_admin control: can POST /api/backup (200)', async () => {
+    const user = await createTestUser('admin-backup-f3@example.com');
+    const company = await createTestCompany('RBAC Test Corp');
+    await createTestCompanyMember(user.id, company.id);
     createdCompanyIds.add(company.id);
     diskTestCompanyIds.add(company.id);
 
@@ -192,7 +416,7 @@ describe('F-3 — Sensitive routes validate membership but apply no role checks 
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    log('VIEWER POST /api/backup: status =', res.status, '| filename =', body.filename, '| size =', body.size);
+    log('COMPANY_ADMIN POST /api/backup: status =', res.status, '| filename =', body.filename);
     expect(res.status).toBe(200);
     expect(body.filename).toBeDefined();
   });

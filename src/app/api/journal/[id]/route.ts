@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { createAuditLogWithRetry } from '@/lib/audit';
@@ -217,13 +218,8 @@ export const POST = apiHandler(
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
     }
 
-    // Verify access
-    const membership = await db.companyMember.findUnique({
-      where: { userId_companyId: { userId, companyId: entry.companyId } },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Verify access: tenant role gate, resource-scoped to entry.companyId
+    await requireCompanyRole(entry.companyId, ['company_admin']);
 
     const body = await request.json();
     const { action } = body;

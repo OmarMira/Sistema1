@@ -72,8 +72,8 @@ beforeEach(() => {
 
   // Default auth: user is authenticated and has membership
   mockGetSessionUserId.mockResolvedValue('user-1');
-  mockDbUserFindUnique.mockResolvedValue({ role: 'admin' });
-  mockDbCompanyMemberFindUnique.mockResolvedValue({ userId: 'user-1', companyId: 'c1' });
+  mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+  mockDbCompanyMemberFindUnique.mockResolvedValue({ userId: 'user-1', companyId: 'c1', role: 'company_admin' });
 
   // Default rate limit: allow
   mockCheckRateLimit.mockReturnValue({

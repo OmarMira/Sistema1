@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 import { createJournalEntrySchema } from '@/lib/validations/journal';
 import { JournalService } from '@/lib/services/journal.service';
@@ -117,6 +118,8 @@ export const GET = apiHandler(async (request: NextRequest) => {
 // Create a new journal entry with lines.
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const body = await validateRequest(request, createJournalEntrySchema);
   if (body instanceof NextResponse) return body;

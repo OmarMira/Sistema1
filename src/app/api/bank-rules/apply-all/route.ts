@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { serverT } from '@/lib/server-i18n';
 import { executeApplyAllUseCase } from '@/lib/services/apply-all-use-case';
 
@@ -20,6 +21,9 @@ import { executeApplyAllUseCase } from '@/lib/services/apply-all-use-case';
 // the enforcement mechanism. No additional filter is needed here.
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+
+  await requireCompanyRole(companyId, ['company_admin']);
+
   const locale = request.headers.get('x-locale') || 'es';
 
   // Read params from body

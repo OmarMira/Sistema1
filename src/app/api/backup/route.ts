@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { createBackup, listBackups, deleteBackup } from '@/lib/backup';
 import { createAuditLogWithRetry } from '@/lib/audit';
 
@@ -10,6 +11,8 @@ import { createAuditLogWithRetry } from '@/lib/audit';
  */
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const result = await createBackup(companyId);
 

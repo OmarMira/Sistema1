@@ -36,6 +36,7 @@ export async function getSessionUserId(request: NextRequest): Promise<string | n
 
   const session = await db.session.findUnique({
     where: { token: hashedToken },
+    include: { user: { select: { isActive: true } } },
   });
 
   if (!session) return null;
@@ -45,6 +46,9 @@ export async function getSessionUserId(request: NextRequest): Promise<string | n
     await db.session.delete({ where: { token: hashedToken } }).catch(() => {});
     return null;
   }
+
+  // F-6: deactivated users lose access to all existing sessions (401 upstream)
+  if (!session.user?.isActive) return null;
 
   return session.userId;
 }

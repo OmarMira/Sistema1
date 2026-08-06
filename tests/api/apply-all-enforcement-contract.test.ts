@@ -7,6 +7,7 @@ const mockGetSessionUserId = vi.hoisted(() => vi.fn().mockResolvedValue('user-1'
 const mockCheckRateLimit = vi.hoisted(() => vi.fn());
 const mockDbUserFindUnique = vi.hoisted(() => vi.fn());
 const mockDbCompanyMemberFindUnique = vi.hoisted(() => vi.fn());
+const mockDbCompanyFindUnique = vi.hoisted(() => vi.fn());
 const mockExecuteApplyAllUseCase = vi.hoisted(() => vi.fn());
 
 // ─── Module mocks ───────────────────────────────────────────────────
@@ -23,6 +24,7 @@ vi.mock('@/lib/db', () => ({
   db: {
     user: { findUnique: mockDbUserFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },
+    company: { findUnique: mockDbCompanyFindUnique },
   },
 }));
 
@@ -80,6 +82,7 @@ beforeEach(() => {
   mockGetSessionUserId.mockResolvedValue('user-1');
   mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
   mockDbCompanyMemberFindUnique.mockResolvedValue({ userId: 'user-1', companyId: 'c1', role: 'company_admin' });
+  mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
   mockCheckRateLimit.mockReturnValue({
     allowed: true, limit: 100, remaining: 99,
     resetAt: Math.ceil(Date.now() / 1000) + 60,

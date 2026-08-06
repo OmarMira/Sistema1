@@ -4,6 +4,7 @@ import { NextRequest } from 'next/server';
 const mockGetSessionUserId = vi.hoisted(() => vi.fn().mockResolvedValue('user-1'));
 const mockDbUserFindUnique = vi.hoisted(() => vi.fn());
 const mockDbCompanyMemberFindUnique = vi.hoisted(() => vi.fn());
+const mockDbCompanyFindUnique = vi.hoisted(() => vi.fn());
 const mockSimulateApply = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/sessions', () => ({
@@ -14,6 +15,7 @@ vi.mock('@/lib/db', () => ({
   db: {
     user: { findUnique: mockDbUserFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },
+    company: { findUnique: mockDbCompanyFindUnique },
   },
 }));
 
@@ -39,6 +41,7 @@ beforeEach(() => {
   mockGetSessionUserId.mockResolvedValue('user-1');
   mockDbUserFindUnique.mockResolvedValue({ role: 'user' });
   mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'membership-1' });
+  mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
   mockSimulateApply.mockResolvedValue({
     matchResult: { matchedRules: [] },
     readOnly: true,

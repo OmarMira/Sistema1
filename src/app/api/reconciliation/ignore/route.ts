@@ -1,16 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getSessionUserId } from '@/lib/sessions';
+import { apiHandler } from '@/lib/api-handler';
+import { requireCurrentUserId } from '@/lib/context-storage';
 import { logger } from '@/lib/logger';
 
 // ─── PATCH /api/reconciliation/ignore ──────────────────────────────
 // Toggle ignore status for transactions.
 // Body: { companyId, transactionIds: string[], ignore: boolean }
-export async function PATCH(request: NextRequest) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+export const PATCH = apiHandler(async (request: NextRequest) => {
+  const userId = requireCurrentUserId();
 
   try {
     const body = await request.json();
@@ -37,13 +35,7 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    // Verify access
-    const membership = await db.companyMember.findUnique({
-      where: { userId_companyId: { userId, companyId } },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // Verify access delegated to apiHandler tenant gate (requireActiveTenantAccess)
 
     // If ignoring, ensure transactions are not already reconciled
     if (ignore) {
@@ -118,4 +110,4 @@ export async function PATCH(request: NextRequest) {
       { status: 500 }
     );
   }
-}
+});

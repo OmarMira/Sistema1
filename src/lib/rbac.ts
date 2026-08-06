@@ -6,6 +6,48 @@ export type CompanyRole = 'company_admin' | 'employee' | 'viewer';
 
 export const COMPANY_ROLES: readonly CompanyRole[] = ['company_admin', 'employee', 'viewer'];
 
+/**
+ * Internal authenticated context built by apiHandler from the validated
+ * session and the already-fetched user role. NOT a public parameter: it is
+ * derived from server-side state, never from request input.
+ */
+export interface AuthenticatedUserContext {
+  userId: string;
+  role: string;
+}
+
+/**
+ * F-6: tenant-level access gate. Single source of truth for:
+ *   - super_admin bypass (platform operator keeps access to deactivated tenants);
+ *   - Company.isActive (deactivated tenant blocks normal members, 403);
+ *   - CompanyMember existence (removed membership, 403).
+ * User.isActive is validated at session resolution (getSessionUserId), not here.
+ */
+export async function requireActiveTenantAccess(
+  companyId: string,
+  auth: AuthenticatedUserContext,
+): Promise<void> {
+  if (auth.role === 'super_admin') {
+    return;
+  }
+
+  const company = await db.company.findUnique({
+    where: { id: companyId },
+    select: { isActive: true },
+  });
+  if (!company?.isActive) {
+    throw new ForbiddenError('Company is deactivated');
+  }
+
+  const membership = await db.companyMember.findUnique({
+    where: { userId_companyId: { userId: auth.userId, companyId } },
+    select: { id: true },
+  });
+  if (!membership) {
+    throw new ForbiddenError('Forbidden');
+  }
+}
+
 export async function requireCompanyRole(
   companyId: string,
   allowedRoles: readonly CompanyRole[],

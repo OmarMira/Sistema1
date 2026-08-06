@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { AppError, AuthError, ForbiddenError, ValidationError } from './api-error';
 import { getSessionUserId } from './sessions';
+import { requireActiveTenantAccess } from './rbac';
 import { checkRateLimit } from './security/rate-limiter';
 import { db } from './db';
 import { requestContext } from './context-storage';
@@ -110,20 +111,14 @@ export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {})
         }
       }
 
-      // 5. Validar membresía de empresa (con bypass para super_admin)
+      // 5. Validar acceso tenant (empresa activa + membresía, con bypass super_admin)
+      //    Delegado a requireActiveTenantAccess: única fuente de verdad.
       if (requireMembership && userId) {
         if (!companyId) {
           throw new ValidationError('companyId is required');
         }
 
-        if (userRole !== 'super_admin') {
-          const membership = await db.companyMember.findUnique({
-            where: { userId_companyId: { userId, companyId } },
-          });
-          if (!membership) {
-            throw new ForbiddenError('Forbidden');
-          }
-        }
+        await requireActiveTenantAccess(companyId, { userId, role: userRole ?? '' });
       }
 
       // 5. Ejecutar validación de rate limit

@@ -14,6 +14,9 @@ vi.mock('../../src/lib/db', () => ({
     companyMember: {
       findUnique: vi.fn().mockResolvedValue({ id: 'member-123', userId: 'user-id-123', companyId: 'c123' }),
     },
+    company: {
+      findUnique: vi.fn().mockResolvedValue({ id: 'c123', isActive: true }),
+    },
     bankRule: {
       count: vi.fn().mockResolvedValue(5),
       findMany: vi.fn().mockImplementation(({ skip, take }) => {

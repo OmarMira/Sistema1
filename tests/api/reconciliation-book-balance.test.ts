@@ -5,6 +5,7 @@ import { NextRequest } from 'next/server';
 const mockDb = vi.hoisted(() => ({
   user: { findUnique: vi.fn() },
   companyMember: { findUnique: vi.fn() },
+  company: { findUnique: vi.fn() },
   bankAccount: { findFirst: vi.fn() },
   bankStatement: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
   bankTransaction: { findMany: vi.fn(), count: vi.fn() },
@@ -27,6 +28,7 @@ function mockContext() {
     userId: 'user-test',
     companyId: 'c1',
   });
+  mockDb.company.findUnique.mockResolvedValue({ isActive: true });
 }
 
 function mockBankAccount() {

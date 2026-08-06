@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { getSessionUserId } from '@/lib/sessions';
+import { apiHandler } from '@/lib/api-handler';
 import { z } from 'zod';
 
 // ─── GET /api/reconciliation/report ────────────────────────────────
@@ -11,12 +11,7 @@ const paramsSchema = z.object({
   companyId: z.string().min(1, 'companyId is required'),
 });
 
-export async function GET(request: NextRequest) {
-  const userId = await getSessionUserId(request);
-  if (!userId) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
+export const GET = apiHandler(async (request: NextRequest) => {
   const { searchParams } = new URL(request.url);
   const raw = {
     bankAccountId: searchParams.get('bankAccountId'),
@@ -32,14 +27,6 @@ export async function GET(request: NextRequest) {
   }
 
   const { bankAccountId, companyId } = parsed.data;
-
-  // Verify access
-  const membership = await db.companyMember.findUnique({
-    where: { userId_companyId: { userId, companyId } },
-  });
-  if (!membership) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
 
   // Get bank account with GL account info
   const bankAccount = await db.bankAccount.findFirst({
@@ -180,4 +167,4 @@ export async function GET(request: NextRequest) {
       reference: tx.reference,
     })),
   });
-}
+});

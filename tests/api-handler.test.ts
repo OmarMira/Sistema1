@@ -5,11 +5,12 @@ import { ValidationError } from '@/lib/api-error';
 
 // ── Hoisted mock factories (must be before vi.mock) ─────────
 
-const { mockGetSessionUserId, mockCheckRateLimit, mockDbUserFindUnique, mockDbCompanyMemberFindUnique, mockRequestContextRun, mockLoggerError } = vi.hoisted(() => ({
+const { mockGetSessionUserId, mockCheckRateLimit, mockDbUserFindUnique, mockDbCompanyMemberFindUnique, mockDbCompanyFindUnique, mockRequestContextRun, mockLoggerError } = vi.hoisted(() => ({
   mockGetSessionUserId: vi.fn(),
   mockCheckRateLimit: vi.fn(),
   mockDbUserFindUnique: vi.fn(),
   mockDbCompanyMemberFindUnique: vi.fn(),
+  mockDbCompanyFindUnique: vi.fn(),
   mockRequestContextRun: vi.fn(),
   mockLoggerError: vi.fn(),
 }));
@@ -28,6 +29,7 @@ vi.mock('@/lib/db', () => ({
   db: {
     user: { findUnique: mockDbUserFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },
+    company: { findUnique: mockDbCompanyFindUnique },
   },
 }));
 
@@ -65,6 +67,7 @@ describe('apiHandler', () => {
       remaining: 99,
       resetAt: Math.ceil(Date.now() / 1000) + 60,
     });
+    mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
   });
 
   afterEach(() => {

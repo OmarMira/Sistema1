@@ -9,6 +9,9 @@ vi.mock('../src/lib/sessions', () => ({
 
 vi.mock('../src/lib/db', () => ({
   db: {
+    company: {
+      findUnique: vi.fn().mockResolvedValue({ id: 'c123', isActive: true }),
+    },
     companyMember: {
       findUnique: vi.fn().mockResolvedValue({ id: 'member-123' }),
       findFirst: vi.fn().mockResolvedValue({ id: 'member-123' }),

@@ -3,6 +3,7 @@ import { AppError, AuthError, ForbiddenError, ValidationError } from './api-erro
 import { getSessionUserId } from './sessions';
 import { requireActiveTenantAccess } from './rbac';
 import { checkRateLimit } from './security/rate-limiter';
+import { getClientIp } from './security/client-ip';
 import { db } from './db';
 import { requestContext } from './context-storage';
 import { logger } from './logger';
@@ -122,25 +123,41 @@ export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {})
       }
 
       // 5. Ejecutar validación de rate limit
-      const rateLimitKey = userId || request.headers.get('x-forwarded-for') || 'anonymous';
-      const { allowed, limit, remaining, resetAt } = checkRateLimit(
-        rateLimitKey,
-        companyId || 'global',
-        request.nextUrl.pathname,
-      );
-      if (!allowed) {
-        return NextResponse.json(
-          { error: '429 Too Many Requests', retryAfter: resetAt },
-          {
-            status: 429,
-            headers: {
-              'Retry-After': resetAt.toString(),
-              'X-RateLimit-Limit': limit.toString(),
-              'X-RateLimit-Remaining': '0',
-              'X-RateLimit-Reset': resetAt.toString(),
-            },
-          },
+      // Clave: userId (autenticado) o IP confiable (anónimo tras proxy verificado).
+      // DECISIÓN DE SEGURIDAD: cuando clientIp === null y no existe userId, se omite
+      // deliberadamente el rate limit genérico para NO crear un bucket global compartido
+      // (p.ej. "anonymous"), que un atacante podría agotar para DoS a todos los usuarios.
+      const clientIp = getClientIp(request);
+      const rateLimitKey = userId || clientIp;
+      let rateLimitApplied = false;
+      let limit = 0;
+      let remaining = 0;
+      let resetAt = '';
+
+      if (rateLimitKey !== null) {
+        const rl = checkRateLimit(
+          rateLimitKey,
+          companyId || 'global',
+          request.nextUrl.pathname,
         );
+        limit = rl.limit;
+        remaining = rl.remaining;
+        resetAt = rl.resetAt.toString();
+        rateLimitApplied = true;
+        if (!rl.allowed) {
+          return NextResponse.json(
+            { error: '429 Too Many Requests', retryAfter: rl.resetAt },
+            {
+              status: 429,
+              headers: {
+                'Retry-After': rl.resetAt.toString(),
+                'X-RateLimit-Limit': rl.limit.toString(),
+                'X-RateLimit-Remaining': '0',
+                'X-RateLimit-Reset': rl.resetAt.toString(),
+              },
+            },
+          );
+        }
       }
 
       // 6. Ejecutar el handler en AsyncLocalStorage
@@ -154,9 +171,11 @@ export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {})
         Object.entries(API_SECURITY_HEADERS).forEach(([key, value]) => {
           response.headers.set(key, value);
         });
-        response.headers.set('X-RateLimit-Limit', limit.toString());
-        response.headers.set('X-RateLimit-Remaining', remaining.toString());
-        response.headers.set('X-RateLimit-Reset', resetAt.toString());
+        if (rateLimitApplied) {
+          response.headers.set('X-RateLimit-Limit', limit.toString());
+          response.headers.set('X-RateLimit-Remaining', remaining.toString());
+          response.headers.set('X-RateLimit-Reset', resetAt);
+        }
       }
 
       return response;

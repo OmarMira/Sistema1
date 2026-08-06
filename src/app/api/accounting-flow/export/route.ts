@@ -4,6 +4,7 @@ import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { AuthError, ValidationError } from '@/lib/api-error';
 import { logger } from '@/lib/logger';
+import { getClientIp } from '@/lib/security/client-ip';
 import { aggregateAccountingFlow } from '@/lib/accounting/flow-aggregator';
 import { formatFlowToCSV } from '@/lib/accounting/export-formatter';
 
@@ -41,8 +42,10 @@ function checkRateLimit(ip: string): boolean {
 export const GET = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
 
-  const ip = request.headers.get('x-forwarded-for') || '127.0.0.1';
-  if (!checkRateLimit(ip)) {
+  const ip = getClientIp(request);
+  // Sin IP confiable (CLIENT_IP_SOURCE=none) se omite la dimensión IP de este throttle
+  // local: la ruta es autenticada y ya queda limitada por userId vía apiHandler.
+  if (ip !== null && !checkRateLimit(ip)) {
     return new NextResponse(
       JSON.stringify({
         error: 'Demasiadas solicitudes de exportación. Intenta de nuevo más tarde.',

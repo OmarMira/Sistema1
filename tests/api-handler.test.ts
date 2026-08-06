@@ -203,7 +203,7 @@ describe('apiHandler', () => {
     expect(res.headers.get('X-RateLimit-Remaining')).toBe('0');
   });
 
-  it('rate limit key uses x-forwarded-for when no user', async () => {
+  it('anonymous request without a trusted IP is NOT rate limited (no global bucket)', async () => {
     mockGetSessionUserId.mockResolvedValue(null);
     mockCheckRateLimit.mockReturnValue({
       allowed: false,
@@ -221,8 +221,9 @@ describe('apiHandler', () => {
     });
     const res = await handler(req, defaultContext);
 
-    expect(res.status).toBe(429);
-    expect(mockCheckRateLimit.mock.calls[0][0]).toBe('10.0.0.1');
+    expect(res.status).toBe(200);
+    expect(mockCheckRateLimit).not.toHaveBeenCalled();
+    expect(res.headers.get('X-RateLimit-Remaining')).toBeNull();
   });
 
   /* ── Error handling ──────────────────────────────────── */

@@ -62,20 +62,22 @@ export class RateLimiter {
   }
 
   public check(
-    ip: string,
+    ip: string | null,
     email?: string,
   ): { success: boolean; limitType?: 'ip' | 'email'; resetTime?: number } {
     const now = Date.now();
 
     // Check IP
-    let ipInfo = this.ipHits.get(ip);
-    if (!ipInfo || now > ipInfo.resetTime) {
-      ipInfo = { count: 0, resetTime: now + this.ipWindowMs };
-      this.ipHits.set(ip, ipInfo);
-    }
+    if (ip !== null) {
+      let ipInfo = this.ipHits.get(ip);
+      if (!ipInfo || now > ipInfo.resetTime) {
+        ipInfo = { count: 0, resetTime: now + this.ipWindowMs };
+        this.ipHits.set(ip, ipInfo);
+      }
 
-    if (ipInfo.count >= this.ipLimit) {
-      return { success: false, limitType: 'ip', resetTime: ipInfo.resetTime };
+      if (ipInfo.count >= this.ipLimit) {
+        return { success: false, limitType: 'ip', resetTime: ipInfo.resetTime };
+      }
     }
 
     // Check Email
@@ -95,17 +97,19 @@ export class RateLimiter {
     return { success: true };
   }
 
-  public increment(ip: string, email?: string): void {
+  public increment(ip: string | null, email?: string): void {
     const now = Date.now();
 
     // Increment IP
-    let ipInfo = this.ipHits.get(ip);
-    if (!ipInfo || now > ipInfo.resetTime) {
-      ipInfo = { count: 0, resetTime: now + this.ipWindowMs };
+    if (ip !== null) {
+      let ipInfo = this.ipHits.get(ip);
+      if (!ipInfo || now > ipInfo.resetTime) {
+        ipInfo = { count: 0, resetTime: now + this.ipWindowMs };
+      }
+      ipInfo.count++;
+      this.ipHits.set(ip, ipInfo);
+      this.persist(`ip:${ip}`, ipInfo.count, this.ipWindowMs, ipInfo.resetTime);
     }
-    ipInfo.count++;
-    this.ipHits.set(ip, ipInfo);
-    this.persist(`ip:${ip}`, ipInfo.count, this.ipWindowMs, ipInfo.resetTime);
 
     // Increment Email
     if (email) {
@@ -120,8 +124,10 @@ export class RateLimiter {
     }
   }
 
-  public reset(ip: string, email?: string): void {
-    this.ipHits.delete(ip);
+  public reset(ip: string | null, email?: string): void {
+    if (ip !== null) {
+      this.ipHits.delete(ip);
+    }
     if (email) {
       this.emailHits.delete(email.toLowerCase().trim());
     }

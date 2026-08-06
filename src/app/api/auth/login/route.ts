@@ -5,11 +5,12 @@ import { validateRequest } from '@/lib/validate-request';
 import { loginSchema } from '@/lib/validations/auth';
 import { AuthService } from '@/lib/services/auth.service';
 import { authRateLimiter } from '@/lib/rate-limiter';
+import { getClientIp } from '@/lib/security/client-ip';
 
 // ─── POST /api/auth/login ─────────────────────────────────────────────
 export const POST = apiHandler(
   async (request: NextRequest) => {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || '127.0.0.1';
+    const ip = getClientIp(request);
     const body = await request.clone().json();
     const email = typeof body?.email === 'string' ? body.email : undefined;
 

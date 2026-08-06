@@ -4,7 +4,7 @@ import { hashPassword } from '@/lib/auth';
 import { apiHandler, RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { saveLogo } from '@/lib/uploads/logo-service';
-import { createUserSchema } from '@/lib/validations/admin';
+import { createAdminUserSchema } from '@/lib/validations/admin';
 import { parseAdminBody } from '@/lib/parse-admin-body';
 
 export const GET = apiHandler(
@@ -38,7 +38,7 @@ export const POST = apiHandler(
   async (request: NextRequest) => {
     const userId = requireCurrentUserId();
 
-    const parsed = await parseAdminBody(request, createUserSchema);
+    const parsed = await parseAdminBody(request, createAdminUserSchema);
     if (!parsed.ok) return parsed.error;
 
     const {

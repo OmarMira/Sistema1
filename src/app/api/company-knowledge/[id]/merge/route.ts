@@ -23,7 +23,6 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       targetKnowledgeId: id,
       companyId,
       fieldResolutions: body.fieldResolutions,
-      changedByUserId: body.changedByUserId,
     });
     return NextResponse.json({ knowledgeId: record.id, version: record.version });
   } catch (e) {

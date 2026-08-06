@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
+import { requestContext } from '@/lib/context-storage';
 
 // ───────────────────────────────────────────────
 // Mock Prisma — no database needed
@@ -260,10 +261,10 @@ describe('confirmCreate', () => {
     vi.mocked(db.knowledgeAudit.create).mockResolvedValue(makeAudit());
     vi.mocked(db.pendingApproval.delete).mockResolvedValue(pending);
 
-    const result = await entityService.confirmCreate({
-      pendingApprovalId: 'pa-1',
-      confirmedByUserId: 'approver-1',
-    });
+    const result = await requestContext.run(
+      { userId: 'approver-1', companyId: 'company-1' },
+      () => entityService.confirmCreate({ pendingApprovalId: 'pa-1' }),
+    );
 
     // Creates the entity with version=1
     expect(db.companyKnowledge.create).toHaveBeenCalledWith({
@@ -311,10 +312,9 @@ describe('confirmCreate', () => {
     vi.mocked(db.pendingApproval.findUnique).mockResolvedValue(null);
 
     await expect(
-      entityService.confirmCreate({
-        pendingApprovalId: 'pa-missing',
-        confirmedByUserId: 'approver-1',
-      }),
+      requestContext.run({ userId: 'approver-1', companyId: 'company-1' }, () =>
+        entityService.confirmCreate({ pendingApprovalId: 'pa-missing' }),
+      ),
     ).rejects.toThrow('PendingApproval pa-missing not found');
   });
 
@@ -324,10 +324,9 @@ describe('confirmCreate', () => {
     );
 
     await expect(
-      entityService.confirmCreate({
-        pendingApprovalId: 'pa-1',
-        confirmedByUserId: 'approver-1',
-      }),
+      requestContext.run({ userId: 'approver-1', companyId: 'company-1' }, () =>
+        entityService.confirmCreate({ pendingApprovalId: 'pa-1' }),
+      ),
     ).rejects.toThrow('PendingApproval is not in pending state');
   });
 
@@ -337,10 +336,9 @@ describe('confirmCreate', () => {
     );
 
     await expect(
-      entityService.confirmCreate({
-        pendingApprovalId: 'pa-1',
-        confirmedByUserId: 'approver-1',
-      }),
+      requestContext.run({ userId: 'approver-1', companyId: 'company-1' }, () =>
+        entityService.confirmCreate({ pendingApprovalId: 'pa-1' }),
+      ),
     ).rejects.toThrow('PendingApproval action must be "create"');
   });
 });
@@ -487,10 +485,10 @@ describe('confirmUpdate', () => {
     vi.mocked(db.knowledgeAudit.create).mockResolvedValue(makeAudit());
     vi.mocked(db.pendingApproval.delete).mockResolvedValue(pending);
 
-    const result = await entityService.confirmUpdate({
-      pendingApprovalId: 'pa-1',
-      confirmedByUserId: 'approver-1',
-    });
+    const result = await requestContext.run(
+      { userId: 'approver-1', companyId: 'company-1' },
+      () => entityService.confirmUpdate({ pendingApprovalId: 'pa-1' }),
+    );
 
     expect(db.companyKnowledge.update).toHaveBeenCalledWith({
       where: { id: 'ck-1' },
@@ -541,11 +539,10 @@ describe('archive', () => {
     );
     vi.mocked(db.knowledgeAudit.create).mockResolvedValue(makeAudit());
 
-    const result = await entityService.archive({
-      knowledgeId: 'ck-1',
-      companyId: 'company-1',
-      changedByUserId: 'user-1',
-    });
+    const result = await requestContext.run(
+      { userId: 'user-1', companyId: 'company-1' },
+      () => entityService.archive({ knowledgeId: 'ck-1', companyId: 'company-1' }),
+    );
 
     expect(db.companyKnowledge.update).toHaveBeenCalledWith({
       where: { id: 'ck-1' },
@@ -575,11 +572,9 @@ describe('archive', () => {
     );
 
     await expect(
-      entityService.archive({
-        knowledgeId: 'ck-1',
-        companyId: 'company-1',
-        changedByUserId: 'user-1',
-      }),
+      requestContext.run({ userId: 'user-1', companyId: 'company-1' }, () =>
+        entityService.archive({ knowledgeId: 'ck-1', companyId: 'company-1' }),
+      ),
     ).rejects.toThrow('Cannot archive');
   });
 });
@@ -610,11 +605,10 @@ describe('restore', () => {
     );
     vi.mocked(db.knowledgeAudit.create).mockResolvedValue(makeAudit());
 
-    const result = await entityService.restore({
-      knowledgeId: 'ck-1',
-      companyId: 'company-1',
-      changedByUserId: 'user-1',
-    });
+    const result = await requestContext.run(
+      { userId: 'user-1', companyId: 'company-1' },
+      () => entityService.restore({ knowledgeId: 'ck-1', companyId: 'company-1' }),
+    );
 
     expect(db.companyKnowledge.update).toHaveBeenCalledWith({
       where: { id: 'ck-1' },
@@ -644,11 +638,9 @@ describe('restore', () => {
     );
 
     await expect(
-      entityService.restore({
-        knowledgeId: 'ck-1',
-        companyId: 'company-1',
-        changedByUserId: 'user-1',
-      }),
+      requestContext.run({ userId: 'user-1', companyId: 'company-1' }, () =>
+        entityService.restore({ knowledgeId: 'ck-1', companyId: 'company-1' }),
+      ),
     ).rejects.toThrow('Cannot restore');
   });
 });
@@ -699,14 +691,17 @@ describe('merge', () => {
 
     vi.mocked(db.knowledgeAudit.create).mockResolvedValue(makeAudit());
 
-    const result = await entityService.merge({
-      sourceKnowledgeId: 'ck-source',
-      targetKnowledgeId: 'ck-target',
-      companyId: 'company-1',
-      fieldResolutions: { canonicalName: 'Resolved Name' },
-      changedByUserId: 'user-1',
-      reason: 'Duplicate found',
-    });
+    const result = await requestContext.run(
+      { userId: 'user-1', companyId: 'company-1' },
+      () =>
+        entityService.merge({
+          sourceKnowledgeId: 'ck-source',
+          targetKnowledgeId: 'ck-target',
+          companyId: 'company-1',
+          fieldResolutions: { canonicalName: 'Resolved Name' },
+          reason: 'Duplicate found',
+        }),
+    );
 
     // Source gets merged
     expect(db.companyKnowledge.update).toHaveBeenCalledWith({
@@ -745,13 +740,14 @@ describe('merge', () => {
     );
 
     await expect(
-      entityService.merge({
-        sourceKnowledgeId: 'ck-source',
-        targetKnowledgeId: 'ck-target',
-        companyId: 'company-1',
-        fieldResolutions: {},
-        changedByUserId: 'user-1',
-      }),
+      requestContext.run({ userId: 'user-1', companyId: 'company-1' }, () =>
+        entityService.merge({
+          sourceKnowledgeId: 'ck-source',
+          targetKnowledgeId: 'ck-target',
+          companyId: 'company-1',
+          fieldResolutions: {},
+        }),
+      ),
     ).rejects.toThrow('Cannot merge');
   });
 });

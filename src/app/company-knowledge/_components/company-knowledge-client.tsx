@@ -78,7 +78,6 @@ export function CompanyKnowledgeClient({
 }: CompanyKnowledgeClientProps) {
   const t = useLanguageStore((s) => s.t);
   const activeCompany = useAuthStore((s) => s.activeCompany);
-  const user = useAuthStore((s) => s.user);
   const router = useRouter();
 
   // ── State ──
@@ -140,7 +139,6 @@ export function CompanyKnowledgeClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId,
-          changedByUserId: user?.id || 'system',
         }),
       });
       if (!res.ok) throw new Error('Archive failed');
@@ -159,7 +157,6 @@ export function CompanyKnowledgeClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           companyId,
-          changedByUserId: user?.id || 'system',
         }),
       });
       if (!res.ok) throw new Error('Restore failed');

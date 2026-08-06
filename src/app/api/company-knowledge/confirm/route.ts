@@ -10,7 +10,6 @@ export const POST = apiHandler(async (request: NextRequest, _context: RouteConte
   try {
     const record = await confirmCreate({
       pendingApprovalId: body.pendingApprovalId,
-      confirmedByUserId: body.confirmedByUserId,
     });
     return NextResponse.json({ knowledgeId: record.id });
   } catch (e) {

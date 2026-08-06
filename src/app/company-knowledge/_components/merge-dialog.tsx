@@ -48,7 +48,6 @@ export function MergeDialog({
   onComplete,
 }: MergeDialogProps) {
   const activeCompany = useAuthStore((s) => s.activeCompany);
-  const user = useAuthStore((s) => s.user);
 
   const [targets, setTargets] = useState<CompanyKnowledgeRecord[]>([]);
   const [selectedTargetId, setSelectedTargetId] = useState<string>('');
@@ -147,7 +146,6 @@ export function MergeDialog({
           targetKnowledgeId: selectedTargetId,
           companyId,
           fieldResolutions,
-          changedByUserId: user?.id || 'system',
           reason: `Merged from ${sourceRecord.canonicalName} into target`,
         }),
       });

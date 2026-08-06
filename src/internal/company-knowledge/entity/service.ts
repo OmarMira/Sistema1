@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
+import { requireCurrentUserId } from '@/lib/context-storage';
 import { entityMetadataByType } from './metadata-schemas';
 import type {
   EntityType,
@@ -24,7 +25,6 @@ export interface ProposeCreateInput {
 
 export interface ConfirmCreateInput {
   pendingApprovalId: string;
-  confirmedByUserId: string;
   reason?: string;
 }
 
@@ -42,21 +42,18 @@ export interface ProposeUpdateInput {
 
 export interface ConfirmUpdateInput {
   pendingApprovalId: string;
-  confirmedByUserId: string;
   reason?: string;
 }
 
 export interface ArchiveInput {
   knowledgeId: string;
   companyId: string;
-  changedByUserId: string;
   reason?: string;
 }
 
 export interface RestoreInput {
   knowledgeId: string;
   companyId: string;
-  changedByUserId: string;
   reason?: string;
 }
 
@@ -65,7 +62,6 @@ export interface MergeInput {
   targetKnowledgeId: string;
   companyId: string;
   fieldResolutions: Record<string, unknown>;
-  changedByUserId: string;
   reason?: string;
 }
 
@@ -79,10 +75,10 @@ async function appendAuditEntry(params: {
   version: number;
   beforeValue: Record<string, unknown> | null;
   afterValue: Record<string, unknown> | null;
-  changedByUserId: string;
   source: string;
   reason: string;
 }): Promise<void> {
+  const changedByUserId = requireCurrentUserId();
   await db.knowledgeAudit.create({
     data: {
       knowledgeId: params.knowledgeId,
@@ -90,7 +86,7 @@ async function appendAuditEntry(params: {
       version: params.version,
       beforeValue: params.beforeValue ?? Prisma.DbNull,
       afterValue: params.afterValue ?? Prisma.DbNull,
-      changedByUserId: params.changedByUserId,
+      changedByUserId,
       source: params.source,
       reason: params.reason,
     },
@@ -223,7 +219,6 @@ export async function confirmCreate(
       type: record.type,
       canonicalName: record.canonicalName,
     },
-    changedByUserId: input.confirmedByUserId,
     source: 'company_knowledge',
     reason: input.reason ?? 'Entity created',
   });
@@ -366,7 +361,6 @@ export async function confirmUpdate(
     version: newVersion,
     beforeValue: (payload.before as Record<string, unknown>) ?? null,
     afterValue: (payload.after as Record<string, unknown>) ?? null,
-    changedByUserId: input.confirmedByUserId,
     source: (record as Record<string, unknown>).source as string,
     reason: input.reason ?? 'Entity updated',
   });
@@ -413,7 +407,6 @@ export async function archive(
     version: newVersion,
     beforeValue: { status: 'active' },
     afterValue: { status: 'archived' },
-    changedByUserId: input.changedByUserId,
     source: 'company_knowledge',
     reason: input.reason ?? 'Entity archived',
   });
@@ -451,7 +444,6 @@ export async function restore(
     version: newVersion,
     beforeValue: { status: 'archived' },
     afterValue: { status: 'active' },
-    changedByUserId: input.changedByUserId,
     source: 'company_knowledge',
     reason: input.reason ?? 'Entity restored',
   });
@@ -541,7 +533,6 @@ export async function merge(
       status: 'merged',
       mergedIntoId: input.targetKnowledgeId,
     },
-    changedByUserId: input.changedByUserId,
     source: 'company_knowledge',
     reason: input.reason ?? `Merged into ${input.targetKnowledgeId}`,
   });
@@ -557,7 +548,6 @@ export async function merge(
         ? { resolvedFields: Object.keys(input.fieldResolutions) }
         : {}),
     },
-    changedByUserId: input.changedByUserId,
     source: 'company_knowledge',
     reason: input.reason ?? `Merged from ${input.sourceKnowledgeId}`,
   });

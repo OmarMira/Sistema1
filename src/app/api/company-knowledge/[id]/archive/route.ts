@@ -12,7 +12,6 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     const record = await archive({
       knowledgeId: id,
       companyId,
-      changedByUserId: body.changedByUserId,
       reason: body.reason,
     });
     return NextResponse.json({ knowledgeId: record.id, status: record.status, version: record.version });

@@ -624,14 +624,17 @@ export async function restoreBackup(
       }
 
       // 2b. Upsert users (create if missing, update if exists)
-      const sanitizeOpts = options?.bootstrap ? { preservePasswordHash: true } : undefined;
+      // Business rule (F-5): restore must NOT replace credentials with a known
+      // default. Preserve the hash from the backup in every restore mode; when a
+      // hash is missing (old/handcrafted backups), generate a random secret that
+      // no one knows — the operator must reset the password afterwards.
+      const sanitizeOpts = { preservePasswordHash: true };
       for (const user of backupData.data.users) {
         const clean = sanitizeForRestore(user as Record<string, unknown>, sanitizeOpts);
         // passwordHash is required by Prisma but older backups may not include it.
-        // Generate a valid bcrypt hash so login works — user should reset password after restore.
         const pwHash = clean.passwordHash as string | undefined;
         if (!pwHash || !pwHash.startsWith('$2')) {
-          clean.passwordHash = await bcrypt.hash('Admin123!', 12);
+          clean.passwordHash = await bcrypt.hash(crypto.randomBytes(24).toString('base64url'), 12);
         }
         await tx.user.upsert({
           where: { id: user.id as string },

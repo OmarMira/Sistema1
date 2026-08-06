@@ -258,7 +258,13 @@ describe('S7-11: Enforcement HTTP contract', () => {
 
     expect(res.status).toBe(200);
     expect(body.status).toBe('EXECUTED');
-    expect(mockExecuteApplyAllUseCase).toHaveBeenCalledWith('c1', { confirmed: true });
+    expect(mockExecuteApplyAllUseCase).toHaveBeenCalledWith(
+      'c1',
+      expect.objectContaining({
+        confirmed: true,
+        userId: 'user-1',
+      }),
+    );
   });
 
   it('confirmed:true + CONFIRM returns EXECUTED (user already consented)', async () => {
@@ -273,7 +279,13 @@ describe('S7-11: Enforcement HTTP contract', () => {
 
     expect(res.status).toBe(200);
     expect(body.status).toBe('EXECUTED');
-    expect(mockExecuteApplyAllUseCase).toHaveBeenCalledWith('c1', { confirmed: true });
+    expect(mockExecuteApplyAllUseCase).toHaveBeenCalledWith(
+      'c1',
+      expect.objectContaining({
+        confirmed: true,
+        userId: 'user-1',
+      }),
+    );
   });
 
   it('confirmed:true + BLOCK returns BLOCKED (conditions worsened)', async () => {

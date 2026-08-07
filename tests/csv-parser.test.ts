@@ -50,10 +50,10 @@ describe('parseCSV()', () => {
     ].join('\n');
 
     const result = parseCSV(csv);
-    const expected = new Date(2025, 2, 15); // March 15 (month is 0-indexed)
-    expect(result[0].date.getFullYear()).toBe(expected.getFullYear());
-    expect(result[0].date.getMonth()).toBe(expected.getMonth());
-    expect(result[0].date.getDate()).toBe(expected.getDate());
+    expect(result[0].date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
+    expect(result[0].date.getUTCFullYear()).toBe(2025);
+    expect(result[0].date.getUTCMonth()).toBe(2); // March
+    expect(result[0].date.getUTCDate()).toBe(15);
   });
 
   it('parses MM/DD/YYYY dates', () => {
@@ -63,8 +63,9 @@ describe('parseCSV()', () => {
     ].join('\n');
 
     const result = parseCSV(csv);
-    expect(result[0].date.getMonth()).toBe(2); // March
-    expect(result[0].date.getDate()).toBe(15);
+    expect(result[0].date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
+    expect(result[0].date.getUTCMonth()).toBe(2); // March
+    expect(result[0].date.getUTCDate()).toBe(15);
   });
 
   it('parses DD/MM/YYYY dates (day > 12)', () => {
@@ -74,8 +75,9 @@ describe('parseCSV()', () => {
     ].join('\n');
 
     const result = parseCSV(csv);
-    expect(result[0].date.getMonth()).toBe(11); // December
-    expect(result[0].date.getDate()).toBe(25);
+    expect(result[0].date.toISOString()).toBe('2025-12-25T00:00:00.000Z');
+    expect(result[0].date.getUTCMonth()).toBe(11); // December
+    expect(result[0].date.getUTCDate()).toBe(25);
   });
 
   it('parses DD Mon YYYY dates', () => {
@@ -87,10 +89,24 @@ describe('parseCSV()', () => {
     ].join('\n');
 
     const result = parseCSV(csv);
-    expect(result[0].date.getMonth()).toBe(0); // Jan
-    expect(result[0].date.getDate()).toBe(15);
-    expect(result[1].date.getMonth()).toBe(1); // Feb
-    expect(result[2].date.getMonth()).toBe(2); // Mar
+    expect(result[0].date.toISOString()).toBe('2025-01-15T00:00:00.000Z');
+    expect(result[1].date.toISOString()).toBe('2025-02-03T00:00:00.000Z');
+    expect(result[2].date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
+  });
+
+  it('skips rows with nonexistent civil dates instead of silently rolling them over', () => {
+    const csv = [
+      'Date,Description,Amount',
+      '2026-02-30,Feb 30 rollover,100.00',
+      '2025-02-29,non-leap Feb 29,100.00',
+      '2026-13-01,month 13,100.00',
+      '01/01/2026,Valid payment,50.00',
+    ].join('\n');
+
+    const result = parseCSV(csv);
+    expect(result).toHaveLength(1);
+    expect(result[0].description).toBe('Valid payment');
+    expect(result[0].date.toISOString()).toBe('2026-01-01T00:00:00.000Z');
   });
 
   // ── Amount formats ──────────────────────────────────────────────

@@ -32,13 +32,17 @@ describe('PDF Grid Parser - Geometric & Topological Tests', () => {
     // We can verify this via the real statement of Enero 2025 which starts in December 2024 and rolls over
     const buffer = readFileSync(join(fixturesPath, 'eStmt_2025-01-31.pdf'));
     const result = await parsePDF(buffer);
-    
-    expect(result.startDate?.getFullYear()).toBe(2025);
-    expect(result.endDate?.getFullYear()).toBe(2025);
-    
+
+    // Civil dates are stored as UTC-midnight, so read UTC components.
+    expect(result.startDate?.getUTCFullYear()).toBe(2025);
+    expect(result.endDate?.getUTCFullYear()).toBe(2025);
+    expect(result.startDate?.toISOString()).toMatch(/T00:00:00\.000Z$/);
+    expect(result.endDate?.toISOString()).toMatch(/T00:00:00\.000Z$/);
+
     // Check that transactions are within the reconstructed time window or correctly inferred years
     for (const tx of result.transactions) {
-      expect(tx.date.getFullYear()).toBe(2025);
+      expect(tx.date.getUTCFullYear()).toBe(2025);
+      expect(tx.date.toISOString()).toMatch(/T00:00:00\.000Z$/);
     }
   });
 });

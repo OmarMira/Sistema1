@@ -3,6 +3,7 @@ import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { db } from './db';
+import { civilDateFromParts } from './accounting/civil-date';
 import {
   getAllActiveProfiles,
   updateRequiresReviewStatus,
@@ -177,6 +178,43 @@ function detectLayoutTopology(clusters: ColumnCluster[]): {
 }
 
 // ========== YEAR RECONSTRUCTION ==========
+const PDF_MONTH_NAMES = [
+  'jan',
+  'feb',
+  'mar',
+  'apr',
+  'may',
+  'jun',
+  'jul',
+  'aug',
+  'sep',
+  'oct',
+  'nov',
+  'dec',
+];
+
+/**
+ * Extracts the civil month (0-based) and day from a year-less date string
+ * ("01/10", "01-10", "Jan 5") WITHOUT touching the Date local getters, so the
+ * result is timezone-independent. Returns null for unrecognized shapes.
+ */
+function extractMonthDay(dateStr: string): { month: number; day: number } | null {
+  const slash = dateStr.trim().match(/^(\d{1,2})[/\-.](\d{1,2})$/);
+  if (slash) {
+    const a = Number(slash[1]);
+    const b = Number(slash[2]);
+    // If the second part > 12 it must be DD/MM, otherwise MM/DD.
+    if (b > 12) return { month: b - 1, day: a };
+    return { month: a - 1, day: b };
+  }
+  const text = dateStr.trim().match(/^([a-zA-Z]+)\s+(\d{1,2}),?$/);
+  if (text) {
+    const idx = PDF_MONTH_NAMES.indexOf(text[1]!.toLowerCase().slice(0, 3));
+    if (idx !== -1) return { month: idx, day: Number(text[2]) };
+  }
+  return null;
+}
+
 function reconstructTransactionDates(
   rawTransactions: Array<{
     dateStr: string;
@@ -188,8 +226,8 @@ function reconstructTransactionDates(
   endDate: Date,
 ): ParsedTransaction[] {
   const result: ParsedTransaction[] = [];
-  let currentYear = startDate.getFullYear();
-  let lastMonth = startDate.getMonth();
+  let currentYear = startDate.getUTCFullYear();
+  let lastMonth = startDate.getUTCMonth();
 
   for (const raw of rawTransactions) {
     const parsedDate = parseDateString(raw.dateStr);
@@ -202,15 +240,19 @@ function reconstructTransactionDates(
     if (hasYear) {
       transactionDate = parsedDate;
     } else {
-      const month = parsedDate.getMonth();
-      const day = parsedDate.getDate();
+      const monthDay =
+        extractMonthDay(raw.dateStr) ?? { month: parsedDate.getUTCMonth(), day: parsedDate.getUTCDate() };
+      const month = monthDay.month;
+      const day = monthDay.day;
 
       // Rollover detection (Dec -> Jan transition)
       if (month < lastMonth && lastMonth === 11 && month === 0) {
         currentYear++;
       }
       lastMonth = month;
-      transactionDate = new Date(currentYear, month, day);
+      const builtDate = civilDateFromParts(currentYear, month + 1, day);
+      if (!builtDate) continue;
+      transactionDate = builtDate;
     }
 
     result.push({
@@ -995,7 +1037,7 @@ function parseDateString(val: string): Date | null {
 
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(dateStr)) {
     const parts = dateStr.split('-').map(Number);
-    return new Date(parts[0]!, parts[1]! - 1, parts[2]!);
+    return civilDateFromParts(parts[0]!, parts[1]!, parts[2]!);
   }
 
   const slashMatch = dateStr.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
@@ -1007,9 +1049,9 @@ function parseDateString(val: string): Date | null {
       year += 2000;
     }
 
-    if (a > 12) return new Date(year, b - 1, a);
-    if (b > 12) return new Date(year, a - 1, b);
-    return new Date(year, a - 1, b);
+    if (a > 12) return civilDateFromParts(year, b, a);
+    if (b > 12) return civilDateFromParts(year, a, b);
+    return civilDateFromParts(year, a, b);
   }
 
   const monthNames = [
@@ -1026,19 +1068,26 @@ function parseDateString(val: string): Date | null {
     'nov',
     'dec',
   ];
-  const textMatch = dateStr.match(/^([a-zA-Z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
+  // Text-month formats are matched against the FULL value: the time-stripping
+  // split above truncates them ("Jan 5, 2025" -> "Jan"), which would otherwise
+  // fall through to the local-timezone fallback and lose UTC-midnight.
+  const textMatch = val.trim().match(/^([a-zA-Z]+)\s+(\d{1,2}),?\s+(\d{4})$/);
   if (textMatch) {
     const monthIdx = monthNames.indexOf(textMatch[1]!.toLowerCase().slice(0, 3));
     if (monthIdx !== -1) {
-      return new Date(Number(textMatch[3]), monthIdx, Number(textMatch[2]));
+      return civilDateFromParts(Number(textMatch[3]), monthIdx + 1, Number(textMatch[2]));
     }
   }
 
-  const reverseTextMatch = dateStr.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
+  const reverseTextMatch = val.trim().match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
   if (reverseTextMatch) {
     const monthIdx = monthNames.indexOf(reverseTextMatch[2]!.toLowerCase().slice(0, 3));
     if (monthIdx !== -1) {
-      return new Date(Number(reverseTextMatch[3]), monthIdx, Number(reverseTextMatch[1]));
+      return civilDateFromParts(
+        Number(reverseTextMatch[3]),
+        monthIdx + 1,
+        Number(reverseTextMatch[1]),
+      );
     }
   }
 

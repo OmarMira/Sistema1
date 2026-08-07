@@ -6,6 +6,8 @@
  * Parses various amount formats (negative numbers, parentheses, currency symbols)
  */
 
+import { civilDateFromParts } from './accounting/civil-date';
+
 export interface ParsedTransaction {
   date: Date;
   description: string;
@@ -222,7 +224,7 @@ function parseDate(val: string): Date | null {
   // Try YYYY-MM-DD
   if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(dateStr)) {
     const parts = dateStr.split('-').map(Number);
-    return new Date(parts[0]!, parts[1]! - 1, parts[2]!);
+    return civilDateFromParts(parts[0]!, parts[1]!, parts[2]!);
   }
 
   // Try MM/DD/YYYY or DD/MM/YYYY
@@ -234,17 +236,19 @@ function parseDate(val: string): Date | null {
 
     // If first part > 12, it must be DD/MM/YYYY
     if (a > 12) {
-      return new Date(year, b - 1, a);
+      return civilDateFromParts(year, b, a);
     }
     // If second part > 12, it must be MM/DD/YYYY
     if (b > 12) {
-      return new Date(year, a - 1, b);
+      return civilDateFromParts(year, a, b);
     }
     // Ambiguous — default to MM/DD/YYYY (US convention)
-    return new Date(year, a - 1, b);
+    return civilDateFromParts(year, a, b);
   }
 
-  // Try DD Mon YYYY (e.g., 15 Jan 2026)
+  // Try DD Mon YYYY (e.g., 15 Jan 2026). Match against the FULL value: the
+  // time-stripping split above truncates text-month dates ("15 Jan 2025" -> "15"),
+  // which would otherwise fall through to the local-timezone fallback.
   const monthNames = [
     'jan',
     'feb',
@@ -259,11 +263,11 @@ function parseDate(val: string): Date | null {
     'nov',
     'dec',
   ];
-  const textMatch = dateStr.match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
+  const textMatch = val.trim().match(/^(\d{1,2})\s+([a-zA-Z]+)\s+(\d{4})$/);
   if (textMatch) {
     const monthIdx = monthNames.indexOf(textMatch[2]!.toLowerCase().slice(0, 3));
     if (monthIdx !== -1) {
-      return new Date(Number(textMatch[3]), monthIdx, Number(textMatch[1]));
+      return civilDateFromParts(Number(textMatch[3]), monthIdx + 1, Number(textMatch[1]));
     }
   }
 
@@ -271,8 +275,7 @@ function parseDate(val: string): Date | null {
   // Try ISO-ish format (YYYY-MM-DD) first
   const isoMatch = val.match(/^\s*(\d{4})-(\d{1,2})-(\d{1,2})/);
   if (isoMatch) {
-    const d = new Date(Date.UTC(Number(isoMatch[1]), Number(isoMatch[2]) - 1, Number(isoMatch[3])));
-    if (!isNaN(d.getTime())) return d;
+    return civilDateFromParts(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
   }
 
   // Last-resort: JS native parse (local-timezone dependent)

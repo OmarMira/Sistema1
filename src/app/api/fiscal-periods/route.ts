@@ -18,7 +18,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   }
 
   const start = new Date(startDate);
-  const end = new Date(endDate);
+  const end = new Date(endDate + 'T23:59:59.999Z');
 
   const existing = await db.fiscalPeriod.findMany({ where: { companyId: companyId } });
   const overlap = existing.some((e) => !(end < e.startDate || start > e.endDate));

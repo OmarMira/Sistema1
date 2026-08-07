@@ -463,7 +463,7 @@ async function executeTool(
         if (startDate || endDate) {
           where.date = {};
           if (startDate) where.date.gte = new Date(startDate);
-          if (endDate) where.date.lte = new Date(endDate);
+          if (endDate) where.date.lte = new Date(endDate + 'T23:59:59.999Z');
         }
 
         const limitVal = Math.min(limit || 50, 100);
@@ -510,7 +510,7 @@ async function executeTool(
         if (startDate || endDate) {
           where.date = {};
           if (startDate) where.date.gte = new Date(startDate);
-          if (endDate) where.date.lte = new Date(endDate);
+          if (endDate) where.date.lte = new Date(endDate + 'T23:59:59.999Z');
         }
 
         const totalCount = await db.bankTransaction.count({ where });
@@ -589,7 +589,7 @@ async function executeTool(
         if (startDate || endDate) {
           where.date = {};
           if (startDate) where.date.gte = new Date(startDate);
-          if (endDate) where.date.lte = new Date(endDate);
+          if (endDate) where.date.lte = new Date(endDate + 'T23:59:59.999Z');
         }
         const limitVal = Math.min(limit || 50, 100);
         const entries = await db.journalEntry.findMany({

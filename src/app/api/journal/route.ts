@@ -55,7 +55,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
   if (startDate || endDate) {
     where.date = {};
     if (startDate) (where.date as Record<string, unknown>).gte = new Date(startDate);
-    if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate);
+    if (endDate) (where.date as Record<string, unknown>).lte = new Date(endDate + 'T23:59:59.999Z');
   }
   if (search) {
     where.description = { contains: search };

@@ -1,4 +1,4 @@
-import { Prisma } from '@prisma/client';
+import type { BankProfile } from '@prisma/client';
 import { logger } from '@/lib/logger';
 import { db } from './db';
 import {
@@ -15,7 +15,7 @@ let allActiveProfilesCache: BankProfileTyped[] | null = null;
 /**
  * Transforms a raw database BankProfile model into the strictly typed BankProfileTyped interface.
  */
-function mapToTypedProfile(raw: Prisma.BankProfileGetPayload<{}>): BankProfileTyped {
+function mapToTypedProfile(raw: BankProfile): BankProfileTyped {
   let parsedFingerprints: string[] = [];
   try {
     parsedFingerprints =

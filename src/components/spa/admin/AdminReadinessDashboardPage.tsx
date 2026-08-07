@@ -108,7 +108,7 @@ export default function AdminReadinessDashboardPage() {
       setAppliedQuery(mountedForm);
       fetchPolicy(mountedForm, adminSelectedCompanyId);
     }
-  }, [adminSelectedCompanyId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [adminSelectedCompanyId]);
 
   const readinessResult = policyResult?.readiness ?? null;
 

@@ -860,4 +860,70 @@ describe('EntityOnboardingModal', () => {
       expect(useBtn).toBeDisabled();
     });
   });
+
+  describe('E1 — saved entities leave candidates and reset on reopen', () => {
+    it('after saving a candidate it is removed, no duplicate HTTP save, and reopen resets', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      const { rerender } = render(
+        <EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />,
+      );
+
+      // 1) candidate visible before saving
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+      expect(screen.getAllByTestId('manual-select-btn')).toHaveLength(1);
+
+      // 2) successful save
+      await selectRole(user, 0, 'PROVEEDOR');
+      await user.click(screen.getByRole('button', { name: /Save entity/i }));
+      await waitFor(() => {
+        expect(screen.getByText('All entities classified')).toBeInTheDocument();
+      });
+
+      // 3) candidate disappears from remaining candidates (no pending save affordance)
+      expect(screen.queryByTestId('manual-select-btn')).not.toBeInTheDocument();
+
+      // 4) the same candidate was POSTed exactly once (no duplicate HTTP save) together with the removal
+      const classifyCalls = mockFetch.mock.calls.filter(
+        ([u, r]) =>
+          typeof u === 'string' &&
+          u.includes('/api/learning/classify-entity') &&
+          (r as RequestInit | undefined)?.method === 'POST',
+      );
+      expect(classifyCalls).toHaveLength(1);
+
+      // 5) close and reopen resets the saved set so the candidate is offered again
+      rerender(<EntityOnboardingModal isOpen={false} onClose={vi.fn()} companyId="comp_1" />);
+      rerender(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+      expect(screen.getAllByTestId('manual-select-btn')).toHaveLength(1);
+    });
+
+    it('duplicate guard: continuing the flow after a successful save does not re-POST the entity', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText('DEBIT ENTITY')).toBeInTheDocument();
+      });
+      await selectRole(user, 0, 'PROVEEDOR');
+      await user.click(screen.getByRole('button', { name: /Save entity/i }));
+      await waitFor(() => {
+        expect(screen.getByText('All entities classified')).toBeInTheDocument();
+      });
+
+      const classifyCalls = mockFetch.mock.calls.filter(
+        ([u, r]) =>
+          typeof u === 'string' &&
+          u.includes('/api/learning/classify-entity') &&
+          (r as RequestInit | undefined)?.method === 'POST',
+      );
+      expect(classifyCalls).toHaveLength(1);
+    });
+  });
 });

@@ -211,7 +211,7 @@ export function EntityOnboardingModal({
   const [glAccountsError, setGlAccountsError] = useState<string | null>(null);
 
   const abortControllers = useRef<Record<string, AbortController>>({});
-  const savedRef = useRef<Set<string>>(new Set());
+  const [savedSet, setSavedSet] = useState<Set<string>>(() => new Set());
 
   /* ── Fetch candidates ──────────────────────────────────────────────── */
   useEffect(() => {
@@ -270,12 +270,12 @@ export function EntityOnboardingModal({
       setIntentValues({});
       setGlAccountCodes({});
       setGlAccounts([]);
-      savedRef.current = new Set();
+      setSavedSet(new Set());
     };
   }, [companyId, isOpen, t]);
 
   const remainingCandidates = candidates.filter(
-    (c) => !savedRef.current.has(c.canonicalName),
+    (c) => !savedSet.has(c.canonicalName),
   );
 
   /* ── State helpers ─────────────────────────────────────────────────── */
@@ -383,7 +383,11 @@ export function EntityOnboardingModal({
       });
 
       if (res.ok) {
-        savedRef.current.add(name);
+        setSavedSet((prev) => {
+          const next = new Set(prev);
+          next.add(name);
+          return next;
+        });
         setState(name, 'saved');
         toast.success(`${name} → ${ROLE_LABELS[role as EntityRole] || role}`);
         if (onComplete) onComplete();

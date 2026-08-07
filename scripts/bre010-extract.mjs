@@ -560,7 +560,9 @@ export function buildControlVectors(scrubbedRules, analyses) {
       description: `TX synthetique ${rankToken}`,
       amount: 0,
       expectedAxisA: 'SAME_WINNER',
-      expectedAxisB: 'V2_NO_MATCH_PRECEDENCE_MATCH',
+      // BRE-012 (60df45b) unified V2 and Precedence on the canonical comparator,
+      // intentionally removing the priority-only divergence this control tracked.
+      expectedAxisB: 'SAME',
     });
   }
 

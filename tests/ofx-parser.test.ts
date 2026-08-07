@@ -201,11 +201,13 @@ describe('parseOFX — XML (OFX v2)', () => {
     expect(txn.description).toBe('UBER EATS');
     expect(txn.amount).toBe(-89.99);
     expect(txn.reference).toBe('TRN010');
-    expect(txn.date.getFullYear()).toBe(2025);
-    expect(txn.date.getMonth()).toBe(2); // March (0-indexed)
-    expect(txn.date.getDate()).toBe(15);
-    expect(txn.date.getHours()).toBe(14);
-    expect(txn.date.getMinutes()).toBe(30);
+    // No-offset DTPOSTED is a civil banking date -> UTC midnight.
+    expect(txn.date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
+    expect(txn.date.getUTCFullYear()).toBe(2025);
+    expect(txn.date.getUTCMonth()).toBe(2); // March (0-indexed)
+    expect(txn.date.getUTCDate()).toBe(15);
+    expect(txn.date.getUTCHours()).toBe(0);
+    expect(txn.date.getUTCMinutes()).toBe(0);
   });
 
   it('uses PAYEE as fallback when NAME is missing', () => {
@@ -267,10 +269,8 @@ describe('parseOFX — XML (OFX v2)', () => {
     xml = xml.replace(/<DTSTART>.*?<\/DTSTART>\s*<DTEND>.*?<\/DTEND>\s*/g, '');
 
     const result = parseOFX(xml);
-    expect(result.startDate.getMonth()).toBe(2); // March
-    expect(result.startDate.getDate()).toBe(1);
-    expect(result.endDate.getMonth()).toBe(2);
-    expect(result.endDate.getDate()).toBe(31);
+    expect(result.startDate.toISOString()).toBe('2025-03-01T00:00:00.000Z');
+    expect(result.endDate.toISOString()).toBe('2025-03-31T00:00:00.000Z');
   });
 });
 
@@ -304,9 +304,7 @@ ${sgmlTransaction('DEBIT', '20250315143000', '-89.99', 'TRN010', 'UBER EATS')}
     expect(txn.description).toBe('UBER EATS');
     expect(txn.amount).toBe(-89.99);
     expect(txn.reference).toBe('TRN010');
-    expect(txn.date.getFullYear()).toBe(2025);
-    expect(txn.date.getMonth()).toBe(2);
-    expect(txn.date.getDate()).toBe(15);
+    expect(txn.date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
   });
 
   it('extracts BANKNAME from SGML content', () => {
@@ -437,65 +435,57 @@ describe('parseOFX — format auto-detection', () => {
 // ─── Date Parsing ─────────────────────────────────────────────────────
 
 describe('parseOFX — date handling', () => {
-  it('parses YYYYMMDD dates', () => {
+  it('parses YYYYMMDD dates as civil UTC-midnight', () => {
     const xml = buildXMLOFX(`
       ${xmlTransaction('CREDIT', '20250315', '100.00', 'D1', 'TEST')}
     `);
 
     const result = parseOFX(xml);
     const date = result.transactions[0].date;
-    expect(date.getFullYear()).toBe(2025);
-    expect(date.getMonth()).toBe(2); // March
-    expect(date.getDate()).toBe(15);
-    expect(date.getHours()).toBe(0);
-    expect(date.getMinutes()).toBe(0);
+    expect(date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
+    expect(date.getUTCHours()).toBe(0);
+    expect(date.getUTCMinutes()).toBe(0);
   });
 
-  it('parses YYYYMMDDHHMMSS dates', () => {
+  it('parses YYYYMMDDHHMMSS dates as civil UTC-midnight', () => {
     const xml = buildXMLOFX(`
       ${xmlTransaction('CREDIT', '20250315143000', '100.00', 'D2', 'TEST')}
     `);
 
     const result = parseOFX(xml);
     const date = result.transactions[0].date;
-    expect(date.getFullYear()).toBe(2025);
-    expect(date.getMonth()).toBe(2);
-    expect(date.getDate()).toBe(15);
-    expect(date.getHours()).toBe(14);
-    expect(date.getMinutes()).toBe(30);
-    expect(date.getSeconds()).toBe(0);
+    // No explicit offset: time-of-day is dropped and the civil date is pinned
+    // to UTC midnight, so the result cannot depend on the process timezone.
+    expect(date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
   });
 
-  it('strips timezone suffix like [−5:EST]', () => {
+  it('honors the timezone offset for dates with [-5:EST]', () => {
     const xml = buildXMLOFX(`
       ${xmlTransaction('CREDIT', '20250315[-5:EST]', '100.00', 'D3', 'TEST')}
     `);
 
     const result = parseOFX(xml);
     const date = result.transactions[0].date;
-    expect(date.getFullYear()).toBe(2025);
-    expect(date.getMonth()).toBe(2);
-    expect(date.getDate()).toBe(15);
+    // Local midnight EST == 05:00 UTC (offset -5 is subtracted).
+    expect(date.toISOString()).toBe('2025-03-15T05:00:00.000Z');
 
-    // Also test with full datetime + timezone
+    // Full datetime + timezone: local 14:30 EST == 19:30 UTC.
     const xml2 = buildXMLOFX(`
       ${xmlTransaction('CREDIT', '20250315143000[-5:EST]', '200.00', 'D4', 'TEST')}
     `);
     const result2 = parseOFX(xml2);
-    expect(result2.transactions[0].date.getHours()).toBe(14);
-    expect(result2.transactions[0].date.getMinutes()).toBe(30);
+    expect(result2.transactions[0].date.toISOString()).toBe('2025-03-15T19:30:00.000Z');
   });
 
-  it('strips timezone suffix like [−5.0:GMT]', () => {
+  it('honors the timezone offset for dates with [+1.0]', () => {
     const xml = buildXMLOFX(`
       ${xmlTransaction('CREDIT', '20250315[+1.0:CET]', '100.00', 'D5', 'TEST')}
     `);
 
     const result = parseOFX(xml);
     const date = result.transactions[0].date;
-    expect(date.getFullYear()).toBe(2025);
-    expect(date.getMonth()).toBe(2);
-    expect(date.getDate()).toBe(15);
+    // Local midnight CET == 23:00 UTC the previous day (offset +1 is subtracted).
+    expect(date.toISOString()).toBe('2025-03-14T23:00:00.000Z');
   });
 
   it('handles dates with milliseconds suffix', () => {
@@ -505,11 +495,7 @@ describe('parseOFX — date handling', () => {
 
     const result = parseOFX(xml);
     const date = result.transactions[0].date;
-    expect(date.getFullYear()).toBe(2025);
-    expect(date.getMonth()).toBe(2);
-    expect(date.getDate()).toBe(15);
-    expect(date.getHours()).toBe(14);
-    expect(date.getMinutes()).toBe(30);
+    expect(date.toISOString()).toBe('2025-03-15T00:00:00.000Z');
   });
 });
 

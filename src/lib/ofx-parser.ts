@@ -251,12 +251,18 @@ function extractXmlValue(content: string, tag: string): string | null {
 function parseOFXDate(val: string): Date {
   if (!val) return new Date();
 
-  // Clean the value: remove timezone info like [-5:EST] or [-5.0:GMT]
-  const cleaned = val.replace(/\[.*?\]/g, '').trim();
+  // OFX date-time format: `YYYYMMDDHHMMSS[.mmm][offset]`, where offset is
+  // `[gmt:...]`, `[+1.0]`, `[-5:EST]`, `[0:GMT]`, etc. A value WITH an
+  // explicit offset expresses local civil time in that zone; the true instant
+  // must be preserved (UTC = local - offset). A value WITHOUT an offset is a
+  // civil banking date and must become `YYYY-MM-DDT00:00:00.000Z` regardless
+  // of the importing process timezone.
+  const bracket = val.indexOf('[');
+  const base = (bracket === -1 ? val : val.slice(0, bracket)).trim();
+  const offsetVal = bracket === -1 ? null : val.slice(bracket).trim();
 
-  // OFX format: YYYYMMDDHHMMSS or YYYYMMDD
-  // Sometimes YYYYMMDDHHMMSS.XXX
-  const dateStr = cleaned.replace(/[^0-9]/g, '').slice(0, 14);
+  // OFX format: YYYYMMDDHHMMSS or YYYYMMDD (sometimes YYYYMMDDHHMMSS.XXX)
+  const dateStr = base.replace(/[^0-9]/g, '').slice(0, 14);
 
   if (dateStr.length < 8) return new Date();
 
@@ -267,5 +273,33 @@ function parseOFXDate(val: string): Date {
   const minute = dateStr.length >= 12 ? parseInt(dateStr.slice(10, 12), 10) : 0;
   const second = dateStr.length >= 14 ? parseInt(dateStr.slice(12, 14), 10) : 0;
 
-  return new Date(year, month, day, hour, minute, second);
+  const offsetMinutes = parseOFXOffset(offsetVal);
+  if (offsetMinutes !== null) {
+    // Explicit offset present: preserve the true instant. OFX offset is
+    // "local minus GMT", so UTC = local components - offset.
+    return new Date(Date.UTC(year, month, day, hour, minute, second) - offsetMinutes * 60000);
+  }
+
+  // Civil date without an explicit offset: pin to the UTC-midnight contract.
+  return new Date(Date.UTC(year, month, day));
+}
+
+/**
+ * Parses the optional OFX timezone offset (e.g. `[-5:EST]`, `[+1.0]`,
+ * `[0:GMT]`, `[gmt:0]`, `[gmt-5:EST]`). Returns the offset in minutes
+ * (positive = ahead of UTC), or null when the value carries no offset.
+ */
+function parseOFXOffset(offsetVal: string | null): number | null {
+  if (!offsetVal) return null;
+  const inner = offsetVal.replace(/^\[|\]$/g, '').trim();
+  if (!inner) return null;
+
+  // `[gmt:...]` / `[gmt-5:EST]` variants put the numeric part after `gmt`.
+  let num = inner.toLowerCase().startsWith('gmt') ? inner.slice(3) : inner;
+  if (num.startsWith(':')) num = num.slice(1).trim();
+
+  const match = num.match(/^([+-]?\d+(?:\.\d+)?)/);
+  if (!match) return null;
+  const offsetHours = parseFloat(match[1]!);
+  return isNaN(offsetHours) ? null : offsetHours * 60;
 }

@@ -130,4 +130,56 @@ describe('buildMonthlyBalances', () => {
   it('empty transactions produce an empty result', () => {
     expect(buildMonthlyBalances([], 1000)).toEqual([]);
   });
+
+  // These cases are timezone-agnostic guards: the seeded timeline must be
+  // derived from the civil "YYYY-MM-DD" string, never from a parsed Date +
+  // local getters. Under a negative-offset TZ the old implementation produced
+  // a phantom preceding month (e.g. 2025-12 for a range starting 2026-01-01).
+  describe('timezone-independent timeline seeding', () => {
+    it('does not seed a preceding month when the range starts on the 1st of a month', () => {
+      const rows = buildMonthlyBalances(
+        [tx('2026-01-01', 100, 'credito'), tx('2026-01-31', 50)],
+        0,
+      );
+      expect(rows.map((r) => r.monthKey)).toEqual(['2026-01']);
+    });
+
+    it('a range 2026-01-01..2026-01-31 keeps only January (Dec 2025 must not appear)', () => {
+      const rows = buildMonthlyBalances(
+        [tx('2026-01-01', 100, 'credito'), tx('2026-01-15', 30), tx('2026-01-31', 20, 'credito')],
+        0,
+      );
+      expect(rows.map((r) => r.monthKey)).toEqual(['2026-01']);
+      expect(rows[0].ingresos).toBe(120);
+      expect(rows[0].gastos).toBe(30);
+    });
+
+    it('January -> March keeps an empty February between them', () => {
+      const rows = buildMonthlyBalances(
+        [tx('2026-01-10', 100, 'credito'), tx('2026-03-12', 30)],
+        0,
+      );
+      expect(rows.map((r) => r.monthKey)).toEqual(['2026-01', '2026-02', '2026-03']);
+      const feb = rows.find((r) => r.monthKey === '2026-02')!;
+      expect(feb.ingresos).toBe(0);
+      expect(feb.txs).toHaveLength(0);
+    });
+
+    it('crosses the year boundary 2026-12 -> 2027-01 correctly', () => {
+      const rows = buildMonthlyBalances(
+        [tx('2026-12-15', 100, 'credito'), tx('2027-01-05', 50, 'credito')],
+        0,
+      );
+      expect(rows.map((r) => r.monthKey)).toEqual(['2026-12', '2027-01']);
+      expect(rows[0].cierre).toBe(100);
+      expect(rows[1].cierre).toBe(150);
+    });
+
+    it('handles leap-year February 2024 (Feb 29 has 29 days in the average)', () => {
+      const rows = buildMonthlyBalances([tx('2024-02-29', 100, 'credito')], 0);
+      expect(rows.map((r) => r.monthKey)).toEqual(['2024-02']);
+      expect(rows[0].ingresos).toBe(100);
+      expect(rows[0].promedio).toBeCloseTo(100 / 29, 6);
+    });
+  });
 });

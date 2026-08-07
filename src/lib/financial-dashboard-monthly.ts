@@ -27,17 +27,32 @@ export function buildMonthlyBalances(
     { monthKey: string; ingresos: number; gastos: number; txs: Transaction[] }
   >();
 
-  // Seed all chronological months within filter range to keep timelines solid
+  // Seed all chronologically consecutive months within the transaction range to
+  // keep timelines solid. The month key is derived directly from the civil
+  // "YYYY-MM-DD" string (never from a parsed Date + local getters), so the
+  // timeline is independent of the process timezone.
   if (transactions.length > 0) {
     const sorted = [...transactions].sort((a, b) => a.fecha.localeCompare(b.fecha));
-    const first = new Date(sorted[0].fecha);
-    const last = new Date(sorted[sorted.length - 1].fecha);
+    const firstMonthKey = sorted[0]!.fecha.substring(0, 7);
+    const lastMonthKey = sorted[sorted.length - 1]!.fecha.substring(0, 7);
 
-    const curr = new Date(first.getFullYear(), first.getMonth(), 1);
-    while (curr <= last) {
-      const ym = `${curr.getFullYear()}-${String(curr.getMonth() + 1).padStart(2, '0')}`;
-      map.set(ym, { monthKey: ym, ingresos: 0, gastos: 0, txs: [] });
-      curr.setMonth(curr.getMonth() + 1);
+    const [firstYear, firstMonth] = firstMonthKey.split('-').map(Number);
+    const [lastYear, lastMonth] = lastMonthKey.split('-').map(Number);
+
+    if (
+      Number.isFinite(firstYear) &&
+      Number.isFinite(firstMonth) &&
+      Number.isFinite(lastYear) &&
+      Number.isFinite(lastMonth)
+    ) {
+      const startIdx = firstYear! * 12 + (firstMonth! - 1);
+      const endIdx = lastYear! * 12 + (lastMonth! - 1);
+      for (let idx = startIdx; idx <= endIdx; idx += 1) {
+        const y = Math.floor(idx / 12);
+        const m = (idx % 12) + 1;
+        const ym = `${y}-${String(m).padStart(2, '0')}`;
+        map.set(ym, { monthKey: ym, ingresos: 0, gastos: 0, txs: [] });
+      }
     }
   }
 

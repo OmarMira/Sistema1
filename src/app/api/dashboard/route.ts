@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { monthlyTrendKey } from '@/lib/dashboard-monthly-trend';
 
 // ─── GET /api/dashboard?companyId=xxx ──────────────────────────────
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
@@ -229,8 +230,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   ];
 
   for (const tx of trendTxs) {
-    const d = new Date(tx.date);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const key = monthlyTrendKey(tx.date);
     if (!monthMap[key]) monthMap[key] = { income: 0, expenses: 0 };
     if (Number(tx.amount) > 0) monthMap[key].income += Number(tx.amount);
     else monthMap[key].expenses += Math.abs(tx.amount);

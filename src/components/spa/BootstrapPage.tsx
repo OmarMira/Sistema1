@@ -13,7 +13,7 @@ import { ThemeToggle } from '@/components/spa/ThemeToggle';
 import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { formatFileSize } from '@/lib/types/backup';
 
-export function BootstrapPage() {
+export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
   const t = useLanguageStore((s) => s.t);
   const { login, setCurrentView } = useAuthStore();
 
@@ -118,23 +118,43 @@ export function BootstrapPage() {
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
-              <Card
-                className="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 border-primary/20"
-                onClick={() => setCurrentView('register')}
-              >
-                <CardHeader>
-                  <CardTitle className="text-base flex items-center gap-2">
-                    <UserPlus className="size-4 text-primary" />
-                    {t('bootstrap.startFresh')}
-                  </CardTitle>
-                  <CardDescription>{t('bootstrap.startFreshDesc')}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full" variant="outline">
-                    {t('auth.register')}
-                  </Button>
-                </CardContent>
-              </Card>
+              {hasUsers ? (
+                <Card
+                  className="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 border-primary/20"
+                  onClick={() => setCurrentView('login')}
+                >
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <UserPlus className="size-4 text-primary" />
+                      {t('auth.login')}
+                    </CardTitle>
+                    <CardDescription>{t('bootstrap.startFreshDesc')}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Button className="w-full" variant="outline" onClick={() => setCurrentView('login')}>
+                      {t('auth.login')}
+                    </Button>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card
+                  className="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 border-primary/20"
+                  onClick={() => setCurrentView('register')}
+                >
+                  <CardHeader>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      <UserPlus className="size-4 text-primary" />
+                      {t('bootstrap.startFresh')}
+                    </CardTitle>
+                    <CardDescription>{t('bootstrap.startFreshDesc')}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <Button className="w-full" variant="outline" onClick={() => setCurrentView('register')}>
+                      {t('auth.register')}
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
 
               <Card
                 className="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 border-amber-200/50"

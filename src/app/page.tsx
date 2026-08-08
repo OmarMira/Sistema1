@@ -43,6 +43,7 @@ function AppContent() {
   const [hydrating, setHydrating] = useState(true);
   const [mounted, setMounted] = useState(false);
   const [dbEmpty, setDbEmpty] = useState<boolean | null>(null);
+  const [dbHasUsers, setDbHasUsers] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -54,10 +55,17 @@ function AppContent() {
     if (!isAuthenticated) {
       fetch('/api/bootstrap/check')
         .then((r) => r.json())
-        .then((data) => setDbEmpty(data.empty))
-        .catch(() => setDbEmpty(false));
+        .then((data) => {
+          setDbEmpty(data.empty);
+          setDbHasUsers(data.hasUsers);
+        })
+        .catch(() => {
+          setDbEmpty(false);
+          setDbHasUsers(false);
+        });
     } else {
       setDbEmpty(false);
+      setDbHasUsers(false);
     }
   }, [isAuthenticated, mounted]);
 
@@ -65,9 +73,9 @@ function AppContent() {
     return <LoadingScreen />;
   }
 
-  // DB is empty → show bootstrap choice
-  if (!isAuthenticated && dbEmpty) {
-    return <BootstrapPage />;
+  // DB is empty → show bootstrap choice (until the user navigates away)
+  if (!isAuthenticated && dbEmpty && currentView === 'landing') {
+    return <BootstrapPage hasUsers={dbHasUsers} />;
   }
 
   // Not authenticated → show public pages

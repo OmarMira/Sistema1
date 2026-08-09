@@ -77,8 +77,6 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     orderBy: { date: 'desc' },
   });
 
-  const realDescSet = new Set(realEntries.map((e) => e.description));
-
   // Fetch virtual entries from reconciled bank transactions
   const bankTxWhere: Prisma.BankTransactionWhereInput = {
     statement: { bankAccount: { companyId } },
@@ -100,6 +98,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
       amount: true,
       description: true,
       reference: true,
+      journalEntryId: true,
       glAccount: {
         select: { id: true, code: true, name: true, accountType: true, normalBalance: true },
       },
@@ -145,7 +144,9 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   // Add virtual entries
   for (const tx of reconciledTxs) {
     if (!tx.glAccount) continue;
-    if (realDescSet.has(`Reconciliation: ${tx.description}`)) continue;
+    // A transaction already represented by a journal entry (journalEntryId) is
+    // already present in realEntries above — never as a virtual entry.
+    if (tx.journalEntryId) continue;
 
     const isDeposit = Number(tx.amount) > 0;
     const absAmount = Math.abs(tx.amount);

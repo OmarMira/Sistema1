@@ -40,6 +40,11 @@ export const PATCH = apiHandler(async (request: NextRequest) => {
     throw new ValidationError('Transacción bancaria no encontrada');
   }
 
+  // 2. Verificar que la transacción pertenezca a la empresa del contexto
+  if (bankTx.statement.bankAccount.companyId !== companyId) {
+    throw new ForbiddenError();
+  }
+
   // 3. Verificar que la transacción no esté ya vinculada a otra línea
   if (bankTx.journalLineId) {
     throw new ValidationError('Esta transacción bancaria ya está vinculada a una línea de asiento');

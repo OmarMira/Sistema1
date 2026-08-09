@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { parseCSV } from '@/lib/csv-parser';
 import { parseOFX } from '@/lib/ofx-parser';
 import { parsePDFAsync } from '@/lib/pdf-processor';
@@ -614,7 +615,10 @@ export class ImportService {
         select: { id: true, date: true, amount: true, description: true, glAccountId: true },
       });
       for (const bt of createdTxs) {
-         
+        // A transaction falling in a locked/closed fiscal period must not be
+        // posted. Abort the whole import (the $transaction rolls back).
+        await assertActiveFiscalPeriod(companyId, bt.date, tx as any);
+
         await JournalEntryService.createFromBankTransaction(tx as any, {
           bankTxId: bt.id,
           bankTxDate: bt.date,

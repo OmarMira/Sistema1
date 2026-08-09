@@ -148,4 +148,96 @@ describe('PDF Parser - Bank of America PDF Parser', () => {
       expect(secondResult.transactionCount).toBe(0);
     });
   });
+
+  describe('ImportService - período fiscal cerrado', () => {
+    beforeEach(async () => {
+      await clearDatabase();
+    });
+
+    afterEach(async () => {
+      await clearDatabase();
+    });
+
+    it('rechaza importar transacciones en período fiscal cerrado: sin JEs nuevos ni estado parcial', async () => {
+      const company = await createTestCompany('Closed Period Co');
+      const cashGl = await createTestGlAccount({
+        companyId: company.id,
+        code: '1010',
+        name: 'Cash',
+        accountType: 'asset',
+        normalBalance: 'debit',
+      });
+      const revenueGl = await createTestGlAccount({
+        companyId: company.id,
+        code: '4010',
+        name: 'Revenue',
+        accountType: 'revenue',
+        normalBalance: 'credit',
+      });
+
+      const bankAccount = await db.bankAccount.create({
+        data: {
+          companyId: company.id,
+          accountName: 'Checking',
+          bankName: 'Test Bank',
+          accountNo: 'XXX-1',
+          glAccountId: cashGl.id,
+          balance: 0,
+          currency: 'USD',
+          isActive: true,
+        },
+      });
+
+      await db.bankRule.create({
+        data: {
+          companyId: company.id,
+          name: 'Client Payment',
+          conditionType: 'contains',
+          conditionValue: 'CLIENT PAYMENT',
+          transactionDirection: 'any',
+          glAccountId: revenueGl.id,
+          priority: 10,
+          isActive: true,
+        },
+      });
+
+      await db.fiscalPeriod.create({
+        data: {
+          companyId: company.id,
+          name: 'June 2025 (locked)',
+          startDate: new Date('2025-06-01T00:00:00.000Z'),
+          endDate: new Date('2025-06-30T23:59:59.999Z'),
+          isLocked: true,
+        },
+      });
+
+      const csvContent = 'date,description,amount\n2025-06-15,CLIENT PAYMENT,500.00\n';
+
+      const jeCountBefore = await db.journalEntry.count({ where: { companyId: company.id } });
+
+      await expect(
+        ImportService.importFile({
+          companyId: company.id,
+          bankAccountId: bankAccount.id,
+          fileName: 'june-2025.csv',
+          extension: 'csv',
+          buffer: Buffer.from(csvContent),
+          content: csvContent,
+        }),
+      ).rejects.toThrow(/period/i);
+
+      const jeCountAfter = await db.journalEntry.count({ where: { companyId: company.id } });
+      expect(jeCountAfter).toBe(jeCountBefore);
+
+      const statementCount = await db.bankStatement.count({
+        where: { bankAccountId: bankAccount.id },
+      });
+      expect(statementCount).toBe(0);
+
+      const txCount = await db.bankTransaction.count({
+        where: { statement: { bankAccountId: bankAccount.id } },
+      });
+      expect(txCount).toBe(0);
+    });
+  });
 });

@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 
 // ─── GET /api/banks?companyId=xxx ──────────────────────────────────────
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
@@ -81,12 +82,15 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
     // Create opening journal entry if initial balance > 0
     if (initialBalance.greaterThan(0)) {
-       
+      const openingDate = new Date();
+      // A locked/closed current fiscal period must not receive the opening JE.
+      await assertActiveFiscalPeriod(companyId, openingDate, tx as any);
+
       const openingEquityId = await JournalEntryService.ensureOpeningBalanceEquity(tx as any, companyId);
        
       await JournalEntryService.createFromBankTransaction(tx as any, {
         bankTxId: '',
-        bankTxDate: new Date(),
+        bankTxDate: openingDate,
         bankTxAmount: initialBalance.toNumber(),
         bankTxDescription: 'Opening balance',
         bankGlAccountId: glAccountId,

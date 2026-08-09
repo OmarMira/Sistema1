@@ -203,6 +203,71 @@ describe('H1 — PATCH /api/transactions/[id] (verificación de mitigación)', (
     expect(body.transaction).toHaveProperty('glAccountId');
     expect(body.transaction).toHaveProperty('journalEntryId');
   });
+
+  it('reasignar GL de una tx con JE previo: voida el JE viejo y no duplica balances', async () => {
+    const user = await createTestUser('h1-reassign@example.com');
+    const company = await createTestCompany('H1 Reassign Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const cashGl = await createTestGlAccount({ companyId: company.id, code: '1030', name: 'Bank Account 7', normalBalance: 'debit' });
+    const revAGl = await createTestGlAccount({ companyId: company.id, code: '2030', name: 'Revenue A', normalBalance: 'credit' });
+    const revBGl = await createTestGlAccount({ companyId: company.id, code: '2040', name: 'Revenue B', normalBalance: 'credit' });
+    const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const tx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-03-20',
+      amount: 500.0,
+      description: 'Reassign me',
+    });
+
+    const oldJournalEntry = await createTestJournalEntry(company.id, {
+      date: '2025-03-20',
+      description: 'Old entry',
+      lines: [
+        { glAccountId: cashGl.id, debit: 500, credit: 0 },
+        { glAccountId: revAGl.id, debit: 0, credit: 500 },
+      ],
+    });
+
+    await db.bankTransaction.update({
+      where: { id: tx.id },
+      data: { journalEntryId: oldJournalEntry.id, glAccountId: revAGl.id },
+    });
+
+    const req = new NextRequest(`http://localhost/api/transactions/${tx.id}?companyId=${company.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ glAccountId: revBGl.id }),
+    });
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: tx.id }) });
+    expect(res.status).toBe(200);
+
+    const updatedTx = await db.bankTransaction.findUnique({
+      where: { id: tx.id },
+      select: { journalEntryId: true, glAccountId: true },
+    });
+    expect(updatedTx?.glAccountId).toBe(revBGl.id);
+    expect(updatedTx?.journalEntryId).not.toBeNull();
+    expect(updatedTx?.journalEntryId).not.toBe(oldJournalEntry.id);
+
+    const oldJe = await db.journalEntry.findUnique({ where: { id: oldJournalEntry.id } });
+    expect(oldJe?.status).toBe('void');
+
+    const newJe = await db.journalEntry.findUnique({ where: { id: updatedTx?.journalEntryId! } });
+    expect(newJe?.status).toBe('posted');
+
+    const cash = await db.glAccount.findUnique({ where: { id: cashGl.id } });
+    const revA = await db.glAccount.findUnique({ where: { id: revAGl.id } });
+    const revB = await db.glAccount.findUnique({ where: { id: revBGl.id } });
+    expect(Number(cash?.balance)).toBe(500);
+    expect(Number(revA?.balance)).toBe(0);
+    expect(Number(revB?.balance)).toBe(500);
+  });
 });
 
 describe('H1 — PATCH /api/transactions/[id] (caracterización de validaciones)', () => {

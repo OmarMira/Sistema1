@@ -54,8 +54,22 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
   const bankGlAccountId = transaction.statement.bankAccount.glAccountId;
 
   const result = await db.$transaction(async (tx) => {
-    // If transaction already has a journal entry, unlink it first
+    // If transaction already has a journal entry, void it and unlink it first,
+    // otherwise the previous posted entry keeps counting toward GL balances
+    // and the new one double-counts the same economic event.
     if (transaction.journalEntryId) {
+      const oldEntryLines = await tx.journalLine.findMany({
+        where: { entryId: transaction.journalEntryId },
+        select: { glAccountId: true },
+      });
+      await tx.journalEntry.update({
+        where: { id: transaction.journalEntryId },
+        data: { status: 'void' },
+      });
+      const affectedGlIds = [...new Set(oldEntryLines.map((l) => l.glAccountId))];
+      for (const glId of affectedGlIds) {
+        await JournalEntryService.recalculateBalance(tx as any, glId);
+      }
       await tx.bankTransaction.update({
         where: { id },
         data: { journalEntryId: null },

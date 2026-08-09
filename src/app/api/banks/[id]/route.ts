@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { ConflictError } from '@/lib/api-error';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 
 // ─── GET /api/banks/[id]?companyId=xxx ──────────────────────────────────
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
@@ -106,8 +109,66 @@ export const PUT = apiHandler(async (request: NextRequest, context: RouteContext
       updateData.balance = statements[statements.length - 1]!.closingBalance;
     } else {
       const parsedInitial = parseFloat(balance) || 0;
-      updateData.initialBalance = parsedInitial;
-      updateData.balance = parsedInitial;
+      const bankGlAccountId = existing.glAccountId;
+
+      const account = await db.$transaction(async (tx) => {
+        // Opening accounting = posted journal lines on the bank GL not linked to
+        // a bank transaction. There is no structural link between BankAccount and
+        // JournalEntry, so the opening JE cannot be safely isolated. When it exists
+        // and would diverge from the requested balance, block instead of guessing.
+        const unlinkedLines = await tx.journalLine.findMany({
+          where: {
+            glAccountId: bankGlAccountId,
+            entry: { companyId, status: 'posted', transactions: { none: {} } },
+          },
+          select: { debit: true, credit: true },
+        });
+        const openingEffect = unlinkedLines.reduce(
+          (sum, l) => sum + Number(l.debit) - Number(l.credit),
+          0,
+        );
+        const hasOpeningAccounting = unlinkedLines.length > 0;
+
+        if (hasOpeningAccounting && Math.abs(openingEffect - parsedInitial) > 0.009) {
+          throw new ConflictError(
+            'Cannot change the opening balance: it would diverge from the posted opening journal entry. Delete and recreate the bank account to change its opening balance.',
+          );
+        }
+
+        if (parsedInitial > 0 && !hasOpeningAccounting) {
+          const openingDate = new Date();
+          await assertActiveFiscalPeriod(companyId, openingDate, tx as any);
+          const openingEquityId = await JournalEntryService.ensureOpeningBalanceEquity(
+            tx as any,
+            companyId,
+          );
+          await JournalEntryService.createFromBankTransaction(tx as any, {
+            bankTxId: '',
+            bankTxDate: openingDate,
+            bankTxAmount: parsedInitial,
+            bankTxDescription: 'Opening balance',
+            bankGlAccountId,
+            counterpartyGlAccountId: openingEquityId,
+            companyId,
+          });
+        }
+
+        return tx.bankAccount.update({
+          where: { id },
+          data: {
+            ...updateData,
+            initialBalance: parsedInitial,
+            balance: parsedInitial,
+          },
+          include: {
+            glAccount: {
+              select: { id: true, code: true, name: true, accountType: true },
+            },
+          },
+        });
+      });
+
+      return NextResponse.json({ account });
     }
   }
 

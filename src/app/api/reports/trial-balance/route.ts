@@ -74,7 +74,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     select: {
       amount: true,
       description: true,
-      journalLineId: true,
+      journalEntryId: true,
       glAccount: {
         select: {
           code: true,
@@ -141,7 +141,9 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 
   for (const tx of reconciledTxs) {
     if (!tx.glAccount) continue;
-    if (tx.journalLineId) continue;
+    // A transaction already represented by a journal entry (journalEntryId) is
+    // reflected via its posted lines above — never as a virtual movement.
+    if (tx.journalEntryId) continue;
 
     const isDeposit = Number(tx.amount) > 0;
     const absAmount = Math.abs(tx.amount);

@@ -80,6 +80,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     select: {
       amount: true,
       description: true,
+      journalEntryId: true,
       glAccount: {
         select: {
           accountType: true,
@@ -89,15 +90,11 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     },
   });
 
-  // Create a set of journal entry descriptions to prevent double counting
-  const journalDescSet = new Set(journalLines.map((l) => l.entry?.description));
-
   for (const tx of reconciledTxs) {
     if (!tx.glAccount) continue;
-    // If a journal entry was created for this reconciliation, it will have this exact description prefix
-    if (journalDescSet.has(`Reconciliation: ${tx.description}`)) {
-      continue;
-    }
+    // A transaction already represented by a journal entry (journalEntryId) is
+    // reflected via the posted lines above — never as a virtual movement.
+    if (tx.journalEntryId) continue;
 
     const aType = tx.glAccount.accountType;
     if (!(aType in typeBalances)) continue;

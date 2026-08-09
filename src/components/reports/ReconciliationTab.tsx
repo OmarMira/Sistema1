@@ -38,7 +38,7 @@ export function ReconciliationTab({ companyId }: { companyId?: string }) {
     setLoading(true);
     (async () => {
       try {
-        const res = await fetch(`/api/reports/reconciliation?bankAccountId=${bankAccountId}`);
+        const res = await fetch(`/api/reports/reconciliation?companyId=${companyId}&bankAccountId=${bankAccountId}`);
         if (res.ok && !cancelled) setData(await res.json());
       } catch { /* ignore */ }
       if (!cancelled) setLoading(false);

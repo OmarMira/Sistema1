@@ -13,9 +13,9 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     return NextResponse.json({ error: 'bankAccountId is required' }, { status: 400 });
   }
 
-  // Get the bank account
-  const bankAccount = await db.bankAccount.findUnique({
-    where: { id: bankAccountId },
+  // Get the bank account, scoped to the authenticated company
+  const bankAccount = await db.bankAccount.findFirst({
+    where: { id: bankAccountId, companyId },
     include: {
       company: { select: { id: true } },
     },

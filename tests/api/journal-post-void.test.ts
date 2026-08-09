@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { POST } from '../../src/app/api/journal/[id]/route';
-import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, clearDatabase } from '../helpers/factories';
+import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction, createTestJournalEntry, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
@@ -459,6 +459,58 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
       });
       expect(auditLogs).toHaveLength(1);
       expect(auditLogs[0].action).toBe('void');
+    });
+  });
+
+  describe('H2-E: Vínculo bancario', () => {
+    it('void: bloquea anular un JE vinculado a una BankTransaction', async () => {
+      const user = await createTestUser('h2e-bank-linked@example.com');
+      const company = await createTestCompany('H2E Bank Linked');
+      await createTestCompanyMember(user.id, company.id);
+      const token = await createSession(user.id);
+
+      const cashGl = await createTestGlAccount({ companyId: company.id, code: '1400', name: 'Cash', normalBalance: 'debit' });
+      const revenueGl = await createTestGlAccount({ companyId: company.id, code: '3400', name: 'Revenue', normalBalance: 'credit' });
+      const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+      const statement = await createTestBankStatement(company.id, bankAccount.id);
+      const tx = await createTestBankTransaction(company.id, statement.id, {
+        date: '2025-06-15',
+        amount: 500,
+        description: 'CLIENT PAYMENT',
+      });
+
+      const je = await createTestJournalEntry(company.id, {
+        date: '2025-06-15',
+        description: 'Bank entry',
+        lines: [
+          { glAccountId: cashGl.id, debit: 500, credit: 0 },
+          { glAccountId: revenueGl.id, debit: 0, credit: 500 },
+        ],
+      });
+
+      await db.bankTransaction.update({
+        where: { id: tx.id },
+        data: { journalEntryId: je.id },
+      });
+
+      const res = await POST(
+        new NextRequest(`http://localhost/api/journal/${je.id}?companyId=${company.id}`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'void' }),
+        }),
+        { params: Promise.resolve({ id: je.id }) },
+      );
+
+      expect(res.status).toBe(400);
+      const body = await res.json();
+      expect(body.error).toContain('transacción bancaria');
+
+      const reloadedJe = await db.journalEntry.findUnique({ where: { id: je.id } });
+      expect(reloadedJe?.status).toBe('posted');
+
+      const reloadedTx = await db.bankTransaction.findUnique({ where: { id: tx.id } });
+      expect(reloadedTx?.journalEntryId).toBe(je.id);
     });
   });
 });

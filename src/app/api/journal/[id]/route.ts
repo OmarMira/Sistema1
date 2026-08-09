@@ -279,6 +279,24 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'Only posted entries can be voided' }, { status: 400 });
       }
 
+      // A journal entry generated from a bank transaction is covered by the
+      // bank flows (reconcile / apply / reclassify). Voiding it directly would
+      // leave the transaction linked to a void entry and its movement would
+      // disappear from balances and reports. Reclassify the transaction instead.
+      const linkedTx = await db.bankTransaction.findFirst({
+        where: { journalEntryId: id },
+        select: { id: true },
+      });
+      if (linkedTx) {
+        return NextResponse.json(
+          {
+            error:
+              'No se puede anular un asiento vinculado a una transacción bancaria. Reclasificá la transacción en su lugar.',
+          },
+          { status: 400 },
+        );
+      }
+
       await assertActiveFiscalPeriod(entry.companyId, entry.date);
 
       const updated = await db.$transaction(async (tx) => {

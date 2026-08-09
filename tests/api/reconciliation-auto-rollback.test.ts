@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction, clearDatabase } from '../helpers/factories';
 import { db } from '@/lib/db';
 import { NextRequest } from 'next/server';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 
 const mockGetSessionUserId = vi.hoisted(() => vi.fn().mockResolvedValue('user-placeholder'));
 
@@ -207,5 +208,138 @@ describe('H4 — POST /api/reconciliation/auto', () => {
     );
 
     expect(res.status).toBe(403);
+  });
+
+  it('auto-reconcile con createJournalEntries=true: vincula journalEntryId en la tx y crea JE balanceado', async () => {
+    const user = await createTestUser('h4-link@example.com');
+    const company = await createTestCompany('H4 Link');
+    await createTestCompanyMember(user.id, company.id);
+    mockGetSessionUserId.mockResolvedValue(user.id);
+
+    const cashGl = await createTestGlAccount({ companyId: company.id, code: '1013', name: 'Cash4', normalBalance: 'debit' });
+    const revenueGl = await createTestGlAccount({ companyId: company.id, code: '4013', name: 'Revenue4', normalBalance: 'credit' });
+    const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const bankTx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-06-15',
+      amount: 500,
+      description: 'CLIENT PAYMENT',
+    });
+
+    await db.bankRule.create({
+      data: {
+        companyId: company.id,
+        name: 'Match Client 4',
+        conditionType: 'contains',
+        conditionValue: 'CLIENT',
+        transactionDirection: 'any',
+        glAccountId: revenueGl.id,
+        priority: 10,
+        isActive: true,
+      },
+    });
+
+    const { POST } = await import('../../src/app/api/reconciliation/auto/route');
+
+    const res = await POST(
+      new NextRequest(
+        `http://localhost/api/reconciliation/auto?companyId=${company.id}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bankAccountId: bankAccount.id,
+            createJournalEntries: true,
+            matchByAmount: false,
+          }),
+        },
+      ),
+      { params: Promise.resolve({}) },
+    );
+
+    expect(res.status).toBe(200);
+
+    const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+    expect(updatedTx?.journalEntryId).toBeTruthy();
+
+    const entry = await db.journalEntry.findUnique({
+      where: { id: updatedTx?.journalEntryId! },
+      include: { lines: true },
+    });
+    expect(entry).toBeTruthy();
+    expect(entry?.lines).toHaveLength(2);
+    const dr = entry!.lines.reduce((s, l) => s + Number(l.debit), 0);
+    const cr = entry!.lines.reduce((s, l) => s + Number(l.credit), 0);
+    expect(Math.abs(dr - cr)).toBeLessThan(0.01);
+  });
+
+  it('auto-reconcile: NO duplica JE si la tx ya tiene uno (contrato 1:1)', async () => {
+    const user = await createTestUser('h4-nodup@example.com');
+    const company = await createTestCompany('H4 NoDup');
+    await createTestCompanyMember(user.id, company.id);
+    mockGetSessionUserId.mockResolvedValue(user.id);
+
+    const cashGl = await createTestGlAccount({ companyId: company.id, code: '1014', name: 'Cash5', normalBalance: 'debit' });
+    const revenueGl = await createTestGlAccount({ companyId: company.id, code: '4014', name: 'Revenue5', normalBalance: 'credit' });
+    const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const bankTx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-06-15',
+      amount: 500,
+      description: 'CLIENT PAYMENT',
+    });
+
+    await db.bankRule.create({
+      data: {
+        companyId: company.id,
+        name: 'Match Client 5',
+        conditionType: 'contains',
+        conditionValue: 'CLIENT',
+        transactionDirection: 'any',
+        glAccountId: revenueGl.id,
+        priority: 10,
+        isActive: true,
+      },
+    });
+
+    // Simula apply-all previo: la tx ya tiene JE vinculado
+    const existingEntryId = await JournalEntryService.createFromBankTransaction(db as any, {
+      bankTxId: bankTx.id,
+      bankTxDate: bankTx.date,
+      bankTxAmount: Number(bankTx.amount),
+      bankTxDescription: bankTx.description,
+      bankGlAccountId: cashGl.id,
+      counterpartyGlAccountId: revenueGl.id,
+      companyId: company.id,
+    });
+    expect(existingEntryId).toBeTruthy();
+
+    const jeCountBefore = await db.journalEntry.count({ where: { companyId: company.id } });
+
+    const { POST } = await import('../../src/app/api/reconciliation/auto/route');
+
+    const res = await POST(
+      new NextRequest(
+        `http://localhost/api/reconciliation/auto?companyId=${company.id}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bankAccountId: bankAccount.id,
+            createJournalEntries: true,
+            matchByAmount: false,
+          }),
+        },
+      ),
+      { params: Promise.resolve({}) },
+    );
+
+    expect(res.status).toBe(200);
+
+    const jeCountAfter = await db.journalEntry.count({ where: { companyId: company.id } });
+    expect(jeCountAfter).toBe(jeCountBefore);
+
+    const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+    expect(updatedTx?.journalEntryId).toBe(existingEntryId);
   });
 });

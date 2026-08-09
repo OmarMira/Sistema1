@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ReconciliationService } from '@/lib/services/reconciliation.service';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import {
   createTestCompany,
   createTestBankAccount,
@@ -307,6 +308,200 @@ describe('ReconciliationService', () => {
       });
       expect(entries).toHaveLength(1);
       expect(entries[0].status).toBe('posted');
+    });
+  });
+
+  describe('Journal entry linking & GL balance sync (BRE fix: reconciliation contract 1:1)', () => {
+    beforeEach(async () => {
+      await clearDatabase();
+    });
+
+    afterEach(async () => {
+      await clearDatabase();
+    });
+
+    it('sin JE previo + createJournalEntries=true: crea 1 JE, 2 líneas balanceadas, vincula journalEntryId y actualiza balances GL', async () => {
+      const company = await createTestCompany();
+      const cashGl = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+      const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+      const statement = await createTestBankStatement(company.id, bankAccount.id);
+      await createFiscalPeriod(company.id);
+
+      const bankTx = await createTestBankTransaction(company.id, statement.id, {
+        date: '2025-03-03',
+        amount: 1100.0,
+        description: 'Zelle payment from RODRIGO OCHOA',
+        reference: 'T0YKY6RCL',
+      });
+
+      const incomeGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Sales Revenue', accountType: 'revenue', normalBalance: 'credit' });
+
+      const result = await ReconciliationService.reconcile({
+        companyId: company.id,
+        bankAccountId: bankAccount.id,
+        transactions: [{ id: bankTx.id, glAccountId: incomeGl.id, splits: null }],
+        createJournalEntries: true,
+      });
+
+      expect(result.reconciledCount).toBe(1);
+      expect(result.journalEntriesCreated).toBe(1);
+
+      const entries = await db.journalEntry.findMany({
+        where: { companyId: company.id },
+        include: { lines: true },
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].lines).toHaveLength(2);
+      const dr = entries[0].lines.reduce((s, l) => s + Number(l.debit), 0);
+      const cr = entries[0].lines.reduce((s, l) => s + Number(l.credit), 0);
+      expect(Math.abs(dr - cr)).toBeLessThan(0.01);
+
+      const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+      expect(updatedTx?.journalEntryId).toBe(entries[0].id);
+      expect(updatedTx?.isReconciled).toBe(true);
+
+      const cash = await db.glAccount.findUnique({ where: { id: cashGl.id } });
+      const income = await db.glAccount.findUnique({ where: { id: incomeGl.id } });
+      expect(Number(cash?.balance)).toBeCloseTo(1100.0, 2);
+      expect(Number(income?.balance)).toBeCloseTo(1100.0, 2);
+    });
+
+    it('con JE previo de apply-all + createJournalEntries=true: NO crea otro JE, conserva journalEntryId, balances no cambian dos veces', async () => {
+      const company = await createTestCompany();
+      const cashGl = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+      const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+      const statement = await createTestBankStatement(company.id, bankAccount.id);
+      await createFiscalPeriod(company.id);
+
+      const bankTx = await createTestBankTransaction(company.id, statement.id, {
+        date: '2025-03-03',
+        amount: 1100.0,
+        description: 'Zelle payment from RODRIGO OCHOA',
+        reference: 'T0YKY6RCL',
+      });
+
+      const incomeGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Sales Revenue', accountType: 'revenue', normalBalance: 'credit' });
+
+      // Simula apply-all: el JE ya existe y la tx ya está vinculada
+      const entryId = await JournalEntryService.createFromBankTransaction(db as any, {
+        bankTxId: bankTx.id,
+        bankTxDate: bankTx.date,
+        bankTxAmount: Number(bankTx.amount),
+        bankTxDescription: bankTx.description,
+        bankGlAccountId: cashGl.id,
+        counterpartyGlAccountId: incomeGl.id,
+        companyId: company.id,
+      });
+      expect(entryId).toBeTruthy();
+
+      const jeCountBefore = await db.journalEntry.count({ where: { companyId: company.id } });
+
+      const result = await ReconciliationService.reconcile({
+        companyId: company.id,
+        bankAccountId: bankAccount.id,
+        transactions: [{ id: bankTx.id, glAccountId: incomeGl.id, splits: null }],
+        createJournalEntries: true,
+      });
+
+      expect(result.reconciledCount).toBe(1);
+      expect(result.journalEntriesCreated).toBe(0);
+
+      const jeCountAfter = await db.journalEntry.count({ where: { companyId: company.id } });
+      expect(jeCountAfter).toBe(jeCountBefore);
+
+      const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+      expect(updatedTx?.journalEntryId).toBe(entryId);
+      expect(updatedTx?.isReconciled).toBe(true);
+
+      // El balance NO debe duplicarse: sigue siendo 1100, no 2200
+      const cash = await db.glAccount.findUnique({ where: { id: cashGl.id } });
+      const income = await db.glAccount.findUnique({ where: { id: incomeGl.id } });
+      expect(Number(cash?.balance)).toBeCloseTo(1100.0, 2);
+      expect(Number(income?.balance)).toBeCloseTo(1100.0, 2);
+    });
+
+    it('createJournalEntries=false: no crea JE pero la reconciliación sigue funcionando', async () => {
+      const company = await createTestCompany();
+      const cashGl = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+      const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+      const statement = await createTestBankStatement(company.id, bankAccount.id);
+      await createFiscalPeriod(company.id);
+
+      const bankTx = await createTestBankTransaction(company.id, statement.id, {
+        date: '2025-03-03',
+        amount: 1100.0,
+        description: 'Zelle payment from RODRIGO OCHOA',
+      });
+
+      const incomeGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Sales Revenue', accountType: 'revenue', normalBalance: 'credit' });
+
+      const result = await ReconciliationService.reconcile({
+        companyId: company.id,
+        bankAccountId: bankAccount.id,
+        transactions: [{ id: bankTx.id, glAccountId: incomeGl.id, splits: null }],
+        createJournalEntries: false,
+      });
+
+      expect(result.reconciledCount).toBe(1);
+      expect(result.journalEntriesCreated).toBe(0);
+
+      const jeCount = await db.journalEntry.count({ where: { companyId: company.id } });
+      expect(jeCount).toBe(0);
+
+      const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+      expect(updatedTx?.isReconciled).toBe(true);
+      expect(updatedTx?.journalEntryId).toBeNull();
+    });
+
+    it('con splits: JE multi-línea balanceado, journalEntryId vinculado y balances de TODAS las cuentas recalculados', async () => {
+      const company = await createTestCompany();
+      const cashGl = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+      const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+      const statement = await createTestBankStatement(company.id, bankAccount.id);
+      await createFiscalPeriod(company.id);
+
+      const bankTx = await createTestBankTransaction(company.id, statement.id, {
+        date: '2025-03-15',
+        amount: 500.0,
+        description: 'Ingreso dividido',
+      });
+
+      const revenueGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Sales', accountType: 'revenue', normalBalance: 'credit' });
+      const taxGl = await createTestGlAccount({ companyId: company.id, code: '2010', name: 'Tax Payable', accountType: 'liability', normalBalance: 'credit' });
+
+      const result = await ReconciliationService.reconcile({
+        companyId: company.id,
+        bankAccountId: bankAccount.id,
+        transactions: [{
+          id: bankTx.id,
+          glAccountId: revenueGl.id,
+          splits: [
+            { glAccountId: revenueGl.id, amount: 400, description: 'Revenue portion' },
+            { glAccountId: taxGl.id, amount: 100, description: 'Tax portion' },
+          ],
+        }],
+        createJournalEntries: true,
+      });
+
+      expect(result.reconciledCount).toBe(1);
+      expect(result.journalEntriesCreated).toBe(1);
+
+      const entries = await db.journalEntry.findMany({
+        where: { companyId: company.id },
+        include: { lines: true },
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].lines).toHaveLength(3);
+
+      const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+      expect(updatedTx?.journalEntryId).toBe(entries[0].id);
+
+      const cash = await db.glAccount.findUnique({ where: { id: cashGl.id } });
+      const revenue = await db.glAccount.findUnique({ where: { id: revenueGl.id } });
+      const tax = await db.glAccount.findUnique({ where: { id: taxGl.id } });
+      expect(Number(cash?.balance)).toBeCloseTo(500.0, 2);
+      expect(Number(revenue?.balance)).toBeCloseTo(400.0, 2);
+      expect(Number(tax?.balance)).toBeCloseTo(100.0, 2);
     });
   });
 });

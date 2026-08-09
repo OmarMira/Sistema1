@@ -228,15 +228,18 @@ export const POST = apiHandler(async (request: NextRequest) => {
         data: updateData,
       });
 
-      // Create journal entry only for rule-matched, not amount-matched (those already have entries)
-      if (createJournalEntries && match.ruleId) {
+      // Create journal entry only for rule-matched, not amount-matched (those already have entries).
+      // Contract 1:1 — BankTransaction.journalEntryId is @unique: never create a
+      // second journal entry for a transaction that already has one. When an
+      // existing entry is present, creation is skipped and the link is preserved.
+      if (createJournalEntries && match.ruleId && !transaction.journalEntryId) {
         const amount = Math.abs(transaction.amount);
         const debitAccountId = Number(transaction.amount) > 0 ? bankAccount.glAccountId : match.glAccountId;
         const creditAccountId = Number(transaction.amount) > 0 ? match.glAccountId : bankAccount.glAccountId;
 
         const description = `Auto-reconcile: ${transaction.description} (Rule: ${match.ruleName})`;
 
-        await tx.journalEntry.create({
+        const entry = await tx.journalEntry.create({
           data: {
             companyId,
             date: transaction.date,
@@ -249,6 +252,12 @@ export const POST = apiHandler(async (request: NextRequest) => {
               ],
             },
           },
+        });
+
+        // Link the transaction to the created journal entry (contract 1:1).
+        await tx.bankTransaction.update({
+          where: { id: txId },
+          data: { journalEntryId: entry.id },
         });
 
         await JournalEntryService.recalculateBalance(tx as any, debitAccountId);

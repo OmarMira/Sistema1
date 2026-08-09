@@ -4,6 +4,7 @@ import { CreateReconciliationInput } from '@/lib/validations/reconciliation';
 import { withTiming } from '@/lib/timing';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { validateSemanticDirection } from '@/lib/semantic-validator';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 
 export class ReconciliationService {
   static reconcile = withTiming(async (input: CreateReconciliationInput) => {
@@ -78,7 +79,15 @@ export class ReconciliationService {
         const mainGlId =
           txn.splits && txn.splits.length > 0 ? txn.splits[0]!.glAccountId : txn.glAccountId;
 
-        // Perform semantic checks for splits or main GL account
+        // Contract 1:1 — BankTransaction.journalEntryId is @unique. A transaction
+        // has at most ONE journal entry. If it already has one (e.g. from a
+        // previous apply-all), reconciliation must NOT create or replace it: it
+        // only marks the transaction as reconciled and preserves the existing
+        // entry, avoiding double-posting.
+        const hasExistingJournalEntry = Boolean(bankTx.journalEntryId);
+
+        // Perform semantic checks for splits or main GL account. The proposed GL
+        // is only applied when the transaction has no existing journal entry.
         if (txn.splits && txn.splits.length > 0) {
           for (const split of txn.splits) {
             const splitAccount = glAccountMap.get(split.glAccountId);
@@ -94,11 +103,15 @@ export class ReconciliationService {
               }
             }
           }
-          updateData.glAccountId = mainGlId;
+          if (!hasExistingJournalEntry) {
+            updateData.glAccountId = mainGlId;
+          }
         } else if (mainGlId) {
           const glAccount = glAccountMap.get(mainGlId);
           if (glAccount) {
-            updateData.glAccountId = mainGlId;
+            if (!hasExistingJournalEntry) {
+              updateData.glAccountId = mainGlId;
+            }
             const direction = Number(bankTx.amount) > 0 ? 'credit' : 'debit';
             const semanticWarning = validateSemanticDirection(
               glAccount.accountType,
@@ -111,6 +124,21 @@ export class ReconciliationService {
           }
         }
 
+        // When the transaction already has a journal entry, do not silently
+        // reclassify it. If the proposed GL contradicts the existing assignment,
+        // surface a warning (following the semantic-warning pattern that marks
+        // the transaction pending_review) instead of creating a duplicate entry.
+        if (
+          hasExistingJournalEntry &&
+          mainGlId &&
+          bankTx.glAccountId &&
+          mainGlId !== bankTx.glAccountId
+        ) {
+          txnWarnings.push(
+            `Transaction already has a journal entry (account ${bankTx.glAccountId}); proposed account ${mainGlId} was not applied to avoid double-posting.`,
+          );
+        }
+
         if (txnWarnings.length > 0) {
           updateData.status = 'pending_review';
           warnings.push(...txnWarnings);
@@ -120,13 +148,13 @@ export class ReconciliationService {
           updateData.reconciliationPeriodId = periodId;
         }
 
-        await tx.bankTransaction.update({
-          where: { id: txn.id },
-          data: updateData,
-        });
+        // Create a journal entry only when requested AND the transaction does not
+        // already have one (contract 1:1). When an existing entry is preserved,
+        // creation is skipped entirely — the transaction stays linked to it.
+        const affectedGlAccountIds = new Set<string>();
+        let createdEntryId: string | null = null;
 
-        // Create journal entry if requested
-        if (createJournalEntries) {
+        if (createJournalEntries && !hasExistingJournalEntry) {
           const amount = Math.abs(bankTx.amount);
           const isDeposit = Number(bankTx.amount) > 0;
           const description = `Reconciliation: ${bankTx.description}`;
@@ -167,7 +195,7 @@ export class ReconciliationService {
               });
             }
 
-            await tx.journalEntry.create({
+            const entry = await tx.journalEntry.create({
               data: {
                 companyId,
                 date: bankTx.date,
@@ -176,6 +204,11 @@ export class ReconciliationService {
                 lines: { create: lines },
               },
             });
+            createdEntryId = entry.id;
+            affectedGlAccountIds.add(bankAccount.glAccountId);
+            for (const split of txn.splits) {
+              affectedGlAccountIds.add(split.glAccountId);
+            }
             journalEntriesCreated++;
           }
           // Case 2: No splits, but glAccountId provided
@@ -183,7 +216,7 @@ export class ReconciliationService {
             const debitAccountId = isDeposit ? bankAccount.glAccountId : mainGlId;
             const creditAccountId = isDeposit ? mainGlId : bankAccount.glAccountId;
 
-            await tx.journalEntry.create({
+            const entry = await tx.journalEntry.create({
               data: {
                 companyId,
                 date: bankTx.date,
@@ -197,8 +230,26 @@ export class ReconciliationService {
                 },
               },
             });
+            createdEntryId = entry.id;
+            affectedGlAccountIds.add(debitAccountId);
+            affectedGlAccountIds.add(creditAccountId);
             journalEntriesCreated++;
           }
+        }
+
+        if (createdEntryId) {
+          updateData.journalEntryId = createdEntryId;
+        }
+
+        await tx.bankTransaction.update({
+          where: { id: txn.id },
+          data: updateData,
+        });
+
+        // Recalculate materialized GL balances for every account touched by the
+        // new entry, so stored GlAccount.balance matches the derived trial balance.
+        for (const glAccountId of affectedGlAccountIds) {
+          await JournalEntryService.recalculateBalance(tx as any, glAccountId);
         }
 
         reconciledCount++;

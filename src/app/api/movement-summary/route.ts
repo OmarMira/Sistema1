@@ -213,6 +213,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
         amount: true,
         description: true,
         reference: true,
+        journalEntryId: true,
         glAccount: {
           select: {
             id: true,
@@ -242,14 +243,11 @@ export const GET = apiHandler(async (request: NextRequest) => {
       },
     });
 
-    const journalDescSet = new Set(entries.map((e) => e.description));
-
     for (const tx of reconciledTxs) {
       if (!tx.glAccount) continue;
-      if (journalDescSet.has(`Reconciliation: ${tx.description}`)) {
-        continue;
-      }
-
+      // A transaction already represented by a journal entry (journalEntryId) is
+      // already counted via its posted lines above — never as a virtual movement.
+      if (tx.journalEntryId) continue;
       transactionCount++;
 
       const isDeposit = Number(tx.amount) > 0;

@@ -78,7 +78,10 @@ export const POST = apiHandler(async (request: NextRequest) => {
 
     // ── Step 1: Match by rules ──
     const matchedTxIds = new Set<string>();
-    const matchMap = new Map<string, { ruleId: string; ruleName: string; glAccountId: string }>();
+    const matchMap = new Map<
+      string,
+      { ruleId: string; ruleName: string; glAccountId: string; journalEntryId?: string }
+    >();
 
     const rolePriorities = await loadRolePriorities();
     const entityContexts = await db.entityContext.findMany({
@@ -174,6 +177,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
               ruleId: '',
               ruleName: 'Amount Match',
               glAccountId: jeInfo.counterGlAccountId,
+              journalEntryId: entryId,
             });
             matchedByAmount++;
             journalEntryMap.delete(entryId); // Don't reuse this entry
@@ -218,6 +222,9 @@ export const POST = apiHandler(async (request: NextRequest) => {
 
       if (match.ruleId) {
         updateData.matchedRuleId = match.ruleId;
+      }
+      if (match.journalEntryId) {
+        updateData.journalEntryId = match.journalEntryId;
       }
       if (periodId) {
         updateData.reconciliationPeriodId = periodId;

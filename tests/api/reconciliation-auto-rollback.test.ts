@@ -342,4 +342,60 @@ describe('H4 — POST /api/reconciliation/auto', () => {
     const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
     expect(updatedTx?.journalEntryId).toBe(existingEntryId);
   });
+
+  it('amount-match: vincula journalEntryId al JE existente y evita doble conteo', async () => {
+    const user = await createTestUser('h4-amount-match@example.com');
+    const company = await createTestCompany('H4 AmountMatch');
+    await createTestCompanyMember(user.id, company.id);
+    mockGetSessionUserId.mockResolvedValue(user.id);
+
+    const cashGl = await createTestGlAccount({ companyId: company.id, code: '1015', name: 'Cash6', normalBalance: 'debit' });
+    const revenueGl = await createTestGlAccount({ companyId: company.id, code: '4015', name: 'Revenue6', normalBalance: 'credit' });
+    const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const bankTx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-06-15',
+      amount: 500,
+      description: 'MANUAL ENTRY MATCH',
+    });
+
+    // JE existente posteado que ya representa este movimiento (mismo monto y fecha)
+    const je = await db.journalEntry.create({
+      data: {
+        companyId: company.id,
+        date: new Date('2025-06-15'),
+        description: 'Entrada manual',
+        status: 'posted',
+        lines: {
+          create: [
+            { glAccountId: cashGl.id, description: 'Entrada manual', debit: 500, credit: 0 },
+            { glAccountId: revenueGl.id, description: 'Entrada manual', debit: 0, credit: 500 },
+          ],
+        },
+      },
+    });
+
+    const { POST } = await import('../../src/app/api/reconciliation/auto/route');
+
+    const res = await POST(
+      new NextRequest(
+        `http://localhost/api/reconciliation/auto?companyId=${company.id}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            bankAccountId: bankAccount.id,
+            createJournalEntries: false,
+            matchByAmount: true,
+          }),
+        },
+      ),
+      { params: Promise.resolve({}) },
+    );
+
+    expect(res.status).toBe(200);
+
+    const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+    expect(updatedTx?.journalEntryId).toBe(je.id);
+  });
 });

@@ -1,8 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { ReconciliationService } from '@/lib/services/reconciliation.service';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
+import { ValidationError } from '@/lib/api-error';
 import {
+  createTestUser,
   createTestCompany,
+  createTestCompanyMember,
   createTestBankAccount,
   createTestGlAccount,
   createTestBankStatement,
@@ -503,5 +506,135 @@ describe('ReconciliationService', () => {
       expect(Number(revenue?.balance)).toBeCloseTo(400.0, 2);
       expect(Number(tax?.balance)).toBeCloseTo(100.0, 2);
     });
+  });
+});
+
+// ───────────────────────────────────────────────
+// P14 — Tenant isolation: split GL accounts
+// ───────────────────────────────────────────────
+
+describe('P14 — splits con GL accounts foráneas (aislamiento de tenant)', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+  });
+
+  it('A→B: rechaza conciliar con split.glAccountId de otra empresa y deja a B intacta', async () => {
+    const userA = await createTestUser('p14-a@example.com');
+    const companyA = await createTestCompany('Company A');
+    await createTestCompanyMember(userA.id, companyA.id);
+
+    const userB = await createTestUser('p14-b@example.com');
+    const companyB = await createTestCompany('Company B');
+    await createTestCompanyMember(userB.id, companyB.id);
+
+    const bankGlA = await createTestGlAccount({ companyId: companyA.id, code: '1010', name: 'Cash' });
+    const bankA = await createTestBankAccount(companyA.id, bankGlA.id);
+    const statementA = await createTestBankStatement(companyA.id, bankA.id);
+    await createFiscalPeriod(companyA.id);
+
+    const bankTx = await createTestBankTransaction(companyA.id, statementA.id, {
+      date: '2025-03-15',
+      amount: 500.0,
+      description: 'Ingreso dividido cross-tenant',
+    });
+
+    const glB = await createTestGlAccount({
+      companyId: companyB.id,
+      code: '4010',
+      name: 'Foreign Revenue',
+      accountType: 'revenue',
+      normalBalance: 'credit',
+    });
+    await db.glAccount.update({ where: { id: glB.id }, data: { balance: 1234.56 } });
+
+    const jeCountBefore = await db.journalEntry.count();
+
+    let thrown: unknown = null;
+    try {
+      await ReconciliationService.reconcile({
+        companyId: companyA.id,
+        bankAccountId: bankA.id,
+        transactions: [{
+          id: bankTx.id,
+          glAccountId: bankGlA.id,
+          splits: [{ glAccountId: glB.id, amount: 500, description: 'Foreign split' }],
+        }],
+        createJournalEntries: true,
+      });
+    } catch (e) {
+      thrown = e;
+    }
+
+    expect(thrown).toBeInstanceOf(ValidationError);
+
+    const txAfter = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+    expect(txAfter?.isReconciled).toBe(false);
+
+    const jeCountAfter = await db.journalEntry.count();
+    expect(jeCountAfter).toBe(jeCountBefore);
+
+    const linesOnGlB = await db.journalLine.findMany({ where: { glAccountId: glB.id } });
+    expect(linesOnGlB).toHaveLength(0);
+
+    const glBAfter = await db.glAccount.findUnique({ where: { id: glB.id } });
+    expect(Number(glBAfter?.balance)).toBe(1234.56);
+  });
+
+  it('A→A: conciliación con splits propios sigue funcionando', async () => {
+    const userA = await createTestUser('p14-c@example.com');
+    const companyA = await createTestCompany('Company A');
+    await createTestCompanyMember(userA.id, companyA.id);
+
+    const bankGlA = await createTestGlAccount({ companyId: companyA.id, code: '1010', name: 'Cash' });
+    const bankA = await createTestBankAccount(companyA.id, bankGlA.id);
+    const statementA = await createTestBankStatement(companyA.id, bankA.id);
+    await createFiscalPeriod(companyA.id);
+
+    const bankTx = await createTestBankTransaction(companyA.id, statementA.id, {
+      date: '2025-03-15',
+      amount: 500.0,
+      description: 'Ingreso dividido',
+    });
+
+    const revenueA = await createTestGlAccount({ companyId: companyA.id, code: '4010', name: 'Sales', accountType: 'revenue', normalBalance: 'credit' });
+    const taxA = await createTestGlAccount({ companyId: companyA.id, code: '2010', name: 'Tax Payable', accountType: 'liability', normalBalance: 'credit' });
+
+    const result = await ReconciliationService.reconcile({
+      companyId: companyA.id,
+      bankAccountId: bankA.id,
+      transactions: [{
+        id: bankTx.id,
+        glAccountId: revenueA.id,
+        splits: [
+          { glAccountId: revenueA.id, amount: 400, description: 'Revenue portion' },
+          { glAccountId: taxA.id, amount: 100, description: 'Tax portion' },
+        ],
+      }],
+      createJournalEntries: true,
+    });
+
+    expect(result.reconciledCount).toBe(1);
+    expect(result.journalEntriesCreated).toBe(1);
+
+    const updatedTx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+    expect(updatedTx?.isReconciled).toBe(true);
+
+    const entries = await db.journalEntry.findMany({
+      where: { companyId: companyA.id },
+      include: { lines: true },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0].lines).toHaveLength(3);
+
+    const cash = await db.glAccount.findUnique({ where: { id: bankGlA.id } });
+    const revenue = await db.glAccount.findUnique({ where: { id: revenueA.id } });
+    const tax = await db.glAccount.findUnique({ where: { id: taxA.id } });
+    expect(Number(cash?.balance)).toBeCloseTo(500.0, 2);
+    expect(Number(revenue?.balance)).toBeCloseTo(400.0, 2);
+    expect(Number(tax?.balance)).toBeCloseTo(100.0, 2);
   });
 });

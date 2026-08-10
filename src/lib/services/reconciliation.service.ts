@@ -79,6 +79,25 @@ export class ReconciliationService {
         const mainGlId =
           txn.splits && txn.splits.length > 0 ? txn.splits[0]!.glAccountId : txn.glAccountId;
 
+        // P14 — Tenant isolation: every GL account this transaction would
+        // write must belong to the reconciling company. glAccountMap is
+        // already filtered by companyId, so an account from another company
+        // (or a nonexistent one) will be absent. Reject BEFORE any write so
+        // the whole transaction rolls back with no partial state.
+        const proposedGlIds =
+          txn.splits && txn.splits.length > 0
+            ? txn.splits.map((s) => s.glAccountId)
+            : mainGlId
+              ? [mainGlId]
+              : [];
+        for (const glAccountId of proposedGlIds) {
+          if (!glAccountMap.has(glAccountId)) {
+            throw new ValidationError(
+              `GL account ${glAccountId} does not belong to this company or does not exist`,
+            );
+          }
+        }
+
         // Contract 1:1 — BankTransaction.journalEntryId is @unique. A transaction
         // has at most ONE journal entry. If it already has one (e.g. from a
         // previous apply-all), reconciliation must NOT create or replace it: it

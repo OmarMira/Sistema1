@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { ForbiddenError } from '@/lib/api-error';
 import { entityMetadataByType } from './metadata-schemas';
 import type {
   EntityType,
@@ -25,6 +26,7 @@ export interface ProposeCreateInput {
 
 export interface ConfirmCreateInput {
   pendingApprovalId: string;
+  companyId: string;
   reason?: string;
 }
 
@@ -42,6 +44,7 @@ export interface ProposeUpdateInput {
 
 export interface ConfirmUpdateInput {
   pendingApprovalId: string;
+  companyId: string;
   reason?: string;
 }
 
@@ -193,6 +196,16 @@ export async function confirmCreate(
 
   const payload = pending.payload as Record<string, unknown>;
 
+  // Tenant isolation: the confirming user must belong to the company that
+  // owns the proposal. pendingApprovalId is not a trust anchor — the
+  // payload's companyId is fixed when the proposal is created, so compare
+  // against the authenticated context BEFORE creating anything.
+  if (payload.companyId !== input.companyId) {
+    throw new ForbiddenError(
+      'Forbidden: cannot confirm a proposal from another company',
+    );
+  }
+
   // 2. Create CompanyKnowledge with version=1
   const record = await db.companyKnowledge.create({
     data: {
@@ -323,6 +336,15 @@ export async function confirmUpdate(
   if (!existing) {
     throw new Error(
       `CompanyKnowledge ${payload.knowledgeId} not found`,
+    );
+  }
+
+  // Tenant isolation: the authority to confirm is the company that owns the
+  // CompanyKnowledge being modified, NOT the declared companyId of the
+  // request nor the proposal id. Reject before consuming the approval.
+  if (existing.companyId !== input.companyId) {
+    throw new ForbiddenError(
+      'Forbidden: cannot confirm an update to knowledge of another company',
     );
   }
 

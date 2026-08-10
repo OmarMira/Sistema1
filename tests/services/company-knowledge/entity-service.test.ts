@@ -263,7 +263,7 @@ describe('confirmCreate', () => {
 
     const result = await requestContext.run(
       { userId: 'approver-1', companyId: 'company-1' },
-      () => entityService.confirmCreate({ pendingApprovalId: 'pa-1' }),
+      () => entityService.confirmCreate({ pendingApprovalId: 'pa-1', companyId: 'company-1' }),
     );
 
     // Creates the entity with version=1
@@ -313,7 +313,7 @@ describe('confirmCreate', () => {
 
     await expect(
       requestContext.run({ userId: 'approver-1', companyId: 'company-1' }, () =>
-        entityService.confirmCreate({ pendingApprovalId: 'pa-missing' }),
+        entityService.confirmCreate({ pendingApprovalId: 'pa-missing', companyId: 'company-1' }),
       ),
     ).rejects.toThrow('PendingApproval pa-missing not found');
   });
@@ -325,7 +325,7 @@ describe('confirmCreate', () => {
 
     await expect(
       requestContext.run({ userId: 'approver-1', companyId: 'company-1' }, () =>
-        entityService.confirmCreate({ pendingApprovalId: 'pa-1' }),
+        entityService.confirmCreate({ pendingApprovalId: 'pa-1', companyId: 'company-1' }),
       ),
     ).rejects.toThrow('PendingApproval is not in pending state');
   });
@@ -337,7 +337,7 @@ describe('confirmCreate', () => {
 
     await expect(
       requestContext.run({ userId: 'approver-1', companyId: 'company-1' }, () =>
-        entityService.confirmCreate({ pendingApprovalId: 'pa-1' }),
+        entityService.confirmCreate({ pendingApprovalId: 'pa-1', companyId: 'company-1' }),
       ),
     ).rejects.toThrow('PendingApproval action must be "create"');
   });
@@ -487,7 +487,7 @@ describe('confirmUpdate', () => {
 
     const result = await requestContext.run(
       { userId: 'approver-1', companyId: 'company-1' },
-      () => entityService.confirmUpdate({ pendingApprovalId: 'pa-1' }),
+      () => entityService.confirmUpdate({ pendingApprovalId: 'pa-1', companyId: 'company-1' }),
     );
 
     expect(db.companyKnowledge.update).toHaveBeenCalledWith({

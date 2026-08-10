@@ -3,6 +3,7 @@ import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { readJsonConfig } from '@/lib/config-loader';
+import { getYearCloseEntryIds } from '@/lib/reports/aggregation';
 
 export const GET = apiHandler(async (req: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
@@ -36,12 +37,20 @@ export const GET = apiHandler(async (req: NextRequest) => {
   const fiscalStart = new Date(Date.UTC(fiscalYear, 0, 1));
   const fiscalEnd = new Date(Date.UTC(fiscalYear, 11, 31, 23, 59, 59, 999));
 
-  // 1. Obtener todas las líneas de asientos contables posteados para esta compañía
+  // 1. Obtener todas las líneas de asientos contables posteados para esta compañía.
+  //    Los asientos de cierre anual (identificados estructuralmente vía
+  //    AuditLog YEAR_CLOSED → entityId) se EXCLUYEN del desempeño del período:
+  //    trasladan el resultado a Retained Earnings y, si se incluyeran, llevan
+  //    revenue/expenses a cero (borrando la lectura histórica del año). El
+  //    traslado sigue reflejado en el Balance Sheet, que no aplica esta exclusión.
+  const yearCloseEntryIds = await getYearCloseEntryIds(companyId);
+
   const postedLines = await db.journalLine.findMany({
     where: {
       entry: {
         companyId,
         status: 'posted',
+        ...(yearCloseEntryIds.length > 0 ? { id: { notIn: yearCloseEntryIds } } : {}),
       },
     },
     select: {

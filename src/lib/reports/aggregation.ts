@@ -1,5 +1,19 @@
 import { db } from '@/lib/db';
 
+/**
+ * IDs de los asientos de cierre anual de una empresa, resueltos estructuralmente:
+ * cada cierre registra un AuditLog(action='YEAR_CLOSED', entity='JournalEntry',
+ * entityId=<id del asiento de cierre>). No usamos heurística textual sobre
+ * description/reference para identificarlos.
+ */
+export async function getYearCloseEntryIds(companyId: string): Promise<string[]> {
+  const closeLogs = await db.auditLog.findMany({
+    where: { companyId, action: 'YEAR_CLOSED', entity: 'JournalEntry', entityId: { not: null } },
+    select: { entityId: true },
+  });
+  return closeLogs.map((l) => l.entityId).filter((id): id is string => Boolean(id));
+}
+
 export async function aggregateFinancialData(
   companyId: string,
   startDate: Date,
@@ -11,12 +25,21 @@ export async function aggregateFinancialData(
   // Para el Estado de Resultados (Income Statement), vamos estrictamente en el rango [startDate, endDate].
   const isPeriodBased = type === 'income_statement';
 
+  // El Income Statement mide el desempeño del período: los asientos de cierre anual
+  // (que trasladan el resultado a Retained Earnings) NO deben borrar esa lectura histórica.
+  // El Balance Sheet, en cambio, SÍ debe seguir incluyéndolos porque el patrimonio
+  // refleja el cierre. Por eso la exclusión aplica únicamente al P&L.
+  const yearCloseEntryIds = isPeriodBased ? await getYearCloseEntryIds(companyId) : [];
+
   const journalLines = await db.journalLine.findMany({
     where: {
       entry: {
         companyId,
         status: 'posted',
         date: isPeriodBased ? { gte: startDate, lte: endDate } : { lte: endDate },
+        ...(isPeriodBased && yearCloseEntryIds.length > 0
+          ? { id: { notIn: yearCloseEntryIds } }
+          : {}),
       },
     },
     include: {

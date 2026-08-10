@@ -18,20 +18,26 @@ export const PATCH = apiHandler(async (req: NextRequest, context: RouteContext) 
     return NextResponse.json({ error: 'Period not found' }, { status: 404 });
   }
 
-  // Si se está desbloqueando, validar que no haya un cierre de ejercicio posterior
+  // Si se está desbloqueando, validar que el período esté cubierto por un cierre
+  // de ejercicio. La cobertura se decide por la fecha fiscal del asiento de cierre
+  // (JournalEntry.date del YEAR_CLOSED), nunca por la hora de ejecución (createdAt).
   if (isLocked === false) {
-    const yearClosed = await db.auditLog.findFirst({
-      where: {
-        companyId,
-        action: 'YEAR_CLOSED',
-        createdAt: { gte: period.endDate },
-      },
+    const yearClosedLogs = await db.auditLog.findMany({
+      where: { companyId, action: 'YEAR_CLOSED' },
+      select: { entityId: true },
     });
-    if (yearClosed) {
-      return NextResponse.json(
-        { error: 'No se puede desbloquear. Existe un cierre de ejercicio posterior.' },
-        { status: 400 },
-      );
+    if (yearClosedLogs.length > 0) {
+      const closingEntries = await db.journalEntry.findMany({
+        where: { id: { in: yearClosedLogs.map((l) => l.entityId).filter((id): id is string => !!id) } },
+        select: { date: true },
+      });
+      const coversPeriod = closingEntries.some((ce) => ce.date >= period.endDate);
+      if (coversPeriod) {
+        return NextResponse.json(
+          { error: 'No se puede desbloquear. Existe un cierre de ejercicio posterior.' },
+          { status: 400 },
+        );
+      }
     }
   }
 

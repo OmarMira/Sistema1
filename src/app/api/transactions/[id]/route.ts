@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
 
@@ -52,6 +53,8 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
   }
 
   const bankGlAccountId = transaction.statement.bankAccount.glAccountId;
+
+  await assertActiveFiscalPeriod(companyId, transaction.date);
 
   const result = await db.$transaction(async (tx) => {
     // If transaction already has a journal entry, void it and unlink it first,

@@ -329,6 +329,79 @@ describe('H1 — PATCH /api/transactions/[id] (caracterización de validaciones)
     expect(res.status).toBe(404);
   });
 
+  it('P16: reasignar GL en período fiscal cerrado devuelve 403 y no muta ni JE ni transacción', async () => {
+    const user = await createTestUser('p16-locked-period@example.com');
+    const company = await createTestCompany('P16 Locked Period Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const bankGl = await createTestGlAccount({ companyId: company.id, code: '1050', name: 'Bank Account P16', normalBalance: 'debit' });
+    const oldCounterparty = await createTestGlAccount({ companyId: company.id, code: '2050', name: 'Counterparty Old', normalBalance: 'credit' });
+    const newCounterparty = await createTestGlAccount({ companyId: company.id, code: '2051', name: 'Counterparty New', normalBalance: 'credit' });
+    const bankAccount = await createTestBankAccount(company.id, bankGl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const tx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-03-15',
+      amount: 300.0,
+      description: 'Reassign in locked period',
+    });
+
+    await db.fiscalPeriod.create({
+      data: {
+        companyId: company.id,
+        name: 'March 2025',
+        startDate: new Date('2025-03-01'),
+        endDate: new Date('2025-03-31'),
+        isLocked: true,
+      },
+    });
+
+    const oldJournalEntry = await createTestJournalEntry(company.id, {
+      date: '2025-03-15',
+      description: 'Old entry P16',
+      lines: [
+        { glAccountId: bankGl.id, debit: 300, credit: 0 },
+        { glAccountId: oldCounterparty.id, debit: 0, credit: 300 },
+      ],
+    });
+
+    await db.bankTransaction.update({
+      where: { id: tx.id },
+      data: { journalEntryId: oldJournalEntry.id, glAccountId: oldCounterparty.id },
+    });
+
+    const req = new NextRequest(`http://localhost/api/transactions/${tx.id}?companyId=${company.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ glAccountId: newCounterparty.id }),
+    });
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: tx.id }) });
+    expect(res.status).toBe(403);
+
+    const body = await res.json();
+    expect(body.error).toContain('closed period');
+
+    const reloadedTx = await db.bankTransaction.findUnique({
+      where: { id: tx.id },
+      select: { glAccountId: true, journalEntryId: true },
+    });
+    expect(reloadedTx?.glAccountId).toBe(oldCounterparty.id);
+    expect(reloadedTx?.journalEntryId).toBe(oldJournalEntry.id);
+
+    const oldJe = await db.journalEntry.findUnique({ where: { id: oldJournalEntry.id } });
+    expect(oldJe).not.toBeNull();
+    expect(oldJe?.status).toBe('posted');
+
+    const jeCount = await db.journalEntry.count({
+      where: { companyId: company.id, status: 'posted' },
+    });
+    expect(jeCount).toBe(1);
+  });
+
   it('glAccount inactivo devuelve 404', async () => {
     const user = await createTestUser('h1-inactive@example.com');
     const company = await createTestCompany('H1 Inactive Co');

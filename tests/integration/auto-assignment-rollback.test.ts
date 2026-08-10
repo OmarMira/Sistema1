@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-import { createTestUser, createTestCompany, clearDatabase } from '../helpers/factories';
+import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
 import { db } from '@/lib/db';
 
@@ -31,6 +31,7 @@ describe('POST /api/learning/auto-assignments/[id]/rollback', () => {
     await clearDatabase();
     const user = await createTestUser('rollback-test@example.com');
     const company = await createTestCompany('Rollback Test Co');
+    await createTestCompanyMember(user.id, company.id);
     companyId = company.id;
     token = await createSession(user.id);
   });
@@ -53,7 +54,7 @@ describe('POST /api/learning/auto-assignments/[id]/rollback', () => {
       },
     });
 
-    const req = new NextRequest('http://localhost/api/learning/auto-assignments/rollback', {
+    const req = new NextRequest(`http://localhost/api/learning/auto-assignments/rollback?companyId=${companyId}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -78,7 +79,7 @@ describe('POST /api/learning/auto-assignments/[id]/rollback', () => {
   it('rollback manual assignment is rejected (400)', async () => {
     const entityContext = await createTestEntityContext(companyId, { autoAssignedAt: null });
 
-    const req = new NextRequest('http://localhost/api/learning/auto-assignments/rollback', {
+    const req = new NextRequest(`http://localhost/api/learning/auto-assignments/rollback?companyId=${companyId}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,
@@ -92,7 +93,7 @@ describe('POST /api/learning/auto-assignments/[id]/rollback', () => {
   });
 
   it('rollback non-existent entity returns 404', async () => {
-    const req = new NextRequest('http://localhost/api/learning/auto-assignments/rollback', {
+    const req = new NextRequest(`http://localhost/api/learning/auto-assignments/rollback?companyId=${companyId}`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${token}`,

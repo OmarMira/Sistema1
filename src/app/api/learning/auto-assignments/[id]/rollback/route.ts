@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
-import { requireCurrentUserId } from '@/lib/context-storage';
+import { requireCompanyContext } from '@/lib/context-storage';
 import { safeAuditLog } from '@/lib/services/audit-service';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { ForbiddenError } from '@/lib/api-error';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   try {
-    const userId = requireCurrentUserId();
+    const { userId, companyId } = requireCompanyContext();
     const { id } = await context.params;
 
     // Load EntityContext by id
@@ -20,6 +21,11 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         { error: 'Entity context not found' },
         { status: 404 },
       );
+    }
+
+    // P12: enforce tenant ownership before any mutation
+    if (entityContext.companyId !== companyId) {
+      throw new ForbiddenError();
     }
 
     // Only allow rollback for auto-assigned contexts
@@ -65,6 +71,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       message: 'Auto-assignment rolled back',
     });
   } catch (error: unknown) {
+    if (error instanceof ForbiddenError) {
+      throw error;
+    }
     const msg = error instanceof Error ? error.message : 'Unknown error';
     logger.error('[AUTO_ASSIGNMENT_ROLLBACK_ERROR]', { error: msg });
     return NextResponse.json(
@@ -72,4 +81,4 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       { status: 500 },
     );
   }
-}, { requireMembership: false });
+}, { requireMembership: true });

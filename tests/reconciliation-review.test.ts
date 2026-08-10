@@ -106,11 +106,141 @@ async function seedTestData() {
       isReconciled: true,
       status: 'pending_review',
       glAccountId: equityGl.id,
+      journalEntryId: entry.id,
       reconciledAt: new Date(),
     },
   });
 
   return { user, company, session, bankTx, entry, suspenseGl, bankAccount };
+}
+
+// Two pending_review transactions sharing the same date + description, each
+// linked to its OWN pending_review journal entry via journalEntryId.
+// E_B is inserted BEFORE E_A so the un-scoped findFirst (no orderBy) resolves
+// to the wrong entry, reproducing the ambiguity bug.
+async function seedTwoDuplicatePending() {
+  const user = await db.user.create({
+    data: {
+      email: `review-dupe-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`,
+      passwordHash: 'hash',
+      firstName: 'Review',
+      lastName: 'Duplicate',
+      role: 'company_admin',
+    },
+  });
+
+  const company = await createTestCompany('Review Dupe Co');
+  await createTestCompanyMember(user.id, company.id);
+
+  const session = await createSession(user.id);
+
+  const cashGl = await db.glAccount.create({
+    data: {
+      companyId: company.id,
+      code: '1010',
+      name: 'Cash',
+      accountType: 'asset',
+      normalBalance: 'debit',
+      isActive: true,
+    },
+  });
+
+  const equityGl = await db.glAccount.create({
+    data: {
+      companyId: company.id,
+      code: '3010',
+      name: 'Owner Equity',
+      accountType: 'equity',
+      normalBalance: 'credit',
+      isActive: true,
+    },
+  });
+
+  const bankAccount = await db.bankAccount.create({
+    data: {
+      companyId: company.id,
+      accountName: 'Test Bank',
+      bankName: 'Test',
+      glAccountId: cashGl.id,
+      balance: 1000,
+    },
+  });
+
+  const statement = await db.bankStatement.create({
+    data: {
+      companyId: company.id,
+      bankAccountId: bankAccount.id,
+      startDate: new Date('2025-03-01'),
+      endDate: new Date('2025-03-31'),
+      openingBalance: 1000,
+      closingBalance: 650,
+      format: 'pdf',
+    },
+  });
+
+  const txDate = new Date('2025-03-15');
+
+  // Entry E_B (-250) FIRST so findFirst resolves to it.
+  const entryB = await db.journalEntry.create({
+    data: {
+      companyId: company.id,
+      date: txDate,
+      description: 'Reconciliation: Luz empresa',
+      status: 'pending_review',
+      lines: {
+        create: [
+          { glAccountId: cashGl.id, description: 'Reconciliation: Luz empresa', debit: 250, credit: 0 },
+          { glAccountId: equityGl.id, description: 'Reconciliation: Luz empresa', debit: 0, credit: 250 },
+        ],
+      },
+    },
+  });
+
+  // Entry E_A (-100) SECOND.
+  const entryA = await db.journalEntry.create({
+    data: {
+      companyId: company.id,
+      date: txDate,
+      description: 'Reconciliation: Luz empresa',
+      status: 'pending_review',
+      lines: {
+        create: [
+          { glAccountId: cashGl.id, description: 'Reconciliation: Luz empresa', debit: 100, credit: 0 },
+          { glAccountId: equityGl.id, description: 'Reconciliation: Luz empresa', debit: 0, credit: 100 },
+        ],
+      },
+    },
+  });
+
+  const bankTxB = await db.bankTransaction.create({
+    data: {
+      statementId: statement.id,
+      date: txDate,
+      description: 'Luz empresa',
+      amount: -250,
+      isReconciled: true,
+      status: 'pending_review',
+      glAccountId: equityGl.id,
+      journalEntryId: entryB.id,
+      reconciledAt: new Date(),
+    },
+  });
+
+  const bankTxA = await db.bankTransaction.create({
+    data: {
+      statementId: statement.id,
+      date: txDate,
+      description: 'Luz empresa',
+      amount: -100,
+      isReconciled: true,
+      status: 'pending_review',
+      glAccountId: equityGl.id,
+      journalEntryId: entryA.id,
+      reconciledAt: new Date(),
+    },
+  });
+
+  return { user, company, session, bankTxA, bankTxB, entryA, entryB, bankAccount };
 }
 
 describe('POST /api/reconciliation/review', () => {
@@ -224,5 +354,55 @@ describe('POST /api/reconciliation/review', () => {
 
     const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(404);
+  });
+
+  it('RED: aprobar A con fecha+descripción duplicadas postea SOLO el JE vinculado a A (journalEntryId)', async () => {
+    const { session, bankTxA, bankTxB, entryA, entryB, company } = await seedTwoDuplicatePending();
+
+    const req = new NextRequest('http://localhost/api/reconciliation/review', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session}`,
+        'Content-Type': 'application/json',
+        'x-company-id': company.id,
+      },
+      body: JSON.stringify({
+        transactionId: bankTxA.id,
+        action: 'approve',
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+    expect(res.status).toBe(200);
+
+    const updatedA = await db.journalEntry.findUnique({ where: { id: entryA.id } });
+    const updatedB = await db.journalEntry.findUnique({ where: { id: entryB.id } });
+    expect(updatedA?.status).toBe('posted');
+    expect(updatedB?.status).toBe('pending_review');
+  });
+
+  it('RED: rechazar A con fecha+descripción duplicadas voida SOLO el JE vinculado a A (journalEntryId)', async () => {
+    const { session, bankTxA, entryA, entryB, company } = await seedTwoDuplicatePending();
+
+    const req = new NextRequest('http://localhost/api/reconciliation/review', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session}`,
+        'Content-Type': 'application/json',
+        'x-company-id': company.id,
+      },
+      body: JSON.stringify({
+        transactionId: bankTxA.id,
+        action: 'reject',
+      }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+    expect(res.status).toBe(200);
+
+    const updatedA = await db.journalEntry.findUnique({ where: { id: entryA.id } });
+    const updatedB = await db.journalEntry.findUnique({ where: { id: entryB.id } });
+    expect(updatedA?.status).toBe('void');
+    expect(updatedB?.status).toBe('pending_review');
   });
 });

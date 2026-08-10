@@ -41,16 +41,14 @@ export const POST = apiHandler(async (request: NextRequest) => {
         data: { status: 'posted' },
       });
 
-      const pendingEntry = await tx.journalEntry.findFirst({
-        where: {
-          companyId,
-          date: bankTx.date,
-          description: `Reconciliation: ${bankTx.description}`,
-          status: 'pending_review',
-        },
-      });
+      // Resolve the linked entry structurally (contract 1:1) instead of a
+      // heuristic search by date + description, which is ambiguous when two
+      // transactions share the same date and description.
+      const pendingEntry = bankTx.journalEntryId
+        ? await tx.journalEntry.findUnique({ where: { id: bankTx.journalEntryId } })
+        : null;
 
-      if (pendingEntry) {
+      if (pendingEntry && pendingEntry.companyId === companyId && pendingEntry.status === 'pending_review') {
         await tx.journalEntry.update({
           where: { id: pendingEntry.id },
           data: { status: 'posted' },
@@ -90,17 +88,11 @@ export const POST = apiHandler(async (request: NextRequest) => {
       },
     });
 
-    const pendingEntry = await tx.journalEntry.findFirst({
-      where: {
-        companyId,
-        date: bankTx.date,
-        description: `Reconciliation: ${bankTx.description}`,
-        status: 'pending_review',
-      },
-      include: { lines: true },
-    });
+    const pendingEntry = bankTx.journalEntryId
+      ? await tx.journalEntry.findUnique({ where: { id: bankTx.journalEntryId } })
+      : null;
 
-    if (pendingEntry) {
+    if (pendingEntry && pendingEntry.companyId === companyId && pendingEntry.status === 'pending_review') {
       await tx.journalEntry.update({
         where: { id: pendingEntry.id },
         data: { status: 'void' },

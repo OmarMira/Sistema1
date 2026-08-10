@@ -60,6 +60,31 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       if (dbAcc) resolvedCreditGlAccountId = dbAcc.id;
     }
 
+    // Validate direct GL account IDs against the authenticated company.
+    // Raw IDs must belong to this company (mirrors POST /api/bank-rules).
+    const glAccountIdsToCheck = [resolvedDebitGlAccountId, resolvedCreditGlAccountId].filter(
+      (id): id is string => Boolean(id),
+    );
+    if (glAccountIdsToCheck.length > 0) {
+      const ownedAccounts = await db.glAccount.findMany({
+        where: { id: { in: glAccountIdsToCheck }, companyId, isActive: true },
+        select: { id: true },
+      });
+      const ownedAccountIds = new Set(ownedAccounts.map((a) => a.id));
+      if (resolvedDebitGlAccountId && !ownedAccountIds.has(resolvedDebitGlAccountId)) {
+        return NextResponse.json(
+          { error: 'Debit GL account not found or does not belong to this company' },
+          { status: 400 },
+        );
+      }
+      if (resolvedCreditGlAccountId && !ownedAccountIds.has(resolvedCreditGlAccountId)) {
+        return NextResponse.json(
+          { error: 'Credit GL account not found or does not belong to this company' },
+          { status: 400 },
+        );
+      }
+    }
+
     // Pre-resolve parent GL account for legacy path
     let parentAccount: {
       id: string;

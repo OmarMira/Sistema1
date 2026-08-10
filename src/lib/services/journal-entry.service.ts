@@ -77,22 +77,28 @@ export class JournalEntryService {
     prisma: Prisma.TransactionClient,
     glAccountId: string,
   ): Promise<void> {
+    const glAccount = await prisma.glAccount.findUnique({
+      where: { id: glAccountId },
+      select: { normalBalance: true, companyId: true },
+    });
+    if (!glAccount) return;
+
     const totals = await prisma.journalLine.aggregate({
       where: {
         glAccountId,
-        entry: { status: 'posted' },
+        entry: {
+          status: 'posted',
+          // P15: only aggregate lines belonging to the account's own company.
+          // Prevents a foreign journal line (e.g. via an invalid cross-tenant
+          // rule) from corrupting this account's balance.
+          companyId: glAccount.companyId,
+        },
       },
       _sum: { debit: true, credit: true },
     });
 
     const totalDebit = Number(totals._sum.debit || 0);
     const totalCredit = Number(totals._sum.credit || 0);
-
-    const glAccount = await prisma.glAccount.findUnique({
-      where: { id: glAccountId },
-      select: { normalBalance: true },
-    });
-    if (!glAccount) return;
 
     // Debit-normal (asset, expense): balance = debit - credit
     // Credit-normal (liability, equity, revenue): balance = credit - debit

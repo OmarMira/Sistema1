@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
 import { generateInsights } from '@/lib/assistant/insight-engine';
 import { db } from '@/lib/db';
-import { ForbiddenError } from '@/lib/api-error';
 import { readJsonConfig } from '@/lib/config-loader';
 import { requireCompanyContext } from '@/lib/context-storage';
 
@@ -12,22 +11,31 @@ export const revalidate = 300;
 export const GET = apiHandler(async (req: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
 
-  // Get user role for this company (membership is already verified by apiHandler)
-  const member = await db.companyMember.findUnique({
-    where: { userId_companyId: { userId, companyId } },
+  // Separation: global instance authority (User.role) vs tenant authority
+  // (CompanyMember.role). super_admin bypasses without requiring a membership.
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
   });
-  if (!member) {
-    throw new ForbiddenError();
+
+  let accessPath = '';
+  if (user?.role === 'super_admin') {
+    accessPath = 'global_super_admin';
+  } else {
+    const member = await db.companyMember.findUnique({
+      where: { userId_companyId: { userId, companyId } },
+    });
+    if (member?.role === 'company_admin') {
+      accessPath = 'tenant_company_admin';
+    }
   }
 
-  const role = member.role;
-
-  // Filter by allowed roles
-  if (!['super_admin', 'admin', 'accountant'].includes(role)) {
+  // Neutral functional contract for non-privileged roles: HTTP 200 + empty list.
+  if (!accessPath) {
     return NextResponse.json({ insights: [], message: 'Acceso restringido a roles financieros' });
   }
 
-  const insights = await generateInsights(companyId, role);
+  const insights = await generateInsights(companyId);
 
   const config = await readJsonConfig<{ auditActions: { insightGenerated: string } }>(
     'assistant-config.json',
@@ -41,11 +49,11 @@ export const GET = apiHandler(async (req: NextRequest) => {
       entity: 'Assistant',
       details: JSON.stringify({
         count: insights.length,
-        role,
+        accessPath,
         generatedAt: new Date().toISOString(),
       }),
     },
   });
 
   return NextResponse.json({ insights, generatedAt: new Date().toISOString() });
-});
+}, { requireMembership: false });

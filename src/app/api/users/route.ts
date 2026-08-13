@@ -5,6 +5,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { validateRequest } from '@/lib/validate-request';
 import { createUserSchema } from '@/lib/validations/admin';
+import { requireCompanyRole } from '@/lib/rbac';
 import { logger } from '@/lib/logger';
 
 /**
@@ -14,20 +15,10 @@ import { logger } from '@/lib/logger';
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
 
+  // Tenant authority lives in CompanyMember.role; super_admin bypasses via helper.
+  await requireCompanyRole(companyId, ['company_admin']);
+
   try {
-    // Verify requesting user is admin
-    const requestingUser = await db.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-
-    if (
-      !requestingUser ||
-      (requestingUser.role !== 'company_admin' && requestingUser.role !== 'super_admin')
-    ) {
-      return NextResponse.json({ error: 'Only admins can view users' }, { status: 403 });
-    }
-
     // Get all members with user info
     const members = await db.companyMember.findMany({
       where: { companyId },
@@ -70,6 +61,9 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
 
+  // Tenant authority lives in CompanyMember.role; super_admin bypasses via helper.
+  await requireCompanyRole(companyId, ['company_admin']);
+
   try {
     const body = await validateRequest(request, createUserSchema);
     if (body instanceof NextResponse) return body;
@@ -87,19 +81,6 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         { error: 'Password must be at least 8 characters' },
         { status: 400 },
       );
-    }
-
-    // Verify requesting user is admin
-    const requestingUser = await db.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-
-    if (
-      !requestingUser ||
-      (requestingUser.role !== 'company_admin' && requestingUser.role !== 'super_admin')
-    ) {
-      return NextResponse.json({ error: 'Only admins can invite users' }, { status: 403 });
     }
 
     // Check if user already exists

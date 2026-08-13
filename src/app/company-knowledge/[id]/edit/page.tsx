@@ -1,11 +1,33 @@
 import { db } from '@/lib/db';
 import { RelationshipValues } from '@/internal/company-knowledge';
+import { requireSsrCompanyContext } from '@/lib/ssr-context';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EditEntityPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditEntityPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ companyId?: string }>;
+}) {
   const { id } = await params;
-  const entity = await db.companyKnowledge.findUnique({ where: { id } });
+  const { companyId } = await searchParams;
+
+  const ctx = await requireSsrCompanyContext(companyId);
+  if (!ctx.ok) {
+    return (
+      <div className="p-6">
+        {ctx.reason === 'unauthenticated' && 'Authentication required'}
+        {ctx.reason === 'missing-company' && 'Company context required'}
+        {ctx.reason === 'forbidden' && 'Access denied'}
+      </div>
+    );
+  }
+
+  const entity = await db.companyKnowledge.findFirst({
+    where: { id, companyId: ctx.companyId },
+  });
   if (!entity) return <div className="p-6">Entity not found</div>;
 
   return (

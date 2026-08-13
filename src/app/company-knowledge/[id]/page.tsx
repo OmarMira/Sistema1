@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { requireSsrCompanyContext } from '@/lib/ssr-context';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,12 +13,19 @@ export default async function EntityDetailPage({
   const { id } = await params;
   const { companyId } = await searchParams;
 
-  if (!companyId) {
-    return <div className="p-6">Company context required</div>;
+  const ctx = await requireSsrCompanyContext(companyId);
+  if (!ctx.ok) {
+    return (
+      <div className="p-6">
+        {ctx.reason === 'unauthenticated' && 'Authentication required'}
+        {ctx.reason === 'missing-company' && 'Company context required'}
+        {ctx.reason === 'forbidden' && 'Access denied'}
+      </div>
+    );
   }
 
   const entity = await db.companyKnowledge.findFirst({
-    where: { id, companyId },
+    where: { id, companyId: ctx.companyId },
   });
 
   if (!entity) return <div className="p-6">Entity not found</div>;

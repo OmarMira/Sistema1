@@ -3,17 +3,28 @@ import { resolveDecisionReason } from '../entity/types';
 import type { ExplainabilityResponse } from './types';
 import type { KnowledgeAuditEntry } from './types';
 
-export async function getAuditTrail(knowledgeId: string): Promise<KnowledgeAuditEntry[]> {
+export async function getAuditTrail(
+  knowledgeId: string,
+  companyId: string,
+): Promise<KnowledgeAuditEntry[]> {
   const entries = await db.knowledgeAudit.findMany({
-    where: { knowledgeId },
+    where: {
+      knowledgeId,
+      companyKnowledge: {
+        companyId,
+      },
+    },
     orderBy: { timestamp: 'asc' },
   });
   return entries as unknown as KnowledgeAuditEntry[];
 }
 
-export async function getExplainabilityPayload(knowledgeId: string): Promise<ExplainabilityResponse | null> {
-  const record = await db.companyKnowledge.findUnique({
-    where: { id: knowledgeId },
+export async function getExplainabilityPayload(
+  knowledgeId: string,
+  companyId: string,
+): Promise<ExplainabilityResponse | null> {
+  const record = await db.companyKnowledge.findFirst({
+    where: { id: knowledgeId, companyId },
   });
   if (!record) return null;
   return {

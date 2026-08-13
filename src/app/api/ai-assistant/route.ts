@@ -6,6 +6,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { getRequestContext } from '@/lib/context-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { getAiConfig } from '@/lib/ai-config';
+import { safeFetch } from '@/lib/security/safe-fetch';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { extractKeywords } from '@/lib/memory/keyword-extractor';
 import { checkPromptInjection, addSystemDelimiter } from '@/lib/guardrails';
@@ -964,7 +965,7 @@ async function callAI(
 
       logger.info('Trying AI model', { model: currentModel });
 
-      const response = await fetch(`${baseUrl}/chat/completions`, {
+      const response = await safeFetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

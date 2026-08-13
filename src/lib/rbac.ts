@@ -82,3 +82,17 @@ export async function requireCompanyRole(
     throw new ForbiddenError('Forbidden');
   }
 }
+
+/**
+ * Gate de rol global para recursos administrativos/configuración.
+ * Reutilizado en config/ai y config/ai/verify para imponer la misma política de rol.
+ */
+export async function requireGlobalAdminRole(userId: string): Promise<void> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  if (!user || !['company_admin', 'super_admin'].includes(user.role)) {
+    throw new ForbiddenError('Access denied');
+  }
+}

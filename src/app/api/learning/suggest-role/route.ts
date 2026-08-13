@@ -9,6 +9,7 @@ import { requireCompanyContext } from '@/lib/context-storage';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import { searchEntity } from '@/lib/services/web-search-service';
 import { getAiConfig } from '@/lib/ai-config';
+import { safeFetch } from '@/lib/security/safe-fetch';
 
 // ── POST /api/learning/suggest-role ──────────────────────────────────
 // Hybrid suggest: searches local EntityContext first, falls back to AI.
@@ -259,7 +260,7 @@ The confidence MUST be a decimal number like 0.85, not a string or text. Follow 
       const timeout = setTimeout(() => controller.abort(), 60000);
 
       try {
-        const response = await fetch(`${baseUrl}/chat/completions`, {
+        const response = await safeFetch(`${baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -337,7 +338,7 @@ Based on this additional context, re-evaluate the role.`;
         const reTimeout = setTimeout(() => reController.abort(), 60000);
 
         try {
-          const reResponse = await fetch(`${baseUrl}/chat/completions`, {
+          const reResponse = await safeFetch(`${baseUrl}/chat/completions`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',

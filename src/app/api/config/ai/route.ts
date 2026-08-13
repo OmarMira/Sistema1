@@ -1,27 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { requireGlobalAdminRole } from '@/lib/rbac';
+import { safeFetch, validateSafeUrl } from '@/lib/security/safe-fetch';
 import { getAiConfig, setAiConfig } from '@/lib/ai-config';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
-import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
-
-async function requireAdminRole(userId: string): Promise<NextResponse | null> {
-  const user = await db.user.findUnique({
-    where: { id: userId },
-    select: { role: true },
-  });
-  if (!user || !['company_admin', 'super_admin'].includes(user.role)) {
-    return NextResponse.json({ error: 'Access denied' }, { status: 403 });
-  }
-  return null;
-}
 
 export const GET = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const userId = requireCurrentUserId();
-    const denied = await requireAdminRole(userId);
-    if (denied) return denied;
+    await requireGlobalAdminRole(userId);
 
     try {
       const config = await getAiConfig();
@@ -34,7 +23,7 @@ export const GET = apiHandler(
 
       let aiAlive = false;
       try {
-        const verifyRes = await fetch(`${config.baseUrl}/chat/completions`, {
+        const verifyRes = await safeFetch(`${config.baseUrl}/chat/completions`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${config.apiKey}`,
@@ -65,13 +54,23 @@ export const GET = apiHandler(
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const userId = requireCurrentUserId();
-    const denied = await requireAdminRole(userId);
-    if (denied) return denied;
+    await requireGlobalAdminRole(userId);
 
     try {
       const { apiKey, model, baseUrl } = await request.json();
       if (!apiKey) {
         return NextResponse.json({ error: 'La clave no puede estar vacía' }, { status: 400 });
+      }
+
+      if (typeof baseUrl === 'string' && baseUrl.trim()) {
+        try {
+          await validateSafeUrl(`${baseUrl}/chat/completions`);
+        } catch {
+          return NextResponse.json(
+            { error: 'URL de IA no permitida: destino inválido' },
+            { status: 400 },
+          );
+        }
       }
 
       // Persist to DB — encrypts internally via setAiConfig

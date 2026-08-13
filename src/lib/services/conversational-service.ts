@@ -9,6 +9,7 @@ import { ROLE_ACCOUNT_MAP } from '@/lib/constants/role-account-map';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { serverT } from '@/lib/server-i18n';
 import { getAiConfig } from '@/lib/ai-config';
+import { safeFetch } from '@/lib/security/safe-fetch';
 import type { RuleCondition, AssistantConfig } from '@/lib/types/shared';
 import { collectSignals } from './signal-collector';
 import { decide } from './decision-engine';
@@ -64,7 +65,7 @@ export async function parseWithAI(
   subAccountName: string | null;
 }> {
   const { apiKey, baseUrl, model } = deps;
-  const fetchFn = deps.fetch ?? globalThis.fetch;
+  const fetchFn = deps.fetch ?? safeFetch;
   const getConfig = deps.readAssistantConfig ?? readAssistantConfigSync;
 
   if (!apiKey || !baseUrl || !model) {

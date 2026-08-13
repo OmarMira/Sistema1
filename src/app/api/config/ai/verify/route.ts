@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { requireGlobalAdminRole } from '@/lib/rbac';
+import { safeFetch } from '@/lib/security/safe-fetch';
 
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const userId = requireCurrentUserId();
+    await requireGlobalAdminRole(userId);
 
     try {
       const { apiKey, model, baseUrl } = await request.json();
@@ -16,7 +19,7 @@ export const POST = apiHandler(
       const modelToVerify = model || AI_CONFIG.DEFAULT_MODEL;
       const baseUrlToUse = baseUrl || AI_CONFIG.BASE_URL;
 
-      const res = await fetch(`${baseUrlToUse}/chat/completions`, {
+      const res = await safeFetch(`${baseUrlToUse}/chat/completions`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,

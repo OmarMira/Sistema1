@@ -5,10 +5,10 @@ import { getExplainabilityPayload, getAuditTrail } from '@/internal/company-know
 
 export const GET = apiHandler(async (_request: NextRequest, context: RouteContext) => {
   const { id } = await context.params;
-  requireCompanyContext();
+  const { companyId } = requireCompanyContext();
 
-  const payload = await getExplainabilityPayload(id);
+  const payload = await getExplainabilityPayload(id, companyId);
   if (!payload) return NextResponse.json({ error: 'Entity not found' }, { status: 404 });
-  const auditHistory = await getAuditTrail(id);
+  const auditHistory = await getAuditTrail(id, companyId);
   return NextResponse.json({ ...payload, auditHistory });
 });

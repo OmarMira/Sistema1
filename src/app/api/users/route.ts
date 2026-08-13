@@ -144,7 +144,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         passwordHash,
-        role: role || 'company_admin',
+        role: 'user',
         companyMemberships: {
           create: {
             companyId,

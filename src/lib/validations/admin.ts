@@ -12,7 +12,7 @@ const passwordField = z.string().min(6, 'La contraseña debe tener al menos 6 ca
 // membership roles; the global role is reserved for /api/admin endpoints (requireSuperAdmin).
 // Do NOT merge these arrays — the split is the security boundary.
 export const INVITABLE_ROLES = ['company_admin', 'employee', 'viewer'] as const;
-export const ADMIN_ASSIGNABLE_ROLES = [...INVITABLE_ROLES, 'super_admin'] as const;
+export const USER_ROLES = ['user', 'super_admin'] as const;
 
 const userFields = {
   email: emailField,
@@ -34,7 +34,7 @@ export const createUserSchema = z.object({
 
 export const createAdminUserSchema = z.object({
   ...userFields,
-  role: z.enum(ADMIN_ASSIGNABLE_ROLES).default('company_admin'),
+  role: z.enum(USER_ROLES).default('user'),
 });
 
 export const updateUserSchema = z.object({
@@ -42,7 +42,7 @@ export const updateUserSchema = z.object({
   firstName: nameField.optional(),
   lastName: nameField.optional(),
   password: passwordField.optional(),
-  role: z.enum(ADMIN_ASSIGNABLE_ROLES).optional(),
+  role: z.enum(USER_ROLES).optional(),
   isActive: z.boolean().optional(),
   phone: z.string().optional(),
   streetLine1: z.string().optional(),
@@ -51,8 +51,6 @@ export const updateUserSchema = z.object({
   state: z.string().optional(),
   zipCode: z.string().optional(),
 });
-
-export const ADMIN_USER_ROLES = ['company_admin', 'employee', 'viewer', 'super_admin'] as const;
 
 export const createAdminCompanySchema = z.object({
   legalName: z.string().min(1, 'El nombre legal es requerido').max(200),

@@ -1508,6 +1508,7 @@ const en = {
     noUsers: 'No users found.',
     roleSuperAdmin: 'Super Admin',
     roleCompanyAdmin: 'Company Admin',
+    roleUser: 'User',
     statusActive: 'Active',
     statusSuspended: 'Suspended',
     registeredDate: 'Registered:',

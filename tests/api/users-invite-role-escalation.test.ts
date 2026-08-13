@@ -85,18 +85,22 @@ describe('F-1 — company_admin cannot invite a global super_admin user (remedia
     expect(created).toBeNull();
   });
 
-  it('Q2: company_admin POST /api/users with role=employee is accepted (201)', async () => {
+  it('Q2: company_admin POST /api/users with role=employee → 201, User.role=user + membership employee (tenant role separation)', async () => {
     const actor = await createTestUser('f1-actor2@example.com');
     const company = await createTestCompany('F1 Co');
     await createTestCompanyMember(actor.id, company.id);
     const token = await createSession(actor.id);
 
     const res = await inviteUser(token, company.id, inviteBody('f1-employee@example.com', 'employee'));
-    const created = await db.user.findUnique({ where: { email: 'f1-employee@example.com' } });
+    const created = await db.user.findUnique({
+      where: { email: 'f1-employee@example.com' },
+      select: { role: true, companyMemberships: { select: { role: true } } },
+    });
 
-    log('Q2: company_admin invites role=employee -> status =', res.status, '| role stored =', created?.role);
+    log('Q2: company_admin invites role=employee -> status =', res.status, '| global role =', created?.role, '| membership =', created?.companyMemberships[0]?.role);
     expect(res.status).toBe(201);
-    expect(created?.role).toBe('employee');
+    expect(created?.role).toBe('user');
+    expect(created?.companyMemberships[0]?.role).toBe('employee');
   });
 
   it('Q3: super_admin POST /api/admin/users with role=super_admin is accepted (201) — global admin flow intact', async () => {
@@ -112,7 +116,7 @@ describe('F-1 — company_admin cannot invite a global super_admin user (remedia
     expect(created?.role).toBe('super_admin');
   });
 
-  it('Q4: super_admin POST /api/admin/users with role=viewer is accepted (201)', async () => {
+  it('Q4: super_admin POST /api/admin/users with role=viewer is rejected with 400 (User.role only user|super_admin)', async () => {
     const superAdmin = await createTestUser('f1-super2@example.com');
     await db.user.update({ where: { id: superAdmin.id }, data: { role: 'super_admin' } });
     const token = await createSession(superAdmin.id);
@@ -120,9 +124,9 @@ describe('F-1 — company_admin cannot invite a global super_admin user (remedia
     const res = await adminCreateUser(token, inviteBody('f1-new-viewer@example.com', 'viewer'));
     const created = await db.user.findUnique({ where: { email: 'f1-new-viewer@example.com' } });
 
-    log('Q4: super_admin creates role=viewer via /api/admin/users -> status =', res.status, '| role stored =', created?.role);
-    expect(res.status).toBe(201);
-    expect(created?.role).toBe('viewer');
+    log('Q4: super_admin creates role=viewer via /api/admin/users -> status =', res.status, '| user created? =', created !== null);
+    expect(res.status).toBe(400);
+    expect(created).toBeNull();
   });
 
   it('Q5: company_admin cannot promote an existing user via the only update route (PATCH /api/admin/users/[id] -> 403)', async () => {

@@ -71,6 +71,8 @@ const LOCAL_TRANSLATIONS: Record<string, Record<string, string>> = {
     thActions: 'Actions',
     badgeSuperAdmin: 'Super Admin',
     badgeCompanyAdmin: 'Company Admin',
+    badgeEmployee: 'Employee',
+    badgeViewer: 'Viewer',
     revokeBtn: 'Revoke',
     noAssignedUsers: 'No users assigned to this company.',
     modalTitle: 'Assign User',
@@ -98,6 +100,8 @@ const LOCAL_TRANSLATIONS: Record<string, Record<string, string>> = {
     thActions: 'Acciones',
     badgeSuperAdmin: 'Super Admin',
     badgeCompanyAdmin: 'Admin de Empresa',
+    badgeEmployee: 'Empleado',
+    badgeViewer: 'Visor',
     revokeBtn: 'Revocar',
     noAssignedUsers: 'No hay usuarios asignados a esta empresa.',
     modalTitle: 'Asignar Usuario',
@@ -373,7 +377,11 @@ export default function AdminCompanyDetailPage() {
                           <Badge className="bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20">
                             {member.role === 'super_admin'
                               ? dt.badgeSuperAdmin
-                              : dt.badgeCompanyAdmin}
+                              : member.role === 'employee'
+                                ? dt.badgeEmployee
+                                : member.role === 'viewer'
+                                  ? dt.badgeViewer
+                                  : dt.badgeCompanyAdmin}
                           </Badge>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-right text-sm">
@@ -446,7 +454,8 @@ export default function AdminCompanyDetailPage() {
                 className="block w-full rounded-xl border border-white/10 bg-slate-950 text-white px-4 py-2.5 text-sm focus:ring-indigo-500 outline-none cursor-pointer"
               >
                 <option value="company_admin">{dt.badgeCompanyAdmin}</option>
-                <option value="super_admin">{dt.badgeSuperAdmin}</option>
+                <option value="employee">{dt.badgeEmployee}</option>
+                <option value="viewer">{dt.badgeViewer}</option>
               </select>
             </div>
             <DialogFooter className="pt-4 border-t border-white/5">

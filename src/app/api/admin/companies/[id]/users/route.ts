@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { INVITABLE_ROLES } from '@/lib/validations/admin';
 export const GET = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
 
@@ -51,6 +52,13 @@ export const POST = apiHandler(
 
     if (!targetUserId) {
       return NextResponse.json({ error: 'userId is required' }, { status: 400 });
+    }
+
+    if (!INVITABLE_ROLES.includes(role)) {
+      return NextResponse.json(
+        { error: `Invalid role: ${role}. Membership roles are limited to ${INVITABLE_ROLES.join(', ')}.` },
+        { status: 400 },
+      );
     }
 
     // Check if already a member

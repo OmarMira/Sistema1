@@ -32,6 +32,7 @@ import {
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { AddressAutocomplete } from '@/components/ui/address-autocomplete';
+import { USER_ROLES } from '@/lib/validations/admin';
 
 const US_STATES = [
   'AL',
@@ -128,7 +129,7 @@ export default function AdminUsersPage() {
     firstName: '',
     lastName: '',
     password: '',
-    role: 'company_admin',
+    role: 'user',
     phone: '',
     streetLine1: '',
     streetLine2: '',
@@ -167,7 +168,7 @@ export default function AdminUsersPage() {
       firstName: '',
       lastName: '',
       password: '',
-      role: 'company_admin',
+      role: 'user',
       phone: '',
       streetLine1: '',
       streetLine2: '',
@@ -188,7 +189,7 @@ export default function AdminUsersPage() {
       firstName: user.firstName,
       lastName: user.lastName,
       password: '', // Leave empty to keep unchanged
-      role: user.role,
+      role: USER_ROLES.includes(user.role as (typeof USER_ROLES)[number]) ? user.role : 'user',
       phone: user.phone || '',
       streetLine1: user.streetLine1 || '',
       streetLine2: user.streetLine2 || '',
@@ -354,7 +355,7 @@ export default function AdminUsersPage() {
                               : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-400 border border-indigo-500/20 mt-1'
                           }
                         >
-                          {u.role === 'super_admin' ? t('adminUsers.roleSuperAdmin') : t('adminUsers.roleCompanyAdmin')}
+                          {u.role === 'super_admin' ? t('adminUsers.roleSuperAdmin') : u.role === 'user' ? t('adminUsers.roleUser') : u.role}
                         </Badge>
                       </div>
                     </div>
@@ -555,7 +556,7 @@ export default function AdminUsersPage() {
                   onChange={(e) => setFormData({ ...formData, role: e.target.value })}
                   className="block w-full rounded-xl border border-white/10 bg-slate-950 text-white px-4 py-2 text-sm focus:ring-indigo-500 outline-none h-[38px]"
                 >
-                  <option value="company_admin">{t('adminUsers.roleCompanyAdmin')}</option>
+                  <option value="user">{t('adminUsers.roleUser')}</option>
                   <option value="super_admin">{t('adminUsers.roleSuperAdmin')}</option>
                 </select>
               </div>

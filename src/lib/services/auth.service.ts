@@ -81,7 +81,7 @@ export class AuthService {
           passwordHash,
           firstName: firstName.trim(),
           lastName: lastName.trim(),
-          role: 'company_admin',
+          role: 'user',
         },
       });
 

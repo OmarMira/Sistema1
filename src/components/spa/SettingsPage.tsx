@@ -69,9 +69,15 @@ const contentVariants = {
 
 export function SettingsPage() {
   const t = useLanguageStore((s) => s.t);
+  const user = useAuthStore((s) => s.user);
   const activeCompany = useAuthStore((s) => s.activeCompany);
   const activeTab = useAuthStore((s) => s.settingsActiveTab);
   const setActiveTab = useAuthStore((s) => s.setSettingsActiveTab);
+
+  // UX-only visibility rule (the API is authorized server-side as
+  // super_admin-only). The global User.role comes from /api/auth/me via the
+  // auth store; unaffected by any tenant/membership role.
+  const isDiagnosticsAllowed = user?.role === 'super_admin';
 
   const subtitle = activeCompany?.legalName
     ? t('settings.systemSubtitle').replace('{company}', activeCompany.legalName)
@@ -94,7 +100,7 @@ export function SettingsPage() {
       case 'backup':
         return <BackupTab />;
       case 'diagnostics':
-        return <DiagnosticsTab />;
+        return isDiagnosticsAllowed ? <DiagnosticsTab /> : <UserProfileTab />;
       case 'ai-config':
         return <AiConfigTab />;
       default:
@@ -127,7 +133,9 @@ export function SettingsPage() {
         {/* Left Sidebar */}
         <motion.div variants={itemVariants} className="lg:w-64 shrink-0">
           <nav className="rounded-xl border bg-card p-2 space-y-1">
-            {navItems.map((item) => {
+            {navItems
+              .filter((item) => !(item.id === 'diagnostics' && !isDiagnosticsAllowed))
+              .map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (

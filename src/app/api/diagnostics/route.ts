@@ -1,25 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
-import { apiHandler, type RouteContext } from '@/lib/api-handler';
-import { requireCurrentUserId } from '@/lib/context-storage';
+import { apiHandler } from '@/lib/api-handler';
 
 /**
  * GET /api/diagnostics — System diagnostics
+ *
+ * INSTANCE_GLOBAL surface: exposes whole-database size, global row counts and
+ * process uptime. Authorization is handled server-side by apiHandler via
+ * requireSuperAdmin (super_admin only, no membership / tenant required).
  */
 export const GET = apiHandler(
-  async (request: NextRequest, context: RouteContext) => {
-    const userId = requireCurrentUserId();
-
-    // Verify user is admin
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-
-    if (!user || (user.role !== 'company_admin' && user.role !== 'super_admin')) {
-      return NextResponse.json({ error: 'Access denied' }, { status: 403 });
-    }
-
+  async (request: NextRequest) => {
     // Get database size from PostgreSQL
     let dbSize = 'Unknown';
     try {
@@ -100,5 +91,5 @@ export const GET = apiHandler(
       },
     });
   },
-  { requireMembership: false },
+  { requireMembership: false, requireSuperAdmin: true },
 );

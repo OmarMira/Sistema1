@@ -406,32 +406,63 @@ export function getBackupFile(filename: string): { data: string; size: number } 
   };
 }
 
-/**
- * Delete a specific backup file.
- */
-export function deleteBackup(filename: string): boolean {
-  ensureBackupDir();
-  const filePath = path.join(BACKUP_DIR, filename);
+export type DeleteBackupResult =
+  | { status: 'invalid' }
+  | { status: 'not_found' }
+  | { status: 'deleted' };
 
-  // Security: prevent directory traversal
+/**
+ * Delete a specific backup file, scoped to a single tenant.
+ *
+ * Ownership is anchored to the manifest: a request filename is only accepted
+ * when it matches exactly one manifest entry (filename + companyId). The
+ * manifest is the single source of truth written by createBackup, so an
+ * attacker cannot forge an entry or reach another tenant's file by path
+ * normalization.
+ */
+export function deleteBackup(filename: string, companyId: string): DeleteBackupResult {
+  // A. Format gate — reject separators, traversal and non-backup names.
+  if (
+    !filename ||
+    filename.includes('/') ||
+    filename.includes('\\') ||
+    filename.includes('..') ||
+    !filename.endsWith('.json')
+  ) {
+    return { status: 'invalid' };
+  }
+
+  // B. Ownership — exact manifest entry for this tenant.
+  const manifest = readManifest();
+  const entry = manifest.backups.find(
+    (b) => b.filename === filename && b.companyId === companyId,
+  );
+  if (!entry) {
+    return { status: 'not_found' };
+  }
+
+  // C. Defense-in-depth: resolved path must stay strictly inside BACKUP_DIR.
+  const filePath = path.join(BACKUP_DIR, entry.filename);
   const resolved = path.resolve(filePath);
   const resolvedDir = path.resolve(BACKUP_DIR);
-  if (!resolved.startsWith(resolvedDir)) {
-    return false;
+  const relative = path.relative(resolvedDir, resolved);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return { status: 'not_found' };
   }
 
+  // D. Physical file must exist.
   if (!fs.existsSync(filePath)) {
-    return false;
+    return { status: 'not_found' };
   }
 
+  // E. Delete the exact authorized file, then remove only its manifest entry.
   fs.unlinkSync(filePath);
-
-  // Update manifest
-  const manifest = readManifest();
-  manifest.backups = manifest.backups.filter((b) => b.filename !== filename);
+  manifest.backups = manifest.backups.filter(
+    (b) => !(b.filename === entry.filename && b.companyId === entry.companyId),
+  );
   writeManifest(manifest);
 
-  return true;
+  return { status: 'deleted' };
 }
 
 /**

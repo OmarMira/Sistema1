@@ -292,7 +292,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     expect(listBody.backups[0].filename).toContain(company.id);
   });
 
-  it('ownership check: debe rechazar eliminacion de backup de otra empresa', async () => {
+  it('ownership check: backup de otra empresa tratado como no existente (404 neutral)', async () => {
     const user = await createTestUser('backup-owner@example.com');
     const company = await createTestCompany('Owner Check');
     await createTestCompanyMember(user.id, company.id);
@@ -307,7 +307,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
       body: JSON.stringify({ filename: 'other-company_id_test.json' }),
     });
     const res = await backupDELETE(req, { params: Promise.resolve({}) });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 });
 

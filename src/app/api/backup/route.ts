@@ -59,6 +59,9 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
  */
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+
+  await requireCompanyRole(companyId, ['company_admin']);
+
   const body = await request.json();
   const { filename } = body;
 
@@ -66,14 +69,16 @@ export const DELETE = apiHandler(async (request: NextRequest, context: RouteCont
     return NextResponse.json({ error: 'companyId and filename are required' }, { status: 400 });
   }
 
-  // Ownership check: filename must belong to the session's company
-  if (!filename.startsWith(`${companyId}_`)) {
-    return NextResponse.json({ error: 'Backup file does not belong to this company' }, { status: 403 });
+  // Ownership and path safety are delegated to deleteBackup (single source of
+  // truth in lib/backup.ts). A malformed or cross-tenant filename is treated
+  // as a single neutral state to avoid leaking backup existence.
+  const result = deleteBackup(filename, companyId);
+
+  if (result.status === 'invalid') {
+    return NextResponse.json({ error: 'Invalid backup filename' }, { status: 400 });
   }
 
-  const success = deleteBackup(filename);
-
-  if (!success) {
+  if (result.status === 'not_found') {
     return NextResponse.json({ error: 'Backup file not found' }, { status: 404 });
   }
 

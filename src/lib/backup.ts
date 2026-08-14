@@ -140,6 +140,57 @@ function sanitizeForRestore(
   return cleaned;
 }
 
+/* ─── Role Normalization Helpers (RC2-3) ─────────────────────────── */
+
+export type RestoredUserRole = 'user' | 'super_admin';
+export type RestoredMembershipRole = 'company_admin' | 'employee' | 'viewer';
+
+/**
+ * Normalize a user role coming from a backup payload to the current global
+ * authority contract: 'user' | 'super_admin'.
+ *
+ * legacy/tenant/unknown values always collapse to 'user' (fail-closed).
+ * 'super_admin' is preserved ONLY when there is a trusted authority context:
+ * either an authorized bootstrap restore (empty-DB recovery) or a normal
+ * restore performed by an actor that is already a global super_admin. The
+ * backup payload alone never grants global authority.
+ */
+export function normalizeRestoredUserRole(
+  backupRole: unknown,
+  context: { bootstrap?: boolean; restoringActorIsSuperAdmin?: boolean },
+): RestoredUserRole {
+  if (
+    backupRole === 'super_admin' &&
+    (Boolean(context.bootstrap) || Boolean(context.restoringActorIsSuperAdmin))
+  ) {
+    return 'super_admin';
+  }
+  return 'user';
+}
+
+/**
+ * Normalize a company membership role coming from a backup payload to the
+ * current tenant authority contract: 'company_admin' | 'employee' | 'viewer'.
+ *
+ * Known valid roles are preserved. Legacy 'super_admin' folds into
+ * 'company_admin'. Any unknown value collapses to 'viewer' (minimum tenant
+ * privilege, no operational capability granted without evidence).
+ */
+export function normalizeRestoredMembershipRole(role: unknown): RestoredMembershipRole {
+  switch (role) {
+    case 'company_admin':
+      return 'company_admin';
+    case 'employee':
+      return 'employee';
+    case 'viewer':
+      return 'viewer';
+    case 'super_admin':
+      return 'company_admin';
+    default:
+      return 'viewer';
+  }
+}
+
 /* ─── Exported Functions ──────────────────────────────────────────── */
 
 /**
@@ -552,7 +603,7 @@ export async function restoreBackup(
   companyId: string,
   backupData: BackupData,
   userId: string,
-  options?: { bootstrap?: boolean },
+  options?: { bootstrap?: boolean; restoringActorIsSuperAdmin?: boolean },
 ): Promise<{ success: boolean; message: string; restoredCounts: Record<string, number> }> {
   const validation = validateBackup(backupData);
   if (!validation.valid) {
@@ -571,6 +622,14 @@ export async function restoreBackup(
       restoredCounts: {},
     };
   }
+
+  // RC2-3: the trusted authority context for normalizing restored user roles
+  // comes from the caller (the authenticated actor derived from DB/session),
+  // never from the backup payload itself.
+  const restoreRoleContext = {
+    bootstrap: Boolean(options?.bootstrap),
+    restoringActorIsSuperAdmin: Boolean(options?.restoringActorIsSuperAdmin),
+  };
 
   // Audit Contract v1 — SecurityEvent: restore initiated
   const restoreId = crypto.randomUUID();
@@ -659,8 +718,14 @@ export async function restoreBackup(
       // hash is missing (old/handcrafted backups), generate a random secret that
       // no one knows — the operator must reset the password afterwards.
       const sanitizeOpts = { preservePasswordHash: true };
+      let normalizedUserRoles = 0;
       for (const user of backupData.data.users) {
         const clean = sanitizeForRestore(user as Record<string, unknown>, sanitizeOpts);
+        // RC2-3: normalize roles to the current global authority contract before
+        // persisting. The backup payload alone never grants 'super_admin'.
+        const originalRole = clean.role;
+        clean.role = normalizeRestoredUserRole(clean.role, restoreRoleContext);
+        if (clean.role !== originalRole) normalizedUserRoles += 1;
         // passwordHash is required by Prisma but older backups may not include it.
         const pwHash = clean.passwordHash as string | undefined;
         if (!pwHash || !pwHash.startsWith('$2')) {
@@ -674,8 +739,15 @@ export async function restoreBackup(
       }
 
       // Insert company members
+      let normalizedMembershipRoles = 0;
       for (const member of backupData.data.companyMembers) {
         const clean = sanitizeForRestore(member as Record<string, unknown>);
+        // RC2-3: normalize membership roles to the current tenant authority
+        // contract before persisting ('super_admin' folds to 'company_admin',
+        // unknown values collapse to 'viewer').
+        const originalMemberRole = clean.role;
+        clean.role = normalizeRestoredMembershipRole(clean.role);
+        if (clean.role !== originalMemberRole) normalizedMembershipRoles += 1;
         await tx.companyMember.create({ data: clean as never });
       }
       restoredCounts.companyMembers = backupData.data.companyMembers.length;
@@ -850,6 +922,8 @@ export async function restoreBackup(
             bootstrap: !!options?.bootstrap,
             restoredCounts,
             backupCreatedAt: backupData.manifest.createdAt,
+            normalizedUserRoles,
+            normalizedMembershipRoles,
           }),
         },
       });

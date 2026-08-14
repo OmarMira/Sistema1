@@ -84,7 +84,7 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     log('DISK CLEANUP: removed test backup files and manifest entries for', [...diskTestCompanyIds]);
   });
 
-  it('escalates to super_admin when ONLY the role field is tampered in a legitimate backup', async () => {
+  it('does NOT escalate to super_admin when ONLY the role field is tampered in a legitimate backup (RC2-3)', async () => {
     // Setup: attacker is a company_admin of Acme Corp
     const user = await createTestUser('attacker@example.com');
     const company = await createTestCompany('Acme Corp');
@@ -120,22 +120,23 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     target.role = 'super_admin';
     log('BACKUP TAMPERED: users[].role changed to super_admin (only field modified)');
 
-    // 3. Restore it
+    // 3. Restore it — actor is NOT a global super_admin, so the tampered role
+    //    must be normalized to 'user' (RC2-3 actor-gated contract).
     const result = await restoreBackup(company.id, backupData, user.id);
     log('RESTORE result: success =', result.success, '| message =', result.message);
     expect(result.success).toBe(true);
 
-    // 4. Verify the row in PostgreSQL directly
+    // 4. Verify the row in PostgreSQL directly: the tampered role must NOT persist
     const stored = await db.user.findUnique({ where: { id: user.id } });
     log('DB AFTER RESTORE: user.role =', stored?.role);
-    expect(stored?.role).toBe('super_admin');
+    expect(stored?.role).toBe('user');
 
     // 5. Verify login with the known default password is now BLOCKED (F-5 fix)
     const loginOk = await verifyPassword('Admin123!', stored!.passwordHash);
     log('LOGIN CHECK: verifyPassword("Admin123!", stored.passwordHash) =', loginOk);
     expect(loginOk).toBe(false);
 
-    // 6. Verify the superadmin route is now ACCESSIBLE
+    // 6. Verify the superadmin route is STILL FORBIDDEN (no escalation)
     token = await createSession(user.id);
     res = await adminUsersGET(
       new NextRequest('http://localhost/api/admin/users', {
@@ -145,7 +146,7 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
       { params: Promise.resolve({}) },
     );
     log('GET /api/admin/users AFTER restore: status =', res.status);
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(403);
   });
 
   it('injects a tenanted row into another company when ONLY companyId is tampered', async () => {
@@ -187,7 +188,7 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     expect(stored?.companyId).toBe(victim.id);
   });
 
-  it('escalates to super_admin via the HTTP endpoint /api/backup/restore with real auth', async () => {
+  it('does NOT escalate to super_admin via the HTTP endpoint /api/backup/restore with real auth (RC2-3)', async () => {
     // Setup: attacker is a company_admin of Acme Corp
     const user = await createTestUser('attacker3@example.com');
     const company = await createTestCompany('Acme Corp');
@@ -221,12 +222,13 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     log('HTTP POST /api/backup/restore: status =', res.status, '| body =', JSON.stringify(body));
     expect(res.status).toBe(200);
 
-    // 4. Verify the row in PostgreSQL directly
+    // 4. Verify the row in PostgreSQL directly — the actor is NOT a global
+    //    super_admin, so the tampered role must NOT persist.
     const stored = await db.user.findUnique({ where: { id: user.id } });
     log('DB AFTER HTTP RESTORE: user.role =', stored?.role);
-    expect(stored?.role).toBe('super_admin');
+    expect(stored?.role).toBe('user');
 
-    // 5. Verify the superadmin route is now ACCESSIBLE with a fresh session
+    // 5. Verify the superadmin route is STILL FORBIDDEN (no escalation)
     const token2 = await createSession(user.id);
     const resAdmin = await adminUsersGET(
       new NextRequest('http://localhost/api/admin/users', {
@@ -236,6 +238,6 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
       { params: Promise.resolve({}) },
     );
     log('GET /api/admin/users AFTER HTTP RESTORE: status =', resAdmin.status);
-    expect(resAdmin.status).toBe(200);
+    expect(resAdmin.status).toBe(403);
   });
 });

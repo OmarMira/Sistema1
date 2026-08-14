@@ -86,13 +86,14 @@ export async function requireCompanyRole(
 /**
  * Gate de rol global para recursos administrativos/configuración.
  * Reutilizado en config/ai y config/ai/verify para imponer la misma política de rol.
+ * Contrato RC2: User.role solo representa autoridad global => unico acceso es super_admin.
  */
 export async function requireGlobalAdminRole(userId: string): Promise<void> {
   const user = await db.user.findUnique({
     where: { id: userId },
     select: { role: true },
   });
-  if (!user || !['company_admin', 'super_admin'].includes(user.role)) {
+  if (!user || user.role !== 'super_admin') {
     throw new ForbiddenError('Access denied');
   }
 }

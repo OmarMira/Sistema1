@@ -327,6 +327,93 @@ describe('G4-RC1 — SSRF: safe-fetch URL policy', () => {
   });
 });
 
+describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
+  let createdCompanyIds: string[] = [];
+
+  beforeEach(async () => {
+    createdCompanyIds = [];
+    vi.restoreAllMocks();
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await clearDatabase();
+    if (createdCompanyIds.length) {
+      await db.companyMember.deleteMany({ where: { companyId: { in: createdCompanyIds } } }).catch(() => {});
+      await db.company.deleteMany({ where: { id: { in: createdCompanyIds } } }).catch(() => {});
+    }
+  });
+
+  async function callVerify(userId: string, mockHttp: boolean) {
+    return callVerifyWithBase(userId, mockHttp, 'https://public.example.com');
+  }
+
+  async function callVerifyWithBase(userId: string, mockHttp: boolean, baseUrl: string) {
+    if (mockHttp) {
+      mockDnsPublic();
+      mockHttpsResponseOnce(200, {});
+    }
+    const token = await createSession(userId);
+    const req = new NextRequest('http://localhost/api/config/ai/verify', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ apiKey: 'sk-12345678901234567890', baseUrl }),
+    });
+    const { POST } = await import('@/app/api/config/ai/verify/route');
+    return POST(req, { params: Promise.resolve({}) });
+  }
+
+  it('A: User.role=super_admin — access granted to global AI config', async () => {
+    const user = await db.user.create({
+      data: {
+        email: 'rc2-super@example.com',
+        passwordHash: 'hashed_password_placeholder',
+        firstName: 'Test',
+        lastName: 'Super',
+        role: 'super_admin',
+      },
+    });
+    const res = await callVerify(user.id, true);
+    expect(res.status).toBe(200);
+  });
+
+  it('B: User.role=user — 403 on global AI config', async () => {
+    const user = await db.user.create({
+      data: {
+        email: 'rc2-user@example.com',
+        passwordHash: 'hashed_password_placeholder',
+        firstName: 'Test',
+        lastName: 'User',
+        role: 'user',
+      },
+    });
+    const res = await callVerify(user.id, false);
+    expect(res.status).toBe(403);
+  });
+
+  it('C: User.role=user + CompanyMember.role=company_admin — 403 on global AI config (tenant authority does NOT grant global access)', async () => {
+    const user = await db.user.create({
+      data: {
+        email: 'rc2-tenant-admin@example.com',
+        passwordHash: 'hashed_password_placeholder',
+        firstName: 'Test',
+        lastName: 'TenantAdmin',
+        role: 'user',
+      },
+    });
+    const company = await createTestCompany('RC2 Tenant');
+    await createTestCompanyMember(user.id, company.id);
+    createdCompanyIds.push(company.id);
+
+    const res = await callVerify(user.id, false);
+    expect(res.status).toBe(403);
+  });
+});
+
 describe('G4-RC1 — SSRF: /api/config/ai/verify authorization gate', () => {
   let createdCompanyIds: string[] = [];
 
@@ -352,7 +439,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify authorization gate', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
         lastName: 'Viewer',
-        role: 'viewer',
+        role: 'user',
       },
     });
     const company = await createTestCompany('G4 Tenant');

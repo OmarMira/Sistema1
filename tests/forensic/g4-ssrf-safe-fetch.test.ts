@@ -361,7 +361,7 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ apiKey: 'sk-12345678901234567890', baseUrl }),
+      body: JSON.stringify({ apiKey: 'sk-test-api-key', baseUrl }),
     });
     const { POST } = await import('@/app/api/config/ai/verify/route');
     return POST(req, { params: Promise.resolve({}) });
@@ -454,7 +454,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify authorization gate', () => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ apiKey: 'sk-12345678901234567890', baseUrl: 'https://public.example.com' }),
+      body: JSON.stringify({ apiKey: 'sk-test-api-key', baseUrl: 'https://public.example.com' }),
     });
     const { POST } = await import('@/app/api/config/ai/verify/route');
     const res = await POST(req, { params: Promise.resolve({}) });

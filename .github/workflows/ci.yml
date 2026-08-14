@@ -28,6 +28,8 @@ jobs:
         run: npx prisma generate
 
       - name: Prisma validate
+        env:
+          DATABASE_URL: postgresql://ci:placeholder@localhost:5432/ci
         run: npx prisma validate
 
       - name: TypeScript check

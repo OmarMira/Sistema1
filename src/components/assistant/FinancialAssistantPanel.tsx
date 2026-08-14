@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle, Info, TrendingUp } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useRBAC } from '@/hooks/useRBAC';
+import { useAuthStore } from '@/store/auth-store';
 
 import { useLanguageStore } from '@/store/language-store';
 
@@ -25,12 +26,23 @@ export function FinancialAssistantPanel({ companyId }: { companyId: string }) {
     },
   }[language];
 
-  // Mapear el rol global 'company_admin' al rol 'admin' de la compañía para la validación RBAC
+  // Tenant authority lives in the active company membership — never in User.role.
+  // Only trust the active company's role when it matches this panel's companyId.
+  const activeCompany = useAuthStore((s) => s.activeCompany);
+  const tenantRole = activeCompany?.id === companyId ? (activeCompany?.role ?? null) : null;
+
   const authCtx = user
     ? {
         userId: user.id,
         companyId,
-        role: user.role === 'company_admin' ? 'admin' : user.role,
+        role:
+          user.role === 'super_admin'
+            ? 'super_admin'
+            : tenantRole === 'company_admin'
+              ? 'admin'
+              : tenantRole === 'viewer'
+                ? 'viewer'
+                : (tenantRole ?? 'none'),
       }
     : null;
 

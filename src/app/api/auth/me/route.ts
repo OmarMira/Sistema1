@@ -22,7 +22,8 @@ export const GET = apiHandler(
         isActive: true,
         companyMemberships: {
           where: { company: { isActive: true } },
-          include: {
+          select: {
+            role: true,
             company: {
               select: {
                 id: true,
@@ -44,20 +45,22 @@ export const GET = apiHandler(
 
     let companies;
     if (user.role === 'super_admin') {
-      companies = await db.company.findMany({
-        where: { isActive: true },
-        select: {
-          id: true,
-          legalName: true,
-          taxId: true,
-          logo: true,
-          isActive: true,
-          isOnboardingComplete: true,
-        },
-        orderBy: { legalName: 'asc' },
-      });
+      companies = (
+        await db.company.findMany({
+          where: { isActive: true },
+          select: {
+            id: true,
+            legalName: true,
+            taxId: true,
+            logo: true,
+            isActive: true,
+            isOnboardingComplete: true,
+          },
+          orderBy: { legalName: 'asc' },
+        })
+      ).map((company) => ({ ...company, role: null }));
     } else {
-      companies = user.companyMemberships.map((m) => m.company);
+      companies = user.companyMemberships.map((m) => ({ ...m.company, role: m.role }));
     }
 
     return NextResponse.json({

@@ -38,29 +38,6 @@ function createBaseClient() {
   });
 }
 
-// ─── Safety-net helper ────────────────────────────────────────────────────
-// Catches any Prisma.Decimal value that the result override misses
-// (e.g. raw queries, groupBy aggregates, newly added fields).
-function deepConvertDecimals(value: unknown): unknown {
-  if (value instanceof Prisma.Decimal) {
-    return value.toNumber();
-  }
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return value;
-  }
-  if (value instanceof Date) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(deepConvertDecimals);
-  }
-  const obj = value as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    obj[key] = deepConvertDecimals(obj[key]) as never;
-  }
-  return obj;
-}
-
 const base: PrismaClient = globalForPrisma.prisma ?? createBaseClient();
 
 if (process.env.NODE_ENV !== 'production') {
@@ -101,20 +78,14 @@ if (!globalForPrisma.isListenerRegistered) {
 }
 
 // ─── Single $extends call ──────────────────────────────────────────────────
-// In Prisma v6, $use was REMOVED. Middleware must be done via
-// $extends({ query: { ... } }). We combine the Decimal safety-net (query
-// middleware) AND the result-type overrides in ONE extension to keep a single
-// wrapper layer.
+// G6/F6 closure: the blanket Decimal→Number conversion via
+// $allModels.$allOperations was REMOVED (it silently converted every
+// Prisma.Decimal in every result). The explicit per-field `result` overrides
+// below are the ONLY conversion layer: each monetary field is deliberately
+// exposed as `number` for API/UI consumers. Aggregate/groupBy results are no
+// longer coerced here — consumers must normalize them explicitly.
 
 export const db = base.$extends({
-  query: {
-    $allModels: {
-      async $allOperations({ args, query }) {
-        const result = await query(args);
-        return deepConvertDecimals(result);
-      },
-    },
-  },
   result: {
     bankTransaction: {
       amount: {

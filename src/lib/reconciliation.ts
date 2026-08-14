@@ -24,7 +24,8 @@ export async function recalculateBankAccountBalance(bankAccountId: string): Prom
     },
   });
 
-  const reconciledTotal = result._sum.amount ?? 0;
+  // G6/F6: aggregate results are no longer coerced by the client — normalize explicitly.
+  const reconciledTotal = Number(result._sum.amount ?? 0);
 
   // Update the bank account balance
   await db.bankAccount.update({

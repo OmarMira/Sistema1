@@ -38,26 +38,6 @@ function createBaseClient() {
   });
 }
 
-function deepConvertDecimals(value: unknown): unknown {
-  if (value instanceof Prisma.Decimal) {
-    return value.toNumber();
-  }
-  if (value === null || value === undefined || typeof value !== 'object') {
-    return value;
-  }
-  if (value instanceof Date) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map(deepConvertDecimals);
-  }
-  const obj = value as Record<string, unknown>;
-  for (const key of Object.keys(obj)) {
-    obj[key] = deepConvertDecimals(obj[key]) as never;
-  }
-  return obj;
-}
-
 const base: PrismaClient = globalForPrisma.prisma ?? createBaseClient();
 
 if (process.env.NODE_ENV !== 'production') {
@@ -96,14 +76,6 @@ if (!globalForPrisma.isListenerRegistered) {
 }
 
 export const db = base.$extends({
-  query: {
-    $allModels: {
-      async $allOperations({ args, query }) {
-        const result = await query(args);
-        return deepConvertDecimals(result);
-      },
-    },
-  },
   result: {
     bankTransaction: {
       amount: {

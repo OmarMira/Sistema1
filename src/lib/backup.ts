@@ -32,6 +32,10 @@ export interface BackupManifest {
     users: number;
     systemConfig: number;
     companyConfig: boolean;
+    // D10-E: reconciliation subsystem counts (optional for legacy 1.0.0 backups)
+    reconciliationPeriods?: number;
+    companyKnowledge?: number;
+    knowledgeAudit?: number;
   };
 }
 
@@ -51,6 +55,10 @@ export interface BackupData {
     users: Record<string, unknown>[];
     systemConfig: Record<string, unknown>[];
     companyConfig: Record<string, unknown> | null;
+    // D10-E: reconciliation subsystem data (optional for legacy 1.0.0 backups)
+    reconciliationPeriods?: Record<string, unknown>[];
+    companyKnowledge?: Record<string, unknown>[];
+    knowledgeAudit?: Record<string, unknown>[];
   };
 }
 
@@ -238,6 +246,9 @@ export async function createBackup(companyId: string): Promise<{
     journalLines,
     fiscalPeriods,
     companyMembers,
+    reconciliationPeriods,
+    companyKnowledge,
+    knowledgeAudit,
   ] = await Promise.all([
     db.glAccount.findMany({ where: { companyId } }),
     db.bankAccount.findMany({ where: { companyId } }),
@@ -275,6 +286,10 @@ export async function createBackup(companyId: string): Promise<{
         },
       },
     }),
+    // D10-E: reconcile + knowledge subsystem data
+    db.reconciliationPeriod.findMany({ where: { companyId } }),
+    db.companyKnowledge.findMany({ where: { companyId } }),
+    db.knowledgeAudit.findMany({ where: { companyKnowledge: { companyId } } }),
   ]);
 
   // Collect unique user IDs from company members
@@ -350,6 +365,10 @@ export async function createBackup(companyId: string): Promise<{
     users: users.length,
     systemConfig: systemConfig.length,
     companyConfig: companyConfig !== null,
+    // D10-E: reconcile + knowledge subsystem counts
+    reconciliationPeriods: reconciliationPeriods.length,
+    companyKnowledge: companyKnowledge.length,
+    knowledgeAudit: knowledgeAudit.length,
   };
 
   const backupData: BackupData = {
@@ -378,6 +397,12 @@ export async function createBackup(companyId: string): Promise<{
       users: users.map((u) => JSON.parse(JSON.stringify(u))),
       systemConfig: systemConfig.map((c) => JSON.parse(JSON.stringify(c))),
       companyConfig,
+      // D10-E: reconcile + knowledge subsystem data
+      reconciliationPeriods: reconciliationPeriods.map((r) =>
+        JSON.parse(JSON.stringify(r)),
+      ),
+      companyKnowledge: companyKnowledge.map((k) => JSON.parse(JSON.stringify(k))),
+      knowledgeAudit: knowledgeAudit.map((a) => JSON.parse(JSON.stringify(a))),
     },
   };
 
@@ -656,6 +681,12 @@ export async function restoreBackup(
   try {
     const restoredCounts: Record<string, number> = {};
 
+    // D10-B: the company-config.json payload is computed inside the transaction,
+    // but the filesystem WRITE is deferred until AFTER the transaction commits.
+    // This guarantees a DB rollback never leaves a persisted file that diverges
+    // from the (rolled back) database.
+    let companyConfigWrite: { configPath: string; content: string } | null = null;
+
     // Use a transaction for atomicity
     await db.$transaction(async (tx) => {
         // Step 1: Delete existing data (skip in bootstrap mode)
@@ -681,6 +712,27 @@ export async function restoreBackup(
             });
             restoredCounts.journalLinesDeleted = result.count;
           }
+
+          // D10-E: delete reconcile + knowledge subsystem data (order matters for FK
+          // constraints: knowledgeAudit → companyKnowledge → reconciliationPeriod).
+          const knowledgeIds = await tx.companyKnowledge.findMany({
+            where: { companyId },
+            select: { id: true },
+          });
+          if (knowledgeIds.length > 0) {
+            const auditDeleted = await tx.knowledgeAudit.deleteMany({
+              where: { knowledgeId: { in: knowledgeIds.map((k) => k.id) } },
+            });
+            restoredCounts.knowledgeAuditDeleted = auditDeleted.count;
+          }
+          const knowledgeDeleted = await tx.companyKnowledge.deleteMany({
+            where: { companyId },
+          });
+          restoredCounts.companyKnowledgeDeleted = knowledgeDeleted.count;
+          const periodDeleted = await tx.reconciliationPeriod.deleteMany({
+            where: { companyId },
+          });
+          restoredCounts.reconciliationPeriodsDeleted = periodDeleted.count;
 
           const deleteOps = [
             { model: 'journalEntry', where: { companyId } },
@@ -782,6 +834,18 @@ export async function restoreBackup(
       }
       restoredCounts.bankAccounts = backupData.data.bankAccounts.length;
 
+      // D10-E: Insert reconciliation periods (after bankAccounts so bankAccountId FK remaps)
+      const reconciliationPeriodIdMap = new Map<string, string>();
+      for (const period of backupData.data.reconciliationPeriods ?? []) {
+        const clean = sanitizeForRestore(period as Record<string, unknown>);
+        // Map bank account reference
+        const oldBankId = clean.bankAccountId as string;
+        clean.bankAccountId = bankAccountIdMap.get(oldBankId) || oldBankId;
+        const created = await tx.reconciliationPeriod.create({ data: clean as never });
+        reconciliationPeriodIdMap.set(period.id as string, created.id);
+      }
+      restoredCounts.reconciliationPeriods = backupData.data.reconciliationPeriods?.length ?? 0;
+
       // Insert bank statements
       const statementIdMap = new Map<string, string>();
       for (const statement of backupData.data.bankStatements) {
@@ -830,10 +894,15 @@ export async function restoreBackup(
           const oldRuleId = clean.matchedRuleId as string;
           clean.matchedRuleId = ruleIdMap.get(oldRuleId) || oldRuleId;
         }
-        // Strip FKs to entities not restored yet (will be re-linked through app workflow)
+        // Strip FKs to journal entities not restored yet (will be re-linked through app workflow)
         delete clean.journalEntryId;
         delete clean.journalLineId;
-        delete clean.reconciliationPeriodId;
+        // D10-E: remap reconciliation period reference (periods restored in a prior pass)
+        if (clean.reconciliationPeriodId) {
+          const oldReconId = clean.reconciliationPeriodId as string;
+          clean.reconciliationPeriodId =
+            reconciliationPeriodIdMap.get(oldReconId) || null;
+        }
         await tx.bankTransaction.create({ data: clean as never });
       }
       restoredCounts.bankTransactions = backupData.data.bankTransactions.length;
@@ -869,6 +938,37 @@ export async function restoreBackup(
       }
       restoredCounts.journalLines = backupData.data.journalLines.length;
 
+      // D10-E: Insert company knowledge. Two-pass to resolve the self-referential
+      // mergedIntoId FK regardless of row order in the backup payload.
+      const companyKnowledgeIdMap = new Map<string, string>();
+      for (const knowledge of backupData.data.companyKnowledge ?? []) {
+        const clean = sanitizeForRestore(knowledge as Record<string, unknown>);
+        delete clean.mergedIntoId; // linked in pass 2
+        const created = await tx.companyKnowledge.create({ data: clean as never });
+        companyKnowledgeIdMap.set(knowledge.id as string, created.id);
+      }
+      for (const knowledge of backupData.data.companyKnowledge ?? []) {
+        const oldMergedIntoId = knowledge.mergedIntoId as string | undefined;
+        if (oldMergedIntoId && companyKnowledgeIdMap.has(oldMergedIntoId)) {
+          await tx.companyKnowledge.update({
+            where: { id: companyKnowledgeIdMap.get(knowledge.id as string) as string },
+            data: { mergedIntoId: companyKnowledgeIdMap.get(oldMergedIntoId) as string },
+          });
+        }
+      }
+      restoredCounts.companyKnowledge = backupData.data.companyKnowledge?.length ?? 0;
+
+      // D10-E: Insert knowledge audit entries (require CompanyKnowledge FK knowledgeId,
+      // so they must be inserted after company knowledge).
+      for (const audit of backupData.data.knowledgeAudit ?? []) {
+        const clean = sanitizeForRestore(audit as Record<string, unknown>);
+        // Map knowledge reference
+        const oldKnowledgeId = clean.knowledgeId as string;
+        clean.knowledgeId = companyKnowledgeIdMap.get(oldKnowledgeId) || oldKnowledgeId;
+        await tx.knowledgeAudit.create({ data: clean as never });
+      }
+      restoredCounts.knowledgeAudit = backupData.data.knowledgeAudit?.length ?? 0;
+
       // Restore SystemConfig (skip AI config keys — never overwrite active AI keys from backup)
       if (backupData.data.systemConfig && backupData.data.systemConfig.length > 0) {
         const filtered = filterSensitiveSystemConfig(backupData.data.systemConfig);
@@ -887,12 +987,11 @@ export async function restoreBackup(
         }
       }
 
-      // Restore company-config.json (currency, periodType)
+      // Restore company-config.json (currency, periodType).
+      // D10-B: compute the payload in-memory here; write to disk only after the
+      // transaction commits (see below).
       if (backupData.data.companyConfig) {
         const configPath = RUNTIME_FILES.companyConfig;
-        if (!fs.existsSync(path.dirname(configPath))) {
-          fs.mkdirSync(path.dirname(configPath), { recursive: true });
-        }
         let allConfig: { companies?: Record<string, unknown> } = { companies: {} };
         try {
           if (fs.existsSync(configPath)) {
@@ -905,7 +1004,10 @@ export async function restoreBackup(
           allConfig.companies = {};
         }
         allConfig.companies[companyId] = backupData.data.companyConfig;
-        fs.writeFileSync(configPath, JSON.stringify(allConfig, null, 2), 'utf-8');
+        companyConfigWrite = {
+          configPath,
+          content: JSON.stringify(allConfig, null, 2),
+        };
         restoredCounts.companyConfig = 1;
       }
 
@@ -929,9 +1031,36 @@ export async function restoreBackup(
       });
     });
 
+    // D10-B: write company-config.json only AFTER the transaction committed. If the
+    // transaction rolled back (e.g. auditLog.create failed), the file was never
+    // written, so DB and filesystem stay in sync. A failure of this post-commit
+    // write is NOT a restore failure: the DB is already restored and is the source
+    // of truth, so it must not trigger the outer catch (which would falsely report
+    // a rollback and emit RESTORE_FAILED).
+    let configWriteFailed = false;
+    if (companyConfigWrite) {
+      const { configPath, content } = companyConfigWrite;
+      try {
+        if (!fs.existsSync(path.dirname(configPath))) {
+          fs.mkdirSync(path.dirname(configPath), { recursive: true });
+        }
+        fs.writeFileSync(configPath, content, 'utf-8');
+      } catch (error) {
+        configWriteFailed = true;
+        const errMsg =
+          error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error';
+        logger.warn(
+          '[BACKUP RESTORE] Database restored but company-config.json could not be updated',
+          { configPath, error: errMsg },
+        );
+      }
+    }
+
     return {
       success: true,
-      message: 'Backup restored successfully',
+      message: configWriteFailed
+        ? 'Backup restored successfully. Warning: company-config.json could not be updated.'
+        : 'Backup restored successfully',
       restoredCounts,
     };
   } catch (error) {

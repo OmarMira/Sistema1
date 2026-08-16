@@ -23,7 +23,7 @@ describe('G12-3: Logger redacts sensitive metadata', () => {
 
   it('redacts apiKey from metadata', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    logger.info('test', { apiKey: 'sk-1234567890abcdef', model: 'gpt-4' });
+    logger.info('test', { apiKey: 'sk-test-api-key', model: 'gpt-4' });
     const output = JSON.parse(consoleSpy.mock.calls[0]![0] as string);
     expect(output.apiKey).toBe('[REDACTED]');
     expect(output.model).toBe('gpt-4');
@@ -40,7 +40,7 @@ describe('G12-3: Logger redacts sensitive metadata', () => {
 
   it('redacts token from metadata', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    logger.info('test', { token: 'eyJhbGciOiJIUzI1NiJ9' });
+    logger.info('test', { token: 'sk-test-api-key' });
     const output = JSON.parse(consoleSpy.mock.calls[0]![0] as string);
     expect(output.token).toBe('[REDACTED]');
     consoleSpy.mockRestore();
@@ -282,7 +282,7 @@ describe('G12-2: safeErrorMessage does not leak sensitive error.message content'
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     const { handleRouteError } = await import('@/lib/route-error-handler');
 
-    const err = new Error('Invalid API key: sk-1234567890abcdef1234567890abcdef');
+    const err = new Error('Invalid API key: sk-test-api-key');
     handleRouteError(err, '[TEST TAG]');
 
     const output = JSON.parse(consoleSpy.mock.calls[0]![0] as string);

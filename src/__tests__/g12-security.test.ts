@@ -100,6 +100,35 @@ describe('G12-3: Logger redacts sensitive metadata', () => {
     consoleSpy.mockRestore();
   });
 
+  const PREFIX_VARIANTS = [
+    'keyPrefix',
+    'apiKeyPrefix',
+    'secretPrefix',
+    'tokenPrefix',
+    'keyFragment',
+    'secretFragment',
+  ];
+
+  for (const variant of PREFIX_VARIANTS) {
+    it(`redacts ${variant} from metadata`, () => {
+      const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+      logger.info('test', { [variant]: 'abcdef123456', model: 'gpt-4' });
+      const output = JSON.parse(consoleSpy.mock.calls[0]![0] as string);
+      expect(output[variant]).toBe('[REDACTED]');
+      expect(output.model).toBe('gpt-4');
+      consoleSpy.mockRestore();
+    });
+  }
+
+  it('does NOT redact maskedKey (UI representation contract, not a log secret)', () => {
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    logger.info('test', { maskedKey: 'sk-a...z9', model: 'gpt-4' });
+    const output = JSON.parse(consoleSpy.mock.calls[0]![0] as string);
+    expect(output.maskedKey).toBe('sk-a...z9');
+    expect(output.model).toBe('gpt-4');
+    consoleSpy.mockRestore();
+  });
+
   it('redacts long hex strings that look like secrets', () => {
     const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     logger.info('test', { hash: 'a'.repeat(64) });
@@ -177,6 +206,12 @@ describe('G12-8: ai-config does not leak API key in logs', () => {
     const source = readSrc('src/lib/ai-config.ts');
     expect(source).not.toMatch(/keyPrefix.*slice/);
     expect(source).not.toMatch(/keyPrefix.*apiKey/);
+  });
+
+  it('config/ai route does not log keyPrefix or apiKey fragment', () => {
+    const source = readSrc('src/app/api/config/ai/route.ts');
+    expect(source).not.toMatch(/keyPrefix/);
+    expect(source).not.toMatch(/slice\(0,\s*6\)/);
   });
 });
 

@@ -16,6 +16,10 @@ export async function register() {
 
   // 2️⃣ Node.js Runtime Config & Setup
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Validate required environment before starting any runtime service.
+    const { validateEnv } = await import('./lib/env/server');
+    validateEnv();
+
     // Sentry Server Config
     Sentry.init({
       dsn: process.env.SENTRY_DSN,

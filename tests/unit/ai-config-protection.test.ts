@@ -31,17 +31,35 @@ vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
+vi.mock('@/lib/context-storage', () => ({
+  requireCurrentUserId: () => 'user-test-1',
+}));
+
+vi.mock('@/lib/rbac', () => ({
+  requireGlobalAdminRole: async () => undefined,
+}));
+
+vi.mock('@/lib/api-handler', () => ({
+  apiHandler: (handler: (req: unknown, ctx: unknown) => Promise<unknown>) =>
+    async (req: unknown, ctx: unknown) => handler(req, ctx),
+}));
+
 // Full crypto mock that actually encrypts/decrypts consistently
 const REAL_KEY = 'test-secret-that-is-exactly-32-bytes!!';
-vi.mock('@/lib/crypto', () => {
-  const crypto = require('crypto');
+vi.mock('@/lib/crypto', async () => {
+  const {
+    scryptSync,
+    randomBytes,
+    createCipheriv,
+    createDecipheriv,
+  } = await import('crypto');
   const ALGORITHM = 'aes-256-gcm';
   const IV_LENGTH = 16;
 
   function encrypt(plaintext: string): string {
-    const key = crypto.scryptSync(REAL_KEY, 'crypto-key-salt', 32);
-    const iv = crypto.randomBytes(IV_LENGTH);
-    const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+    const key = scryptSync(REAL_KEY, 'crypto-key-salt', 32);
+    const iv = randomBytes(IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, key, iv);
     let encrypted = cipher.update(plaintext, 'utf8', 'hex');
     encrypted += cipher.final('hex');
     const tag = cipher.getAuthTag().toString('hex');
@@ -51,12 +69,12 @@ vi.mock('@/lib/crypto', () => {
   function decrypt(ciphertext: string): string {
     const parts = ciphertext.split(':');
     if (parts.length !== 3) throw new Error('Invalid encrypted format');
-    const key = crypto.scryptSync(REAL_KEY, 'crypto-key-salt', 32);
+    const key = scryptSync(REAL_KEY, 'crypto-key-salt', 32);
     const iv = Buffer.from(parts[0], 'hex');
     const tag = Buffer.from(parts[1], 'hex');
     if (tag.length !== 16) throw new Error('Invalid auth tag length');
     const encrypted = parts[2];
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(tag);
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
@@ -263,6 +281,38 @@ describe('AI Config Protection', () => {
       await expect(getAiConfig()).rejects.toThrow(
         /could not decrypt|SESSION_SECRET|corrupted/i,
       );
+    });
+  });
+
+  describe('config/ai GET does not log API key fragments', () => {
+    it('does not log keyPrefix or apiKey fragments', async () => {
+      const loggerMock = (await import('@/lib/logger')).logger as {
+        info: ReturnType<typeof vi.fn>;
+        warn: ReturnType<typeof vi.fn>;
+        error: ReturnType<typeof vi.fn>;
+      };
+
+      mockDb.systemConfig = [];
+
+      const { setAiConfig, clearAiConfigCache } = await import('@/lib/ai-config');
+      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://test.url' });
+      clearAiConfigCache();
+
+      const { GET } = await import('@/app/api/config/ai/route');
+
+      const res = await GET(new Request('http://localhost/api/config/ai') as never, {} as never);
+      const body = await res.json();
+
+      const calls = loggerMock.info.mock.calls.map((c) => JSON.stringify(c));
+      for (const call of calls) {
+        expect(call).not.toContain('keyPrefix');
+        expect(call).not.toMatch(/slice\(0,\s*6\)/);
+        expect(call).not.toContain('sk-valid-key-12345');
+        expect(call).not.toContain('sk-va');
+      }
+      expect(body).not.toHaveProperty('keyPrefix');
+      expect(typeof body.apiKey).toBe('string');
+      expect(body.apiKey).not.toContain('sk-valid-key-12345');
     });
   });
 });

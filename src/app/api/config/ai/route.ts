@@ -19,7 +19,7 @@ export const GET = apiHandler(
           ? config.apiKey.slice(0, 4) + '...' + config.apiKey.slice(-4)
           : '...';
 
-      logger.info('[AI CONFIG GET]', { model: config.model, baseUrl: config.baseUrl, keyPrefix: config.apiKey.slice(0, 6) });
+      logger.info('[AI CONFIG GET]', { model: config.model, baseUrl: config.baseUrl });
 
       let aiAlive = false;
       try {

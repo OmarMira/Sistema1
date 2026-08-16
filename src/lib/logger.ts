@@ -12,7 +12,7 @@ interface LogEntry {
 }
 
 // ─── G12-3: Centralized secret redaction ────────────────────────────────────
-const SENSITIVE_KEYS = /^(api[_-]?key|password|passwordHash|secret|token|authorization|webhookUrl|accessToken|refreshToken)$/i;
+const SENSITIVE_KEYS = /^(api[_-]?key|password|passwordHash|secret|token|authorization|webhookUrl|accessToken|refreshToken|keyPrefix|apiKeyPrefix|secretPrefix|tokenPrefix|keyFragment|secretFragment)$/i;
 
 function redactValue(val: unknown, depth = 0): unknown {
   if (depth > 8) return '[TRUNCATED]';

@@ -9,6 +9,7 @@ import { db } from '@/lib/db';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
 import { logger } from '@/lib/logger';
 import { serverT } from '@/lib/server-i18n';
+import { handleRouteError } from '@/lib/route-error-handler';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
@@ -121,12 +122,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       ...(ruleRequested && ruleCreationWarning ? { ruleCreated: false, requiresReview: true } : {}),
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : serverT(locale, 'learning.serverError');
-    logger.error('[CLASSIFY ENTITY ERROR]', { error: msg });
-    if (error instanceof AppError) {
-      throw error;
-    }
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return handleRouteError(error, '[CLASSIFY ENTITY ERROR]', 'Error al clasificar la entidad');
   }
 });
 
@@ -167,8 +163,6 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 
     return NextResponse.json({ success: true, data: candidates });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : serverT(locale, 'learning.serverError');
-    logger.error('[ENTITY CANDIDATES ERROR]', { error: msg });
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return handleRouteError(error, '[ENTITY CANDIDATES ERROR]', 'Error al obtener candidatos');
   }
 });

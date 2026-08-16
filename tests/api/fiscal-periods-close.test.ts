@@ -446,6 +446,6 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
 
     expect(res.status).toBe(500);
     const body = await res.json();
-    expect(body.error).toContain('incompletos');
+    expect(body.error).toBe('Error al cerrar el período fiscal');
   });
 });

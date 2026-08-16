@@ -4,11 +4,11 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { findContext, saveContext } from '@/lib/services/entity-context-service';
 import { entityContextSchema } from '@/lib/validations/entity-context';
-import { logger } from '@/lib/logger';
+import { handleRouteError } from '@/lib/route-error-handler';
 
 // ─── GET /api/learning/context ──────────────────────────────────────
 // Retrieve the entity context for a description.
-export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
+export const GET = apiHandler(async (request: NextRequest, _routeCtx: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
 
   const { searchParams } = new URL(request.url);
@@ -22,14 +22,13 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     const context = await findContext(companyId, description);
     return NextResponse.json({ data: context });
   } catch (error) {
-    logger.error('[GET ENTITY CONTEXT ERROR]', { error: String(error) });
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    return handleRouteError(error, '[GET ENTITY CONTEXT ERROR]');
   }
 });
 
 // ─── POST /api/learning/context ─────────────────────────────────────
 // Save or update an entity context.
-export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
+export const POST = apiHandler(async (request: NextRequest, _routeCtx: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
 
   try {
@@ -63,8 +62,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     });
 
     return NextResponse.json({ success: true, data: context });
-  } catch (error: unknown) {
-    logger.error('[POST ENTITY CONTEXT ERROR]', { error: String(error) });
-    return NextResponse.json({ error: error instanceof Error ? error.message : String(error) }, { status: 500 });
+  } catch (error) {
+    return handleRouteError(error, '[POST ENTITY CONTEXT ERROR]');
   }
 });

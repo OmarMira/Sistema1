@@ -4,7 +4,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { completeOnboarding } from '@/lib/services/onboarding.service';
 import { onboardingPayloadSchema } from '@/lib/validations/onboarding';
-import { logger } from '@/lib/logger';
+import { handleRouteError } from '@/lib/route-error-handler';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
@@ -108,11 +108,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     );
 
     return NextResponse.json(result);
-  } catch (error: unknown) {
-    logger.error('[API ONBOARDING COMPLETE ERROR]', { error: String(error) });
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+  } catch (error) {
+    return handleRouteError(error, '[API ONBOARDING COMPLETE ERROR]');
   }
 });

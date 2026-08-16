@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { z } from 'zod';
-import { logger } from '@/lib/logger';
+import { handleRouteError } from '@/lib/route-error-handler';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 
 // Condition schema validation
@@ -116,11 +116,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       matchCount,
       samples,
     });
-  } catch (error: unknown) {
-    logger.error('[POST RULE SIMULATION ERROR]', { error: String(error) });
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+  } catch (error) {
+    return handleRouteError(error, '[POST RULE SIMULATION ERROR]');
   }
 });

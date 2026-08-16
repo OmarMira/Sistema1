@@ -19,9 +19,9 @@ export const POST = apiHandler(async (req: NextRequest) => {
     const result = await executeYearClose(companyId, year, validatedConfig);
     return NextResponse.json(result);
   } catch (error: unknown) {
-    logger.error('[YEAR CLOSE API ERROR]', { error: String(error) });
+    logger.error('[YEAR CLOSE API ERROR]', { errorName: error instanceof Error ? error.name : 'UnknownError' });
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
+      { error: 'Error al cerrar el período fiscal' },
       { status: 500 },
     );
   }

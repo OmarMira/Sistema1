@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { readJsonConfig } from '@/lib/config-loader';
+import { logger } from '@/lib/logger';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -30,7 +31,6 @@ export async function GET() {
       status: 'healthy',
       timestamp: new Date().toISOString(),
       version: process.env.APP_VERSION || '3.0.0',
-      environment: process.env.NODE_ENV || 'development',
       database: 'connected',
       metrics: {
         lastBackupAt: lastBackup?.createdAt || null,
@@ -43,8 +43,10 @@ export async function GET() {
       },
     });
   } catch (err) {
+    const errMsg = err instanceof Error ? `${err.name}: ${err.message}` : 'Unknown error';
+    logger.error('[HEALTH CHECK FAILED]', { error: errMsg });
     return NextResponse.json(
-      { status: 'degraded', error: (err as Error).message, timestamp: new Date().toISOString() },
+      { status: 'degraded', timestamp: new Date().toISOString() },
       { status: 503 },
     );
   }

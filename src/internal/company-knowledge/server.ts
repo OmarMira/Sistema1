@@ -1,10 +1,7 @@
 import 'server-only';
 
-// Barrel exports — Company Knowledge module boundary (server-only).
-// Client Components must import from './client' instead.
-
-export * from './entity/types';
-export * from './entity/metadata-schemas';
+// Server-only surface for Company Knowledge.
+// Services, persistence, audit and integration must not reach Client Components.
 
 export {
   proposeCreate,

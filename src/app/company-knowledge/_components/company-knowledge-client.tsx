@@ -42,8 +42,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
-import type { CompanyKnowledgeRecord } from '@/internal/company-knowledge/entity/types';
-import { EntityTypeValues } from '@/internal/company-knowledge/entity/types';
+import type { CompanyKnowledgeRecord } from '@/internal/company-knowledge/client';
+import { EntityTypeValues } from '@/internal/company-knowledge/client';
 import { MergeDialog } from './merge-dialog';
 
 interface PaginationInfo {

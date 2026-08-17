@@ -30,7 +30,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAuthStore } from '@/store/auth-store';
-import type { CompanyKnowledgeRecord } from '@/internal/company-knowledge/entity/types';
+import type { CompanyKnowledgeRecord } from '@/internal/company-knowledge/client';
 
 interface MergeDialogProps {
   open: boolean;

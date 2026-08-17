@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { requireSsrCompanyContext } from '@/lib/ssr-context';
 
@@ -5,15 +6,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function EntityDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ companyId?: string }>;
 }) {
   const { id } = await params;
-  const { companyId } = await searchParams;
+  const cookieStore = await cookies();
+  const companyIdCandidate = cookieStore.get('companyId')?.value;
 
-  const ctx = await requireSsrCompanyContext(companyId);
+  const ctx = await requireSsrCompanyContext(companyIdCandidate);
   if (!ctx.ok) {
     return (
       <div className="p-6">

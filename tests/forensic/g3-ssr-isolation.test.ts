@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { createSession } from '@/lib/sessions';
 import {
@@ -16,13 +17,23 @@ import EditEntityPage from '@/app/company-knowledge/[id]/edit/page';
 const log = (...args: unknown[]) => console.log('[EVIDENCE-G3]', ...args);
 
 // SSR session cookie state: mocked ONLY at the next/headers boundary.
-const cookieState = vi.hoisted(() => ({ token: null as string | null }));
+// The companyId cookie is the canonical tenant candidate (§7.2/§7.3 alignment).
+const cookieState = vi.hoisted(() => ({
+  sessionToken: null as string | null,
+  companyId: null as string | null,
+}));
 
 vi.mock('next/headers', () => ({
-  cookies: () =>
+  cookies: vi.fn(() =>
     Promise.resolve({
-      get: (_name: string) => (cookieState.token ? { name: _name, value: cookieState.token } : undefined),
+      get: (name: string) => {
+        if (name === 'companyId') {
+          return cookieState.companyId ? { name, value: cookieState.companyId } : undefined;
+        }
+        return cookieState.sessionToken ? { name, value: cookieState.sessionToken } : undefined;
+      },
     }),
+  ),
 }));
 
 const createdCompanyIds = new Set<string>();
@@ -58,8 +69,9 @@ async function cleanupKnowledge() {
   }
 }
 
-function mockCookies(token: string | null) {
-  cookieState.token = token;
+function mockCookies(token: string | null, companyId: string | null) {
+  cookieState.sessionToken = token;
+  cookieState.companyId = companyId;
 }
 
 describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', () => {
@@ -74,7 +86,8 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
   beforeEach(async () => {
     await cleanupKnowledge();
     await clearDatabase();
-    mockCookies(null);
+    mockCookies(null, null);
+    vi.restoreAllMocks();
 
     attacker = await createTestUser('attacker-g3@example.com');
     tenantA = await createTestCompany('G3 Tenant A');
@@ -97,7 +110,7 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
   it('A. list: user A cannot obtain tenant B list (0 findMany calls)', async () => {
     await createKnowledgeEntity(tenantB.id, 'Victim B Entity', 'COMPANY');
     const token = await createSession(attacker.id);
-    mockCookies(token);
+    mockCookies(token, tenantB.id);
 
     const html = renderToStaticMarkup(
       await CompanyKnowledgePage({ searchParams: Promise.resolve({ companyId: tenantB.id }) }),
@@ -110,13 +123,10 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
   it('B. detail: user A cannot open detail of entity belonging to B (0 findFirst calls)', async () => {
     const entityB = await createKnowledgeEntity(tenantB.id, 'Victim B Entity', 'COMPANY');
     const token = await createSession(attacker.id);
-    mockCookies(token);
+    mockCookies(token, tenantB.id);
 
     const html = renderToStaticMarkup(
-      await EntityDetailPage({
-        params: Promise.resolve({ id: entityB.id }),
-        searchParams: Promise.resolve({ companyId: tenantB.id }),
-      }),
+      await EntityDetailPage({ params: Promise.resolve({ id: entityB.id }) }),
     );
     log('DETAIL ATTACK (companyId=B):', JSON.stringify(html.slice(0, 120)));
     expect(html).toContain('Access denied');
@@ -127,13 +137,10 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
   it('C. edit: user A cannot obtain edit form of entity belonging to B (0 findFirst calls)', async () => {
     const entityB = await createKnowledgeEntity(tenantB.id, 'Victim B Entity', 'COMPANY');
     const token = await createSession(attacker.id);
-    mockCookies(token);
+    mockCookies(token, tenantB.id);
 
     const html = renderToStaticMarkup(
-      await EditEntityPage({
-        params: Promise.resolve({ id: entityB.id }),
-        searchParams: Promise.resolve({ companyId: tenantB.id }),
-      }),
+      await EditEntityPage({ params: Promise.resolve({ id: entityB.id }) }),
     );
     log('EDIT ATTACK (companyId=B):', JSON.stringify(html.slice(0, 120)));
     expect(html).toContain('Access denied');
@@ -142,7 +149,7 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
 
   it('D. anonymous never reaches companyKnowledge (0 calls, all methods)', async () => {
     await createKnowledgeEntity(tenantA.id, 'Own A Entity', 'COMPANY');
-    mockCookies(null);
+    mockCookies(null, tenantA.id);
 
     const html = renderToStaticMarkup(
       await CompanyKnowledgePage({ searchParams: Promise.resolve({ companyId: tenantA.id }) }),
@@ -151,10 +158,7 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
     expect(html).toContain('Authentication required');
     expect(listSpy).not.toHaveBeenCalled();
 
-    await EntityDetailPage({
-      params: Promise.resolve({ id: 'any-id' }),
-      searchParams: Promise.resolve({ companyId: tenantA.id }),
-    });
+    await EntityDetailPage({ params: Promise.resolve({ id: 'any-id' }) });
     expect(firstSpy).not.toHaveBeenCalled();
     expect(auditSpy).not.toHaveBeenCalled();
   });
@@ -162,7 +166,7 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
   it('E. manipulated companyId does not authorize access (0 calls)', async () => {
     await createKnowledgeEntity(tenantB.id, 'Victim B Entity', 'COMPANY');
     const token = await createSession(attacker.id);
-    mockCookies(token);
+    mockCookies(token, tenantB.id);
 
     const html = renderToStaticMarkup(
       await CompanyKnowledgePage({ searchParams: Promise.resolve({ companyId: tenantB.id }) }),
@@ -174,7 +178,7 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
 
   it('F. missing companyId is fail-closed (0 calls)', async () => {
     const token = await createSession(attacker.id);
-    mockCookies(token);
+    mockCookies(token, null);
 
     const html = renderToStaticMarkup(
       await CompanyKnowledgePage({ searchParams: Promise.resolve({}) }),
@@ -188,7 +192,7 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
     const ownA = await createKnowledgeEntity(tenantA.id, 'Own A Entity', 'COMPANY');
     await createKnowledgeEntity(tenantB.id, 'Victim B Entity', 'COMPANY');
     const token = await createSession(attacker.id);
-    mockCookies(token);
+    mockCookies(token, tenantA.id);
 
     const html = renderToStaticMarkup(
       await CompanyKnowledgePage({ searchParams: Promise.resolve({ companyId: tenantA.id }) }),
@@ -204,13 +208,10 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
   it('H. detail/edit: id of entity B under tenant A returns neutral not-found, no cross-tenant existence leak', async () => {
     const entityB = await createKnowledgeEntity(tenantB.id, 'Victim B Entity', 'COMPANY');
     const token = await createSession(attacker.id);
-    mockCookies(token);
+    mockCookies(token, tenantA.id);
 
     const detailHtml = renderToStaticMarkup(
-      await EntityDetailPage({
-        params: Promise.resolve({ id: entityB.id }),
-        searchParams: Promise.resolve({ companyId: tenantA.id }),
-      }),
+      await EntityDetailPage({ params: Promise.resolve({ id: entityB.id }) }),
     );
     log('DETAIL B-entity under tenant A:', JSON.stringify(detailHtml.slice(0, 120)));
     expect(detailHtml).toContain('Entity not found');
@@ -221,13 +222,61 @@ describe('G3 — SSR isolation: company-knowledge pages (real page boundary)', (
     expect(auditSpy).not.toHaveBeenCalled();
 
     const editHtml = renderToStaticMarkup(
-      await EditEntityPage({
-        params: Promise.resolve({ id: entityB.id }),
-        searchParams: Promise.resolve({ companyId: tenantA.id }),
-      }),
+      await EditEntityPage({ params: Promise.resolve({ id: entityB.id }) }),
     );
     log('EDIT B-entity under tenant A:', JSON.stringify(editHtml.slice(0, 120)));
     expect(editHtml).toContain('Entity not found');
     expect(editHtml).not.toContain('Victim B Entity');
+  });
+
+  it('I. removed/nonexistent membership: fail-closed SSR with no tenant data', async () => {
+    const orphanCompany = await createTestCompany('G3 Orphan Company');
+    createdCompanyIds.add(orphanCompany.id);
+    const entity = await createKnowledgeEntity(orphanCompany.id, 'Orphan Entity', 'COMPANY');
+    const token = await createSession(attacker.id);
+
+    mockCookies(token, orphanCompany.id);
+    const html = renderToStaticMarkup(
+      await CompanyKnowledgePage({ searchParams: Promise.resolve({ companyId: orphanCompany.id }) }),
+    );
+    log('MEMBERSHIP-MISSING LIST:', JSON.stringify(html.slice(0, 120)));
+    expect(html).toContain('Access denied');
+    expect(listSpy).not.toHaveBeenCalled();
+
+    const detailHtml = renderToStaticMarkup(
+      await EntityDetailPage({ params: Promise.resolve({ id: entity.id }) }),
+    );
+    log('MEMBERSHIP-MISSING DETAIL:', JSON.stringify(detailHtml.slice(0, 120)));
+    expect(detailHtml).toContain('Access denied');
+    expect(firstSpy).not.toHaveBeenCalled();
+    expect(auditSpy).not.toHaveBeenCalled();
+  });
+
+  it('J. concurrent resolutions with distinct companyId arguments do not share tenant state', async () => {
+    const { requireSsrCompanyContext } = await import('@/lib/ssr-context');
+    await createTestCompanyMember(attacker.id, tenantB.id);
+    const token = await createSession(attacker.id);
+    mockCookies(token, null);
+
+    const [ctxA, ctxB] = await Promise.all([
+      requireSsrCompanyContext(tenantA.id),
+      requireSsrCompanyContext(tenantB.id),
+    ]);
+    log('CONCURRENT CONTEXT A:', JSON.stringify(ctxA));
+    log('CONCURRENT CONTEXT B:', JSON.stringify(ctxB));
+
+    expect(ctxA.ok).toBe(true);
+    expect(ctxB.ok).toBe(true);
+    if (!ctxA.ok || !ctxB.ok) {
+      throw new Error('expected both concurrent resolutions to authorize');
+    }
+    expect(ctxA.companyId).toBe(tenantA.id);
+    expect(ctxB.companyId).toBe(tenantB.id);
+    expect(ctxA.companyId).not.toBe(tenantB.id);
+    expect(ctxB.companyId).not.toBe(tenantA.id);
+
+    const residual = await requireSsrCompanyContext(undefined);
+    log('RESIDUAL CONTEXT:', JSON.stringify(residual));
+    expect(residual).toEqual({ ok: false, reason: 'missing-company' });
   });
 });

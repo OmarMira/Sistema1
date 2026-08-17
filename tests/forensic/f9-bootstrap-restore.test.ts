@@ -74,11 +74,85 @@ async function buildForgedBackupBase64(passwordHash: string, includeSystemBootst
           entityType: 'BUSINESS',
           taxId: '12-3456789',
           isActive: true,
+          isOnboardingComplete: true,
         },
       ],
       users: forgedUsers,
       companyMembers: [
         { id: 'f9-forged-member', userId: FORGED_USER_ID, companyId: FORGED_COMPANY_ID, role: 'company_admin' },
+      ],
+      glAccounts: [],
+      bankAccounts: [],
+      bankStatements: [],
+      bankTransactions: [],
+      bankRules: [],
+      journalEntries: [],
+      journalLines: [],
+      fiscalPeriods: [],
+      systemConfig: [],
+      companyConfig: null,
+    },
+  };
+  return Buffer.from(JSON.stringify(backupData)).toString('base64');
+}
+
+// RC2-4: backup with a legacy super_admin first user (folds to global super_admin
+// in bootstrap context) and NO memberships for that user.
+async function buildSuperAdminBackupBase64(passwordHash: string): Promise<string> {
+  const backupData = {
+    manifest: {
+      version: '1.0',
+      companyId: FORGED_COMPANY_ID,
+      companyInfo: { id: FORGED_COMPANY_ID, legalName: 'F9 Super Co', taxId: '12-3456789' },
+      createdAt: new Date().toISOString(),
+      recordCounts: {
+        company: 1, glAccounts: 0, bankAccounts: 0, bankStatements: 0, bankTransactions: 0,
+        bankRules: 0, journalEntries: 0, journalLines: 0, fiscalPeriods: 0,
+        companyMembers: 1, users: 3, systemConfig: 0, companyConfig: false,
+      },
+    },
+    data: {
+      company: [
+        {
+          id: FORGED_COMPANY_ID,
+          legalName: 'F9 Super Co',
+          entityType: 'BUSINESS',
+          taxId: '12-3456789',
+          isActive: true,
+          isOnboardingComplete: true,
+        },
+      ],
+      users: [
+        {
+          id: FORGED_USER_ID,
+          email: FORGED_EMAIL,
+          passwordHash,
+          firstName: 'F9',
+          lastName: 'Super',
+          role: 'super_admin',
+          isActive: true,
+        },
+        {
+          id: 'f9-regular-user',
+          email: 'f9-regular@example.com',
+          passwordHash,
+          firstName: 'F9',
+          lastName: 'Regular',
+          role: 'user',
+          isActive: true,
+        },
+        {
+          id: 'system_bootstrap',
+          email: 'sys-boot@example.com',
+          passwordHash,
+          firstName: 'Sys',
+          lastName: 'Boot',
+          role: 'super_admin',
+          isActive: true,
+        },
+      ],
+      companyMembers: [
+        { id: 'f9-regular-member', userId: 'f9-regular-user', companyId: FORGED_COMPANY_ID, role: 'company_admin' },
       ],
       glAccounts: [],
       bankAccounts: [],
@@ -172,6 +246,40 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
     log('S4: correct token + valid backup -> status =', res.status, '| session =', Boolean(token), '| user =', body.user?.email);
     expect(res.status).toBe(200);
     expect(token).toBeDefined();
+  });
+
+  it('RC2-4 A: restored company_admin member keeps tenant role in the response companies', async () => {
+    process.env.BOOTSTRAP_SETUP_TOKEN = BOOTSTRAP_SECRET;
+    const hash = await hashPassword(ATTACKER_PASSWORD);
+    const base64 = await buildForgedBackupBase64(hash);
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const body = await res.json();
+    log('RC24-A: user.role =', body.user?.role, '| companies =', JSON.stringify(body.companies));
+    // Backup legacy user.role='company_admin' folds to 'user' (normalizeRestoredUserRole).
+    // Membership company_admin is preserved (normalizeRestoredMembershipRole).
+    expect(body.user.role).toBe('user');
+    const restored = (body.companies as Array<{ id: string; role: string | null }>).find(
+      (c) => c.id === FORGED_COMPANY_ID,
+    );
+    expect(restored).toBeDefined();
+    expect(restored?.role).toBe('company_admin');
+  });
+
+  it('RC2-4 B: restored super_admin gets companies with role=null, no invented memberships', async () => {
+    process.env.BOOTSTRAP_SETUP_TOKEN = BOOTSTRAP_SECRET;
+    const hash = await hashPassword(ATTACKER_PASSWORD);
+    const base64 = await buildSuperAdminBackupBase64(hash);
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const body = await res.json();
+    log('RC24-B: user.role =', body.user?.role, '| companies =', JSON.stringify(body.companies));
+    expect(body.user.role).toBe('super_admin');
+    const companies = body.companies as Array<{ id: string; role: string | null }>;
+    expect(companies.length).toBeGreaterThan(0);
+    for (const c of companies) {
+      expect(c.role).toBeNull();
+    }
+    const inventedMemberships = await db.companyMember.count({ where: { userId: FORGED_USER_ID } });
+    expect(inventedMemberships).toBe(0);
   });
 
   it('REQUIRED: DB already initialized + correct token -> 409 (guard checked before token)', async () => {

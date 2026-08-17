@@ -87,9 +87,10 @@ export function UsersPage() {
     password: '',
   });
 
-  // Check admin access
+  // Check admin access: global super_admin bypass, otherwise tenant authority
+  // lives in the active company membership role — never in User.role.
   const companyId = activeCompany?.id;
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'company_admin';
+  const isAdmin = user?.role === 'super_admin' || activeCompany?.role === 'company_admin';
 
   const fetchUsers = useCallback(async () => {
     if (!isAdmin) {

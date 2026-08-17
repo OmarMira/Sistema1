@@ -77,7 +77,7 @@ export async function getAiConfig(): Promise<AiConfig> {
       const apiKey = decrypt(encryptedKey);
       _cached = { apiKey, model, baseUrl };
       _cachedAt = now;
-      logger.info('[AI CONFIG] Decrypted OK', { model, baseUrl, keyPrefix: apiKey.slice(0, 6) });
+      logger.info('[AI CONFIG] Decrypted OK', { model, baseUrl });
       return _cached;
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
@@ -173,8 +173,8 @@ export async function checkAiConfigIntegrity(): Promise<AiConfigHealth> {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('decrypt') || msg.includes('SESSION_SECRET')) {
-      return { status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: msg };
+      return { status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: 'Stored API key could not be decrypted' };
     }
-    return { status: 'MISSING', code: 'AI_CONFIG_MISSING', detail: msg };
+    return { status: 'MISSING', code: 'AI_CONFIG_MISSING', detail: 'AI configuration not found' };
   }
 }

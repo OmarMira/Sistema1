@@ -83,8 +83,18 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     );
   }
 
-  // Execute restore
-  const result = await restoreBackup(companyId, backupData, userId);
+  // Execute restore. The restored user role 'super_admin' is only preserved
+  // when the authenticated actor is itself a global super_admin (RC2-3). The
+  // authority context is derived from the current DB user, never from the
+  // backup payload.
+  const actor = await db.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  const restoringActorIsSuperAdmin = actor?.role === 'super_admin';
+  const result = await restoreBackup(companyId, backupData, userId, {
+    restoringActorIsSuperAdmin,
+  });
 
   if (!result.success) {
     return NextResponse.json({ error: result.message }, { status: 400 });

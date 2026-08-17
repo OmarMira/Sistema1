@@ -1,11 +1,33 @@
+import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
 import { RelationshipValues } from '@/internal/company-knowledge';
+import { requireSsrCompanyContext } from '@/lib/ssr-context';
 
 export const dynamic = 'force-dynamic';
 
-export default async function EditEntityPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditEntityPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = await params;
-  const entity = await db.companyKnowledge.findUnique({ where: { id } });
+  const cookieStore = await cookies();
+  const companyIdCandidate = cookieStore.get('companyId')?.value;
+
+  const ctx = await requireSsrCompanyContext(companyIdCandidate);
+  if (!ctx.ok) {
+    return (
+      <div className="p-6">
+        {ctx.reason === 'unauthenticated' && 'Authentication required'}
+        {ctx.reason === 'missing-company' && 'Company context required'}
+        {ctx.reason === 'forbidden' && 'Access denied'}
+      </div>
+    );
+  }
+
+  const entity = await db.companyKnowledge.findFirst({
+    where: { id, companyId: ctx.companyId },
+  });
   if (!entity) return <div className="p-6">Entity not found</div>;
 
   return (

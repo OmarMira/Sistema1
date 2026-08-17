@@ -29,7 +29,14 @@ export async function createSession(userId: string): Promise<string> {
 }
 
 export async function getSessionUserId(request: NextRequest): Promise<string | null> {
-  const rawToken = getSessionToken(request);
+  return getSessionUserIdFromToken(getSessionToken(request));
+}
+
+/**
+ * Resuelve el userId desde un token de sesión crudo (cookie o Bearer).
+ * Reutilizada por getSessionUserId (API) y por el gate SSR.
+ */
+export async function getSessionUserIdFromToken(rawToken: string | null): Promise<string | null> {
   if (!rawToken) return null;
 
   const hashedToken = hashToken(rawToken);
@@ -72,11 +79,13 @@ export async function deleteAllUserSessions(
   return result.count;
 }
 
+export function getSessionCookieName(): string {
+  return process.env.NODE_ENV === 'production' ? '__Host-session' : 'session';
+}
+
 export function getSessionToken(request: NextRequest): string | null {
-  const isProd = process.env.NODE_ENV === 'production';
-  const cookieName = isProd ? '__Host-session' : 'session';
   return (
-    request.cookies.get(cookieName)?.value ??
+    request.cookies.get(getSessionCookieName())?.value ??
     request.headers.get('authorization')?.replace('Bearer ', '') ??
     null
   );

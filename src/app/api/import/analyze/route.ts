@@ -151,7 +151,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
       logger.error('[IMPORT ANALYZE ERROR]', { fileName, error: err instanceof Error ? err.message : String(err) });
       results.push({
         ...baseResult,
-        error: err instanceof Error ? err.message : String(err),
+        error: 'Error al procesar el archivo contable',
         exists: false,
         existingAccountId: null,
         existingAccountName: null,

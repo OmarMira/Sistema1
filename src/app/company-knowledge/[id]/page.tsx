@@ -1,23 +1,31 @@
+import { cookies } from 'next/headers';
 import { db } from '@/lib/db';
+import { requireSsrCompanyContext } from '@/lib/ssr-context';
 
 export const dynamic = 'force-dynamic';
 
 export default async function EntityDetailPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ companyId?: string }>;
 }) {
   const { id } = await params;
-  const { companyId } = await searchParams;
+  const cookieStore = await cookies();
+  const companyIdCandidate = cookieStore.get('companyId')?.value;
 
-  if (!companyId) {
-    return <div className="p-6">Company context required</div>;
+  const ctx = await requireSsrCompanyContext(companyIdCandidate);
+  if (!ctx.ok) {
+    return (
+      <div className="p-6">
+        {ctx.reason === 'unauthenticated' && 'Authentication required'}
+        {ctx.reason === 'missing-company' && 'Company context required'}
+        {ctx.reason === 'forbidden' && 'Access denied'}
+      </div>
+    );
   }
 
   const entity = await db.companyKnowledge.findFirst({
-    where: { id, companyId },
+    where: { id, companyId: ctx.companyId },
   });
 
   if (!entity) return <div className="p-6">Entity not found</div>;

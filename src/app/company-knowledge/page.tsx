@@ -1,9 +1,31 @@
 import { db } from '@/lib/db';
+import { requireSsrCompanyContext } from '@/lib/ssr-context';
 
 export const dynamic = 'force-dynamic';
 
-export default async function CompanyKnowledgePage() {
-  const entities = await db.companyKnowledge.findMany({ take: 50, orderBy: { createdAt: 'desc' } });
+export default async function CompanyKnowledgePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ companyId?: string }>;
+}) {
+  const { companyId } = await searchParams;
+  const ctx = await requireSsrCompanyContext(companyId);
+
+  if (!ctx.ok) {
+    return (
+      <div className="p-6">
+        {ctx.reason === 'unauthenticated' && 'Authentication required'}
+        {ctx.reason === 'missing-company' && 'Company context required'}
+        {ctx.reason === 'forbidden' && 'Access denied'}
+      </div>
+    );
+  }
+
+  const entities = await db.companyKnowledge.findMany({
+    where: { companyId: ctx.companyId },
+    take: 50,
+    orderBy: { createdAt: 'desc' },
+  });
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Company Knowledge</h1>

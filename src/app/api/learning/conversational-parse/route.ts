@@ -129,9 +129,10 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
     return NextResponse.json({ success: true, data: result });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : serverT(locale, 'learning.serverError');
-    const code = (error as Error & { code?: string }).code;
-    logger.error('CONVERSATIONAL_PARSE_ROUTE_ERROR', { error: msg });
-    return NextResponse.json({ error: msg, code }, { status: 500 });
+    logger.error('CONVERSATIONAL_PARSE_ROUTE_ERROR', { errorName: error instanceof Error ? error.name : 'UnknownError' });
+    return NextResponse.json(
+      { error: 'Error al parsear contexto conversacional' },
+      { status: 500 },
+    );
   }
 });

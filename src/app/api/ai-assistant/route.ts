@@ -6,6 +6,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { getRequestContext } from '@/lib/context-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { getAiConfig } from '@/lib/ai-config';
+import { safeFetch } from '@/lib/security/safe-fetch';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { extractKeywords } from '@/lib/memory/keyword-extractor';
 import { checkPromptInjection, addSystemDelimiter } from '@/lib/guardrails';
@@ -535,14 +536,15 @@ async function executeTool(
           },
         });
 
+        // G6/F6: aggregate results are no longer coerced by the client — normalize explicitly.
         return {
           totalCount,
           reconciledCount,
           unreconciledCount,
-          sumOfAmounts: aggregations._sum.amount || 0,
-          averageAmount: aggregations._avg.amount || 0,
-          minAmount: aggregations._min.amount || 0,
-          maxAmount: aggregations._max.amount || 0,
+          sumOfAmounts: Number(aggregations._sum.amount ?? 0),
+          averageAmount: Number(aggregations._avg.amount ?? 0),
+          minAmount: Number(aggregations._min.amount ?? 0),
+          maxAmount: Number(aggregations._max.amount ?? 0),
         };
       }
 
@@ -964,7 +966,7 @@ async function callAI(
 
       logger.info('Trying AI model', { model: currentModel });
 
-      const response = await fetch(`${baseUrl}/chat/completions`, {
+      const response = await safeFetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

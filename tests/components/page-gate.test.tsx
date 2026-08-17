@@ -123,3 +123,106 @@ describe('AppContent — BootstrapPage gate', () => {
     });
   });
 });
+
+describe('AppContent — RC2-4 onboarding gate (register/onboarding reachability)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHydrate.mockResolvedValue(undefined);
+    globalThis.fetch = mockFetch;
+  });
+
+  it('post-register state (role=user, activeCompany WITHOUT role, onboarding incomplete) → OnboardingWizard, NOT AppShell', async () => {
+    // Mirrors register flow wire state: User.role='user', activeCompany.role=undefined
+    // (register response omits role), isOnboardingComplete=false (schema default).
+    mockAuthState = {
+      isAuthenticated: true,
+      currentView: 'dashboard',
+      user: { id: 'u1', role: 'user', firstName: 'T', lastName: 'U' },
+      activeCompany: { id: 'c1', legalName: 'Fresh Co', taxId: null, isOnboardingComplete: false },
+    };
+
+    render(<AppContent />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-wizard')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('app-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('select-company-page')).not.toBeInTheDocument();
+  });
+
+  it('empty onboarding completion state (create-company path, isOnboardingComplete falsy) → OnboardingWizard, NOT AppShell', async () => {
+    mockAuthState = {
+      isAuthenticated: true,
+      currentView: 'dashboard',
+      activeCompany: { id: 'c2', role: undefined as string | undefined },
+    };
+
+    render(<AppContent />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('onboarding-wizard')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('app-shell')).not.toBeInTheDocument();
+  });
+
+  it('PROOF: role=undefined + isOnboardingComplete truthy WOULD reach AppShell (gate invariant)', async () => {
+    // Documents the invariant: the ONLY thing keeping role-less states out of
+    // UsersPage/FinancialAssistantPanel is the isOnboardingComplete gate. Within
+    // register/select-company/onboarding/hydrate, no flow produces this state.
+    mockAuthState = {
+      isAuthenticated: true,
+      currentView: 'dashboard',
+      activeCompany: { id: 'c3', role: undefined as string | undefined, isOnboardingComplete: true },
+    };
+
+    render(<AppContent />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('app-shell')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('onboarding-wizard')).not.toBeInTheDocument();
+  });
+});
+
+describe('AppContent — RC2-4 post-restore authority (bootstrap/restore role contract)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHydrate.mockResolvedValue(undefined);
+    globalThis.fetch = mockFetch;
+  });
+
+  it('restored company_admin (role=company_admin, onboarding complete) → AppShell reachable', async () => {
+    // Mirrors bootstrap/restore response post-fix: User.role='user' +
+    // activeCompany.role='company_admin' + isOnboardingComplete=true.
+    mockAuthState = {
+      isAuthenticated: true,
+      currentView: 'dashboard',
+      user: { id: 'u1', role: 'user', firstName: 'Rest', lastName: 'Admin' },
+      activeCompany: { id: 'c1', role: 'company_admin', isOnboardingComplete: true },
+    };
+
+    render(<AppContent />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('app-shell')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('onboarding-wizard')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('select-company-page')).not.toBeInTheDocument();
+  });
+
+  it('restored super_admin (role=null, onboarding complete) → AppShell reachable (global authority)', async () => {
+    mockAuthState = {
+      isAuthenticated: true,
+      currentView: 'dashboard',
+      user: { id: 'u1', role: 'super_admin', firstName: 'Rest', lastName: 'Super' },
+      activeCompany: { id: 'c1', role: null, isOnboardingComplete: true },
+    };
+
+    render(<AppContent />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('app-shell')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('onboarding-wizard')).not.toBeInTheDocument();
+  });
+});

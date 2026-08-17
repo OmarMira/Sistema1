@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { companySettingsCache } from '@/lib/cache';
 import { logger } from '@/lib/logger';
 
@@ -108,19 +109,12 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 export const PUT = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
 
+  // Tenant authority lives in CompanyMember.role; super_admin bypasses via helper.
+  await requireCompanyRole(companyId, ['company_admin']);
+
   try {
     const body = await request.json();
     const { legalName, taxId, address, phone, email } = body;
-
-    // Check if user is company admin or super admin
-    const user = await db.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    });
-
-    if (!user || (user.role !== 'company_admin' && user.role !== 'super_admin')) {
-      return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 });
-    }
 
     // Build update data
     const updateData: Record<string, string | null> = {};

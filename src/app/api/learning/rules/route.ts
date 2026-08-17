@@ -4,7 +4,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { createLearningRuleSchema } from '@/lib/validations/learning-rule';
-import { logger } from '@/lib/logger';
+import { handleRouteError } from '@/lib/route-error-handler';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
@@ -19,7 +19,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   }
 
   try {
-    const {
+  const {
       pattern,
       lockedDirection,
       glAccountCode,
@@ -294,11 +294,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     // ─────────────────────────────────────────────────────────────────
 
     return NextResponse.json({ success: true, data: rule });
-  } catch (error: unknown) {
-    logger.error('[POST LEARNING RULE ERROR]', { error: String(error) });
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+  } catch (error) {
+    return handleRouteError(error, '[POST LEARNING RULE ERROR]');
   }
 });

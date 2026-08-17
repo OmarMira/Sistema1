@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 
+export type TenantRole = 'company_admin' | 'employee' | 'viewer';
+
 export interface User {
   id: string;
   email: string;
   firstName: string;
   lastName: string;
-  role: 'super_admin' | 'company_admin';
+  role: 'super_admin' | 'user';
   avatar?: string | null;
 }
 
@@ -16,6 +18,7 @@ export interface Company {
   taxId: string | null;
   isOnboardingComplete: boolean;
   logo?: string | null;
+  role?: TenantRole | null;
 }
 
 export type ViewName =
@@ -71,6 +74,7 @@ interface AuthState {
   startProcessing: (message?: string) => void;
   stopProcessing: () => void;
   hydrate: () => Promise<void>;
+  activeCompanyRole: () => TenantRole | null;
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -125,6 +129,8 @@ export const useAuthStore = create<AuthState>()(
         set({ isProcessing: true, processingMessage: message || 'Procesando...' }),
 
       stopProcessing: () => set({ isProcessing: false }),
+
+      activeCompanyRole: () => get().activeCompany?.role ?? null,
 
       hydrate: async () => {
         try {

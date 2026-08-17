@@ -10,7 +10,7 @@ export type Insight = {
   context?: Record<string, unknown>;
 };
 
-export async function generateInsights(companyId: string, role: string): Promise<Insight[]> {
+export async function generateInsights(companyId: string): Promise<Insight[]> {
   const configPath = join(process.cwd(), 'rules/assistant-config.json');
   const config = JSON.parse(readFileSync(configPath, 'utf-8'));
   const insights: Insight[] = [];

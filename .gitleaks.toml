@@ -1,0 +1,23 @@
+# Sistema1 gitleaks configuration
+# Extends gitleaks default rules; scoped excludes for known safe patterns.
+
+[extend]
+useDefault = true
+
+# Global allowlist — paths never part of the committed tree in CI.
+# Applied to every rule so CI-equivalent scans are fast and clean.
+[allowlist]
+paths = [
+  '''^\.next/''',
+  '''^\.env$''',
+  '''^\.env\.local$''',
+  '''^node_modules/''',
+]
+# Known non-secret values present in the committed tree:
+# - Test fixtures using explicit sk-test-* / sk-valid-key-* placeholders
+# - UI badge label 'landing.badgeSoc2' (false positive on generic-api-key)
+stopwords = [
+  '''sk-test-api-key''',
+  '''sk-valid-key''',
+  '''badgeSoc2''',
+]

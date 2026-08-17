@@ -1,10 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Mock } from 'vitest';
+import fs from 'fs';
 
 const glAccountCreates: Array<{ code: string; parentId: string | null }> = [];
 const companyUpsertCalls: any[] = [];
 const userUpsertCalls: any[] = [];
 const companyMemberCreates: any[] = [];
+// D10-E: capture calls for the reconciliation subsystem
+const reconciliationPeriodCreates: any[] = [];
+const bankTransactionCreates: any[] = [];
+const companyKnowledgeCreates: any[] = [];
+const companyKnowledgeUpdates: any[] = [];
+const knowledgeAuditCreates: any[] = [];
 
 function buildTx(): any {
   return new Proxy({} as any, {
@@ -20,10 +27,50 @@ function buildTx(): any {
               return { id: `new-${args.data.code}` };
             });
           }
+          if (model === 'reconciliationPeriod' && method === 'create') {
+            return vi.fn((args: any) => {
+              reconciliationPeriodCreates.push(args.data);
+              return { id: `new-recon-${reconciliationPeriodCreates.length}` };
+            });
+          }
+          if (model === 'bankTransaction' && method === 'create') {
+            return vi.fn((args: any) => {
+              bankTransactionCreates.push(args.data);
+              return { id: `new-tx-${bankTransactionCreates.length}` };
+            });
+          }
+          if (model === 'companyKnowledge' && method === 'create') {
+            return vi.fn((args: any) => {
+              companyKnowledgeCreates.push(args.data);
+              return { id: `new-kn-${companyKnowledgeCreates.length}` };
+            });
+          }
+          if (model === 'companyKnowledge' && method === 'update') {
+            return vi.fn((args: any) => {
+              companyKnowledgeUpdates.push(args);
+              return { id: args.where.id };
+            });
+          }
+          if (model === 'knowledgeAudit' && method === 'create') {
+            return vi.fn((args: any) => {
+              knowledgeAuditCreates.push(args.data);
+              return { id: `new-ka-${knowledgeAuditCreates.length}` };
+            });
+          }
           if (model === 'company' && method === 'upsert') {
             return vi.fn((args: any) => {
               companyUpsertCalls.push(args);
               return { id: args.where.id };
+            });
+          }
+          if (model === 'bankAccount' && method === 'create') {
+            return vi.fn((args: any) => {
+              return { id: `new-${args.data.id}` };
+            });
+          }
+          if (model === 'bankStatement' && method === 'create') {
+            return vi.fn((args: any) => {
+              return { id: `new-${args.data.id}` };
             });
           }
           if (model === 'user' && method === 'upsert') {
@@ -135,6 +182,11 @@ function buildBackupData(overrides?: Partial<any>) {
         fiscalPeriods: 0,
         companyMembers: 3,
         users: 3,
+        systemConfig: 0,
+        companyConfig: false,
+        reconciliationPeriods: 0,
+        companyKnowledge: 0,
+        knowledgeAudit: 0,
       },
     },
     data: {
@@ -158,6 +210,10 @@ function buildBackupData(overrides?: Partial<any>) {
       ],
       users: [makeUser(1), makeUser(2), makeUser(3)],
       systemConfig: [],
+      companyConfig: null,
+      reconciliationPeriods: [],
+      companyKnowledge: [],
+      knowledgeAudit: [],
       ...overrides,
     },
   };
@@ -166,10 +222,19 @@ function buildBackupData(overrides?: Partial<any>) {
 describe('restoreBackup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    (db.$transaction as Mock).mockImplementation((cb: any) => {
+      currentTx = buildTx();
+      return cb(currentTx);
+    });
     glAccountCreates.length = 0;
     companyUpsertCalls.length = 0;
     userUpsertCalls.length = 0;
     companyMemberCreates.length = 0;
+    reconciliationPeriodCreates.length = 0;
+    bankTransactionCreates.length = 0;
+    companyKnowledgeCreates.length = 0;
+    companyKnowledgeUpdates.length = 0;
+    knowledgeAuditCreates.length = 0;
     currentTx = null;
   });
 
@@ -255,7 +320,216 @@ describe('restoreBackup', () => {
   });
 });
 
+describe('D10-E reconciliation + knowledge restore', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (db.$transaction as Mock).mockImplementation((cb: any) => {
+      currentTx = buildTx();
+      return cb(currentTx);
+    });
+    glAccountCreates.length = 0;
+    companyUpsertCalls.length = 0;
+    userUpsertCalls.length = 0;
+    companyMemberCreates.length = 0;
+    reconciliationPeriodCreates.length = 0;
+    bankTransactionCreates.length = 0;
+    companyKnowledgeCreates.length = 0;
+    companyKnowledgeUpdates.length = 0;
+    knowledgeAuditCreates.length = 0;
+    currentTx = null;
+  });
+
+  it('restores reconciliation periods, remaps bankTransaction.reconciliationPeriodId, and restores knowledge + audit', async () => {
+    const data = buildBackupData();
+    data.data.bankAccounts = [
+      { id: 'ba-1', companyId: 'company-1', glAccountId: 'gl-1000', name: 'Caja', accountType: 'asset', normalBalance: 'debit', isActive: true },
+    ];
+    data.data.bankStatements = [
+      { id: 'bs-1', companyId: 'company-1', bankAccountId: 'ba-1', startDate: '2026-01-01', endDate: '2026-01-31', openingBalance: 0, closingBalance: 0, status: 'open' },
+    ];
+    data.data.reconciliationPeriods = [
+      { id: 'rp-1', companyId: 'company-1', bankAccountId: 'ba-1', userId: 'user-1', status: 'open' },
+    ];
+    data.data.bankTransactions = [
+      { id: 'tx-1', companyId: 'company-1', statementId: 'bs-1', glAccountId: 'gl-1000', amount: 100, description: 'Deposito', date: '2026-01-02', type: 'credit', reconciliationPeriodId: 'rp-1' },
+    ];
+    data.data.companyKnowledge = [
+      { id: 'kn-1', companyId: 'company-1', type: 'CONTACT', canonicalName: 'ACME SA', aliases: [], metadata: {}, status: 'active', version: 1 },
+      { id: 'kn-2', companyId: 'company-1', type: 'CONTACT', canonicalName: 'Acme Corp', aliases: [], metadata: {}, status: 'merged', version: 2, mergedIntoId: 'kn-1' },
+    ];
+    data.data.knowledgeAudit = [
+      { id: 'ka-1', knowledgeId: 'kn-1', action: 'CREATE', version: 1, changedByUserId: 'user-1', timestamp: '2026-01-02T00:00:00.000Z', source: 'backup-test', reason: 'initial' },
+    ];
+    data.manifest.recordCounts.reconciliationPeriods = 1;
+    data.manifest.recordCounts.companyKnowledge = 2;
+    data.manifest.recordCounts.knowledgeAudit = 1;
+
+    const result = await restoreBackup('company-1', data, 'test-user');
+
+    expect(result.success).toBe(true);
+    expect(result.restoredCounts.reconciliationPeriods).toBe(1);
+    expect(result.restoredCounts.companyKnowledge).toBe(2);
+    expect(result.restoredCounts.knowledgeAudit).toBe(1);
+
+    // Reconciliation period created with remapped bankAccountId
+    expect(reconciliationPeriodCreates).toHaveLength(1);
+    expect(reconciliationPeriodCreates[0].bankAccountId).toBe('new-ba-1');
+
+    // bankTransaction keeps a (remapped) reconciliationPeriodId instead of dropping it
+    expect(bankTransactionCreates).toHaveLength(1);
+    expect(bankTransactionCreates[0].reconciliationPeriodId).toBe('new-recon-1');
+    expect(bankTransactionCreates[0].glAccountId).toBe('new-1000');
+    expect(bankTransactionCreates[0].statementId).toBe('new-bs-1');
+
+    // Company knowledge created without mergedInto FK, linked in second pass
+    expect(companyKnowledgeCreates).toHaveLength(2);
+    expect(companyKnowledgeCreates[0].mergedIntoId).toBeUndefined();
+    const mergeUpdate = companyKnowledgeUpdates.find((u) => u.where.id === 'new-kn-2');
+    expect(mergeUpdate).toBeDefined();
+    expect(mergeUpdate.data.mergedIntoId).toBe('new-kn-1');
+
+    // Knowledge audit references the remapped knowledge id
+    expect(knowledgeAuditCreates).toHaveLength(1);
+    expect(knowledgeAuditCreates[0].knowledgeId).toBe('new-kn-1');
+  });
+
+  it('restores legacy 1.0.0 backups without reconciliation sections (backwards compatibility)', async () => {
+    const data = buildBackupData();
+    // Simulate a legacy backup: sections absent
+    delete data.data.reconciliationPeriods;
+    delete data.data.companyKnowledge;
+    delete data.data.knowledgeAudit;
+
+    const result = await restoreBackup('company-1', data, 'test-user');
+
+    expect(result.success).toBe(true);
+    expect(reconciliationPeriodCreates).toHaveLength(0);
+    expect(companyKnowledgeCreates).toHaveLength(0);
+    expect(knowledgeAuditCreates).toHaveLength(0);
+    expect(result.restoredCounts.reconciliationPeriods ?? 0).toBe(0);
+  });
+});
+
+describe('D10-B company-config write after transaction commit', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    companyUpsertCalls.length = 0;
+    userUpsertCalls.length = 0;
+    companyMemberCreates.length = 0;
+    reconciliationPeriodCreates.length = 0;
+    bankTransactionCreates.length = 0;
+    currentTx = null;
+  });
+
+  it('writes company-config.json only after the $transaction resolves', async () => {
+    const data = buildBackupData();
+    data.data.companyConfig = { currency: 'ARS', periodType: 'MONTHLY' };
+
+    const order: string[] = [];
+    (db.$transaction as Mock).mockImplementation(async (cb: any) => {
+      currentTx = buildTx();
+      const r = await cb(currentTx);
+      order.push('tx-resolved');
+      return r;
+    });
+    const fsWriteSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation((file: unknown) => {
+      if (String(file).includes('company-config')) order.push('config-write');
+      return undefined;
+    });
+
+    const result = await restoreBackup('company-1', data, 'test-user');
+
+    expect(result.success).toBe(true);
+    expect(order[order.length - 1]).toBe('config-write');
+    expect(order).toContain('tx-resolved');
+    fsWriteSpy.mockRestore();
+  });
+
+  it('does NOT write company-config.json when the transaction rolls back', async () => {
+    const data = buildBackupData();
+    data.data.companyConfig = { currency: 'ARS', periodType: 'MONTHLY' };
+
+    const fsWriteSpy = vi.spyOn(fs, 'writeFileSync');
+    // auditLog RESTORE_COMPLETED fails inside the tx → tx rejects → rollback
+    (db.$transaction as Mock).mockImplementationOnce(async (cb: any) => {
+      currentTx = new Proxy(
+        { auditLog: { create: vi.fn().mockRejectedValueOnce(new Error('audit write failed')) } },
+        {
+          get(t, m) {
+            if (m === 'auditLog') return Reflect.get(t, m);
+            return new Proxy({} as any, {
+              get(_t2, method: string) {
+                if (method === 'create' || method === 'upsert' || method === 'update') {
+                  return vi.fn().mockResolvedValue({ id: `new-${m}` });
+                }
+                if (method === 'findMany' || method === 'deleteMany') {
+                  return vi.fn().mockResolvedValue({ count: 0 });
+                }
+                return vi.fn().mockResolvedValue({ count: 0 });
+              },
+            });
+          },
+        },
+      );
+      return cb(currentTx);
+    });
+
+    const result = await restoreBackup('company-1', data, 'test-user');
+
+    expect(result.success).toBe(false);
+    const configCalls = fsWriteSpy.mock.calls.filter((c) =>
+      String(c[0]).includes('company-config'),
+    );
+    expect(configCalls).toHaveLength(0);
+    fsWriteSpy.mockRestore();
+  });
+
+  it('returns success with a warning when the post-commit config write fails', async () => {
+    const data = buildBackupData();
+    data.data.companyConfig = { currency: 'ARS', periodType: 'MONTHLY' };
+
+    (db.$transaction as Mock).mockImplementation(async (cb: any) => {
+      currentTx = buildTx();
+      return cb(currentTx);
+    });
+    const fsWriteSpy = vi.spyOn(fs, 'writeFileSync').mockImplementation((file: unknown) => {
+      if (String(file).includes('company-config')) {
+        throw new Error('ENOSPC: no space left on device');
+      }
+      return undefined;
+    });
+    const auditCreateSpy = vi.mocked(db.auditLog.create);
+
+    const result = await restoreBackup('company-1', data, 'test-user');
+
+    expect(result.success).toBe(true);
+    expect(result.message).toContain('Backup restored successfully');
+    expect(result.message).toContain('company-config.json could not be updated');
+    expect(result.message).not.toContain('rolled back');
+    const failedAudits = auditCreateSpy.mock.calls.filter(
+      (c) => c[0]?.data?.action === 'RESTORE_FAILED',
+    );
+    expect(failedAudits).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('company-config.json could not be updated'),
+      expect.objectContaining({ error: expect.stringContaining('ENOSPC') }),
+    );
+    fsWriteSpy.mockRestore();
+  });
+});
+
 describe('computeDepths', () => {
+  beforeEach(() => {
+    glAccountCreates.length = 0;
+    companyUpsertCalls.length = 0;
+    userUpsertCalls.length = 0;
+    companyMemberCreates.length = 0;
+    reconciliationPeriodCreates.length = 0;
+    bankTransactionCreates.length = 0;
+    currentTx = null;
+  });
+
   it('sorts 3-level hierarchy deterministically', async () => {
     // Import directly to test the helper via restoreBackup
     // The test creates accounts in wrong order, restoreBackup should sort them

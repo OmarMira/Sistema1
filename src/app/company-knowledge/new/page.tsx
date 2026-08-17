@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { EntityTypeValues, RelationshipValues } from '@/internal/company-knowledge';
+import { EntityTypeValues } from '@/internal/company-knowledge/client';
+import { RelationshipValues } from '@/internal/company-knowledge/client';
 
 export default function NewEntityPage() {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');

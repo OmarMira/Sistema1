@@ -4,8 +4,7 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { saveContext } from '@/lib/services/entity-context-service';
-
-import { logger } from '@/lib/logger';
+import { handleRouteError } from '@/lib/route-error-handler';
 
 // ─── Request Schema ───────────────────────────────────────────────────
 const createEntitySchema = z.object({
@@ -16,7 +15,7 @@ const createEntitySchema = z.object({
 
 // ─── POST /api/learning/entities ─────────────────────────────────────
 // Create a new entity context manually.
-export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
+export const POST = apiHandler(async (request: NextRequest, _routeCtx: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
 
   try {
@@ -52,11 +51,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     });
 
     return NextResponse.json({ success: true, data: context }, { status: 201 });
-  } catch (error: unknown) {
-    logger.error('[POST ENTITY CREATE ERROR]', { error: String(error) });
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 500 },
-    );
+  } catch (error) {
+    return handleRouteError(error, '[POST ENTITY CREATE ERROR]');
   }
 });

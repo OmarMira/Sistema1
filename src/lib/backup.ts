@@ -32,6 +32,10 @@ export interface BackupManifest {
     users: number;
     systemConfig: number;
     companyConfig: boolean;
+    // D10-E: reconciliation subsystem counts (optional for legacy 1.0.0 backups)
+    reconciliationPeriods?: number;
+    companyKnowledge?: number;
+    knowledgeAudit?: number;
   };
 }
 
@@ -51,6 +55,10 @@ export interface BackupData {
     users: Record<string, unknown>[];
     systemConfig: Record<string, unknown>[];
     companyConfig: Record<string, unknown> | null;
+    // D10-E: reconciliation subsystem data (optional for legacy 1.0.0 backups)
+    reconciliationPeriods?: Record<string, unknown>[];
+    companyKnowledge?: Record<string, unknown>[];
+    knowledgeAudit?: Record<string, unknown>[];
   };
 }
 
@@ -140,6 +148,57 @@ function sanitizeForRestore(
   return cleaned;
 }
 
+/* ─── Role Normalization Helpers (RC2-3) ─────────────────────────── */
+
+export type RestoredUserRole = 'user' | 'super_admin';
+export type RestoredMembershipRole = 'company_admin' | 'employee' | 'viewer';
+
+/**
+ * Normalize a user role coming from a backup payload to the current global
+ * authority contract: 'user' | 'super_admin'.
+ *
+ * legacy/tenant/unknown values always collapse to 'user' (fail-closed).
+ * 'super_admin' is preserved ONLY when there is a trusted authority context:
+ * either an authorized bootstrap restore (empty-DB recovery) or a normal
+ * restore performed by an actor that is already a global super_admin. The
+ * backup payload alone never grants global authority.
+ */
+export function normalizeRestoredUserRole(
+  backupRole: unknown,
+  context: { bootstrap?: boolean; restoringActorIsSuperAdmin?: boolean },
+): RestoredUserRole {
+  if (
+    backupRole === 'super_admin' &&
+    (Boolean(context.bootstrap) || Boolean(context.restoringActorIsSuperAdmin))
+  ) {
+    return 'super_admin';
+  }
+  return 'user';
+}
+
+/**
+ * Normalize a company membership role coming from a backup payload to the
+ * current tenant authority contract: 'company_admin' | 'employee' | 'viewer'.
+ *
+ * Known valid roles are preserved. Legacy 'super_admin' folds into
+ * 'company_admin'. Any unknown value collapses to 'viewer' (minimum tenant
+ * privilege, no operational capability granted without evidence).
+ */
+export function normalizeRestoredMembershipRole(role: unknown): RestoredMembershipRole {
+  switch (role) {
+    case 'company_admin':
+      return 'company_admin';
+    case 'employee':
+      return 'employee';
+    case 'viewer':
+      return 'viewer';
+    case 'super_admin':
+      return 'company_admin';
+    default:
+      return 'viewer';
+  }
+}
+
 /* ─── Exported Functions ──────────────────────────────────────────── */
 
 /**
@@ -187,6 +246,9 @@ export async function createBackup(companyId: string): Promise<{
     journalLines,
     fiscalPeriods,
     companyMembers,
+    reconciliationPeriods,
+    companyKnowledge,
+    knowledgeAudit,
   ] = await Promise.all([
     db.glAccount.findMany({ where: { companyId } }),
     db.bankAccount.findMany({ where: { companyId } }),
@@ -224,6 +286,10 @@ export async function createBackup(companyId: string): Promise<{
         },
       },
     }),
+    // D10-E: reconcile + knowledge subsystem data
+    db.reconciliationPeriod.findMany({ where: { companyId } }),
+    db.companyKnowledge.findMany({ where: { companyId } }),
+    db.knowledgeAudit.findMany({ where: { companyKnowledge: { companyId } } }),
   ]);
 
   // Collect unique user IDs from company members
@@ -299,6 +365,10 @@ export async function createBackup(companyId: string): Promise<{
     users: users.length,
     systemConfig: systemConfig.length,
     companyConfig: companyConfig !== null,
+    // D10-E: reconcile + knowledge subsystem counts
+    reconciliationPeriods: reconciliationPeriods.length,
+    companyKnowledge: companyKnowledge.length,
+    knowledgeAudit: knowledgeAudit.length,
   };
 
   const backupData: BackupData = {
@@ -327,6 +397,12 @@ export async function createBackup(companyId: string): Promise<{
       users: users.map((u) => JSON.parse(JSON.stringify(u))),
       systemConfig: systemConfig.map((c) => JSON.parse(JSON.stringify(c))),
       companyConfig,
+      // D10-E: reconcile + knowledge subsystem data
+      reconciliationPeriods: reconciliationPeriods.map((r) =>
+        JSON.parse(JSON.stringify(r)),
+      ),
+      companyKnowledge: companyKnowledge.map((k) => JSON.parse(JSON.stringify(k))),
+      knowledgeAudit: knowledgeAudit.map((a) => JSON.parse(JSON.stringify(a))),
     },
   };
 
@@ -406,32 +482,63 @@ export function getBackupFile(filename: string): { data: string; size: number } 
   };
 }
 
-/**
- * Delete a specific backup file.
- */
-export function deleteBackup(filename: string): boolean {
-  ensureBackupDir();
-  const filePath = path.join(BACKUP_DIR, filename);
+export type DeleteBackupResult =
+  | { status: 'invalid' }
+  | { status: 'not_found' }
+  | { status: 'deleted' };
 
-  // Security: prevent directory traversal
+/**
+ * Delete a specific backup file, scoped to a single tenant.
+ *
+ * Ownership is anchored to the manifest: a request filename is only accepted
+ * when it matches exactly one manifest entry (filename + companyId). The
+ * manifest is the single source of truth written by createBackup, so an
+ * attacker cannot forge an entry or reach another tenant's file by path
+ * normalization.
+ */
+export function deleteBackup(filename: string, companyId: string): DeleteBackupResult {
+  // A. Format gate — reject separators, traversal and non-backup names.
+  if (
+    !filename ||
+    filename.includes('/') ||
+    filename.includes('\\') ||
+    filename.includes('..') ||
+    !filename.endsWith('.json')
+  ) {
+    return { status: 'invalid' };
+  }
+
+  // B. Ownership — exact manifest entry for this tenant.
+  const manifest = readManifest();
+  const entry = manifest.backups.find(
+    (b) => b.filename === filename && b.companyId === companyId,
+  );
+  if (!entry) {
+    return { status: 'not_found' };
+  }
+
+  // C. Defense-in-depth: resolved path must stay strictly inside BACKUP_DIR.
+  const filePath = path.join(BACKUP_DIR, entry.filename);
   const resolved = path.resolve(filePath);
   const resolvedDir = path.resolve(BACKUP_DIR);
-  if (!resolved.startsWith(resolvedDir)) {
-    return false;
+  const relative = path.relative(resolvedDir, resolved);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return { status: 'not_found' };
   }
 
+  // D. Physical file must exist.
   if (!fs.existsSync(filePath)) {
-    return false;
+    return { status: 'not_found' };
   }
 
+  // E. Delete the exact authorized file, then remove only its manifest entry.
   fs.unlinkSync(filePath);
-
-  // Update manifest
-  const manifest = readManifest();
-  manifest.backups = manifest.backups.filter((b) => b.filename !== filename);
+  manifest.backups = manifest.backups.filter(
+    (b) => !(b.filename === entry.filename && b.companyId === entry.companyId),
+  );
   writeManifest(manifest);
 
-  return true;
+  return { status: 'deleted' };
 }
 
 /**
@@ -521,7 +628,7 @@ export async function restoreBackup(
   companyId: string,
   backupData: BackupData,
   userId: string,
-  options?: { bootstrap?: boolean },
+  options?: { bootstrap?: boolean; restoringActorIsSuperAdmin?: boolean },
 ): Promise<{ success: boolean; message: string; restoredCounts: Record<string, number> }> {
   const validation = validateBackup(backupData);
   if (!validation.valid) {
@@ -540,6 +647,14 @@ export async function restoreBackup(
       restoredCounts: {},
     };
   }
+
+  // RC2-3: the trusted authority context for normalizing restored user roles
+  // comes from the caller (the authenticated actor derived from DB/session),
+  // never from the backup payload itself.
+  const restoreRoleContext = {
+    bootstrap: Boolean(options?.bootstrap),
+    restoringActorIsSuperAdmin: Boolean(options?.restoringActorIsSuperAdmin),
+  };
 
   // Audit Contract v1 — SecurityEvent: restore initiated
   const restoreId = crypto.randomUUID();
@@ -566,6 +681,12 @@ export async function restoreBackup(
   try {
     const restoredCounts: Record<string, number> = {};
 
+    // D10-B: the company-config.json payload is computed inside the transaction,
+    // but the filesystem WRITE is deferred until AFTER the transaction commits.
+    // This guarantees a DB rollback never leaves a persisted file that diverges
+    // from the (rolled back) database.
+    let companyConfigWrite: { configPath: string; content: string } | null = null;
+
     // Use a transaction for atomicity
     await db.$transaction(async (tx) => {
         // Step 1: Delete existing data (skip in bootstrap mode)
@@ -591,6 +712,27 @@ export async function restoreBackup(
             });
             restoredCounts.journalLinesDeleted = result.count;
           }
+
+          // D10-E: delete reconcile + knowledge subsystem data (order matters for FK
+          // constraints: knowledgeAudit → companyKnowledge → reconciliationPeriod).
+          const knowledgeIds = await tx.companyKnowledge.findMany({
+            where: { companyId },
+            select: { id: true },
+          });
+          if (knowledgeIds.length > 0) {
+            const auditDeleted = await tx.knowledgeAudit.deleteMany({
+              where: { knowledgeId: { in: knowledgeIds.map((k) => k.id) } },
+            });
+            restoredCounts.knowledgeAuditDeleted = auditDeleted.count;
+          }
+          const knowledgeDeleted = await tx.companyKnowledge.deleteMany({
+            where: { companyId },
+          });
+          restoredCounts.companyKnowledgeDeleted = knowledgeDeleted.count;
+          const periodDeleted = await tx.reconciliationPeriod.deleteMany({
+            where: { companyId },
+          });
+          restoredCounts.reconciliationPeriodsDeleted = periodDeleted.count;
 
           const deleteOps = [
             { model: 'journalEntry', where: { companyId } },
@@ -628,8 +770,14 @@ export async function restoreBackup(
       // hash is missing (old/handcrafted backups), generate a random secret that
       // no one knows — the operator must reset the password afterwards.
       const sanitizeOpts = { preservePasswordHash: true };
+      let normalizedUserRoles = 0;
       for (const user of backupData.data.users) {
         const clean = sanitizeForRestore(user as Record<string, unknown>, sanitizeOpts);
+        // RC2-3: normalize roles to the current global authority contract before
+        // persisting. The backup payload alone never grants 'super_admin'.
+        const originalRole = clean.role;
+        clean.role = normalizeRestoredUserRole(clean.role, restoreRoleContext);
+        if (clean.role !== originalRole) normalizedUserRoles += 1;
         // passwordHash is required by Prisma but older backups may not include it.
         const pwHash = clean.passwordHash as string | undefined;
         if (!pwHash || !pwHash.startsWith('$2')) {
@@ -643,8 +791,15 @@ export async function restoreBackup(
       }
 
       // Insert company members
+      let normalizedMembershipRoles = 0;
       for (const member of backupData.data.companyMembers) {
         const clean = sanitizeForRestore(member as Record<string, unknown>);
+        // RC2-3: normalize membership roles to the current tenant authority
+        // contract before persisting ('super_admin' folds to 'company_admin',
+        // unknown values collapse to 'viewer').
+        const originalMemberRole = clean.role;
+        clean.role = normalizeRestoredMembershipRole(clean.role);
+        if (clean.role !== originalMemberRole) normalizedMembershipRoles += 1;
         await tx.companyMember.create({ data: clean as never });
       }
       restoredCounts.companyMembers = backupData.data.companyMembers.length;
@@ -678,6 +833,18 @@ export async function restoreBackup(
         bankAccountIdMap.set(account.id as string, created.id);
       }
       restoredCounts.bankAccounts = backupData.data.bankAccounts.length;
+
+      // D10-E: Insert reconciliation periods (after bankAccounts so bankAccountId FK remaps)
+      const reconciliationPeriodIdMap = new Map<string, string>();
+      for (const period of backupData.data.reconciliationPeriods ?? []) {
+        const clean = sanitizeForRestore(period as Record<string, unknown>);
+        // Map bank account reference
+        const oldBankId = clean.bankAccountId as string;
+        clean.bankAccountId = bankAccountIdMap.get(oldBankId) || oldBankId;
+        const created = await tx.reconciliationPeriod.create({ data: clean as never });
+        reconciliationPeriodIdMap.set(period.id as string, created.id);
+      }
+      restoredCounts.reconciliationPeriods = backupData.data.reconciliationPeriods?.length ?? 0;
 
       // Insert bank statements
       const statementIdMap = new Map<string, string>();
@@ -727,10 +894,15 @@ export async function restoreBackup(
           const oldRuleId = clean.matchedRuleId as string;
           clean.matchedRuleId = ruleIdMap.get(oldRuleId) || oldRuleId;
         }
-        // Strip FKs to entities not restored yet (will be re-linked through app workflow)
+        // Strip FKs to journal entities not restored yet (will be re-linked through app workflow)
         delete clean.journalEntryId;
         delete clean.journalLineId;
-        delete clean.reconciliationPeriodId;
+        // D10-E: remap reconciliation period reference (periods restored in a prior pass)
+        if (clean.reconciliationPeriodId) {
+          const oldReconId = clean.reconciliationPeriodId as string;
+          clean.reconciliationPeriodId =
+            reconciliationPeriodIdMap.get(oldReconId) || null;
+        }
         await tx.bankTransaction.create({ data: clean as never });
       }
       restoredCounts.bankTransactions = backupData.data.bankTransactions.length;
@@ -766,6 +938,37 @@ export async function restoreBackup(
       }
       restoredCounts.journalLines = backupData.data.journalLines.length;
 
+      // D10-E: Insert company knowledge. Two-pass to resolve the self-referential
+      // mergedIntoId FK regardless of row order in the backup payload.
+      const companyKnowledgeIdMap = new Map<string, string>();
+      for (const knowledge of backupData.data.companyKnowledge ?? []) {
+        const clean = sanitizeForRestore(knowledge as Record<string, unknown>);
+        delete clean.mergedIntoId; // linked in pass 2
+        const created = await tx.companyKnowledge.create({ data: clean as never });
+        companyKnowledgeIdMap.set(knowledge.id as string, created.id);
+      }
+      for (const knowledge of backupData.data.companyKnowledge ?? []) {
+        const oldMergedIntoId = knowledge.mergedIntoId as string | undefined;
+        if (oldMergedIntoId && companyKnowledgeIdMap.has(oldMergedIntoId)) {
+          await tx.companyKnowledge.update({
+            where: { id: companyKnowledgeIdMap.get(knowledge.id as string) as string },
+            data: { mergedIntoId: companyKnowledgeIdMap.get(oldMergedIntoId) as string },
+          });
+        }
+      }
+      restoredCounts.companyKnowledge = backupData.data.companyKnowledge?.length ?? 0;
+
+      // D10-E: Insert knowledge audit entries (require CompanyKnowledge FK knowledgeId,
+      // so they must be inserted after company knowledge).
+      for (const audit of backupData.data.knowledgeAudit ?? []) {
+        const clean = sanitizeForRestore(audit as Record<string, unknown>);
+        // Map knowledge reference
+        const oldKnowledgeId = clean.knowledgeId as string;
+        clean.knowledgeId = companyKnowledgeIdMap.get(oldKnowledgeId) || oldKnowledgeId;
+        await tx.knowledgeAudit.create({ data: clean as never });
+      }
+      restoredCounts.knowledgeAudit = backupData.data.knowledgeAudit?.length ?? 0;
+
       // Restore SystemConfig (skip AI config keys — never overwrite active AI keys from backup)
       if (backupData.data.systemConfig && backupData.data.systemConfig.length > 0) {
         const filtered = filterSensitiveSystemConfig(backupData.data.systemConfig);
@@ -784,12 +987,11 @@ export async function restoreBackup(
         }
       }
 
-      // Restore company-config.json (currency, periodType)
+      // Restore company-config.json (currency, periodType).
+      // D10-B: compute the payload in-memory here; write to disk only after the
+      // transaction commits (see below).
       if (backupData.data.companyConfig) {
         const configPath = RUNTIME_FILES.companyConfig;
-        if (!fs.existsSync(path.dirname(configPath))) {
-          fs.mkdirSync(path.dirname(configPath), { recursive: true });
-        }
         let allConfig: { companies?: Record<string, unknown> } = { companies: {} };
         try {
           if (fs.existsSync(configPath)) {
@@ -802,7 +1004,10 @@ export async function restoreBackup(
           allConfig.companies = {};
         }
         allConfig.companies[companyId] = backupData.data.companyConfig;
-        fs.writeFileSync(configPath, JSON.stringify(allConfig, null, 2), 'utf-8');
+        companyConfigWrite = {
+          configPath,
+          content: JSON.stringify(allConfig, null, 2),
+        };
         restoredCounts.companyConfig = 1;
       }
 
@@ -819,14 +1024,43 @@ export async function restoreBackup(
             bootstrap: !!options?.bootstrap,
             restoredCounts,
             backupCreatedAt: backupData.manifest.createdAt,
+            normalizedUserRoles,
+            normalizedMembershipRoles,
           }),
         },
       });
     });
 
+    // D10-B: write company-config.json only AFTER the transaction committed. If the
+    // transaction rolled back (e.g. auditLog.create failed), the file was never
+    // written, so DB and filesystem stay in sync. A failure of this post-commit
+    // write is NOT a restore failure: the DB is already restored and is the source
+    // of truth, so it must not trigger the outer catch (which would falsely report
+    // a rollback and emit RESTORE_FAILED).
+    let configWriteFailed = false;
+    if (companyConfigWrite) {
+      const { configPath, content } = companyConfigWrite;
+      try {
+        if (!fs.existsSync(path.dirname(configPath))) {
+          fs.mkdirSync(path.dirname(configPath), { recursive: true });
+        }
+        fs.writeFileSync(configPath, content, 'utf-8');
+      } catch (error) {
+        configWriteFailed = true;
+        const errMsg =
+          error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown error';
+        logger.warn(
+          '[BACKUP RESTORE] Database restored but company-config.json could not be updated',
+          { configPath, error: errMsg },
+        );
+      }
+    }
+
     return {
       success: true,
-      message: 'Backup restored successfully',
+      message: configWriteFailed
+        ? 'Backup restored successfully. Warning: company-config.json could not be updated.'
+        : 'Backup restored successfully',
       restoredCounts,
     };
   } catch (error) {

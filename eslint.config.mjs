@@ -6,6 +6,42 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+const localPlugin = {
+  rules: {
+    "no-server-import-in-client": {
+      meta: {
+        type: "problem",
+        docs: { description: "Block Client Components from importing server code" },
+      },
+      create(context) {
+        const RESTRICTED = [
+          /^@\/internal\/company-knowledge$/,
+          /^@\/internal\/company-knowledge\/index$/,
+          /^@\/internal\/company-knowledge\/server$/,
+          /^@\/internal\/company-knowledge\/(entity\/service|integration|audit|relationship\/service)/,
+        ];
+        return {
+          Program(node) {
+            const isClient = node.body.some(
+              (b) => b.type === "ExpressionStatement" && b.expression.type === "Literal" && b.expression.value === "use client"
+            );
+            if (!isClient) return;
+            for (const stmt of node.body) {
+              if (stmt.type !== "ImportDeclaration") continue;
+              const src = stmt.source.value;
+              if (RESTRICTED.some((re) => re.test(src))) {
+                context.report({ node: stmt, message: `'${src}' is server-only and cannot be imported from a Client Component.` });
+              }
+            }
+          },
+        };
+      },
+    },
+  },
+};
+
+export const localRules = localPlugin.rules;
+
 const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
   rules: {
     // TypeScript rules
@@ -44,6 +80,11 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "no-undef": "off",
     "no-unreachable": "off",
     "no-useless-escape": "off",
+  },
+}, {
+  plugins: { local: localPlugin },
+  rules: {
+    "local/no-server-import-in-client": "error",
   },
 }, {
   ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "scripts/**", "*.mjs", "tests/**"]

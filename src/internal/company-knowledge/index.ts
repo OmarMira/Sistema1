@@ -1,12 +1,11 @@
-// Barrel exports — Company Knowledge module boundary
+import 'server-only';
 
-// Types (public)
+// Barrel exports — Company Knowledge module boundary (server-only).
+// Client Components must import from './client' instead.
+
 export * from './entity/types';
-
-// Metadata schemas (public — for external validation)
 export * from './entity/metadata-schemas';
 
-// Entity service (public — Aggregate Root)
 export {
   proposeCreate,
   confirmCreate,
@@ -27,15 +26,8 @@ export type {
   MergeInput,
 } from './entity/service';
 
-// Relationship types (public — values and schema)
 export { RelationshipValues, relationshipSchema } from './relationship/types';
 export type { Relationship } from './relationship/types';
-
-// Relationship service is NOT exported — it's internal-only, routed through Entity Knowledge.
-
-// ───────────────────────────────────────────────
-// Integration — adapters, matcher, sync orchestrator
-// ───────────────────────────────────────────────
 
 export type {
   EntityContextEntry,
@@ -54,6 +46,5 @@ export type {
   SyncResult,
 } from './integration/service';
 
-// Audit
 export { getAuditTrail, getExplainabilityPayload } from './audit/service';
 export type { KnowledgeAuditEntry, ExplainabilityResponse } from './audit/types';

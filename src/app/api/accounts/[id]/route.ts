@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { journalAccountsCache } from '@/lib/cache';
 import { readJsonConfig } from '@/lib/config-loader';
 import { logger } from '@/lib/logger';
@@ -48,6 +49,8 @@ export const GET = apiHandler(
 export const PUT = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { userId, companyId } = requireCompanyContext();
+
+    await requireCompanyRole(companyId, ['company_admin']);
 
     const { id } = await context.params as { id: string };
     const body = await request.json();
@@ -181,6 +184,8 @@ async function collectDescendantIds(parentId: string): Promise<string[]> {
 export const DELETE = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { userId, companyId } = requireCompanyContext();
+
+    await requireCompanyRole(companyId, ['company_admin']);
 
     const { id } = await context.params as { id: string };
     const account = await db.glAccount.findFirst({

@@ -108,21 +108,43 @@ export const POST = apiHandler(
       select: { id: true, email: true, firstName: true, lastName: true, role: true },
     });
 
-    const companies = await db.companyMember.findMany({
-      where: { userId: restoredUser.id as string },
-      include: {
-        company: {
-          select: { id: true, legalName: true, entityType: true, taxId: true, isOnboardingComplete: true },
+    let companies;
+    if (user?.role === 'super_admin') {
+      // Global authority contract (mirror /api/auth/me super_admin branch):
+      // all active companies with role=null. Never invent memberships.
+      companies = (
+        await db.company.findMany({
+          where: { isActive: true },
+          select: {
+            id: true,
+            legalName: true,
+            entityType: true,
+            taxId: true,
+            isOnboardingComplete: true,
+          },
+          orderBy: { legalName: 'asc' },
+        })
+      ).map((company) => ({ ...company, role: null }));
+    } else {
+      // Tenant contract (mirror /api/auth/me member branch):
+      // Company.role = CompanyMember.role, already fetched above — no extra query.
+      const memberships = await db.companyMember.findMany({
+        where: { userId: restoredUser.id as string },
+        include: {
+          company: {
+            select: { id: true, legalName: true, entityType: true, taxId: true, isOnboardingComplete: true },
+          },
         },
-      },
-    });
+      });
+      companies = memberships.map((m) => ({ ...m.company, role: m.role }));
+    }
 
     const response = NextResponse.json({
       success: true,
       message: result.message,
       restoredCounts: result.restoredCounts,
       user,
-      companies: companies.map((m) => m.company),
+      companies,
     });
 
     const isProd = process.env.NODE_ENV === 'production';

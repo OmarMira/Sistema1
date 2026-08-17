@@ -1525,6 +1525,7 @@ const es = {
     noUsers: 'No se encontraron usuarios.',
     roleSuperAdmin: 'Super Admin',
     roleCompanyAdmin: 'Admin de Empresa',
+    roleUser: 'Usuario',
     statusActive: 'Activo',
     statusSuspended: 'Suspendido',
     registeredDate: 'Registrado:',

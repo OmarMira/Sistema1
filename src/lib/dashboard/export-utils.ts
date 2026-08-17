@@ -23,8 +23,5 @@ export function exportToCSV(kpi: DashboardKPI, trend: DashboardTrendPoint[], com
 export function exportToPDF(kpi: DashboardKPI, alerts: DashboardAlert[], trend: DashboardTrendPoint[], companyId: string) {
   const payload = { kpi, alerts, trend, companyId, exportedAt: new Date().toISOString() };
   const hash = generateHash(payload);
-  logger.info(
-    `🖨️ Generando PDF. Payload firmable: ${JSON.stringify({ ...payload, integrityHash: hash })}`,
-  );
-  logger.info(`Exportación iniciada. Hash de integridad del reporte: ${hash}`);
+  logger.info('PDF export initiated', { hash });
 }

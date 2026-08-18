@@ -88,6 +88,7 @@ export const PUT = apiHandler(
 
     // F-6 tenant gate: resource-scoped to the entry's companyId
     await requireActiveTenantAccessForEntry(userId, existing.companyId);
+    await requireCompanyRole(existing.companyId, ['company_admin', 'employee']);
 
     const body = await request.json();
     const { date, description, reference, lines } = body;

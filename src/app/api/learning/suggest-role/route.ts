@@ -198,6 +198,16 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       const samples = sampleDescriptions.slice(0, 3);
       contextParts.push('Sample descriptions:');
       for (const s of samples) {
+        const sampleInjectionCheck = checkPromptInjection(s);
+        if (!sampleInjectionCheck.passed) {
+          logger.warn('SUGGEST_ROLE_SAMPLE_PROMPT_INJECTION_BLOCKED', {
+            reason: sampleInjectionCheck.reason,
+          });
+          return NextResponse.json(
+            { error: 'Disallowed content detected in input.' },
+            { status: 400 },
+          );
+        }
         contextParts.push(`  - ${s}`);
       }
     }
@@ -316,77 +326,88 @@ The confidence MUST be a decimal number like 0.85, not a string or text. Follow 
       const webResult = await searchEntity(trimmedDesc);
 
       if (webResult) {
-        logger.info('[SUGGEST_ROLE WEB_SEARCH_REPROMPT]', {
-          entity: trimmedDesc,
-          title: webResult.title,
-        });
+        const titleInjectionCheck = checkPromptInjection(webResult.title);
+        const snippetInjectionCheck = checkPromptInjection(webResult.snippet);
 
-        const rePrompt = `Web search result for "${trimmedDesc}":
+        if (titleInjectionCheck.passed && snippetInjectionCheck.passed) {
+          logger.info('[SUGGEST_ROLE WEB_SEARCH_REPROMPT]', {
+            entity: trimmedDesc,
+            title: webResult.title,
+          });
+
+          const rePrompt = `Web search result for "${trimmedDesc}":
 Title: ${webResult.title}
 Snippet: ${webResult.snippet}
 Source: ${webResult.sourceUrl}
 
 Based on this additional context, re-evaluate the role.`;
 
-        const rePromptMessages = [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-          { role: 'user', content: rePrompt },
-        ];
+          const rePromptMessages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt },
+            { role: 'user', content: rePrompt },
+          ];
 
-        const reController = new AbortController();
-        const reTimeout = setTimeout(() => reController.abort(), 60000);
+          const reController = new AbortController();
+          const reTimeout = setTimeout(() => reController.abort(), 60000);
 
-        try {
-          const reResponse = await safeFetch(`${baseUrl}/chat/completions`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${apiKey}`,
-              'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-            },
-            body: JSON.stringify({
-              model,
-              temperature: 0.1,
-              max_tokens: 1000,
-              messages: rePromptMessages,
-            }),
-            signal: reController.signal,
-          });
+          try {
+            const reResponse = await safeFetch(`${baseUrl}/chat/completions`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+                'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+              },
+              body: JSON.stringify({
+                model,
+                temperature: 0.1,
+                max_tokens: 1000,
+                messages: rePromptMessages,
+              }),
+              signal: reController.signal,
+            });
 
-          clearTimeout(reTimeout);
+            clearTimeout(reTimeout);
 
-          if (reResponse.ok) {
-            const reData = await reResponse.json();
-            const reContent: string | undefined = reData.choices?.[0]?.message?.content;
+            if (reResponse.ok) {
+              const reData = await reResponse.json();
+              const reContent: string | undefined = reData.choices?.[0]?.message?.content;
 
-            if (reContent) {
-              const reResult = parseSuggestion(reContent);
+              if (reContent) {
+                const reResult = parseSuggestion(reContent);
 
-              if (reResult && reResult.confidence > aiResult.confidence) {
-                const previousConfidence = aiResult.confidence;
-                const originalReConfidence = reResult.confidence;
+                if (reResult && reResult.confidence > aiResult.confidence) {
+                  const previousConfidence = aiResult.confidence;
+                  const originalReConfidence = reResult.confidence;
 
-                // Cap web-search-driven confidence at 0.70
-                reResult.confidence = Math.min(reResult.confidence, 0.70);
+                  // Cap web-search-driven confidence at 0.70
+                  reResult.confidence = Math.min(reResult.confidence, 0.70);
 
-                aiResult = reResult;
+                  aiResult = reResult;
 
-                logger.info('[SUGGEST_ROLE WEB_SEARCH_IMPROVED]', {
-                  entity: trimmedDesc,
-                  previousConfidence,
-                  newRole: reResult.role,
-                  capApplied: originalReConfidence > 0.70,
-                });
+                  logger.info('[SUGGEST_ROLE WEB_SEARCH_IMPROVED]', {
+                    entity: trimmedDesc,
+                    previousConfidence,
+                    newRole: reResult.role,
+                    capApplied: originalReConfidence > 0.70,
+                  });
+                }
               }
             }
+          } catch {
+            logger.warn('[SUGGEST_ROLE WEB_SEARCH_REPROMPT_FAILED]', {
+              entity: trimmedDesc,
+            });
+          } finally {
+            clearTimeout(reTimeout);
           }
-        } catch {
-          logger.warn('[SUGGEST_ROLE WEB_SEARCH_REPROMPT_FAILED]', {
-            entity: trimmedDesc,
+        } else {
+          logger.warn('SUGGEST_ROLE_WEB_CONTENT_PROMPT_INJECTION_BLOCKED', {
+            reason: titleInjectionCheck.passed
+              ? snippetInjectionCheck.reason
+              : titleInjectionCheck.reason,
           });
-        } finally {
-          clearTimeout(reTimeout);
         }
       }
     }

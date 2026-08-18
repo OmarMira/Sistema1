@@ -2,10 +2,24 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
-import { requireCompanyRole } from '@/lib/rbac';
+import { requireActiveTenantAccess, requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { createAuditLogWithRetry } from '@/lib/audit';
+
+// F-6: delegate to the canonical active-tenant gate, resource-scoped to the
+// entry's companyId. Replaces the previous manual membership checks so that
+// Company.isActive and CompanyMember are validated by the single source of truth.
+async function requireActiveTenantAccessForEntry(
+  userId: string,
+  entryCompanyId: string,
+): Promise<void> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { role: true },
+  });
+  await requireActiveTenantAccess(entryCompanyId, { userId, role: user?.role ?? '' });
+}
 
 // ─── GET /api/journal/[id] ──────────────────────────────────────────
 // Get a single journal entry with all lines and GL account info.
@@ -38,13 +52,8 @@ export const GET = apiHandler(
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
     }
 
-    // Verify user has access
-    const membership = await db.companyMember.findUnique({
-      where: { userId_companyId: { userId, companyId: entry.companyId } },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // F-6 tenant gate: resource-scoped to the entry's companyId
+    await requireActiveTenantAccessForEntry(userId, entry.companyId);
 
     return NextResponse.json({
       ...entry,
@@ -77,13 +86,8 @@ export const PUT = apiHandler(
       return NextResponse.json({ error: 'Only draft entries can be modified' }, { status: 400 });
     }
 
-    // Verify access
-    const membership = await db.companyMember.findUnique({
-      where: { userId_companyId: { userId, companyId: existing.companyId } },
-    });
-    if (!membership) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-    }
+    // F-6 tenant gate: resource-scoped to the entry's companyId
+    await requireActiveTenantAccessForEntry(userId, existing.companyId);
 
     const body = await request.json();
     const { date, description, reference, lines } = body;
@@ -217,6 +221,9 @@ export const POST = apiHandler(
     if (!entry) {
       return NextResponse.json({ error: 'Entry not found' }, { status: 404 });
     }
+
+    // F-6 tenant gate: resource-scoped to the entry's companyId
+    await requireActiveTenantAccessForEntry(userId, entry.companyId);
 
     // Verify access: tenant role gate, resource-scoped to entry.companyId
     await requireCompanyRole(entry.companyId, ['company_admin']);

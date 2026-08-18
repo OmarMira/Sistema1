@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
-import { getRequestContext } from '@/lib/context-storage';
+import { requireCompanyContext } from '@/lib/context-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { getAiConfig } from '@/lib/ai-config';
 import { safeFetch } from '@/lib/security/safe-fetch';
@@ -826,7 +826,7 @@ async function executeTool(
 // ─── POST /api/ai-assistant ────────────────────────────────────────
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
-    const { userId } = getRequestContext()!;
+    const { userId, companyId } = requireCompanyContext();
 
     try {
       const raw: unknown = await request.json();
@@ -837,7 +837,7 @@ export const POST = apiHandler(
           { status: 400 },
         );
       }
-      const { message, mode, companyId: bodyCompanyId, history, isWarmup } = parsed.data;
+      const { message, mode, history, isWarmup } = parsed.data;
 
       if (isWarmup) {
         try {
@@ -851,31 +851,6 @@ export const POST = apiHandler(
           });
           return NextResponse.json({ error: 'Warmup failed' }, { status: 502 });
         }
-      }
-
-      let companyId = bodyCompanyId;
-      if (!companyId) {
-        const membership = await db.companyMember.findFirst({
-          where: { userId },
-          select: { companyId: true },
-        });
-        if (membership) {
-          companyId = membership.companyId;
-        }
-      } else {
-        const membership = await db.companyMember.findFirst({
-          where: { userId, companyId },
-        });
-        if (!membership) {
-          return NextResponse.json({ error: 'Forbidden: No membership found' }, { status: 403 });
-        }
-      }
-
-      if (!companyId) {
-        return NextResponse.json(
-          { error: 'No company context available. Select a company first.' },
-          { status: 400 },
-        );
       }
 
       if (mode === 'create-rule') {
@@ -896,7 +871,7 @@ export const POST = apiHandler(
       );
     }
   },
-  { requireMembership: false },
+  { requireMembership: true },
 );
 
 // Helper to call the LLM via fetch with timeout, tool definition and error handling

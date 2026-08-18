@@ -3,6 +3,9 @@ import { NextRequest } from 'next/server';
 
 const mockGetSessionUserId = vi.hoisted(() => vi.fn().mockResolvedValue('user-1'));
 const mockCheckRateLimit = vi.hoisted(() => vi.fn());
+const mockDbUserFindUnique = vi.hoisted(() => vi.fn());
+const mockDbCompanyFindUnique = vi.hoisted(() => vi.fn());
+const mockDbCompanyMemberFindUnique = vi.hoisted(() => vi.fn());
 const mockDbCompanyMemberFindFirst = vi.hoisted(() => vi.fn());
 const mockDbJournalFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockDbBankTxFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
@@ -30,7 +33,12 @@ vi.mock('@/lib/ai-config', () => ({
 }));
 vi.mock('@/lib/db', () => ({
   db: {
-    companyMember: { findFirst: mockDbCompanyMemberFindFirst },
+    user: { findUnique: mockDbUserFindUnique },
+    company: { findUnique: mockDbCompanyFindUnique },
+    companyMember: {
+      findUnique: mockDbCompanyMemberFindUnique,
+      findFirst: mockDbCompanyMemberFindFirst,
+    },
     journalEntry: { findMany: mockDbJournalFindMany },
     bankTransaction: {
       findMany: mockDbBankTxFindMany,
@@ -101,6 +109,9 @@ describe('POST /api/ai-assistant — D6 date filter boundaries', () => {
     vi.clearAllMocks();
     mockGetSessionUserId.mockResolvedValue('user-1');
     mockCheckRateLimit.mockReturnValue({ allowed: true, limit: 100, remaining: 99, resetAt: Math.ceil(Date.now() / 1000) + 60 });
+    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
+    mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
     mockDbCompanyMemberFindFirst.mockResolvedValue({ id: 'member-1', companyId: 'c1', userId: 'user-1' });
   });
 

@@ -54,12 +54,6 @@ const PROVIDER_INSTRUCTIONS: Record<ProviderId, { steps: string[]; link: string;
     linkLabel: 'Abrir Google AI Studio',
     keyHint: 'AIza...',
   },
-  custom: {
-    steps: [],
-    link: '',
-    linkLabel: '',
-    keyHint: 'sk-...',
-  },
 };
 
 export default function AiConfigTab() {
@@ -70,47 +64,32 @@ export default function AiConfigTab() {
   const [provider, setProvider] = useState<ProviderId>('openrouter');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
-  const [baseUrl, setBaseUrl] = useState('');
-  const [customModel, setCustomModel] = useState('');
-  const [customBaseUrl, setCustomBaseUrl] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
   const [showKey, setShowKey] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [aiAlive, setAiAlive] = useState<boolean | null>(null);
+  const [needsReconfiguration, setNeedsReconfiguration] = useState(false);
 
-  const isCustom = provider === 'custom';
-  const activeModel = isCustom ? customModel : model;
-  const activeBaseUrl = isCustom ? customBaseUrl : baseUrl;
+  const activeModel = model;
   const instructions = PROVIDER_INSTRUCTIONS[provider];
 
   useEffect(() => {
     fetch('/api/config/ai')
       .then((res) => res.json())
       .then((data) => {
-        if (data.isSaved) {
+        if (data.needsReconfiguration) {
+          setNeedsReconfiguration(true);
+          setIsSaved(true);
+          setAiAlive(false);
+        } else if (data.isSaved) {
           setIsSaved(true);
           setAiAlive(data.aiAlive ?? false);
           if (data.apiKey) setApiKey(data.apiKey);
-          if (data.baseUrl) {
-            const matched = AI_PROVIDERS.find((p) => p.baseUrl === data.baseUrl && p.id !== 'custom');
-            if (matched) {
-              setProvider(matched.id);
-              setBaseUrl(matched.baseUrl);
-              setModel(matched.defaultModel);
-            } else {
-              setProvider('custom');
-              setCustomBaseUrl(data.baseUrl);
-            }
+          if (data.providerId && AI_PROVIDERS.some((p) => p.id === data.providerId)) {
+            setProvider(data.providerId);
           }
-          if (data.model) {
-            const matched = AI_PROVIDERS.find((p) => p.defaultModel === data.model && p.id !== 'custom');
-            if (matched) {
-              setModel(matched.defaultModel);
-            } else {
-              setCustomModel(data.model);
-            }
-          }
+          if (data.model) setModel(data.model);
         } else {
           setIsSaved(false);
           setAiAlive(false);
@@ -127,8 +106,7 @@ export default function AiConfigTab() {
   const handleProviderChange = (id: ProviderId) => {
     setProvider(id);
     const p = AI_PROVIDERS.find((x) => x.id === id);
-    if (p && p.id !== 'custom') {
-      setBaseUrl(p.baseUrl);
+    if (p) {
       setModel(p.defaultModel);
     }
   };
@@ -142,22 +120,12 @@ export default function AiConfigTab() {
       setLoading(false);
       return;
     }
-    if (isCustom && !customModel.trim()) {
-      setStatus('❌ Ingresá el ID del modelo.');
-      setLoading(false);
-      return;
-    }
-    if (isCustom && !customBaseUrl.trim()) {
-      setStatus('❌ Ingresá la URL base de la API.');
-      setLoading(false);
-      return;
-    }
 
     try {
       const verifyRes = await fetch('/api/config/ai/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model: activeModel, baseUrl: activeBaseUrl }),
+        body: JSON.stringify({ apiKey, model: activeModel, providerId: provider }),
       });
       const verifyData = await verifyRes.json();
 
@@ -170,7 +138,7 @@ export default function AiConfigTab() {
       const res = await fetch('/api/config/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model: activeModel, baseUrl: activeBaseUrl }),
+        body: JSON.stringify({ apiKey, model: activeModel, providerId: provider }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -179,6 +147,7 @@ export default function AiConfigTab() {
           ? `⚠️ ${verifyData.warning}`
           : `✅ ${t('aiAssistant.configSaveSuccess')}`);
         setIsSaved(true);
+        setNeedsReconfiguration(false);
       } else {
         setStatus(`❌ ${t('aiAssistant.configSaveError')} ` + (data.error || ''));
       }
@@ -203,7 +172,7 @@ export default function AiConfigTab() {
       const res = await fetch('/api/config/ai/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model: activeModel, baseUrl: activeBaseUrl }),
+        body: JSON.stringify({ apiKey, model: activeModel, providerId: provider }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -218,7 +187,7 @@ export default function AiConfigTab() {
     }
   };
 
-  if (isSaved) {
+  if (isSaved && !needsReconfiguration) {
     if (aiAlive === null) {
       return (
         <div className="max-w-md mx-auto bg-white rounded-xl shadow-md p-8 border border-gray-200 text-center">
@@ -274,6 +243,14 @@ export default function AiConfigTab() {
       </h2>
       <p className="text-sm text-gray-500 mb-6">{t('aiAssistant.configDescription')}</p>
 
+      {needsReconfiguration && (
+        <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+          {isEn
+            ? 'Your saved AI provider is no longer supported. Select one of the allowed providers and save your configuration again.'
+            : 'Tu proveedor de IA guardado ya no está permitido. Elegí uno de los proveedores soportados y guardá tu configuración de nuevo.'}
+        </div>
+      )}
+
       {!isSaved && (
         <div className="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-lg">
           <p className="text-sm font-semibold text-gray-700">
@@ -305,7 +282,7 @@ export default function AiConfigTab() {
           </div>
 
           {/* Instrucciones paso a paso */}
-          {!isCustom && instructions.steps.length > 0 && (
+          {instructions.steps.length > 0 && (
             <div className="p-4 bg-blue-50/50 rounded-lg border border-blue-100">
               <h3 className="font-semibold text-blue-900 mb-2 text-sm">
                 {isEn ? 'How to get your API key' : 'Cómo obtener tu clave de API'}
@@ -327,52 +304,20 @@ export default function AiConfigTab() {
           )}
 
           {/* Info del modelo seleccionado */}
-          {!isCustom && (
-            <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
-              <strong>{isEn ? 'Model:' : 'Modelo:'}</strong> {model}
-              {provider === 'openrouter' && (
-                <span className="block mt-1 text-amber-600">
-                  {isEn
-                    ? 'OpenRouter routes to the best free model available.'
-                    : 'OpenRouter enruta automáticamente al mejor modelo gratuito disponible.'}
-                </span>
-              )}
-            </div>
-          )}
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+            <strong>{isEn ? 'Model:' : 'Modelo:'}</strong> {model}
+            {provider === 'openrouter' && (
+              <span className="block mt-1 text-amber-600">
+                {isEn
+                  ? 'OpenRouter routes to the best free model available.'
+                  : 'OpenRouter enruta automáticamente al mejor modelo gratuito disponible.'}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Columna derecha: Key + Botones */}
         <div className="lg:col-span-5 flex flex-col justify-between space-y-5">
-          {/* Campos custom */}
-          {isCustom && (
-            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
-              <div>
-                <label className="text-xs font-bold text-gray-600 uppercase tracking-wider block mb-1.5">
-                  {isEn ? 'Base URL' : 'URL Base'}
-                </label>
-                <input
-                  type="text"
-                  className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm font-mono"
-                  value={customBaseUrl}
-                  onChange={(e) => setCustomBaseUrl(e.target.value)}
-                  placeholder="https://api.ejemplo.com/v1"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-gray-600 uppercase tracking-wider block mb-1.5">
-                  {isEn ? 'Model ID' : 'ID del Modelo'}
-                </label>
-                <input
-                  type="text"
-                  className="w-full p-2.5 border border-gray-300 rounded-lg bg-white text-black focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm font-mono"
-                  value={customModel}
-                  onChange={(e) => setCustomModel(e.target.value)}
-                  placeholder="ej. gpt-4o, claude-sonnet"
-                />
-              </div>
-            </div>
-          )}
-
           {/* API Key */}
           <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
             <label className="text-xs font-bold text-gray-600 uppercase tracking-wider block mb-1.5">

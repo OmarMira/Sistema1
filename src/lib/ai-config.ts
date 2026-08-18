@@ -1,6 +1,12 @@
 import { db } from '@/lib/db';
 import { decrypt, encrypt } from '@/lib/crypto';
-import { AI_CONFIG } from '@/lib/constants/ai-config';
+import {
+  AI_CONFIG,
+  AiProviderReconfigurationError,
+  isCanonicalAiBaseUrl,
+  providerIdForCanonicalBaseUrl,
+  type ProviderId,
+} from '@/lib/constants/ai-config';
 import { logger } from '@/lib/logger';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -9,6 +15,7 @@ export interface AiConfig {
   apiKey: string;
   model: string;
   baseUrl: string;
+  providerId: ProviderId;
 }
 
 // ─── In-memory cache ─────────────────────────────────────────────────────────
@@ -75,11 +82,18 @@ export async function getAiConfig(): Promise<AiConfig> {
   if (encryptedKey && model && baseUrl) {
     try {
       const apiKey = decrypt(encryptedKey);
-      _cached = { apiKey, model, baseUrl };
+      const providerId = providerIdForCanonicalBaseUrl(baseUrl);
+      if (!providerId) {
+        // Legacy/custom baseUrl stored before the provider allowlist: fail closed.
+        // Never return it for egress, never remap it silently to another provider.
+        throw new AiProviderReconfigurationError();
+      }
+      _cached = { apiKey, model, baseUrl, providerId };
       _cachedAt = now;
-      logger.info('[AI CONFIG] Decrypted OK', { model, baseUrl });
+      logger.info('[AI CONFIG] Decrypted OK', { model, baseUrl, providerId });
       return _cached;
     } catch (err) {
+      if (err instanceof AiProviderReconfigurationError) throw err;
       const errMsg = err instanceof Error ? err.message : String(err);
       logger.error('[AI CONFIG] Failed to decrypt stored key', { error: errMsg });
       throw new Error(
@@ -98,6 +112,12 @@ export async function getAiConfig(): Promise<AiConfig> {
   logger.info('[AI CONFIG] Env fallback', { hasEnvApiKey: !!envApiKey });
 
   if (envApiKey) {
+    if (!isCanonicalAiBaseUrl(envBaseUrl)) {
+      // Legacy env baseUrl is not on the allowlist: fail closed and do not seed it.
+      throw new AiProviderReconfigurationError();
+    }
+    const providerId = providerIdForCanonicalBaseUrl(envBaseUrl) ?? 'openrouter';
+
     // Seed DB so future reads don't depend on env
     try {
       const reEncrypted = encrypt(envApiKey);
@@ -110,7 +130,7 @@ export async function getAiConfig(): Promise<AiConfig> {
       logger.warn('[AI CONFIG] Failed to seed DB from env', { error: String(err) });
     }
 
-    _cached = { apiKey: envApiKey, model: envModel, baseUrl: envBaseUrl };
+    _cached = { apiKey: envApiKey, model: envModel, baseUrl: envBaseUrl, providerId };
     _cachedAt = now;
     return _cached;
   }
@@ -123,7 +143,8 @@ export async function getAiConfig(): Promise<AiConfig> {
 
 /**
  * Persist AI configuration to DB and invalidate the in-memory cache.
- * Does NOT mutate process.env — the caller is responsible for that if needed.
+ * Only canonical provider base URLs are accepted; arbitrary destinations fail closed.
+ * Does NOT mutate process.env.
  */
 export async function setAiConfig(config: {
   apiKey: string;
@@ -133,9 +154,12 @@ export async function setAiConfig(config: {
   if (!config.apiKey || config.apiKey.trim().length < 8) {
     throw new Error('API key must be at least 8 characters');
   }
+  const baseUrl = config.baseUrl || AI_CONFIG.BASE_URL;
+  if (!isCanonicalAiBaseUrl(baseUrl)) {
+    throw new AiProviderReconfigurationError();
+  }
   const encryptedKey = encrypt(config.apiKey);
   const model = config.model || AI_CONFIG.DEFAULT_MODEL;
-  const baseUrl = config.baseUrl || AI_CONFIG.BASE_URL;
 
   await Promise.all([
     setDbValue(KEY_ENCRYPTED_KEY, encryptedKey),
@@ -149,7 +173,7 @@ export async function setAiConfig(config: {
 // ─── Startup integrity check ────────────────────────────────────────────────
 
 export interface AiConfigHealth {
-  status: 'OK' | 'CORRUPTED' | 'MISSING';
+  status: 'OK' | 'CORRUPTED' | 'MISSING' | 'RECONFIGURATION';
   code: string;
   detail: string;
 }
@@ -171,6 +195,13 @@ export async function checkAiConfigIntegrity(): Promise<AiConfigHealth> {
     logger.info('[AI CONFIG] Integrity check passed', { model: config.model });
     return { status: 'OK', code: 'AI_CONFIG_OK', detail: 'AI configuration is valid' };
   } catch (err) {
+    if (err instanceof AiProviderReconfigurationError) {
+      return {
+        status: 'RECONFIGURATION',
+        code: 'AI_PROVIDER_RECONFIGURATION_REQUIRED',
+        detail: 'Stored AI provider is no longer supported. Re-save the configuration selecting one of the allowed providers.',
+      };
+    }
     const msg = err instanceof Error ? err.message : String(err);
     if (msg.includes('decrypt') || msg.includes('SESSION_SECRET')) {
       return { status: 'CORRUPTED', code: 'AI_CONFIG_CORRUPTED', detail: 'Stored API key could not be decrypted' };

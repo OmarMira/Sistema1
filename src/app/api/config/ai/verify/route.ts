@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { AI_CONFIG } from '@/lib/constants/ai-config';
+import {
+  AI_CONFIG,
+  AiProviderReconfigurationError,
+  isCanonicalAiBaseUrl,
+  resolveProviderBaseUrl,
+  resolveProviderDefaultModel,
+} from '@/lib/constants/ai-config';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { requireGlobalAdminRole } from '@/lib/rbac';
@@ -11,13 +17,46 @@ export const POST = apiHandler(
     await requireGlobalAdminRole(userId);
 
     try {
-      const { apiKey, model, baseUrl } = await request.json();
+      const { apiKey, model, baseUrl, providerId } = await request.json();
       if (!apiKey) {
         return NextResponse.json({ error: 'La clave no puede estar vacía' }, { status: 400 });
       }
 
-      const modelToVerify = model || AI_CONFIG.DEFAULT_MODEL;
-      const baseUrlToUse = baseUrl || AI_CONFIG.BASE_URL;
+      // Fail closed: a baseUrl supplied by the client must be canonical.
+      // An arbitrary baseUrl can never become the network destination.
+      if (typeof baseUrl === 'string' && baseUrl.trim() && !isCanonicalAiBaseUrl(baseUrl.trim())) {
+        return NextResponse.json(
+          {
+            error: 'URL de IA no permitida. El servidor solo acepta los endpoints canónicos de los proveedores soportados.',
+            code: 'AI_PROVIDER_RECONFIGURATION_REQUIRED',
+          },
+          { status: 400 },
+        );
+      }
+
+      let baseUrlToUse: string;
+      if (typeof providerId === 'string' && providerId.trim()) {
+        try {
+          baseUrlToUse = resolveProviderBaseUrl(providerId.trim());
+        } catch (err) {
+          if (err instanceof AiProviderReconfigurationError) {
+            return NextResponse.json(
+              { error: 'Proveedor de IA no permitido. Seleccioná uno de los proveedores soportados.', code: err.code },
+              { status: 400 },
+            );
+          }
+          throw err;
+        }
+      } else if (typeof baseUrl === 'string' && baseUrl.trim()) {
+        baseUrlToUse = baseUrl.trim();
+      } else {
+        baseUrlToUse = AI_CONFIG.BASE_URL;
+      }
+
+      const modelToVerify =
+        model ||
+        (typeof providerId === 'string' ? resolveProviderDefaultModel(providerId) : undefined) ||
+        AI_CONFIG.DEFAULT_MODEL;
 
       const res = await safeFetch(`${baseUrlToUse}/chat/completions`, {
         method: 'POST',

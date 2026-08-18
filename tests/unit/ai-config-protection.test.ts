@@ -84,19 +84,6 @@ vi.mock('@/lib/crypto', async () => {
   return { encrypt, decrypt };
 });
 
-vi.mock('@/lib/constants/ai-config', () => ({
-  AI_CONFIG: {
-    DEFAULT_MODEL: 'default-model',
-    BASE_URL: 'https://default.url',
-    STORAGE_KEYS: {
-      ENCRYPTED_KEY: 'ai_encrypted_key',
-      MODEL: 'ai_model',
-      BASE_URL: 'ai_base_url',
-    },
-    STORAGE_KEYS_SET: new Set(['ai_encrypted_key', 'ai_model', 'ai_base_url']),
-  },
-}));
-
 // ─── Tests ─────────────────────────────────────────────────────────────────
 
 describe('AI Config Protection', () => {
@@ -137,26 +124,26 @@ describe('AI Config Protection', () => {
   describe('full-write semantics (setAiConfig always writes all three fields)', () => {
     it('re-saving same apiKey with different baseUrl updates only baseUrl', async () => {
       const { setAiConfig, getAiConfig } = await import('@/lib/ai-config');
-      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://original.url' });
+      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://api.deepseek.com/v1' });
 
       const originalKey = (await getAiConfig()).apiKey;
 
       const { clearAiConfigCache } = await import('@/lib/ai-config');
       clearAiConfigCache();
-      await setAiConfig({ apiKey: 'sk-valid-key-12345', baseUrl: 'https://new.url' });
+      await setAiConfig({ apiKey: 'sk-valid-key-12345', baseUrl: 'https://api.anthropic.com/v1' });
 
       const after = await getAiConfig();
       expect(after.apiKey).toBe(originalKey);
-      expect(after.baseUrl).toBe('https://new.url');
+      expect(after.baseUrl).toBe('https://api.anthropic.com/v1');
     });
 
     it('re-saving same apiKey with different model updates only model', async () => {
       const { setAiConfig, getAiConfig } = await import('@/lib/ai-config');
-      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://url.com' });
+      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://openrouter.ai/api/v1' });
 
       const { clearAiConfigCache } = await import('@/lib/ai-config');
       clearAiConfigCache();
-      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-5', baseUrl: 'https://url.com' });
+      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-5', baseUrl: 'https://openrouter.ai/api/v1' });
 
       const after = await getAiConfig();
       expect(after.apiKey).toBe('sk-valid-key-12345');
@@ -261,7 +248,7 @@ describe('AI Config Protection', () => {
 
     it('returns OK when config is valid', async () => {
       const { setAiConfig, clearAiConfigCache, checkAiConfigIntegrity } = await import('@/lib/ai-config');
-      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://api.test.com' });
+      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://openrouter.ai/api/v1' });
       clearAiConfigCache();
       const result = await checkAiConfigIntegrity();
       expect(result.code).toBe('AI_CONFIG_OK');
@@ -295,7 +282,7 @@ describe('AI Config Protection', () => {
       mockDb.systemConfig = [];
 
       const { setAiConfig, clearAiConfigCache } = await import('@/lib/ai-config');
-      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://test.url' });
+      await setAiConfig({ apiKey: 'sk-valid-key-12345', model: 'gpt-4', baseUrl: 'https://openrouter.ai/api/v1' });
       clearAiConfigCache();
 
       const { GET } = await import('@/app/api/config/ai/route');
@@ -314,5 +301,235 @@ describe('AI Config Protection', () => {
       expect(typeof body.apiKey).toBe('string');
       expect(body.apiKey).not.toContain('sk-valid-key-12345');
     });
+  });
+
+  describe('AI provider allowlist (canonical server-side source of truth)', () => {
+    describe('resolveProviderBaseUrl', () => {
+      it('maps every allowed providerId to its exact canonical baseUrl', async () => {
+        const { resolveProviderBaseUrl } = await import('@/lib/constants/ai-config');
+        expect(resolveProviderBaseUrl('openrouter')).toBe('https://openrouter.ai/api/v1');
+        expect(resolveProviderBaseUrl('deepseek')).toBe('https://api.deepseek.com/v1');
+        expect(resolveProviderBaseUrl('anthropic')).toBe('https://api.anthropic.com/v1');
+        expect(resolveProviderBaseUrl('openai')).toBe('https://api.openai.com/v1');
+        expect(resolveProviderBaseUrl('google')).toBe('https://generativelanguage.googleapis.com/v1beta/openai');
+      });
+
+      it('rejects an unknown providerId with AI_PROVIDER_RECONFIGURATION_REQUIRED', async () => {
+        const { resolveProviderBaseUrl, AiProviderReconfigurationError } = await import('@/lib/constants/ai-config');
+        for (const id of ['mystery-provider', 'openrouter-extra', '']) {
+          try {
+            resolveProviderBaseUrl(id);
+            expect.fail(`should have thrown for '${id}'`);
+          } catch (err) {
+            expect(err).toBeInstanceOf(AiProviderReconfigurationError);
+            expect((err as AiProviderReconfigurationError).code).toBe('AI_PROVIDER_RECONFIGURATION_REQUIRED');
+          }
+        }
+      });
+
+      it('rejects the removed custom provider', async () => {
+        const { resolveProviderBaseUrl, AiProviderReconfigurationError } = await import('@/lib/constants/ai-config');
+        expect(() => resolveProviderBaseUrl('custom')).toThrow(AiProviderReconfigurationError);
+      });
+    });
+
+    describe('isCanonicalAiBaseUrl', () => {
+      it('accepts exactly the five canonical baseUrls', async () => {
+        const { isCanonicalAiBaseUrl } = await import('@/lib/constants/ai-config');
+        for (const url of [
+          'https://openrouter.ai/api/v1',
+          'https://api.deepseek.com/v1',
+          'https://api.anthropic.com/v1',
+          'https://api.openai.com/v1',
+          'https://generativelanguage.googleapis.com/v1beta/openai',
+        ]) {
+          expect(isCanonicalAiBaseUrl(url)).toBe(true);
+        }
+      });
+
+      it('rejects arbitrary, legacy and empty baseUrls', async () => {
+        const { isCanonicalAiBaseUrl } = await import('@/lib/constants/ai-config');
+        for (const url of [
+          'https://public.example.com',
+          'https://legacy.custom.example.com/v1',
+          'https://openrouter.ai',
+          'https://openrouter.ai/api/v1/',
+          '',
+          'not-a-url',
+        ]) {
+          expect(isCanonicalAiBaseUrl(url)).toBe(false);
+        }
+      });
+    });
+
+    describe('providerIdForCanonicalBaseUrl', () => {
+      it('maps a canonical baseUrl back to its providerId', async () => {
+        const { providerIdForCanonicalBaseUrl } = await import('@/lib/constants/ai-config');
+        expect(providerIdForCanonicalBaseUrl('https://api.openai.com/v1')).toBe('openai');
+        expect(providerIdForCanonicalBaseUrl('https://openrouter.ai/api/v1')).toBe('openrouter');
+      });
+
+      it('returns null for non-canonical baseUrls', async () => {
+        const { providerIdForCanonicalBaseUrl } = await import('@/lib/constants/ai-config');
+        expect(providerIdForCanonicalBaseUrl('https://public.example.com')).toBeNull();
+        expect(providerIdForCanonicalBaseUrl('')).toBeNull();
+      });
+    });
+
+    describe('read-time mapping and fail-closed for persisted configs', () => {
+      it('maps a persisted canonical baseUrl to its providerId at read time', async () => {
+        const { encrypt } = await import('@/lib/crypto');
+        const { getAiConfig, clearAiConfigCache } = await import('@/lib/ai-config');
+
+        mockDb.systemConfig = [
+          { key: 'ai_encrypted_key', value: encrypt('sk-valid-key-12345') },
+          { key: 'ai_model', value: 'gpt-4o-mini' },
+          { key: 'ai_base_url', value: 'https://api.openai.com/v1' },
+        ];
+        clearAiConfigCache();
+
+        const config = await getAiConfig();
+        expect(config.providerId).toBe('openai');
+        expect(config.baseUrl).toBe('https://api.openai.com/v1');
+        expect(config.apiKey).toBe('sk-valid-key-12345');
+      });
+
+      it('fails closed when a persisted baseUrl is not on the allowlist', async () => {
+        const { encrypt } = await import('@/lib/crypto');
+        const { getAiConfig, clearAiConfigCache } = await import('@/lib/ai-config');
+        const { AiProviderReconfigurationError } = await import('@/lib/constants/ai-config');
+
+        mockDb.systemConfig = [
+          { key: 'ai_encrypted_key', value: encrypt('sk-valid-key-12345') },
+          { key: 'ai_model', value: 'legacy-model' },
+          { key: 'ai_base_url', value: 'https://legacy.custom.example.com/v1' },
+        ];
+        clearAiConfigCache();
+
+        await expect(getAiConfig()).rejects.toBeInstanceOf(AiProviderReconfigurationError);
+      });
+
+      it('reconfiguration error never leaks the stored API key', async () => {
+        const { encrypt } = await import('@/lib/crypto');
+        const { getAiConfig, clearAiConfigCache } = await import('@/lib/ai-config');
+
+        mockDb.systemConfig = [
+          { key: 'ai_encrypted_key', value: encrypt('sk-super-secret-1234567890') },
+          { key: 'ai_model', value: 'legacy-model' },
+          { key: 'ai_base_url', value: 'https://legacy.custom.example.com/v1' },
+        ];
+        clearAiConfigCache();
+
+        try {
+          await getAiConfig();
+          expect.fail('should have thrown');
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          expect(message).not.toContain('sk-super-secret-1234567890');
+        }
+      });
+
+      it('checkAiConfigIntegrity reports RECONFIGURATION for a legacy provider', async () => {
+        const { encrypt } = await import('@/lib/crypto');
+        const { checkAiConfigIntegrity, clearAiConfigCache } = await import('@/lib/ai-config');
+
+        mockDb.systemConfig = [
+          { key: 'ai_encrypted_key', value: encrypt('sk-valid-key-12345') },
+          { key: 'ai_model', value: 'legacy-model' },
+          { key: 'ai_base_url', value: 'https://legacy.custom.example.com/v1' },
+        ];
+        clearAiConfigCache();
+
+        const result = await checkAiConfigIntegrity();
+        expect(result.status).toBe('RECONFIGURATION');
+        expect(result.code).toBe('AI_PROVIDER_RECONFIGURATION_REQUIRED');
+      });
+
+      it('setAiConfig rejects a non-canonical baseUrl (fail closed, nothing persisted)', async () => {
+        const { setAiConfig } = await import('@/lib/ai-config');
+        const { AiProviderReconfigurationError } = await import('@/lib/constants/ai-config');
+
+        await expect(
+          setAiConfig({ apiKey: 'sk-valid-key-12345', baseUrl: 'https://evil.example.com' }),
+        ).rejects.toBeInstanceOf(AiProviderReconfigurationError);
+        expect(mockDb.systemConfig).toHaveLength(0);
+      });
+    });
+  });
+});
+
+describe('config/ai POST — provider allowlist and no env mutation', () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    mockDb.systemConfig = [];
+    vi.clearAllMocks();
+    process.env = { ...originalEnv };
+    process.env.AI_API_KEY = 'env-original-key';
+    delete process.env.AI_MODEL;
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  async function postConfig(body: string) {
+    const { POST } = await import('@/app/api/config/ai/route');
+    const req = new Request('http://localhost/api/config/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    return POST(req as never, {} as never);
+  }
+
+  it('accepts a canonical providerId, persists the canonical baseUrl and does not mutate process.env', async () => {
+    const res = await postConfig(
+      JSON.stringify({ providerId: 'openrouter', apiKey: 'sk-valid-key-12345', model: 'openrouter/free' }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.providerId).toBe('openrouter');
+    expect(process.env.AI_API_KEY).toBe('env-original-key');
+    expect(process.env.AI_MODEL).toBeUndefined();
+
+    const storedBaseUrl = mockDb.systemConfig?.find((r) => r.key === 'ai_base_url');
+    expect(storedBaseUrl?.value).toBe('https://openrouter.ai/api/v1');
+  });
+
+  it('rejects an unknown providerId with 400 and AI_PROVIDER_RECONFIGURATION_REQUIRED', async () => {
+    const res = await postConfig(
+      JSON.stringify({ providerId: 'mystery-provider', apiKey: 'sk-valid-key-12345' }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('AI_PROVIDER_RECONFIGURATION_REQUIRED');
+    expect(mockDb.systemConfig).toHaveLength(0);
+  });
+
+  it('rejects the removed custom provider with 400', async () => {
+    const res = await postConfig(
+      JSON.stringify({ providerId: 'custom', apiKey: 'sk-valid-key-12345' }),
+    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('AI_PROVIDER_RECONFIGURATION_REQUIRED');
+  });
+
+  it('rejects an arbitrary baseUrl without persisting it', async () => {
+    const res = await postConfig(
+      JSON.stringify({ apiKey: 'sk-valid-key-12345', baseUrl: 'https://public.example.com' }),
+    );
+    expect(res.status).toBe(400);
+    expect(mockDb.systemConfig).toHaveLength(0);
+  });
+
+  it('accepts a legacy canonical baseUrl and maps it to the providerId', async () => {
+    const res = await postConfig(
+      JSON.stringify({ apiKey: 'sk-valid-key-12345', baseUrl: 'https://api.deepseek.com/v1' }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.providerId).toBe('deepseek');
   });
 });

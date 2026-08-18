@@ -37,6 +37,24 @@ function mockHttpsResponseOnce(
   );
 }
 
+async function callVerifyWithBody(userId: string, mockHttp: boolean, body: string) {
+  if (mockHttp) {
+    mockDnsPublic();
+    mockHttpsResponseOnce(200, {});
+  }
+  const token = await createSession(userId);
+  const req = new NextRequest('http://localhost/api/config/ai/verify', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body,
+  });
+  const { POST } = await import('@/app/api/config/ai/verify/route');
+  return POST(req, { params: Promise.resolve({}) });
+}
+
 describe('G4-RC1 — SSRF: safe-fetch URL policy', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -346,25 +364,11 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
   });
 
   async function callVerify(userId: string, mockHttp: boolean) {
-    return callVerifyWithBase(userId, mockHttp, 'https://public.example.com');
-  }
-
-  async function callVerifyWithBase(userId: string, mockHttp: boolean, baseUrl: string) {
-    if (mockHttp) {
-      mockDnsPublic();
-      mockHttpsResponseOnce(200, {});
-    }
-    const token = await createSession(userId);
-    const req = new NextRequest('http://localhost/api/config/ai/verify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ apiKey: 'sk-test-api-key', baseUrl }),
-    });
-    const { POST } = await import('@/app/api/config/ai/verify/route');
-    return POST(req, { params: Promise.resolve({}) });
+    return callVerifyWithBody(
+      userId,
+      mockHttp,
+      JSON.stringify({ apiKey: 'sk-test-api-key', providerId: 'openrouter' }),
+    );
   }
 
   it('A: User.role=super_admin — access granted to global AI config', async () => {
@@ -460,5 +464,102 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify authorization gate', () => {
     const res = await POST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(403);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('G4-RC1 — SSRF: /api/config/ai/verify provider allowlist', () => {
+  let createdCompanyIds: string[] = [];
+
+  beforeEach(async () => {
+    createdCompanyIds = [];
+    vi.restoreAllMocks();
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await clearDatabase();
+    if (createdCompanyIds.length) {
+      await db.companyMember.deleteMany({ where: { companyId: { in: createdCompanyIds } } }).catch(() => {});
+      await db.company.deleteMany({ where: { id: { in: createdCompanyIds } } }).catch(() => {});
+    }
+  });
+
+  async function createVerifyAdmin() {
+    return db.user.create({
+      data: {
+        email: 'g4-verify-admin@example.com',
+        passwordHash: 'hashed_password_placeholder',
+        firstName: 'Test',
+        lastName: 'Admin',
+        role: 'super_admin',
+      },
+    });
+  }
+
+  it('rejects an unknown providerId with 400 and no outbound request', async () => {
+    const user = await createVerifyAdmin();
+    const httpsSpy = mockHttpsResponseOnce(200, {});
+    const res = await callVerifyWithBody(
+      user.id,
+      false,
+      JSON.stringify({ apiKey: 'sk-test-api-key', providerId: 'mystery-provider' }),
+    );
+    expect(res.status).toBe(400);
+    expect(httpsSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects the removed custom provider with 400', async () => {
+    const user = await createVerifyAdmin();
+    const httpsSpy = mockHttpsResponseOnce(200, {});
+    const res = await callVerifyWithBody(
+      user.id,
+      false,
+      JSON.stringify({ apiKey: 'sk-test-api-key', providerId: 'custom' }),
+    );
+    expect(res.status).toBe(400);
+    expect(httpsSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects an arbitrary baseUrl and never sends the API key to it', async () => {
+    const user = await createVerifyAdmin();
+    const httpsSpy = mockHttpsResponseOnce(200, {});
+    const res = await callVerifyWithBody(
+      user.id,
+      false,
+      JSON.stringify({ apiKey: 'sk-test-api-key', baseUrl: 'https://public.example.com' }),
+    );
+    expect(res.status).toBe(400);
+    expect(httpsSpy).not.toHaveBeenCalled();
+  });
+
+  it('rejects a valid providerId paired with an arbitrary baseUrl (never silently redirects)', async () => {
+    const user = await createVerifyAdmin();
+    const httpsSpy = mockHttpsResponseOnce(200, {});
+    const res = await callVerifyWithBody(
+      user.id,
+      false,
+      JSON.stringify({
+        apiKey: 'sk-test-api-key',
+        providerId: 'openrouter',
+        baseUrl: 'https://public.example.com',
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(httpsSpy).not.toHaveBeenCalled();
+  });
+
+  it('hits only the canonical endpoint resolved from providerId via safeFetch', async () => {
+    const user = await createVerifyAdmin();
+    mockDnsPublic();
+    const httpsSpy = mockHttpsResponseOnce(200, {});
+    const res = await callVerifyWithBody(
+      user.id,
+      false,
+      JSON.stringify({ apiKey: 'sk-test-api-key', providerId: 'openrouter' }),
+    );
+    expect(res.status).toBe(200);
+    expect(httpsSpy).toHaveBeenCalledTimes(1);
+    expect(String(httpsSpy.mock.calls[0][0])).toBe('https://openrouter.ai/api/v1/chat/completions');
   });
 });

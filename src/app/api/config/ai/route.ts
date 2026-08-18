@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { requireGlobalAdminRole } from '@/lib/rbac';
-import { safeFetch, validateSafeUrl } from '@/lib/security/safe-fetch';
+import { safeFetch } from '@/lib/security/safe-fetch';
 import { getAiConfig, setAiConfig } from '@/lib/ai-config';
-import { AI_CONFIG } from '@/lib/constants/ai-config';
+import {
+  AI_CONFIG,
+  AiProviderReconfigurationError,
+  isCanonicalAiBaseUrl,
+  providerIdForCanonicalBaseUrl,
+  resolveProviderBaseUrl,
+} from '@/lib/constants/ai-config';
 import { logger } from '@/lib/logger';
 
 export const GET = apiHandler(
@@ -19,7 +25,7 @@ export const GET = apiHandler(
           ? config.apiKey.slice(0, 4) + '...' + config.apiKey.slice(-4)
           : '...';
 
-      logger.info('[AI CONFIG GET]', { model: config.model, baseUrl: config.baseUrl });
+      logger.info('[AI CONFIG GET]', { model: config.model, baseUrl: config.baseUrl, providerId: config.providerId });
 
       let aiAlive = false;
       try {
@@ -42,8 +48,24 @@ export const GET = apiHandler(
         aiAlive = false;
       }
 
-      return NextResponse.json({ isSaved: true, apiKey: maskedKey, model: config.model, baseUrl: config.baseUrl, aiAlive });
+      return NextResponse.json({
+        isSaved: true,
+        apiKey: maskedKey,
+        model: config.model,
+        baseUrl: config.baseUrl,
+        providerId: config.providerId,
+        aiAlive,
+      });
     } catch (err) {
+      if (err instanceof AiProviderReconfigurationError) {
+        logger.warn('[AI CONFIG GET] Legacy provider requires reconfiguration');
+        return NextResponse.json({
+          isSaved: true,
+          needsReconfiguration: true,
+          code: 'AI_PROVIDER_RECONFIGURATION_REQUIRED',
+          aiAlive: false,
+        });
+      }
       logger.error('[AI CONFIG GET] Failed to load config', { error: err instanceof Error ? err.message : String(err) });
       return NextResponse.json({ isSaved: false });
     }
@@ -57,30 +79,49 @@ export const POST = apiHandler(
     await requireGlobalAdminRole(userId);
 
     try {
-      const { apiKey, model, baseUrl } = await request.json();
+      const { apiKey, model, baseUrl, providerId } = await request.json();
       if (!apiKey) {
         return NextResponse.json({ error: 'La clave no puede estar vacía' }, { status: 400 });
       }
 
-      if (typeof baseUrl === 'string' && baseUrl.trim()) {
-        try {
-          await validateSafeUrl(`${baseUrl}/chat/completions`);
-        } catch {
-          return NextResponse.json(
-            { error: 'URL de IA no permitida: destino inválido' },
-            { status: 400 },
-          );
-        }
+      // Fail closed: a baseUrl supplied by the client must be canonical.
+      // An arbitrary baseUrl is never persisted as the network destination.
+      if (typeof baseUrl === 'string' && baseUrl.trim() && !isCanonicalAiBaseUrl(baseUrl.trim())) {
+        return NextResponse.json(
+          {
+            error: 'URL de IA no permitida. El servidor solo acepta los endpoints canónicos de los proveedores soportados.',
+            code: 'AI_PROVIDER_RECONFIGURATION_REQUIRED',
+          },
+          { status: 400 },
+        );
       }
 
-      // Persist to DB — encrypts internally via setAiConfig
-      await setAiConfig({ apiKey, model, baseUrl });
+      let resolvedBaseUrl: string;
+      if (typeof providerId === 'string' && providerId.trim()) {
+        try {
+          resolvedBaseUrl = resolveProviderBaseUrl(providerId.trim());
+        } catch (err) {
+          if (err instanceof AiProviderReconfigurationError) {
+            return NextResponse.json(
+              { error: 'Proveedor de IA no permitido. Seleccioná uno de los proveedores soportados.', code: err.code },
+              { status: 400 },
+            );
+          }
+          throw err;
+        }
+      } else if (typeof baseUrl === 'string' && baseUrl.trim()) {
+        resolvedBaseUrl = baseUrl.trim();
+      } else {
+        resolvedBaseUrl = AI_CONFIG.BASE_URL;
+      }
 
-      // Also mutate process.env for immediate in-process effect
-      process.env.AI_API_KEY = apiKey;
-      process.env.AI_MODEL = model || process.env.AI_MODEL;
+      // Persist to DB — encrypts internally via setAiConfig and clears the cache.
+      await setAiConfig({ apiKey, model, baseUrl: resolvedBaseUrl });
 
-      return NextResponse.json({ success: true });
+      return NextResponse.json({
+        success: true,
+        providerId: providerIdForCanonicalBaseUrl(resolvedBaseUrl),
+      });
     } catch (error) {
       console.error('Error saving AI configuration:', error);
       return NextResponse.json(

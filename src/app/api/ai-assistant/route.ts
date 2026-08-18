@@ -59,7 +59,7 @@ const RequestBodySchema = z.object({
   history: z
     .array(
       z.object({
-        role: z.enum(['user', 'assistant', 'system']),
+        role: z.enum(['user', 'assistant']),
         content: z.string(),
       }),
     )
@@ -1097,6 +1097,17 @@ async function handleChat(
     });
   }
 
+  if (history && Array.isArray(history)) {
+    for (const h of history) {
+      const historyGuardrail = checkPromptInjection(h.content);
+      if (!historyGuardrail.passed) {
+        return NextResponse.json({
+          reply: 'Lo siento, no puedo procesar ese mensaje. Contenido no permitido detectado.',
+        });
+      }
+    }
+  }
+
   // Check if AI API key is configured (non-blocking — we still try to call the model)
   let apiKeyMissing = false;
   try {
@@ -1245,6 +1256,17 @@ async function handleCreateRule(
     return NextResponse.json({
       reply: 'Lo siento, no puedo procesar ese mensaje. Contenido no permitido detectado.',
     });
+  }
+
+  if (history && Array.isArray(history)) {
+    for (const h of history) {
+      const historyGuardrail = checkPromptInjection(h.content);
+      if (!historyGuardrail.passed) {
+        return NextResponse.json({
+          reply: 'Lo siento, no puedo procesar ese mensaje. Contenido no permitido detectado.',
+        });
+      }
+    }
   }
 
   // 1. Obtener el plan de cuentas de la empresa para inyectarlo en el prompt del sistema

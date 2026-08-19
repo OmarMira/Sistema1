@@ -35,14 +35,7 @@ export function FinancialAssistantPanel({ companyId }: { companyId: string }) {
     ? {
         userId: user.id,
         companyId,
-        role:
-          user.role === 'super_admin'
-            ? 'super_admin'
-            : tenantRole === 'company_admin'
-              ? 'admin'
-              : tenantRole === 'viewer'
-                ? 'viewer'
-                : (tenantRole ?? 'none'),
+        role: user.role === 'super_admin' ? 'super_admin' : (tenantRole ?? 'none'),
       }
     : null;
 

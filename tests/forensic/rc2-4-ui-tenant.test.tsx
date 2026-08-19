@@ -143,7 +143,7 @@ describe('RC2-4 UI — UsersPage uses tenant authority (CompanyMember.role)', ()
 });
 
 describe('RC2-4 UI — FinancialAssistantPanel uses active membership, not User.role', () => {
-  it('UI-6: role=user + membership company_admin -> RBAC role mapped to admin', async () => {
+  it('UI-6: role=user + membership company_admin -> RBAC role passed as company_admin', async () => {
     storeState.user = { id: 'u1', role: 'user', firstName: 'Tenant', lastName: 'Panel' };
     storeState.activeCompany = { id: 'co1', role: 'company_admin' };
     rbacCalls.length = 0;
@@ -159,7 +159,7 @@ describe('RC2-4 UI — FinancialAssistantPanel uses active membership, not User.
       </QueryClientProvider>,
     );
     log('UI-6: useRBAC calls =', JSON.stringify(rbacCalls));
-    expect(rbacCalls[0]?.role).toBe('admin');
+    expect(rbacCalls[0]?.role).toBe('company_admin');
     expect(rbacCalls[0]?.resource).toBe('reports');
     expect(rbacCalls[0]?.action).toBe('read');
   });
@@ -183,7 +183,7 @@ describe('RC2-4 UI — FinancialAssistantPanel uses active membership, not User.
     expect(rbacCalls[0]?.role).toBe('super_admin');
   });
 
-  it('UI-8: employee membership -> RBAC role employee (not in reports.read allowlist)', async () => {
+  it('UI-8: employee membership -> RBAC role employee, allowed by reports.read', async () => {
     storeState.user = { id: 'u1', role: 'user', firstName: 'Tenant', lastName: 'Employee' };
     storeState.activeCompany = { id: 'co1', role: 'employee' };
     rbacCalls.length = 0;

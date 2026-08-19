@@ -1,33 +1,33 @@
 {
   "version": "1.0",
-  "roles": ["super_admin", "admin", "accountant", "viewer"],
+  "roles": ["super_admin", "company_admin", "employee", "viewer"],
   "permissions": {
     "fiscal_periods": {
-      "create": ["super_admin", "admin"],
-      "update": ["super_admin", "admin"],
-      "close": ["super_admin", "accountant"],
-      "read": ["super_admin", "admin", "accountant", "viewer"]
+      "create": ["super_admin", "company_admin"],
+      "update": ["super_admin", "company_admin"],
+      "close": ["super_admin", "company_admin", "employee"],
+      "read": ["super_admin", "company_admin", "employee", "viewer"]
     },
     "journal_entries": {
-      "create": ["super_admin", "accountant"],
-      "post": ["super_admin", "accountant"],
+      "create": ["super_admin", "company_admin"],
+      "post": ["super_admin", "company_admin"],
       "delete": ["super_admin"],
-      "read": ["super_admin", "admin", "accountant", "viewer"]
+      "read": ["super_admin", "company_admin", "employee", "viewer"]
     },
     "bank_reconciliation": {
-      "link": ["super_admin", "accountant"],
-      "export": ["super_admin", "admin", "accountant"],
-      "read": ["super_admin", "admin", "accountant", "viewer"]
+      "link": ["super_admin", "company_admin", "employee"],
+      "export": ["super_admin", "company_admin", "employee", "viewer"],
+      "read": ["super_admin", "company_admin", "employee", "viewer"]
     },
     "reports": {
-      "export_pdf": ["super_admin", "admin", "accountant"],
-      "export_csv": ["super_admin", "admin", "accountant", "viewer"],
-      "read": ["super_admin", "admin", "accountant", "viewer"]
+      "export_pdf": ["super_admin", "company_admin", "employee", "viewer"],
+      "export_csv": ["super_admin", "company_admin", "employee", "viewer"],
+      "read": ["super_admin", "company_admin", "employee", "viewer"]
     },
     "system": {
       "backup_restore": ["super_admin"],
       "manage_rules": ["super_admin"],
-      "audit_view": ["super_admin", "admin"]
+      "audit_view": ["super_admin"]
     }
   },
   "security": {

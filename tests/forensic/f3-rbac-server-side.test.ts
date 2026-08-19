@@ -94,11 +94,40 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
     log('AFTER-ALL DB STATE: users =', leftoverUsers, '| rbac companies =', leftoverCompanies);
   });
 
-  it('Policy data point: rbac-config.json declares journal_entries.post for [super_admin,accountant], not viewer/employee', async () => {
+  it('Policy data point: rbac-config.json declares journal_entries.post for [super_admin,company_admin], not viewer/employee', async () => {
     const allowed = (config.permissions as Record<string, Record<string, string[]>>).journal_entries.post;
     log('RBAC CONFIG DATA POINT: journal_entries.post allowed roles =', JSON.stringify(allowed));
+    expect(allowed).toContain('super_admin');
+    expect(allowed).toContain('company_admin');
     expect(allowed).not.toContain('viewer');
     expect(allowed).not.toContain('employee');
+  });
+
+  it('Policy data point: rbac-config.json uses runtime vocabulary (no admin/accountant anywhere)', async () => {
+    const cfg = config as { roles: string[]; permissions: Record<string, Record<string, string[]>> };
+    expect([...cfg.roles].sort()).toEqual(['company_admin', 'employee', 'super_admin', 'viewer'].sort());
+    for (const resource of Object.values(cfg.permissions)) {
+      for (const allowed of Object.values(resource)) {
+        expect(allowed).not.toContain('admin');
+        expect(allowed).not.toContain('accountant');
+      }
+    }
+  });
+
+  it('Policy data point: resolved D1-H1 matrix is expressed in config', async () => {
+    const perms = (config as { permissions: Record<string, Record<string, string[]>> }).permissions;
+    const matrix: Array<[string, string, string[]]> = [
+      ['journal_entries', 'create', ['super_admin', 'company_admin']],
+      ['journal_entries', 'post', ['super_admin', 'company_admin']],
+      ['system', 'audit_view', ['super_admin']],
+      ['reports', 'read', ['super_admin', 'company_admin', 'employee', 'viewer']],
+      ['reports', 'export_pdf', ['super_admin', 'company_admin', 'employee', 'viewer']],
+      ['bank_reconciliation', 'link', ['super_admin', 'company_admin', 'employee']],
+      ['bank_reconciliation', 'export', ['super_admin', 'company_admin', 'employee', 'viewer']],
+    ];
+    for (const [r, a, expected] of matrix) {
+      expect([...(perms[r]?.[a] ?? [])].sort()).toEqual([...expected].sort());
+    }
   });
 
   it('viewer cannot POST a new journal entry (403)', async () => {

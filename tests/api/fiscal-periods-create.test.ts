@@ -45,7 +45,7 @@ describe('POST /api/fiscal-periods — inclusive end day (D4)', () => {
     mockGetSessionUserId.mockResolvedValue('user-1');
     mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
     mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
-    mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
+    mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1', role: 'company_admin' });
     mockCheckRateLimit.mockReturnValue({ allowed: true, limit: 100, remaining: 99, resetAt: Math.ceil(Date.now() / 1000) + 60 });
     mockDbPeriodFindMany.mockResolvedValue([]);
   });

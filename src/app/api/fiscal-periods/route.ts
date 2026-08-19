@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { companySettingsCache } from '@/lib/cache';
 import { serverT } from '@/lib/server-i18n';
 
 export const POST = apiHandler(async (req: NextRequest) => {
   const locale = req.headers.get('x-locale') || 'es';
   const { companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const { name, startDate, endDate } = await req.json();
 
   if (!name || !startDate || !endDate) {

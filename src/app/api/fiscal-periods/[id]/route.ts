@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { db } from '@/lib/db';
 import { companySettingsCache } from '@/lib/cache';
 
 export const PATCH = apiHandler(async (req: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const { id } = (await context.params) as { id: string };
   const { isLocked } = await req.json();
 

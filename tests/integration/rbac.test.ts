@@ -74,16 +74,20 @@ describe('requireCompanyRole — primitiva RBAC server-side', () => {
     );
   });
 
-  it('bloquea roles desconocidos con 403 (fail-closed)', async () => {
+  it('rechaza roles ajenos al enum CompanyRole en la capa de datos (fail-closed)', async () => {
     const user = await createTestUser('rbac-unknown@example.com');
     const company = await createTestCompany('RBAC Co');
-    await db.companyMember.create({
-      data: { userId: user.id, companyId: company.id, role: 'accountant' },
-    });
-
-    await expectForbidden(
-      runAs(user.id, company.id, () => requireCompanyRole(company.id, ALLOWED)),
-    );
+    // After P04-B, CompanyRole is a typed enum; the Prisma query engine rejects
+    // any value outside company_admin/employee/viewer before touching the DB.
+    await expect(
+      db.companyMember.create({
+        data: {
+          userId: user.id,
+          companyId: company.id,
+          role: 'accountant' as any,
+        },
+      }),
+    ).rejects.toThrow();
   });
 
   it('rechaza con 401 cuando no hay usuario autenticado en el contexto', async () => {

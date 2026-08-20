@@ -37,13 +37,24 @@ enum DecisionReason {
   FALLBACK_DEFAULT
 }
 
+enum PlatformRole {
+  user
+  super_admin
+}
+
+enum CompanyRole {
+  company_admin
+  employee
+  viewer
+}
+
 model User {
   id                    String                 @id @default(cuid())
   email                 String                 @unique
   passwordHash          String
   firstName             String
   lastName              String
-  platformRole          String                 @default("user") @map("role")
+  platformRole          PlatformRole           @default(user) @map("role")
   isActive              Boolean                @default(true)
   phone                 String                 @default("")
   streetLine1           String                 @default("")
@@ -102,7 +113,7 @@ model CompanyMember {
   id        String   @id @default(cuid())
   userId    String
   companyId String
-  role      String   @default("company_admin")
+  role      CompanyRole @default(company_admin)
   joinedAt  DateTime @default(now())
   company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

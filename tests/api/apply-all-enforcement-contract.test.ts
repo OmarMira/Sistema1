@@ -80,7 +80,7 @@ function makeDecision(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSessionUserId.mockResolvedValue('user-1');
-  mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+  mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
   mockDbCompanyMemberFindUnique.mockResolvedValue({ userId: 'user-1', companyId: 'c1', role: 'company_admin' });
   mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
   mockCheckRateLimit.mockReturnValue({

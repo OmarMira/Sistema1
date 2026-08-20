@@ -100,7 +100,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Super',
         lastName: 'Admin',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
 

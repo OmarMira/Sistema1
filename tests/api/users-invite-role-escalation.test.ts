@@ -94,31 +94,31 @@ describe('F-1 — company_admin cannot invite a global super_admin user (remedia
     const res = await inviteUser(token, company.id, inviteBody('f1-employee@example.com', 'employee'));
     const created = await db.user.findUnique({
       where: { email: 'f1-employee@example.com' },
-      select: { role: true, companyMemberships: { select: { role: true } } },
+      select: { platformRole: true, companyMemberships: { select: { role: true } } },
     });
 
-    log('Q2: company_admin invites role=employee -> status =', res.status, '| global role =', created?.role, '| membership =', created?.companyMemberships[0]?.role);
+    log('Q2: company_admin invites role=employee -> status =', res.status, '| global role =', created?.platformRole, '| membership =', created?.companyMemberships[0]?.role);
     expect(res.status).toBe(201);
-    expect(created?.role).toBe('user');
+    expect(created?.platformRole).toBe('user');
     expect(created?.companyMemberships[0]?.role).toBe('employee');
   });
 
   it('Q3: super_admin POST /api/admin/users with role=super_admin is accepted (201) — global admin flow intact', async () => {
     const superAdmin = await createTestUser('f1-super@example.com');
-    await db.user.update({ where: { id: superAdmin.id }, data: { role: 'super_admin' } });
+    await db.user.update({ where: { id: superAdmin.id }, data: { platformRole: 'super_admin' } });
     const token = await createSession(superAdmin.id);
 
     const res = await adminCreateUser(token, inviteBody('f1-new-super@example.com', 'super_admin'));
     const created = await db.user.findUnique({ where: { email: 'f1-new-super@example.com' } });
 
-    log('Q3: super_admin creates role=super_admin via /api/admin/users -> status =', res.status, '| role stored =', created?.role);
+    log('Q3: super_admin creates role=super_admin via /api/admin/users -> status =', res.status, '| role stored =', created?.platformRole);
     expect(res.status).toBe(201);
-    expect(created?.role).toBe('super_admin');
+    expect(created?.platformRole).toBe('super_admin');
   });
 
   it('Q4: super_admin POST /api/admin/users with role=viewer is rejected with 400 (User.role only user|super_admin)', async () => {
     const superAdmin = await createTestUser('f1-super2@example.com');
-    await db.user.update({ where: { id: superAdmin.id }, data: { role: 'super_admin' } });
+    await db.user.update({ where: { id: superAdmin.id }, data: { platformRole: 'super_admin' } });
     const token = await createSession(superAdmin.id);
 
     const res = await adminCreateUser(token, inviteBody('f1-new-viewer@example.com', 'viewer'));
@@ -137,16 +137,16 @@ describe('F-1 — company_admin cannot invite a global super_admin user (remedia
     const token = await createSession(actor.id);
 
     const res = await adminUpdateUser(token, victim.id);
-    const roleAfter = (await db.user.findUnique({ where: { id: victim.id } }))?.role;
+    const roleAfter = (await db.user.findUnique({ where: { id: victim.id } }))?.platformRole;
 
     log('Q5: company_admin PATCH /api/admin/users/[id] role=super_admin -> status =', res.status, '| victim role after =', roleAfter);
     expect(res.status).toBe(403);
-    expect(roleAfter).toBe('company_admin');
+    expect(roleAfter).toBe('user');
   });
 
   it('Q6: updateUserSchema rejects an unknown role with the standard validation contract (400)', async () => {
     const superAdmin = await createTestUser('f1-super3@example.com');
-    await db.user.update({ where: { id: superAdmin.id }, data: { role: 'super_admin' } });
+    await db.user.update({ where: { id: superAdmin.id }, data: { platformRole: 'super_admin' } });
     const victim = await createTestUser('f1-victim6@example.com');
     const token = await createSession(superAdmin.id);
 
@@ -159,11 +159,11 @@ describe('F-1 — company_admin cannot invite a global super_admin user (remedia
       { params: Promise.resolve({ id: victim.id }) },
     );
     const payload = await res.json();
-    const roleAfter = (await db.user.findUnique({ where: { id: victim.id } }))?.role;
+    const roleAfter = (await db.user.findUnique({ where: { id: victim.id } }))?.platformRole;
 
     log('Q6: super_admin PATCH with unknown role -> status =', res.status, '| error =', JSON.stringify(payload.error), '| role after =', roleAfter);
     expect(res.status).toBe(400);
     expect(payload.error).toBe('Validation failed');
-    expect(roleAfter).toBe('company_admin');
+    expect(roleAfter).toBe('user');
   });
 });

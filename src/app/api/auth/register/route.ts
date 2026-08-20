@@ -42,7 +42,7 @@ export const POST = apiHandler(
           email: result.user.email,
           firstName: result.user.firstName,
           lastName: result.user.lastName,
-          role: result.user.role,
+          role: result.user.platformRole,
         },
         companies: [
           {

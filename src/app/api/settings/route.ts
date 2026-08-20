@@ -82,7 +82,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
         email: true,
         firstName: true,
         lastName: true,
-        role: true,
+        platformRole: true,
         phone: true,
         streetLine1: true,
         streetLine2: true,
@@ -96,7 +96,23 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 
     return NextResponse.json({
       company: companyData.company,
-      user,
+      user: user
+        ? {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.platformRole,
+            phone: user.phone,
+            streetLine1: user.streetLine1,
+            streetLine2: user.streetLine2,
+            city: user.city,
+            state: user.state,
+            zipCode: user.zipCode,
+            avatar: user.avatar,
+            createdAt: user.createdAt,
+          }
+        : user,
       stats: companyData.stats,
       periods: companyData.periods,
     });

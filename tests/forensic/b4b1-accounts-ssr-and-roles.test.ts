@@ -157,7 +157,7 @@ describe('B4B1 — RC3: Accounts write routes require CompanyMember.role company
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Super',
         lastName: 'Admin',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
     const company = await createTestCompany('B4B1 Super Co');

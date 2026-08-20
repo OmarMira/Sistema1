@@ -44,7 +44,7 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',
         lastName: 'MeOne',
-        role: 'user',
+        platformRole: 'user',
       },
     });
     const companyA = await db.company.create({
@@ -95,7 +95,7 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',
         lastName: 'Super',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
     const c1 = await db.company.create({
@@ -161,7 +161,7 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',
         lastName: 'MeThree',
-        role: 'user',
+        platformRole: 'user',
       },
     });
     const activeCo = await db.company.create({
@@ -214,7 +214,7 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',
         lastName: 'Fresh',
-        role: 'user',
+        platformRole: 'user',
       },
     });
     const company = await db.company.create({

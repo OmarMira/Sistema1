@@ -15,11 +15,11 @@ export const GET = apiHandler(async (req: NextRequest) => {
   // (CompanyMember.role). super_admin bypasses without requiring a membership.
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { platformRole: true },
   });
 
   let accessPath = '';
-  if (user?.role === 'super_admin') {
+  if (user?.platformRole === 'super_admin') {
     accessPath = 'global_super_admin';
   } else {
     const member = await db.companyMember.findUnique({

@@ -54,10 +54,10 @@ function buildRequest(
   });
 }
 
-async function createUserWithPassword(email: string, password: string, role = 'company_admin') {
+async function createUserWithPassword(email: string, password: string, platformRole = 'user') {
   const passwordHash = await hashPassword(password);
   const user = await db.user.create({
-    data: { email, passwordHash, firstName: 'F8', lastName: 'Test', role },
+    data: { email, passwordHash, firstName: 'F8', lastName: 'Test', platformRole },
   });
   createdUserIds.add(user.id);
   return user;

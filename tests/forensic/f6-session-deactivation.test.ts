@@ -29,7 +29,7 @@ function authHeaders(token: string): Headers {
 }
 
 async function makeSuperAdmin(userId: string) {
-  return db.user.update({ where: { id: userId }, data: { role: 'super_admin' } });
+  return db.user.update({ where: { id: userId }, data: { platformRole: 'super_admin' } });
 }
 
 describe('F-6 — Session activity validation (deactivation must invalidate access)', () => {

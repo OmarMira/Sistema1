@@ -15,7 +15,7 @@ export const GET = apiHandler(
         email: true,
         firstName: true,
         lastName: true,
-        role: true,
+        platformRole: true,
         isActive: true,
         phone: true,
         streetLine1: true,
@@ -29,7 +29,12 @@ export const GET = apiHandler(
       orderBy: { createdAt: 'desc' },
     });
 
-    return NextResponse.json({ users });
+    return NextResponse.json({
+      users: users.map((u) => {
+        const { platformRole, ...rest } = u;
+        return { ...rest, role: platformRole };
+      }),
+    });
   },
   { requireSuperAdmin: true, requireMembership: false },
 );
@@ -77,7 +82,7 @@ export const POST = apiHandler(
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         passwordHash,
-        role,
+        platformRole: role,
         isActive: true,
         phone: phone || '',
         streetLine1: streetLine1 || '',
@@ -92,7 +97,7 @@ export const POST = apiHandler(
         email: true,
         firstName: true,
         lastName: true,
-        role: true,
+        platformRole: true,
         isActive: true,
         phone: true,
         streetLine1: true,
@@ -114,7 +119,8 @@ export const POST = apiHandler(
       },
     });
 
-    return NextResponse.json({ user: newUser }, { status: 201 });
+    const { platformRole, ...userPayload } = newUser;
+    return NextResponse.json({ user: { ...userPayload, role: platformRole } }, { status: 201 });
   },
   { requireSuperAdmin: true, requireMembership: false },
 );

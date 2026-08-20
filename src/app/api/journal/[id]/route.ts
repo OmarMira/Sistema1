@@ -16,9 +16,9 @@ async function requireActiveTenantAccessForEntry(
 ): Promise<void> {
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { platformRole: true },
   });
-  await requireActiveTenantAccess(entryCompanyId, { userId, role: user?.role ?? '' });
+  await requireActiveTenantAccess(entryCompanyId, { userId, role: user?.platformRole ?? '' });
 }
 
 // ─── GET /api/journal/[id] ──────────────────────────────────────────

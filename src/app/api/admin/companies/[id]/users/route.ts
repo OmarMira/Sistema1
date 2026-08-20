@@ -18,7 +18,7 @@ export const GET = apiHandler(
             email: true,
             firstName: true,
             lastName: true,
-            role: true,
+            platformRole: true,
             isActive: true,
           },
         },
@@ -32,12 +32,32 @@ export const GET = apiHandler(
         email: true,
         firstName: true,
         lastName: true,
-        role: true,
+        platformRole: true,
         isActive: true,
       },
     });
 
-    return NextResponse.json({ members, allUsers });
+    return NextResponse.json({
+      members: members.map((m) => ({
+        ...m,
+        user: {
+          id: m.user.id,
+          email: m.user.email,
+          firstName: m.user.firstName,
+          lastName: m.user.lastName,
+          role: m.user.platformRole,
+          isActive: m.user.isActive,
+        },
+      })),
+      allUsers: allUsers.map((u) => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        role: u.platformRole,
+        isActive: u.isActive,
+      })),
+    });
   },
   { requireSuperAdmin: true, requireMembership: false },
 );

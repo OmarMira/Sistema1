@@ -378,7 +378,7 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
         lastName: 'Super',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
     const res = await callVerify(user.id, true);
@@ -392,7 +392,7 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
         lastName: 'User',
-        role: 'user',
+        platformRole: 'user',
       },
     });
     const res = await callVerify(user.id, false);
@@ -406,7 +406,7 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
         lastName: 'TenantAdmin',
-        role: 'user',
+        platformRole: 'user',
       },
     });
     const company = await createTestCompany('RC2 Tenant');
@@ -443,7 +443,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify authorization gate', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
         lastName: 'Viewer',
-        role: 'user',
+        platformRole: 'user',
       },
     });
     const company = await createTestCompany('G4 Tenant');
@@ -492,7 +492,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify provider allowlist', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
         lastName: 'Admin',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
   }

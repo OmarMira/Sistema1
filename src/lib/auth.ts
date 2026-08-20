@@ -14,12 +14,12 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 export async function hasCompanyAccess(userId: string, companyId: string): Promise<boolean> {
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { role: true, isActive: true },
+    select: { platformRole: true, isActive: true },
   });
 
   if (!user?.isActive) return false;
 
-  if (user.role === 'super_admin') {
+  if (user.platformRole === 'super_admin') {
     return true;
   }
 

@@ -122,7 +122,7 @@ describe('DIAGNOSTICS SUPER_ADMIN GATE — /api/diagnostics is INSTANCE_GLOBAL, 
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Super',
         lastName: 'Admin',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
     expect(await db.companyMember.count({ where: { userId: superUser.id } })).toBe(0);

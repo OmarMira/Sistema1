@@ -15,7 +15,7 @@ export class AuthService {
         email: true,
         firstName: true,
         lastName: true,
-        role: true,
+        platformRole: true,
         isActive: true,
         passwordHash: true,
         companyMemberships: {
@@ -51,7 +51,7 @@ export class AuthService {
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.role,
+        role: user.platformRole,
       },
       companies,
     };
@@ -81,7 +81,7 @@ export class AuthService {
           passwordHash,
           firstName: firstName.trim(),
           lastName: lastName.trim(),
-          role: 'user',
+          platformRole: 'user',
         },
       });
 

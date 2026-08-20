@@ -39,7 +39,7 @@ function createRequest(body?: unknown): NextRequest {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSessionUserId.mockResolvedValue('user-1');
-  mockDbUserFindUnique.mockResolvedValue({ role: 'user' });
+  mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
   mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'membership-1' });
   mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
   mockSimulateApply.mockResolvedValue({

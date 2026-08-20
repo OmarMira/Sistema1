@@ -152,7 +152,7 @@ describe('D2-H13 L2 — ai-assistant enforces active-tenant authority (no first-
 
   it('super_admin without membership row keeps canonical F-6 bypass (200)', async () => {
     const admin = await createTestUser('l2-superadmin@example.com');
-    await db.user.update({ where: { id: admin.id }, data: { role: 'super_admin' } });
+    await db.user.update({ where: { id: admin.id }, data: { platformRole: 'super_admin' } });
     const company = await createTestCompany('Super Corp');
     const token = await createSession(admin.id);
 

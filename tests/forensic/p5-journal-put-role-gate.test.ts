@@ -21,7 +21,7 @@ function authHeaders(token: string): Headers {
 }
 
 async function makeSuperAdmin(userId: string) {
-  await db.user.update({ where: { id: userId }, data: { role: 'super_admin' } });
+  await db.user.update({ where: { id: userId }, data: { platformRole: 'super_admin' } });
 }
 
 async function addMember(userId: string, companyId: string, role: string) {

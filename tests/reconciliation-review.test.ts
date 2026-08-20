@@ -16,7 +16,7 @@ async function seedTestData() {
       passwordHash: 'hash',
       firstName: 'Review',
       lastName: 'Tester',
-      role: 'company_admin',
+      platformRole: 'user',
     },
   });
 
@@ -125,7 +125,7 @@ async function seedTwoDuplicatePending() {
       passwordHash: 'hash',
       firstName: 'Review',
       lastName: 'Duplicate',
-      role: 'company_admin',
+      platformRole: 'user',
     },
   });
 

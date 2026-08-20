@@ -40,11 +40,11 @@ export async function requireSsrCompanyContext(
 
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { platformRole: true },
   });
 
   try {
-    await requireActiveTenantAccess(companyId, { userId, role: user?.role ?? '' });
+    await requireActiveTenantAccess(companyId, { userId, role: user?.platformRole ?? '' });
   } catch {
     return { ok: false, reason: 'forbidden' };
   }

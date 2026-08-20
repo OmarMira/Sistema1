@@ -29,7 +29,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
             email: true,
             firstName: true,
             lastName: true,
-            role: true,
+            platformRole: true,
             isActive: true,
             createdAt: true,
           },
@@ -44,7 +44,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
       firstName: m.user.firstName,
       lastName: m.user.lastName,
       fullName: `${m.user.firstName} ${m.user.lastName}`,
-      role: m.user.role,
+      role: m.user.platformRole,
       isActive: m.user.isActive,
       companyRole: m.role,
       joinedAt: m.joinedAt.toISOString(),
@@ -128,7 +128,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
             email: existingUser.email,
             firstName: existingUser.firstName,
             lastName: existingUser.lastName,
-            role: existingUser.role,
+            role: existingUser.platformRole,
           },
         },
         { status: 201 },
@@ -144,7 +144,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         passwordHash,
-        role: 'user',
+        platformRole: 'user',
         companyMemberships: {
           create: {
             companyId,
@@ -157,7 +157,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         email: true,
         firstName: true,
         lastName: true,
-        role: true,
+        platformRole: true,
       },
     });
 
@@ -175,7 +175,13 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     return NextResponse.json(
       {
         message: 'User created and added to company',
-        user: newUser,
+        user: {
+          id: newUser.id,
+          email: newUser.email,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          role: newUser.platformRole,
+        },
       },
       { status: 201 },
     );

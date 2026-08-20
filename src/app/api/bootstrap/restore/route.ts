@@ -105,11 +105,11 @@ export const POST = apiHandler(
 
     const user = await db.user.findUnique({
       where: { id: restoredUser.id as string },
-      select: { id: true, email: true, firstName: true, lastName: true, role: true },
+      select: { id: true, email: true, firstName: true, lastName: true, platformRole: true },
     });
 
     let companies;
-    if (user?.role === 'super_admin') {
+    if (user?.platformRole === 'super_admin') {
       // Global authority contract (mirror /api/auth/me super_admin branch):
       // all active companies with role=null. Never invent memberships.
       companies = (
@@ -143,7 +143,15 @@ export const POST = apiHandler(
       success: true,
       message: result.message,
       restoredCounts: result.restoredCounts,
-      user,
+      user: user
+        ? {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.platformRole,
+          }
+        : user,
       companies,
     });
 

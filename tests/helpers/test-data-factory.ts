@@ -7,7 +7,7 @@ export function generateTestUser() {
     passwordHash: '$2b$12$dummyhashfortestingonly...',
     firstName: 'Test',
     lastName: 'User',
-    role: 'company_admin',
+    platformRole: 'user',
     isActive: true,
   };
 }

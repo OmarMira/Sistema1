@@ -7,7 +7,7 @@ export async function createTestUser(email: string = 'test@example.com') {
       passwordHash: 'hashed_password_placeholder',
       firstName: 'Test',
       lastName: 'User',
-      role: 'company_admin',
+      platformRole: 'user',
     },
   });
 }

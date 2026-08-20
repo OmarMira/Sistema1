@@ -68,12 +68,12 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     // 5. Verificar rol del usuario y membresía administrativa en la compañía
     const user = await db.user.findUnique({
       where: { id: userId },
-      select: { role: true },
+      select: { platformRole: true },
     });
 
     let isAuthorized = false;
 
-    if (user?.role === 'super_admin') {
+    if (user?.platformRole === 'super_admin') {
       isAuthorized = true;
     } else {
       const membership = await db.companyMember.findFirst({

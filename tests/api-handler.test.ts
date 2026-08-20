@@ -109,7 +109,7 @@ describe('apiHandler', () => {
 
   it('requires companyId when requireMembership is true', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
 
     const handler = apiHandler(async () => NextResponse.json({ ok: true }));
     const req = createRequest('http://localhost/api/test'); // no companyId
@@ -122,7 +122,7 @@ describe('apiHandler', () => {
 
   it('returns 403 when user is not a company member', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue(null); // no membership
 
     const handler = apiHandler(async () => NextResponse.json({ ok: true }));
@@ -136,7 +136,7 @@ describe('apiHandler', () => {
 
   it('allows request when user is a member', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => NextResponse.json({ ok: true }));
@@ -150,7 +150,7 @@ describe('apiHandler', () => {
 
   it('requires super_admin role when requireSuperAdmin is true', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' }); // not super_admin
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' }); // not super_admin
 
     const handler = apiHandler(
       async () => NextResponse.json({ ok: true }),
@@ -164,7 +164,7 @@ describe('apiHandler', () => {
 
   it('allows super_admin to bypass membership check', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'super_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'super_admin' });
 
     const handler = apiHandler(async () => NextResponse.json({ ok: true }));
     const req = createRequest('http://localhost/api/test?companyId=company-1');
@@ -179,7 +179,7 @@ describe('apiHandler', () => {
 
   it('returns 429 when rate limit exceeded', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     mockCheckRateLimit.mockReturnValue({
@@ -230,7 +230,7 @@ describe('apiHandler', () => {
 
   it('returns AppError as JSON with correct status and code', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => {
@@ -248,7 +248,7 @@ describe('apiHandler', () => {
 
   it('handles object-like errors with statusCode', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => {
@@ -265,7 +265,7 @@ describe('apiHandler', () => {
 
   it('handles Prisma-like errors (code + clientVersion)', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => {
@@ -282,7 +282,7 @@ describe('apiHandler', () => {
 
   it('handles unknown errors as 500', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => {
@@ -300,7 +300,7 @@ describe('apiHandler', () => {
   it('includes details for object-like errors in development', async () => {
     vi.stubEnv('NODE_ENV', 'development');
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => {
@@ -316,7 +316,7 @@ describe('apiHandler', () => {
   it('does NOT include details for object-like errors in production', async () => {
     vi.stubEnv('NODE_ENV', 'production');
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => {
@@ -333,7 +333,7 @@ describe('apiHandler', () => {
 
   it('injects security headers on success response', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => NextResponse.json({ ok: true }));
@@ -347,7 +347,7 @@ describe('apiHandler', () => {
 
   it('injects security headers on error response', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     const handler = apiHandler(async () => {
@@ -363,7 +363,7 @@ describe('apiHandler', () => {
 
   it('injects rate limit headers on success', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
 
     mockCheckRateLimit.mockReturnValue({
@@ -401,7 +401,7 @@ describe('apiHandler', () => {
 
   it('runs handler inside requestContext with userId and companyId', async () => {
     mockGetSessionUserId.mockResolvedValue('user-123');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
     mockRequestContextRun.mockImplementation(async (_ctx, fn) => fn());
 

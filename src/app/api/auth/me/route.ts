@@ -18,7 +18,7 @@ export const GET = apiHandler(
         email: true,
         firstName: true,
         lastName: true,
-        role: true,
+        platformRole: true,
         isActive: true,
         companyMemberships: {
           where: { company: { isActive: true } },
@@ -44,7 +44,7 @@ export const GET = apiHandler(
     }
 
     let companies;
-    if (user.role === 'super_admin') {
+    if (user.platformRole === 'super_admin') {
       companies = (
         await db.company.findMany({
           where: { isActive: true },
@@ -69,7 +69,7 @@ export const GET = apiHandler(
         email: user.email,
         firstName: user.firstName,
         lastName: user.lastName,
-        role: user.role,
+        role: user.platformRole,
       },
       companies,
     });

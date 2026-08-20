@@ -89,9 +89,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   // backup payload.
   const actor = await db.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { platformRole: true },
   });
-  const restoringActorIsSuperAdmin = actor?.role === 'super_admin';
+  const restoringActorIsSuperAdmin = actor?.platformRole === 'super_admin';
   const result = await restoreBackup(companyId, backupData, userId, {
     restoringActorIsSuperAdmin,
   });

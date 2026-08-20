@@ -278,7 +278,7 @@ export async function createBackup(companyId: string): Promise<{
             email: true,
             firstName: true,
             lastName: true,
-            role: true,
+            platformRole: true,
             isActive: true,
             createdAt: true,
             updatedAt: true,
@@ -303,7 +303,7 @@ export async function createBackup(companyId: string): Promise<{
             email: true,
             firstName: true,
             lastName: true,
-            role: true,
+            platformRole: true,
             isActive: true,
             phone: true,
             streetLine1: true,
@@ -393,8 +393,20 @@ export async function createBackup(companyId: string): Promise<{
       journalEntries: journalEntries.map((e) => JSON.parse(JSON.stringify(e))),
       journalLines: companyJournalLines.map((l) => JSON.parse(JSON.stringify(l))),
       fiscalPeriods: fiscalPeriods.map((p) => JSON.parse(JSON.stringify(p))),
-      companyMembers: companyMembers.map((m) => JSON.parse(JSON.stringify(m))),
-      users: users.map((u) => JSON.parse(JSON.stringify(u))),
+      companyMembers: companyMembers.map((m) => {
+        const parsed = JSON.parse(JSON.stringify(m)) as Record<string, unknown>;
+        const { user, ...memberRest } = parsed;
+        if (user && typeof user === 'object') {
+          const u = user as Record<string, unknown>;
+          const { platformRole, ...userRest } = u;
+          memberRest.user = { ...userRest, role: platformRole };
+        }
+        return memberRest;
+      }),
+      users: users.map((u) => {
+        const { platformRole, ...rest } = JSON.parse(JSON.stringify(u)) as Record<string, unknown>;
+        return { ...rest, role: platformRole };
+      }),
       systemConfig: systemConfig.map((c) => JSON.parse(JSON.stringify(c))),
       companyConfig,
       // D10-E: reconcile + knowledge subsystem data
@@ -776,8 +788,9 @@ export async function restoreBackup(
         // RC2-3: normalize roles to the current global authority contract before
         // persisting. The backup payload alone never grants 'super_admin'.
         const originalRole = clean.role;
-        clean.role = normalizeRestoredUserRole(clean.role, restoreRoleContext);
-        if (clean.role !== originalRole) normalizedUserRoles += 1;
+        clean.platformRole = normalizeRestoredUserRole(clean.role, restoreRoleContext);
+        delete clean.role;
+        if (clean.platformRole !== originalRole) normalizedUserRoles += 1;
         // passwordHash is required by Prisma but older backups may not include it.
         const pwHash = clean.passwordHash as string | undefined;
         if (!pwHash || !pwHash.startsWith('$2')) {

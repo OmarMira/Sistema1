@@ -260,7 +260,7 @@ describe('F-10 — KnowledgeAudit identity must come from the session (RED)', ()
         passwordHash: 'hashed_password_placeholder',
         firstName: 'F10',
         lastName: 'Super',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
     const company = await createTestCompany('F10 R9 Co');

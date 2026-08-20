@@ -38,7 +38,7 @@ async function asSuperAdmin(email: string) {
       passwordHash: 'hashed_password_placeholder',
       firstName: 'Super',
       lastName: 'Admin',
-      role: 'super_admin',
+      platformRole: 'super_admin',
     },
   });
   const token = await createSession(user.id);
@@ -189,7 +189,7 @@ describe('RC2-1 — Users POST (invite): tenant authority via CompanyMember.role
       { params: Promise.resolve({}) },
     );
     const created = await db.user.findUnique({ where: { email: 'rc21-victim-c@example.com' } });
-    log('B3 POST admin status:', res.status, '| victim role:', created?.role);
+    log('B3 POST admin status:', res.status, '| victim role:', created?.platformRole);
     expect(res.status).toBe(201);
     expect(created).not.toBeNull();
   });
@@ -281,7 +281,7 @@ describe('RC2-1 — Settings PUT: tenant authority via CompanyMember.role only',
     expect(auditSpy).not.toHaveBeenCalled();
   });
 
-  it('C3: User.role=company_admin + membership viewer → 403 (isolation from global role)', async () => {
+  it('C3: platform user (non-super_admin) + membership viewer → 403 (isolation from global role)', async () => {
     const { company, token } = await asUser('rc21-st-global-admin@example.com', 'viewer');
     const res = await settingsPUT(
       new NextRequest(`http://localhost/api/settings?companyId=${company.id}`, {
@@ -291,7 +291,7 @@ describe('RC2-1 — Settings PUT: tenant authority via CompanyMember.role only',
       }),
       { params: Promise.resolve({}) },
     );
-    log('C3 settings User.role=company_admin + viewer status:', res.status);
+    log('C3 settings platform user + viewer status:', res.status);
     expect(res.status).toBe(403);
   });
 

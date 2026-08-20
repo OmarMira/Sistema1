@@ -365,7 +365,7 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
 
   it('super_admin without membership keeps bypass on /api/journal/[id] (200)', async () => {
     const admin = await createTestUser('superadmin-f3@example.com');
-    await db.user.update({ where: { id: admin.id }, data: { role: 'super_admin' } });
+    await db.user.update({ where: { id: admin.id }, data: { platformRole: 'super_admin' } });
     const company = await createTestCompany('RBAC Test Corp');
     createdCompanyIds.add(company.id);
     const { entry } = await seedEntry(company.id, 'Draft to be posted by super_admin');

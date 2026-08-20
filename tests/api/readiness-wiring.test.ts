@@ -171,7 +171,7 @@ function v0ApplyAllRecord(overrides?: {
 beforeEach(() => {
   vi.clearAllMocks();
   mockGetSessionUserId.mockResolvedValue('user-admin');
-  mockDbUserFindUnique.mockResolvedValue({ role: 'super_admin' });
+  mockDbUserFindUnique.mockResolvedValue({ platformRole: 'super_admin' });
 });
 
 describe('readiness end-to-end wiring', () => {

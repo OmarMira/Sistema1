@@ -42,7 +42,7 @@ function createRequest(params: URLSearchParams): NextRequest {
 
 function mockSuperAdmin() {
   mockGetSessionUserId.mockResolvedValue('user-admin');
-  mockDbUserFindUnique.mockResolvedValue({ role: 'super_admin' });
+  mockDbUserFindUnique.mockResolvedValue({ platformRole: 'super_admin' });
 }
 
 beforeEach(() => {
@@ -262,7 +262,7 @@ describe('authentication', () => {
   });
 
   it('returns 403 for non-admin user', async () => {
-    mockDbUserFindUnique.mockResolvedValue({ role: 'user' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     const req = createRequest(BASE_PARAMS);
     const res = await GET(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(403);

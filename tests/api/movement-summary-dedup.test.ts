@@ -33,7 +33,7 @@ const BANK_ASSET = {
 };
 
 function mockContext() {
-  mockDb.user.findUnique.mockResolvedValue({ id: 'user-test', role: 'company_admin' });
+  mockDb.user.findUnique.mockResolvedValue({ id: 'user-test', platformRole: 'user' });
   mockDb.companyMember.findUnique.mockResolvedValue({
     id: 'member-test',
     userId: 'user-test',

@@ -9,7 +9,7 @@ vi.mock('../../src/lib/sessions', () => ({
 vi.mock('../../src/lib/db', () => ({
   db: {
     user: {
-      findUnique: vi.fn().mockResolvedValue({ id: 'user-id-123', role: 'company_admin' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'user-id-123', platformRole: 'user' }),
     },
     companyMember: {
       findUnique: vi.fn().mockResolvedValue({ id: 'member-123', userId: 'user-id-123', companyId: 'c123' }),

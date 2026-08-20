@@ -22,7 +22,7 @@ vi.mock('@/lib/db', () => ({ db: mockDb }));
 import { GET } from '@/app/api/reconciliation/route';
 
 function mockContext() {
-  mockDb.user.findUnique.mockResolvedValue({ id: 'user-test', role: 'company_admin' });
+  mockDb.user.findUnique.mockResolvedValue({ id: 'user-test', platformRole: 'user' });
   mockDb.companyMember.findUnique.mockResolvedValue({
     id: 'member-test',
     userId: 'user-test',

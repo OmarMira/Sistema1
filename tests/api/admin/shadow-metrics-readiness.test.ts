@@ -44,7 +44,7 @@ function createRequest(params: URLSearchParams): NextRequest {
 
 function mockSuperAdmin() {
   mockGetSessionUserId.mockResolvedValue('user-admin');
-  mockDbUserFindUnique.mockResolvedValue({ role: 'super_admin' });
+  mockDbUserFindUnique.mockResolvedValue({ platformRole: 'super_admin' });
 }
 
 function mockSuccess() {

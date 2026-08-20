@@ -56,10 +56,10 @@ export async function requireCompanyRole(
 
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { platformRole: true },
   });
 
-  if (user?.role === 'super_admin') {
+  if (user?.platformRole === 'super_admin') {
     return;
   }
 
@@ -91,9 +91,9 @@ export async function requireCompanyRole(
 export async function requireGlobalAdminRole(userId: string): Promise<void> {
   const user = await db.user.findUnique({
     where: { id: userId },
-    select: { role: true },
+    select: { platformRole: true },
   });
-  if (!user || user.role !== 'super_admin') {
+  if (!user || user.platformRole !== 'super_admin') {
     throw new ForbiddenError('Access denied');
   }
 }

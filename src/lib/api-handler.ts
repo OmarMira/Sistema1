@@ -100,9 +100,9 @@ export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {})
       if (needsRole && userId) {
         const user = await db.user.findUnique({
           where: { id: userId },
-          select: { role: true },
+          select: { platformRole: true },
         });
-        userRole = user?.role;
+        userRole = user?.platformRole;
       }
 
       // 4. Validar Super Admin si se requiere

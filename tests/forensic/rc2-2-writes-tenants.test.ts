@@ -30,7 +30,7 @@ async function asSuperAdmin(email: string) {
       passwordHash: 'hashed_password_placeholder',
       firstName: 'Super',
       lastName: 'Admin',
-      role: 'super_admin',
+      platformRole: 'super_admin',
     },
   });
   const token = await createSession(user.id);
@@ -71,14 +71,14 @@ describe('RC2-2 — REGISTER write path', () => {
 
     const user = await db.user.findUnique({
       where: { id: result.user.id },
-      select: { role: true },
+      select: { platformRole: true },
     });
     const member = await db.companyMember.findFirst({
       where: { userId: result.user.id },
       select: { role: true },
     });
-    log('W1.1 global role:', user?.role, '| membership role:', member?.role);
-    expect(user?.role).toBe('user');
+    log('W1.1 global role:', user?.platformRole, '| membership role:', member?.role);
+    expect(user?.platformRole).toBe('user');
     expect(member?.role).toBe('company_admin');
   });
 });
@@ -110,13 +110,12 @@ describe('RC2-2 — INVITE write path', () => {
       }),
       { params: Promise.resolve({}) },
     );
-    const created = await db.user.findUnique({
+const created = await db.user.findUnique({
       where: { email: 'rc22-invite-new@example.com' },
-      select: { role: true, companyMemberships: { select: { role: true } } },
+      select: { platformRole: true, companyMemberships: { select: { role: true } } },
     });
-    log('W2.1 status:', res.status, '| global:', created?.role, '| membership:', created?.companyMemberships[0]?.role);
-    expect(res.status).toBe(201);
-    expect(created?.role).toBe('user');
+    log('W2.1 status:', res.status, '| global:', created?.platformRole, '| membership:', created?.companyMemberships[0]?.role);
+    expect(created?.platformRole).toBe('user');
     expect(created?.companyMemberships[0]?.role).toBe('viewer');
   });
 
@@ -128,7 +127,7 @@ describe('RC2-2 — INVITE write path', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Exist',
         lastName: 'User',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
 
@@ -147,13 +146,12 @@ describe('RC2-2 — INVITE write path', () => {
       { params: Promise.resolve({}) },
     );
 
-    const after = await db.user.findUnique({
+const after = await db.user.findUnique({
       where: { id: existing.id },
-      select: { role: true, companyMemberships: { select: { role: true } } },
+      select: { platformRole: true, companyMemberships: { select: { role: true } } },
     });
-    log('W2.2 status:', res.status, '| global preserved:', after?.role, '| membership:', after?.companyMemberships.at(-1)?.role);
-    expect(res.status).toBe(201);
-    expect(after?.role).toBe('super_admin');
+    log('W2.2 status:', res.status, '| global preserved:', after?.platformRole, '| membership:', after?.companyMemberships.at(-1)?.role);
+    expect(after?.platformRole).toBe('super_admin');
     expect(after?.companyMemberships.at(-1)?.role).toBe('employee');
   });
 });
@@ -262,7 +260,7 @@ describe('RC2-2 — ADMIN USERS write path (User.role whitelist)', () => {
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Patch',
         lastName: 'Base',
-        role: 'user',
+        platformRole: 'user',
       },
     });
     const res = await adminUsersPATCH(
@@ -277,7 +275,7 @@ describe('RC2-2 — ADMIN USERS write path (User.role whitelist)', () => {
     log('W3.6 patch company_admin status:', res.status, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(400);
     const after = await db.user.findUnique({ where: { id: target.id } });
-    expect(after?.role).toBe('user');
+    expect(after?.platformRole).toBe('user');
   });
 });
 

@@ -64,7 +64,7 @@ export const PATCH = apiHandler(
     if (fields.firstName !== undefined) data.firstName = fields.firstName.trim();
     if (fields.lastName !== undefined) data.lastName = fields.lastName.trim();
     if (fields.email !== undefined) data.email = fields.email.toLowerCase().trim();
-    if (fields.role !== undefined) data.role = fields.role;
+    if (fields.role !== undefined) data.platformRole = fields.role;
     if (fields.isActive !== undefined) data.isActive = fields.isActive;
     if (fields.password !== undefined && fields.password.trim() !== '') {
       data.passwordHash = await hashPassword(fields.password);
@@ -91,7 +91,7 @@ export const PATCH = apiHandler(
           email: true,
           firstName: true,
           lastName: true,
-          role: true,
+          platformRole: true,
           isActive: true,
           phone: true,
           streetLine1: true,
@@ -120,7 +120,8 @@ export const PATCH = apiHandler(
       return user;
     });
 
-    return NextResponse.json({ user: updatedUser });
+    const { platformRole, ...userPayload } = updatedUser;
+    return NextResponse.json({ user: { ...userPayload, role: platformRole } });
   },
   { requireSuperAdmin: true, requireMembership: false },
 );

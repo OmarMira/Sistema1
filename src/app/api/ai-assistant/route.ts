@@ -699,7 +699,7 @@ async function executeTool(
                 firstName: true,
                 lastName: true,
                 email: true,
-                role: true,
+                platformRole: true,
                 isActive: true,
               },
             },
@@ -709,7 +709,7 @@ async function executeTool(
           id: m.user.id,
           name: `${m.user.firstName} ${m.user.lastName}`,
           email: m.user.email,
-          role: m.user.role,
+          role: m.user.platformRole,
           companyRole: m.role,
           isActive: m.user.isActive,
         }));

@@ -91,11 +91,11 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     await createTestCompanyMember(user.id, company.id);
     diskTestCompanyIds.add(company.id);
     createdCompanyIds.add(company.id);
-    log('USER CREATED: id =', user.id, '| role =', user.role);
+    log('USER CREATED: id =', user.id, '| role =', user.platformRole);
 
     // Baseline DB state
-    const before = await db.user.findUnique({ where: { id: user.id }, select: { role: true } });
-    log('DB BEFORE RESTORE: user.role =', before?.role);
+    const before = await db.user.findUnique({ where: { id: user.id }, select: { platformRole: true } });
+    log('DB BEFORE RESTORE: user.role =', before?.platformRole);
 
     // Baseline: superadmin route is FORBIDDEN with company_admin role
     let token = await createSession(user.id);
@@ -116,7 +116,7 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     // 2. Change ONLY the role field
     const target = backupData.data.users.find((u: { id: string }) => u.id === user.id);
     expect(target).toBeDefined();
-    expect(target.role).toBe('company_admin');
+    expect(target.role).toBe('user'); // factory now persists platformRole 'user' -> wire role 'user' in backup
     target.role = 'super_admin';
     log('BACKUP TAMPERED: users[].role changed to super_admin (only field modified)');
 
@@ -128,8 +128,8 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
 
     // 4. Verify the row in PostgreSQL directly: the tampered role must NOT persist
     const stored = await db.user.findUnique({ where: { id: user.id } });
-    log('DB AFTER RESTORE: user.role =', stored?.role);
-    expect(stored?.role).toBe('user');
+    log('DB AFTER RESTORE: user.role =', stored?.platformRole);
+    expect(stored?.platformRole).toBe('user');
 
     // 5. Verify login with the known default password is now BLOCKED (F-5 fix)
     const loginOk = await verifyPassword('Admin123!', stored!.passwordHash);
@@ -225,8 +225,8 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     // 4. Verify the row in PostgreSQL directly — the actor is NOT a global
     //    super_admin, so the tampered role must NOT persist.
     const stored = await db.user.findUnique({ where: { id: user.id } });
-    log('DB AFTER HTTP RESTORE: user.role =', stored?.role);
-    expect(stored?.role).toBe('user');
+    log('DB AFTER HTTP RESTORE: user.role =', stored?.platformRole);
+    expect(stored?.platformRole).toBe('user');
 
     // 5. Verify the superadmin route is STILL FORBIDDEN (no escalation)
     const token2 = await createSession(user.id);

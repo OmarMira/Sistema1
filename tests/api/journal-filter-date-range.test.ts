@@ -42,7 +42,7 @@ describe('GET /api/journal — date range filter boundary (D5)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetSessionUserId.mockResolvedValue('user-1');
-    mockDbUserFindUnique.mockResolvedValue({ role: 'company_admin' });
+    mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
     mockCheckRateLimit.mockReturnValue({ allowed: true, limit: 100, remaining: 99, resetAt: Math.ceil(Date.now() / 1000) + 60 });

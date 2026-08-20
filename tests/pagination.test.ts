@@ -49,7 +49,7 @@ vi.mock('../src/lib/db', () => ({
       findMany: vi.fn().mockResolvedValue([]),
     },
     user: {
-      findUnique: vi.fn().mockResolvedValue({ id: 'user-id-123', role: 'company_admin' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'user-id-123', platformRole: 'user' }),
     },
   },
 }));

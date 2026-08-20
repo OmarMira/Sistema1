@@ -46,7 +46,7 @@ describe('Workflow Status API Integration Tests', () => {
     const user = await createTestUser('superadmin@example.com');
     await db.user.update({
       where: { id: user.id },
-      data: { role: 'super_admin' },
+      data: { platformRole: 'super_admin' },
     });
 
     const company = await createTestCompany('Non Member Corp');

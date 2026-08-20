@@ -109,9 +109,9 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     });
     const restoredUser = await db.user.findUnique({ where: { id: backupData.data.users[0].id as string } });
 
-    log('N1: success =', result.success, '| stored user role =', restoredUser?.role);
+    log('N1: success =', result.success, '| stored user role =', restoredUser?.platformRole);
     expect(result.success).toBe(true);
-    expect(restoredUser?.role).toBe('user');
+    expect(restoredUser?.platformRole).toBe('user');
   });
 
   it('N2: global super_admin actor + backup User.role="super_admin" → preserved as "super_admin"', async () => {
@@ -122,7 +122,7 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
         passwordHash: 'x',
         firstName: 'A',
         lastName: 'B',
-        role: 'super_admin',
+        platformRole: 'super_admin',
       },
     });
     await createTestCompanyMember(actor.id, company.id);
@@ -133,9 +133,9 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     });
     const restoredUser = await db.user.findUnique({ where: { id: backupData.data.users[0].id as string } });
 
-    log('N2: success =', result.success, '| stored user role =', restoredUser?.role);
+    log('N2: success =', result.success, '| stored user role =', restoredUser?.platformRole);
     expect(result.success).toBe(true);
-    expect(restoredUser?.role).toBe('super_admin');
+    expect(restoredUser?.platformRole).toBe('super_admin');
   });
 
   it('N3: bootstrap restore + backup User.role="super_admin" → preserved as "super_admin"', async () => {
@@ -154,10 +154,10 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     const restoredUser = await db.user.findUnique({ where: { id: backupData.data.users[0].id as string } });
     const bootUser = await db.user.findUnique({ where: { id: 'system_bootstrap' } });
 
-    log('N3: success =', result.success, '| stored user role =', restoredUser?.role, '| sys-boot role =', bootUser?.role);
+    log('N3: success =', result.success, '| stored user role =', restoredUser?.platformRole, '| sys-boot role =', bootUser?.platformRole);
     expect(result.success).toBe(true);
-    expect(restoredUser?.role).toBe('super_admin');
-    expect(bootUser?.role).toBe('super_admin');
+    expect(restoredUser?.platformRole).toBe('super_admin');
+    expect(bootUser?.platformRole).toBe('super_admin');
   });
 
   it('N4: User.role legacy "company_admin" → "user"', async () => {
@@ -169,9 +169,9 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     const result = await restoreBackup(company.id, backupData, actor.id);
     const restoredUser = await db.user.findUnique({ where: { id: backupData.data.users[0].id as string } });
 
-    log('N4: success =', result.success, '| stored user role =', restoredUser?.role);
+    log('N4: success =', result.success, '| stored user role =', restoredUser?.platformRole);
     expect(result.success).toBe(true);
-    expect(restoredUser?.role).toBe('user');
+    expect(restoredUser?.platformRole).toBe('user');
   });
 
   it('N5: User.role "employee"/"viewer" → "user"', async () => {
@@ -188,9 +188,9 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
       });
       const r = await restoreBackup(company.id, backupData, actor.id);
       const stored = await db.user.findUnique({ where: { id: `u-${legacy}` } });
-      log('N5:', legacy, '→ stored =', stored?.role, '| success =', r.success);
+      log('N5:', legacy, '→ stored =', stored?.platformRole, '| success =', r.success);
       expect(r.success).toBe(true);
-      expect(stored?.role).toBe('user');
+      expect(stored?.platformRole).toBe('user');
     }
   });
 
@@ -203,9 +203,9 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     const result = await restoreBackup(company.id, backupData, actor.id);
     const restoredUser = await db.user.findUnique({ where: { id: backupData.data.users[0].id as string } });
 
-    log('N6: success =', result.success, '| stored user role =', restoredUser?.role);
+    log('N6: success =', result.success, '| stored user role =', restoredUser?.platformRole);
     expect(result.success).toBe(true);
-    expect(restoredUser?.role).toBe('user');
+    expect(restoredUser?.platformRole).toBe('user');
   });
 
   it('N7: CompanyMember.role legacy "super_admin" → "company_admin"', async () => {
@@ -271,12 +271,12 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     const mEmp = await db.companyMember.findUnique({ where: { id: 'm-emp' } });
 
     log('N9: success =', result.success,
-      '| u-super =', superUser?.role,
-      '| u-viewer =', viewerUser?.role,
+      '| u-super =', superUser?.platformRole,
+      '| u-viewer =', viewerUser?.platformRole,
       '| m-ca =', mCA?.role, '| m-emp =', mEmp?.role);
     expect(result.success).toBe(true);
-    expect(superUser?.role).toBe('user'); // no trusted actor-gate in this restore
-    expect(viewerUser?.role).toBe('user');
+    expect(superUser?.platformRole).toBe('user'); // no trusted actor-gate in this restore
+    expect(viewerUser?.platformRole).toBe('user');
     expect(mCA?.role).toBe('company_admin');
     expect(mEmp?.role).toBe('employee');
   });
@@ -307,15 +307,15 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     const result = await restoreBackup(company.id, backupData, actor.id);
     expect(result.success).toBe(true);
 
-    const users = await db.user.findMany({ where: { id: { in: ['u-bad', 'u-weird'] } }, select: { role: true } });
+    const users = await db.user.findMany({ where: { id: { in: ['u-bad', 'u-weird'] } }, select: { platformRole: true } });
     const members = await db.companyMember.findMany({ where: { companyId: company.id }, select: { role: true } });
 
     const validUserRoles = ['user', 'super_admin'];
     const validMemberRoles = ['company_admin', 'employee', 'viewer'];
-    const badUserRoles = users.filter((u) => !validUserRoles.includes(u.role));
+    const badUserRoles = users.filter((u) => !validUserRoles.includes(u.platformRole));
     const badMemberRoles = members.filter((m) => !validMemberRoles.includes(m.role));
 
-    log('N10: stored user roles =', users.map((u) => u.role), '| stored member roles =', members.map((m) => m.role));
+    log('N10: stored user roles =', users.map((u) => u.platformRole), '| stored member roles =', members.map((m) => m.role));
     expect(badUserRoles).toHaveLength(0);
     expect(badMemberRoles).toHaveLength(0);
   });
@@ -349,20 +349,20 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     const company = await createTestCompany('N12 Co');
     await createTestCompanyMember(user.id, company.id);
 
-    // The test factory still persists the legacy User.role='company_admin'
-    // (mimicking a pre-RC2 DB). A real backup of this user therefore contains
-    // 'company_admin', and restore MUST fold it back to 'user'.
+    // The test factory now persists a valid platform user (platformRole='user').
+    // A real backup of this user therefore contains 'user' on the wire role key,
+    // and restore must preserve it end-to-end (round-trip integrity).
     const userInDb = await db.user.findUnique({ where: { id: user.id } });
     const backup = await createBackup(company.id);
     const backupData = JSON.parse(Buffer.from(backup.data, 'base64').toString('utf-8')) as BackupData;
     const target = backupData.data.users.find((u) => u.id === user.id);
-    log('N12: backup user role =', target?.role, '| db user role =', userInDb?.role);
-    expect(target?.role).toBe('company_admin'); // legacy fixture role rides into the backup
+    log('N12: backup user role =', target?.role, '| db user role =', userInDb?.platformRole);
+    expect(target?.role).toBe('user'); // platform role rides into the backup as wire role
 
     const result = await restoreBackup(company.id, backupData, user.id);
     const stored = await db.user.findUnique({ where: { id: user.id } });
     expect(result.success).toBe(true);
-    expect(stored?.role).toBe('user'); // RC2-3 folds legacy global role back to 'user'
+expect(stored?.platformRole).toBe('user'); // RC2-3 folds legacy global role back to 'user'
   });
 });
 

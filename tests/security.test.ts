@@ -64,7 +64,7 @@ vi.mock('@/lib/db', () => {
       upsert: vi.fn().mockResolvedValue({}),
     },
     user: {
-      findUnique: vi.fn().mockResolvedValue({ id: 'user-1', role: 'super_admin' }),
+      findUnique: vi.fn().mockResolvedValue({ id: 'user-1', platformRole: 'super_admin' }),
     },
     companyMember: {
       findUnique: vi.fn().mockResolvedValue({ userId: 'user-1', companyId: 'company-1' }),

@@ -25,7 +25,7 @@ describe('requireCompanyRole — primitiva RBAC server-side', () => {
 
   it('permite super_admin sin membresía (bypass global)', async () => {
     const admin = await createTestUser('rbac-super@example.com');
-    await db.user.update({ where: { id: admin.id }, data: { role: 'super_admin' } });
+    await db.user.update({ where: { id: admin.id }, data: { platformRole: 'super_admin' } });
     const company = await createTestCompany('RBAC Co');
 
     await runAs(admin.id, company.id, () => requireCompanyRole(company.id, ALLOWED));

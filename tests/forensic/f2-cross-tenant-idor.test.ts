@@ -229,7 +229,7 @@ describe('F-2 — Cross-tenant IDOR on chart of accounts (regression)', () => {
 
   it('super_admin keeps legitimate cross-tenant access (bypass is intentional)', async () => {
     const admin = await createTestUser('superadmin-f2@example.com');
-    await db.user.update({ where: { id: admin.id }, data: { role: 'super_admin' } });
+    await db.user.update({ where: { id: admin.id }, data: { platformRole: 'super_admin' } });
 
     const victimB = await createTestCompany('Tenant B Corp');
     const victimGl = await createTestGlAccount({

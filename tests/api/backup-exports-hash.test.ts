@@ -93,7 +93,7 @@ describe('F-4 — created backups must not export user passwordHash (remediation
     log('Q2: user record in backup -> email =', userRecord?.email, '| role =', userRecord?.role, '| has passwordHash key =', 'passwordHash' in (userRecord ?? {}));
     expect(res.status).toBe(200);
     expect(userRecord?.email).toBe('f4-q2@example.com');
-    expect(userRecord?.role).toBe('company_admin');
+    expect(userRecord?.role).toBe('user');
   });
 
   it('Q3 (control): the backup manifest still reports user counts', async () => {

@@ -40,9 +40,9 @@ export class JournalService {
       throw new ValidationError('Una o más cuentas contables seleccionadas están inactivas');
     }
 
-    // D2-H4: posted entries must always carry an actor
-    if (status === 'posted' && !userId) {
-      throw new ValidationError('userId is required when creating a posted journal entry');
+    // D2-H4/D2-H5: every JournalEntry creation must carry an actor
+    if (!userId) {
+      throw new ValidationError('userId is required when creating a journal entry');
     }
 
     // Create entry with lines in a transaction
@@ -83,20 +83,21 @@ export class JournalService {
         },
       });
 
-      // D2-H4: When creating directly as posted, audit + recalculate atomically
-      if (status === 'posted') {
-        await createAuditLogWithRetry(
-          {
-            companyId,
-            userId: userId ?? null,
-            action: 'create',
-            entity: 'journalEntry',
-            entityId: newEntry.id,
-            details: JSON.stringify({ description, status: 'posted' }),
-          },
-          tx as any,
-        );
+      // D2-H4/D2-H5: every creation is audited atomically with the real actor
+      await createAuditLogWithRetry(
+        {
+          companyId,
+          userId,
+          action: 'create',
+          entity: 'journalEntry',
+          entityId: newEntry.id,
+          details: JSON.stringify({ description, status }),
+        },
+        tx as any,
+      );
 
+      // D2-H4: only posted entries affect GL account balances
+      if (status === 'posted') {
         const uniqueAccountIds = [...new Set(lines.map((l) => l.glAccountId))];
         for (const glAccountId of uniqueAccountIds) {
           await JournalEntryService.recalculateBalance(tx as any, glAccountId);

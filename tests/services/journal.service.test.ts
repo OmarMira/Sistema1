@@ -14,19 +14,24 @@ describe('JournalService', () => {
 
   it('debe crear un asiento contable cuadrado exitosamente', async () => {
     const company = await createTestCompany();
+    const user = await createTestUser('orig-cuadrado@example.com');
+    await createTestCompanyMember(user.id, company.id);
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    const entry = await JournalService.create({
-      companyId: company.id,
-      date: '2026-05-25',
-      description: 'Capital investment',
-      status: 'draft',
-      lines: [
-        { glAccountId: cash.id, debit: 1000.0, credit: 0.0, description: 'Cash receipt' },
-        { glAccountId: equity.id, debit: 0.0, credit: 1000.0, description: 'Capital contribution' },
-      ],
-    });
+    const entry = await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-05-25',
+        description: 'Capital investment',
+        status: 'draft',
+        lines: [
+          { glAccountId: cash.id, debit: 1000.0, credit: 0.0, description: 'Cash receipt' },
+          { glAccountId: equity.id, debit: 0.0, credit: 1000.0, description: 'Capital contribution' },
+        ],
+      },
+      user.id,
+    );
 
     expect(entry.id).toBeDefined();
     expect(entry.description).toBe('Capital investment');
@@ -59,6 +64,8 @@ describe('JournalService', () => {
 
   it('debe fallar al crear un asiento contable en un periodo fiscal cerrado', async () => {
     const company = await createTestCompany();
+    const user = await createTestUser('orig-periodo@example.com');
+    await createTestCompanyMember(user.id, company.id);
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
@@ -73,16 +80,19 @@ describe('JournalService', () => {
     });
 
     await expect(
-      JournalService.create({
-        companyId: company.id,
-        date: '2026-05-25',
-        description: 'Entry in closed period',
-        status: 'draft',
-        lines: [
-          { glAccountId: cash.id, debit: 1000.0, credit: 0.0 },
-          { glAccountId: equity.id, debit: 0.0, credit: 1000.0 },
-        ],
-      })
+      JournalService.create(
+        {
+          companyId: company.id,
+          date: '2026-05-25',
+          description: 'Entry in closed period',
+          status: 'draft',
+          lines: [
+            { glAccountId: cash.id, debit: 1000.0, credit: 0.0 },
+            { glAccountId: equity.id, debit: 0.0, credit: 1000.0 },
+          ],
+        },
+        user.id,
+      )
     ).rejects.toThrow('Cannot post transactions to a closed period.');
   });
 
@@ -328,9 +338,9 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
     recalcSpy.mockRestore();
   });
 
-  it('draft creation does not create AuditLog or recalculateBalance (no regression)', async () => {
+  it('draft creation creates AuditLog but does not recalculateBalance', async () => {
     const company = await createTestCompany();
-    const user = await createTestUser('d2h4-draft-nochange@example.com');
+    const user = await createTestUser('d2h5-draft-audit@example.com');
     await createTestCompanyMember(user.id, company.id);
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
@@ -339,7 +349,7 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
       {
         companyId: company.id,
         date: '2026-08-22',
-        description: 'Draft should not audit or recalc',
+        description: 'Draft should audit but not recalc',
         status: 'draft',
         lines: [
           { glAccountId: cash.id, debit: 300, credit: 0 },
@@ -354,17 +364,20 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
     const auditLogs = await db.auditLog.findMany({
       where: { entity: 'journalEntry', entityId: entry.id },
     });
-    expect(auditLogs).toHaveLength(0);
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].userId).toBe(user.id);
+    expect(auditLogs[0].action).toBe('create');
+    expect(auditLogs[0].companyId).toBe(company.id);
 
     const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
     const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
-    expect(afterCash?.balance).toBe(0);
-    expect(afterEquity?.balance).toBe(0);
+    expect(Number(afterCash?.balance)).toBe(0);
+    expect(Number(afterEquity?.balance)).toBe(0);
   });
 
-  it('default status (no status field) creates draft without audit or recalc', async () => {
+  it('default status (no status field) creates draft with AuditLog but no recalc', async () => {
     const company = await createTestCompany();
-    const user = await createTestUser('d2h4-default-status@example.com');
+    const user = await createTestUser('d2h5-default-status@example.com');
     await createTestCompanyMember(user.id, company.id);
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
@@ -387,10 +400,12 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
     const auditLogs = await db.auditLog.findMany({
       where: { entity: 'journalEntry', entityId: entry.id },
     });
-    expect(auditLogs).toHaveLength(0);
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].userId).toBe(user.id);
+    expect(auditLogs[0].action).toBe('create');
   });
 
-  it('POST with status:posted and no userId is rejected without persisting anything', async () => {
+  it('creation without userId is rejected (draft or posted)', async () => {
     const company = await createTestCompany();
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
@@ -399,28 +414,179 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
       JournalService.create({
         companyId: company.id,
         date: '2026-08-22',
-        description: 'Posted without userId should fail',
+        description: 'Entry without userId should fail',
         status: 'posted',
         lines: [
           { glAccountId: cash.id, debit: 500, credit: 0 },
           { glAccountId: equity.id, debit: 0, credit: 500 },
         ],
       }),
-    ).rejects.toThrow('userId is required when creating a posted journal entry');
+    ).rejects.toThrow('userId is required when creating a journal entry');
+
+    await expect(
+      JournalService.create({
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Draft without userId should also fail',
+        status: 'draft',
+        lines: [
+          { glAccountId: cash.id, debit: 200, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 200 },
+        ],
+      }),
+    ).rejects.toThrow('userId is required when creating a journal entry');
 
     const entries = await db.journalEntry.findMany({
-      where: { companyId: company.id, description: 'Posted without userId should fail' },
+      where: { companyId: company.id },
     });
     expect(entries).toHaveLength(0);
-
-    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
-    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
-    expect(Number(afterCash?.balance)).toBe(0);
-    expect(Number(afterEquity?.balance)).toBe(0);
 
     const auditLogs = await db.auditLog.findMany({
       where: { entity: 'journalEntry', companyId: company.id },
     });
     expect(auditLogs).toHaveLength(0);
+  });
+});
+
+// ─── D2-H5: draft creation now audited atomically ───
+describe('D2-H5 — draft creation creates AuditLog atomically', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+  });
+
+  it('status:draft creates exactly one AuditLog with correct fields', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h5-exact-audit@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    const entry = await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Draft audit test',
+        status: 'draft',
+        lines: [
+          { glAccountId: cash.id, debit: 100, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 100 },
+        ],
+      },
+      user.id,
+    );
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', entityId: entry.id },
+    });
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].userId).toBe(user.id);
+    expect(auditLogs[0].action).toBe('create');
+    expect(auditLogs[0].entity).toBe('journalEntry');
+    expect(auditLogs[0].entityId).toBe(entry.id);
+    expect(auditLogs[0].companyId).toBe(company.id);
+  });
+
+  it('draft does NOT recalculate GL account balances', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h5-no-recalc@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', normalBalance: 'debit' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital', normalBalance: 'credit', accountType: 'equity' });
+
+    await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Draft no recalc',
+        status: 'draft',
+        lines: [
+          { glAccountId: cash.id, debit: 500, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 500 },
+        ],
+      },
+      user.id,
+    );
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
+    expect(Number(afterCash?.balance)).toBe(0);
+    expect(Number(afterEquity?.balance)).toBe(0);
+  });
+
+  it('if AuditLog fails during draft creation, JournalEntry is not persisted', async () => {
+    const auditModule = await import('@/lib/audit');
+    const auditSpy = vi.spyOn(auditModule, 'createAuditLogWithRetry');
+    auditSpy.mockRejectedValueOnce(new Error('Simulated audit failure on draft'));
+
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h5-rollback-draft@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    await expect(
+      JournalService.create(
+        {
+          companyId: company.id,
+          date: '2026-08-22',
+          description: 'Draft rollback test',
+          status: 'draft',
+          lines: [
+            { glAccountId: cash.id, debit: 200, credit: 0 },
+            { glAccountId: equity.id, debit: 0, credit: 200 },
+          ],
+        },
+        user.id,
+      ),
+    ).rejects.toThrow('Simulated audit failure on draft');
+
+    const entries = await db.journalEntry.findMany({
+      where: { companyId: company.id, description: 'Draft rollback test' },
+    });
+    expect(entries).toHaveLength(0);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', companyId: company.id },
+    });
+    expect(auditLogs).toHaveLength(0);
+
+    auditSpy.mockRestore();
+  });
+
+  it('posted creates exactly one AuditLog (no duplicates) and recalculates balances', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h5-posted-single-audit@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', normalBalance: 'debit' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital', normalBalance: 'credit', accountType: 'equity' });
+
+    const entry = await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Posted single audit',
+        status: 'posted',
+        lines: [
+          { glAccountId: cash.id, debit: 300, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 300 },
+        ],
+      },
+      user.id,
+    );
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', entityId: entry.id },
+    });
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].action).toBe('create');
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
+    expect(Number(afterCash?.balance)).toBe(300);
+    expect(Number(afterEquity?.balance)).toBe(300);
   });
 });

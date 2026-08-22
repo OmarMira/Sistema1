@@ -3,9 +3,11 @@ import { ValidationError, ForbiddenError } from '@/lib/api-error';
 import { CreateJournalEntryInput } from '@/lib/validations/journal';
 import { withTiming } from '@/lib/timing';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
+import { createAuditLogWithRetry } from '@/lib/audit';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 
 export class JournalService {
-  static create = withTiming(async (input: CreateJournalEntryInput) => {
+  static create = withTiming(async (input: CreateJournalEntryInput, userId?: string) => {
     const { companyId, date, description, reference, status, lines } = input;
 
     if (!lines || lines.length < 2) {
@@ -36,6 +38,11 @@ export class JournalService {
     const inactiveAccounts = accounts.filter((a) => !a.isActive);
     if (inactiveAccounts.length > 0) {
       throw new ValidationError('Una o más cuentas contables seleccionadas están inactivas');
+    }
+
+    // D2-H4: posted entries must always carry an actor
+    if (status === 'posted' && !userId) {
+      throw new ValidationError('userId is required when creating a posted journal entry');
     }
 
     // Create entry with lines in a transaction
@@ -75,6 +82,26 @@ export class JournalService {
           },
         },
       });
+
+      // D2-H4: When creating directly as posted, audit + recalculate atomically
+      if (status === 'posted') {
+        await createAuditLogWithRetry(
+          {
+            companyId,
+            userId: userId ?? null,
+            action: 'create',
+            entity: 'journalEntry',
+            entityId: newEntry.id,
+            details: JSON.stringify({ description, status: 'posted' }),
+          },
+          tx as any,
+        );
+
+        const uniqueAccountIds = [...new Set(lines.map((l) => l.glAccountId))];
+        for (const glAccountId of uniqueAccountIds) {
+          await JournalEntryService.recalculateBalance(tx as any, glAccountId);
+        }
+      }
 
       return newEntry;
     });

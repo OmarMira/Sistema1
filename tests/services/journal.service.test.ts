@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { JournalService } from '@/lib/services/journal.service';
-import { createTestCompany, createTestGlAccount, clearDatabase } from '../helpers/factories';
+import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, clearDatabase } from '../helpers/factories';
 import { db } from '@/lib/db';
 
 describe('JournalService', () => {
@@ -51,7 +51,7 @@ describe('JournalService', () => {
         status: 'draft',
         lines: [
           { glAccountId: cash.id, debit: 1000.0, credit: 0.0 },
-          { glAccountId: equity.id, debit: 0.0, credit: 900.0 }, // Descuadrado por 100
+          { glAccountId: equity.id, debit: 0.0, credit: 900.0 },
         ],
       })
     ).rejects.toThrow('Unbalanced journal entry. Debits must equal Credits.');
@@ -62,7 +62,6 @@ describe('JournalService', () => {
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    // Create a closed fiscal period for May 2026
     await db.fiscalPeriod.create({
       data: {
         companyId: company.id,
@@ -91,7 +90,6 @@ describe('JournalService', () => {
     const company = await createTestCompany();
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
 
-    // Zod validación fallará o Service fallará. Aquí probamos la validación del service / zod.
     await expect(
       JournalService.create({
         companyId: company.id,
@@ -103,5 +101,326 @@ describe('JournalService', () => {
         ],
       })
     ).rejects.toThrow();
+  });
+});
+
+// ─── D2-H4: POST /api/journal creates posted without AuditLog or recalculateBalance ───
+describe('D2-H4 — POST created posted entry with audit + balance recalculation', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+  });
+
+  it('POST with status:posted creates the entry with status posted', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-post@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    const entry = await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Direct posted entry',
+        status: 'posted',
+        lines: [
+          { glAccountId: cash.id, debit: 500, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 500 },
+        ],
+      },
+      user.id,
+    );
+
+    expect(entry.id).toBeDefined();
+    expect(entry.status).toBe('posted');
+
+    const dbEntry = await db.journalEntry.findUnique({ where: { id: entry.id } });
+    expect(dbEntry?.status).toBe('posted');
+  });
+
+  it('POST with status:posted creates AuditLog with correct actor', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-audit@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    const entry = await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Audit test entry',
+        status: 'posted',
+        lines: [
+          { glAccountId: cash.id, debit: 200, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 200 },
+        ],
+      },
+      user.id,
+    );
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', entityId: entry.id },
+    });
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].userId).toBe(user.id);
+    expect(auditLogs[0].action).toBe('create');
+    expect(auditLogs[0].companyId).toBe(company.id);
+  });
+
+  it('POST with status:posted recalculates all affected GL account balances', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-balance@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', normalBalance: 'debit' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital', normalBalance: 'credit', accountType: 'equity' });
+
+    const beforeCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true, normalBalance: true } });
+    const beforeEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true, normalBalance: true } });
+    expect(Number(beforeCash?.balance)).toBe(0);
+    expect(Number(beforeEquity?.balance)).toBe(0);
+    expect(beforeCash?.normalBalance).toBe('debit');
+    expect(beforeEquity?.normalBalance).toBe('credit');
+
+    await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Balance recalc test',
+        status: 'posted',
+        lines: [
+          { glAccountId: cash.id, debit: 750, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 750 },
+        ],
+      },
+      user.id,
+    );
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
+    expect(Number(afterCash?.balance)).toBe(750);
+    expect(Number(afterEquity?.balance)).toBe(750);
+  });
+
+  it('duplicate account IDs in lines do not cause duplicate balance recalculations', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-dedup@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const expense = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Expense' });
+
+    // Balanced entry: debits = 300+200 = 500, credits = 100+400 = 500
+    await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Dedup test',
+        status: 'posted',
+        lines: [
+          { glAccountId: cash.id, debit: 300, credit: 0 },
+          { glAccountId: cash.id, debit: 0, credit: 100 },
+          { glAccountId: expense.id, debit: 200, credit: 0 },
+          { glAccountId: expense.id, debit: 0, credit: 400 },
+        ],
+      },
+      user.id,
+    );
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterExpense = await db.glAccount.findUnique({ where: { id: expense.id }, select: { balance: true } });
+    // cash: debit-normal, (300 - 100) = 200
+    expect(Number(afterCash?.balance)).toBe(200);
+    // expense: debit-normal, (200 - 400) = -200
+    expect(Number(afterExpense?.balance)).toBe(-200);
+  });
+
+  it('if AuditLog fails, JournalEntry is not persisted (full rollback)', async () => {
+    const auditModule = await import('@/lib/audit');
+    const auditSpy = vi.spyOn(auditModule, 'createAuditLogWithRetry');
+    auditSpy.mockRejectedValueOnce(new Error('Simulated audit log failure'));
+
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-rollback-audit@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    await expect(
+      JournalService.create(
+        {
+          companyId: company.id,
+          date: '2026-08-22',
+          description: 'Should rollback on audit failure',
+          status: 'posted',
+          lines: [
+            { glAccountId: cash.id, debit: 500, credit: 0 },
+            { glAccountId: equity.id, debit: 0, credit: 500 },
+          ],
+        },
+        user.id,
+      )
+    ).rejects.toThrow('Simulated audit log failure');
+
+    const entries = await db.journalEntry.findMany({
+      where: { companyId: company.id, description: 'Should rollback on audit failure' },
+    });
+    expect(entries).toHaveLength(0);
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
+    expect(afterCash?.balance).toBe(0);
+    expect(afterEquity?.balance).toBe(0);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', companyId: company.id },
+    });
+    expect(auditLogs).toHaveLength(0);
+
+    auditSpy.mockRestore();
+  });
+
+  it('if recalculateBalance fails, JournalEntry + AuditLog + balances revert', async () => {
+    const { JournalEntryService } = await import('@/lib/services/journal-entry.service');
+    const recalcSpy = vi.spyOn(JournalEntryService, 'recalculateBalance');
+    recalcSpy.mockRejectedValueOnce(new Error('Simulated recalc failure'));
+
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-rollback-recalc@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    await expect(
+      JournalService.create(
+        {
+          companyId: company.id,
+          date: '2026-08-22',
+          description: 'Should rollback on recalc failure',
+          status: 'posted',
+          lines: [
+            { glAccountId: cash.id, debit: 400, credit: 0 },
+            { glAccountId: equity.id, debit: 0, credit: 400 },
+          ],
+        },
+        user.id,
+      )
+    ).rejects.toThrow('Simulated recalc failure');
+
+    const entries = await db.journalEntry.findMany({
+      where: { companyId: company.id, description: 'Should rollback on recalc failure' },
+    });
+    expect(entries).toHaveLength(0);
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
+    expect(afterCash?.balance).toBe(0);
+    expect(afterEquity?.balance).toBe(0);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', companyId: company.id },
+    });
+    expect(auditLogs).toHaveLength(0);
+
+    recalcSpy.mockRestore();
+  });
+
+  it('draft creation does not create AuditLog or recalculateBalance (no regression)', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-draft-nochange@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    const entry = await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Draft should not audit or recalc',
+        status: 'draft',
+        lines: [
+          { glAccountId: cash.id, debit: 300, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 300 },
+        ],
+      },
+      user.id,
+    );
+
+    expect(entry.status).toBe('draft');
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', entityId: entry.id },
+    });
+    expect(auditLogs).toHaveLength(0);
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
+    expect(afterCash?.balance).toBe(0);
+    expect(afterEquity?.balance).toBe(0);
+  });
+
+  it('default status (no status field) creates draft without audit or recalc', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h4-default-status@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    const entry = await JournalService.create(
+      {
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Default status entry',
+        lines: [
+          { glAccountId: cash.id, debit: 100, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 100 },
+        ],
+      },
+      user.id,
+    );
+
+    expect(entry.status).toBe('draft');
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', entityId: entry.id },
+    });
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  it('POST with status:posted and no userId is rejected without persisting anything', async () => {
+    const company = await createTestCompany();
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
+
+    await expect(
+      JournalService.create({
+        companyId: company.id,
+        date: '2026-08-22',
+        description: 'Posted without userId should fail',
+        status: 'posted',
+        lines: [
+          { glAccountId: cash.id, debit: 500, credit: 0 },
+          { glAccountId: equity.id, debit: 0, credit: 500 },
+        ],
+      }),
+    ).rejects.toThrow('userId is required when creating a posted journal entry');
+
+    const entries = await db.journalEntry.findMany({
+      where: { companyId: company.id, description: 'Posted without userId should fail' },
+    });
+    expect(entries).toHaveLength(0);
+
+    const afterCash = await db.glAccount.findUnique({ where: { id: cash.id }, select: { balance: true } });
+    const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
+    expect(Number(afterCash?.balance)).toBe(0);
+    expect(Number(afterEquity?.balance)).toBe(0);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'journalEntry', companyId: company.id },
+    });
+    expect(auditLogs).toHaveLength(0);
   });
 });

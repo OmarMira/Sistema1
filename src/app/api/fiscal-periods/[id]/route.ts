@@ -43,22 +43,25 @@ export const PATCH = apiHandler(async (req: NextRequest, context: RouteContext) 
     }
   }
 
-  const updated = await db.fiscalPeriod.update({
-    where: { id },
-    data: { isLocked },
+  const updated = await db.$transaction(async (tx) => {
+    const result = await tx.fiscalPeriod.update({
+      where: { id },
+      data: { isLocked },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId,
+        action: isLocked ? 'PERIOD_LOCKED' : 'PERIOD_UNLOCKED',
+        entity: 'FiscalPeriod',
+        entityId: id,
+      },
+    });
+
+    return result;
   });
 
-  // Invalidar caché
   companySettingsCache.invalidate(companyId);
-
-  await db.auditLog.create({
-    data: {
-      companyId,
-      action: isLocked ? 'PERIOD_LOCKED' : 'PERIOD_UNLOCKED',
-      entity: 'FiscalPeriod',
-      entityId: id,
-    },
-  });
 
   return NextResponse.json({ period: updated });
 });

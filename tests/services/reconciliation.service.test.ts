@@ -637,4 +637,49 @@ describe('P14 — splits con GL accounts foráneas (aislamiento de tenant)', () 
     expect(Number(revenue?.balance)).toBeCloseTo(400.0, 2);
     expect(Number(tax?.balance)).toBeCloseTo(100.0, 2);
   });
+
+  it('D2-H11: createFromBankTransaction rechaza fecha en período cerrado', async () => {
+    const company = await createTestCompany();
+    const cashGl = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
+    const bankAccount = await createTestBankAccount(company.id, cashGl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+
+    await db.fiscalPeriod.create({
+      data: {
+        companyId: company.id,
+        name: 'March 2025 Closed',
+        startDate: new Date('2025-03-01T00:00:00.000Z'),
+        endDate: new Date('2025-03-31T23:59:59.999Z'),
+        isLocked: true,
+      },
+    });
+
+    const bankTx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-03-15',
+      amount: 500.0,
+      description: 'Test closed period',
+    });
+
+    const incomeGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Revenue', accountType: 'revenue', normalBalance: 'credit' });
+
+    const jeCountBefore = await db.journalEntry.count({ where: { companyId: company.id } });
+
+    await expect(
+      JournalEntryService.createFromBankTransaction(db as any, {
+        bankTxId: bankTx.id,
+        bankTxDate: bankTx.date,
+        bankTxAmount: Number(bankTx.amount),
+        bankTxDescription: bankTx.description,
+        bankGlAccountId: cashGl.id,
+        counterpartyGlAccountId: incomeGl.id,
+        companyId: company.id,
+      }),
+    ).rejects.toThrow();
+
+    const jeCountAfter = await db.journalEntry.count({ where: { companyId: company.id } });
+    expect(jeCountAfter).toBe(jeCountBefore);
+
+    const tx = await db.bankTransaction.findUnique({ where: { id: bankTx.id } });
+    expect(tx?.journalEntryId).toBeNull();
+  });
 });

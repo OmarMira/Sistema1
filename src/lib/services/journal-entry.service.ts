@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { toNum } from '@/lib/utils/decimal';
+import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 
 /**
  * Creates journal entries from bank transactions.
@@ -28,6 +29,8 @@ export class JournalEntryService {
     },
   ): Promise<string | null> {
     const { bankTxId, bankTxDate, bankTxAmount, bankTxDescription, bankGlAccountId, counterpartyGlAccountId, companyId } = params;
+
+    await assertActiveFiscalPeriod(companyId, bankTxDate, prisma);
 
     const amount = Math.abs(bankTxAmount);
     if (amount < 0.01) return null;

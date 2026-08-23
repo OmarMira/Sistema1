@@ -212,7 +212,6 @@ describe('B4B1 — RC3: Accounts write routes require CompanyMember.role company
 
   it('POST: company_admin → 201, account created', async () => {
     const { company, token } = await memberWithRole('admin-b4b1-post@example.com', 'company_admin');
-    const createSpy = vi.spyOn(db.glAccount, 'create');
 
     const res = await accountsPOST(
       new NextRequest(`http://localhost/api/accounts?companyId=${company.id}`, {
@@ -224,7 +223,12 @@ describe('B4B1 — RC3: Accounts write routes require CompanyMember.role company
     );
     log('POST company_admin status:', res.status);
     expect(res.status).toBe(201);
-    expect(createSpy).toHaveBeenCalledTimes(1);
+
+    const body = await res.json();
+    const created = await db.glAccount.findUnique({ where: { id: body.account.id } });
+    expect(created).not.toBeNull();
+    expect(created!.companyId).toBe(company.id);
+    expect(created!.code).toBe('3000');
   });
 
   it('POST: super_admin → 201 via existing bypass', async () => {

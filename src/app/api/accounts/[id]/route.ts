@@ -5,6 +5,7 @@ import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { journalAccountsCache } from '@/lib/cache';
 import { readJsonConfig } from '@/lib/config-loader';
+import { createAuditLogWithRetry } from '@/lib/audit';
 import { logger } from '@/lib/logger';
 
 // ─── GET /api/accounts/[id] ────────────────────────────────────────────
@@ -146,17 +147,30 @@ export const PUT = apiHandler(
       return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 });
     }
 
-    const account = await db.glAccount.update({
-      where: { id },
-      data: updateData,
-      include: {
-        parent: {
-          select: { id: true, code: true, name: true },
+    const account = await db.$transaction(async (tx) => {
+      const updated = await tx.glAccount.update({
+        where: { id },
+        data: updateData,
+        include: {
+          parent: {
+            select: { id: true, code: true, name: true },
+          },
+          _count: {
+            select: { children: true, journalLines: true },
+          },
         },
-        _count: {
-          select: { children: true, journalLines: true },
-        },
-      },
+      });
+
+      await createAuditLogWithRetry({
+        companyId: existing.companyId,
+        userId,
+        action: 'ACCOUNT_UPDATED',
+        entity: 'GlAccount',
+        entityId: id,
+        details: JSON.stringify(updateData),
+      }, tx as any);
+
+      return updated;
     });
 
     journalAccountsCache.invalidate(existing.companyId);
@@ -239,8 +253,26 @@ export const DELETE = apiHandler(
     }
 
     // Delete — DB handles ON DELETE SET NULL for parentId and BankTransaction.glAccountId
-    const deleted = await db.glAccount.delete({
-      where: { id },
+    const deleted = await db.$transaction(async (tx) => {
+      const result = await tx.glAccount.delete({
+        where: { id },
+      });
+
+      await createAuditLogWithRetry({
+        companyId,
+        userId,
+        action: 'ACCOUNT_DELETED',
+        entity: 'GlAccount',
+        entityId: result.id,
+        details: JSON.stringify({
+          code: result.code,
+          name: result.name,
+          accountType: result.accountType,
+          normalBalance: result.normalBalance,
+        }),
+      }, tx as any);
+
+      return result;
     });
 
     journalAccountsCache.invalidate(account.companyId);

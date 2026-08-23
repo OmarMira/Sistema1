@@ -7,6 +7,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 import { journalAccountsCache } from '@/lib/cache';
 import { readJsonConfig } from '@/lib/config-loader';
+import { createAuditLogWithRetry } from '@/lib/audit';
 
 // ─── GET /api/accounts?companyId=xxx&accountType=xxx&search=xxx ─────────
 export const GET = apiHandler(
@@ -166,25 +167,43 @@ export const POST = apiHandler(
       }
     }
 
-    const account = await db.glAccount.create({
-      data: {
+    const account = await db.$transaction(async (tx) => {
+      const created = await tx.glAccount.create({
+        data: {
+          companyId,
+          code: code.trim(),
+          name: name.trim(),
+          accountType,
+          normalBalance,
+          parentId: parentId || null,
+          isActive: true,
+          isSystem: false,
+        },
+        include: {
+          parent: {
+            select: { id: true, code: true, name: true },
+          },
+          _count: {
+            select: { children: true, journalLines: true },
+          },
+        },
+      });
+
+      await createAuditLogWithRetry({
         companyId,
-        code: code.trim(),
-        name: name.trim(),
-        accountType,
-        normalBalance,
-        parentId: parentId || null,
-        isActive: true,
-        isSystem: false,
-      },
-      include: {
-        parent: {
-          select: { id: true, code: true, name: true },
-        },
-        _count: {
-          select: { children: true, journalLines: true },
-        },
-      },
+        userId,
+        action: 'ACCOUNT_CREATED',
+        entity: 'GlAccount',
+        entityId: created.id,
+        details: JSON.stringify({
+          code: created.code,
+          name: created.name,
+          accountType: created.accountType,
+          normalBalance: created.normalBalance,
+        }),
+      }, tx as any);
+
+      return created;
     });
 
     journalAccountsCache.invalidate(companyId);

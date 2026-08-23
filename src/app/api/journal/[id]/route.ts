@@ -239,9 +239,13 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'Only draft entries can be posted' }, { status: 400 });
       }
 
-      await assertActiveFiscalPeriod(entry.companyId, entry.date);
-
       const updated = await db.$transaction(async (tx) => {
+        await assertActiveFiscalPeriod(
+          entry.companyId,
+          entry.date,
+          tx as any,
+        );
+
         const result = await tx.journalEntry.update({
           where: { id },
           data: { status: 'posted' },
@@ -305,9 +309,13 @@ export const POST = apiHandler(
         );
       }
 
-      await assertActiveFiscalPeriod(entry.companyId, entry.date);
-
       const updated = await db.$transaction(async (tx) => {
+        await assertActiveFiscalPeriod(
+          entry.companyId,
+          entry.date,
+          tx as any,
+        );
+
         const result = await tx.journalEntry.update({
           where: { id },
           data: { status: 'void' },

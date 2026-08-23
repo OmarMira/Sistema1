@@ -193,10 +193,7 @@ export const DELETE = apiHandler(
       include: {
         _count: {
           select: {
-            children: true,
-            journalLines: true,
             bankAccounts: true,
-            transactions: true,
           },
         },
       },
@@ -241,28 +238,7 @@ export const DELETE = apiHandler(
       return NextResponse.json({ error: msg }, { status: 409 });
     }
 
-    // ── Cleanup related records before delete ──
-
-    // 1. Orphan children (set parentId to null)
-    if (account._count.children > 0) {
-      await db.glAccount.updateMany({
-        where: { parentId: id },
-        data: { parentId: null },
-      });
-    }
-
-    // 2. Null out bank transactions referencing this account
-    // (FK is nullable, no cascade — manual cleanup needed)
-    if (account._count.transactions > 0) {
-      await db.bankTransaction.updateMany({
-        where: { glAccountId: id },
-        data: { glAccountId: null },
-      });
-    }
-
-    // 3. BankRules, EntityContexts have onDelete: SetNull — DB handles them
-
-    // Hard delete from database
+    // Delete — DB handles ON DELETE SET NULL for parentId and BankTransaction.glAccountId
     const deleted = await db.glAccount.delete({
       where: { id },
     });

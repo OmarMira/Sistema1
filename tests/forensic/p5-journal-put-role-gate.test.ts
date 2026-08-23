@@ -270,4 +270,36 @@ describe('P5 — PUT /api/journal/[id] (draft edit) role gate', () => {
     log('PUT void entry: status =', res.status);
     expect(res.status).toBe(400);
   });
+
+  it('D2-H10: PUT draft cambia date hacia período cerrado → rechazo (403) → fecha original intacta', async () => {
+    const user = await createTestUser('p5-put-d2h10@example.com');
+    const company = await createTestCompany('P5 Put D2H10');
+    await createTestCompanyMember(user.id, company.id);
+    const { entry } = await seedDraftEntry(company.id);
+    const token = await createSession(user.id);
+
+    await db.fiscalPeriod.create({
+      data: {
+        companyId: company.id,
+        name: 'June 2026 Closed',
+        startDate: new Date('2026-06-01T00:00:00.000Z'),
+        endDate: new Date('2026-06-30T23:59:59.999Z'),
+        isLocked: true,
+      },
+    });
+
+    const res = await journalPutPUT(
+      new NextRequest(`http://localhost/api/journal/${entry.id}`, {
+        method: 'PUT',
+        headers: authHeaders(token),
+        body: JSON.stringify({ date: '2026-06-15' }),
+      }),
+      { params: Promise.resolve({ id: entry.id }) },
+    );
+    log('PUT D2-H10 locked period: status =', res.status);
+    expect(res.status).toBe(403);
+
+    const stored = await db.journalEntry.findUnique({ where: { id: entry.id }, select: { date: true } });
+    expect(stored?.date.toISOString()).toBe(new Date('2026-03-01').toISOString());
+  });
 });

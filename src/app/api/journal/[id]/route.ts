@@ -153,6 +153,14 @@ export const PUT = apiHandler(
 
     // Update in a transaction — atomic: deleteMany + create inside a single update
     const updated = await db.$transaction(async (tx) => {
+      if (date !== undefined) {
+        await assertActiveFiscalPeriod(
+          existing.companyId,
+          new Date(date),
+          tx as any,
+        );
+      }
+
       const entry = await tx.journalEntry.update({
         where: { id },
         data: {

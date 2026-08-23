@@ -39,28 +39,31 @@ export const POST = apiHandler(async (req: NextRequest) => {
     );
   }
 
-  const period = await db.fiscalPeriod.create({
-    data: {
-      companyId: companyId,
-      name,
-      startDate: start,
-      endDate: end,
-      isLocked: false,
-    },
+  const period = await db.$transaction(async (tx) => {
+    const result = await tx.fiscalPeriod.create({
+      data: {
+        companyId: companyId,
+        name,
+        startDate: start,
+        endDate: end,
+        isLocked: false,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        companyId: companyId,
+        action: 'PERIOD_CREATED',
+        entity: 'FiscalPeriod',
+        entityId: result.id,
+        details: JSON.stringify({ name, startDate, endDate }),
+      },
+    });
+
+    return result;
   });
 
-  // Invalidar caché
   companySettingsCache.invalidate(companyId);
-
-  await db.auditLog.create({
-    data: {
-      companyId: companyId,
-      action: 'PERIOD_CREATED',
-      entity: 'FiscalPeriod',
-      entityId: period.id,
-      details: JSON.stringify({ name, startDate, endDate }),
-    },
-  });
 
   return NextResponse.json({ period });
 });

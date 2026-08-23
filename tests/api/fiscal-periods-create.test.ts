@@ -9,11 +9,16 @@ const mockDbCompanyMemberFindUnique = vi.hoisted(() => vi.fn());
 const mockDbPeriodFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockDbPeriodCreate = vi.hoisted(() => vi.fn());
 const mockDbAuditLogCreate = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockDbTransaction = vi.hoisted(() => vi.fn((fn: any) => fn({
+  fiscalPeriod: { create: mockDbPeriodCreate },
+  auditLog: { create: mockDbAuditLogCreate },
+})));
 
 vi.mock('@/lib/sessions', () => ({ getSessionUserId: mockGetSessionUserId }));
 vi.mock('@/lib/security/rate-limiter', () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock('@/lib/db', () => ({
   db: {
+    $transaction: mockDbTransaction,
     user: { findUnique: mockDbUserFindUnique },
     company: { findUnique: mockDbCompanyFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },

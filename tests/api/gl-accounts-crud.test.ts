@@ -7,8 +7,22 @@ import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { journalAccountsCache } from '@/lib/cache';
 
+const mockCreateAuditLog = vi.hoisted(() => vi.fn());
+
+vi.mock('@/lib/audit', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('@/lib/audit')>();
+  mockCreateAuditLog.mockImplementation(mod.createAuditLogWithRetry);
+  return {
+    ...mod,
+    createAuditLogWithRetry: mockCreateAuditLog,
+  };
+});
+
 describe('GL Accounts CRUD /api/accounts', () => {
   beforeEach(async () => {
+    const actualAudit = await vi.importActual<typeof import('@/lib/audit')>('@/lib/audit');
+    mockCreateAuditLog.mockImplementation(actualAudit.createAuditLogWithRetry);
+    mockCreateAuditLog.mockClear();
     await clearDatabase();
   });
 
@@ -388,5 +402,318 @@ describe('GL Accounts CRUD /api/accounts', () => {
     expect(spy).not.toHaveBeenCalled();
 
     spy.mockRestore();
+  });
+
+  // ─── D2-H6: AuditLog atómico en CRUD de accounts ──────────────────────
+
+  it('D2-H6: POST exitoso → ACCOUNT_CREATED con datos correctos', async () => {
+    const user = await createTestUser('gl-d2h6-post-audit@example.com');
+    const company = await createTestCompany('D2-H6 Post Audit Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const createReq = new NextRequest(`http://localhost/api/accounts?companyId=${company.id}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        code: 'D2H6',
+        name: 'Audit Test Account',
+        accountType: 'asset',
+        normalBalance: 'debit',
+      }),
+    });
+    const createRes = await createPOST(createReq, { params: Promise.resolve({}) });
+    expect(createRes.status).toBe(201);
+
+    const createBody = await createRes.json();
+    const accountId = createBody.account.id;
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'GlAccount', entityId: accountId },
+    });
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].action).toBe('ACCOUNT_CREATED');
+    expect(auditLogs[0].companyId).toBe(company.id);
+    expect(auditLogs[0].userId).toBe(user.id);
+
+    const details = JSON.parse(auditLogs[0].details!);
+    expect(details.code).toBe('D2H6');
+    expect(details.name).toBe('Audit Test Account');
+    expect(details.accountType).toBe('asset');
+    expect(details.normalBalance).toBe('debit');
+  });
+
+  it('D2-H6: POST rollback si AuditLog falla → cuenta no persiste', async () => {
+    const user = await createTestUser('gl-d2h6-post-rollback@example.com');
+    const company = await createTestCompany('D2-H6 Post Rollback Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    mockCreateAuditLog.mockRejectedValueOnce(new Error('Simulated audit failure'));
+
+    const createReq = new NextRequest(`http://localhost/api/accounts?companyId=${company.id}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        code: 'D2RB',
+        name: 'Rollback Test',
+        accountType: 'asset',
+        normalBalance: 'debit',
+      }),
+    });
+    const createRes = await createPOST(createReq, { params: Promise.resolve({}) });
+    expect(createRes.status).toBe(500);
+
+    const created = await db.glAccount.findFirst({
+      where: { companyId: company.id, code: 'D2RB' },
+    });
+    expect(created).toBeNull();
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'GlAccount', action: 'ACCOUNT_CREATED' },
+    });
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  it('D2-H6: PUT exitoso → ACCOUNT_UPDATED con datos correctos', async () => {
+    const user = await createTestUser('gl-d2h6-put-audit@example.com');
+    const company = await createTestCompany('D2-H6 Put Audit Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const glAccount = await createTestGlAccount({ companyId: company.id, code: 'U100', name: 'Original Name' });
+
+    const updateReq = new NextRequest(`http://localhost/api/accounts/${glAccount.id}?companyId=${company.id}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Updated Name' }),
+    });
+    const updateRes = await updatePUT(updateReq, { params: Promise.resolve({ id: glAccount.id }) });
+    expect(updateRes.status).toBe(200);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'GlAccount', entityId: glAccount.id },
+    });
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].action).toBe('ACCOUNT_UPDATED');
+    expect(auditLogs[0].companyId).toBe(company.id);
+    expect(auditLogs[0].userId).toBe(user.id);
+
+    const details = JSON.parse(auditLogs[0].details!);
+    expect(details.name).toBe('Updated Name');
+  });
+
+  it('D2-H6: PUT rollback si AuditLog falla → cuenta conserva valores anteriores', async () => {
+    const user = await createTestUser('gl-d2h6-put-rollback@example.com');
+    const company = await createTestCompany('D2-H6 Put Rollback Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const glAccount = await createTestGlAccount({ companyId: company.id, code: 'R100', name: 'Keep Original' });
+
+    mockCreateAuditLog.mockRejectedValueOnce(new Error('Simulated audit failure'));
+
+    const updateReq = new NextRequest(`http://localhost/api/accounts/${glAccount.id}?companyId=${company.id}`, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Should Not Persist' }),
+    });
+    const updateRes = await updatePUT(updateReq, { params: Promise.resolve({ id: glAccount.id }) });
+    expect(updateRes.status).toBe(500);
+
+    const reloaded = await db.glAccount.findUnique({ where: { id: glAccount.id } });
+    expect(reloaded!.name).toBe('Keep Original');
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'GlAccount', entityId: glAccount.id },
+    });
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  it('D2-H6: DELETE exitoso → ACCOUNT_DELETED con datos correctos', async () => {
+    const user = await createTestUser('gl-d2h6-delete-audit@example.com');
+    const company = await createTestCompany('D2-H6 Delete Audit Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const glAccount = await createTestGlAccount({ companyId: company.id, code: 'D100', name: 'To Delete' });
+
+    const deleteReq = new NextRequest(`http://localhost/api/accounts/${glAccount.id}?companyId=${company.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const deleteRes = await deleteDELETE(deleteReq, { params: Promise.resolve({ id: glAccount.id }) });
+    expect(deleteRes.status).toBe(200);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'GlAccount', entityId: glAccount.id },
+    });
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].action).toBe('ACCOUNT_DELETED');
+    expect(auditLogs[0].companyId).toBe(company.id);
+    expect(auditLogs[0].userId).toBe(user.id);
+
+    const details = JSON.parse(auditLogs[0].details!);
+    expect(details.code).toBe('D100');
+    expect(details.name).toBe('To Delete');
+    expect(details.accountType).toBeDefined();
+    expect(details.normalBalance).toBeDefined();
+  });
+
+  it('D2-H6: DELETE exitoso con hijo + BankTransaction → preserva D2-H7', async () => {
+    const user = await createTestUser('gl-d2h6-delete-d2h7@example.com');
+    const company = await createTestCompany('D2-H6 Delete D2H7 Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const parent = await createTestGlAccount({ companyId: company.id, code: 'DP10', name: 'Parent' });
+    const child = await createTestGlAccount({ companyId: company.id, code: 'DC10', name: 'Child' });
+    await db.glAccount.update({ where: { id: child.id }, data: { parentId: parent.id } });
+
+    const bankGl = await createTestGlAccount({ companyId: company.id, code: 'DB10', name: 'Bank GL' });
+    const bankAccount = await createTestBankAccount(company.id, bankGl.id, 'Test Bank');
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const bt = await db.bankTransaction.create({
+      data: {
+        statementId: statement.id,
+        date: new Date('2025-03-15'),
+        amount: 300,
+        description: 'BT for D2-H6',
+        glAccountId: parent.id,
+      },
+    });
+
+    const deleteReq = new NextRequest(`http://localhost/api/accounts/${parent.id}?companyId=${company.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const deleteRes = await deleteDELETE(deleteReq, { params: Promise.resolve({ id: parent.id }) });
+    expect(deleteRes.status).toBe(200);
+
+    const deletedParent = await db.glAccount.findUnique({ where: { id: parent.id } });
+    expect(deletedParent).toBeNull();
+
+    const survivingChild = await db.glAccount.findUnique({ where: { id: child.id } });
+    expect(survivingChild).not.toBeNull();
+    expect(survivingChild!.parentId).toBeNull();
+
+    const survivingBt = await db.bankTransaction.findUnique({ where: { id: bt.id } });
+    expect(survivingBt).not.toBeNull();
+    expect(survivingBt!.glAccountId).toBeNull();
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'GlAccount', entityId: parent.id },
+    });
+    expect(auditLogs).toHaveLength(1);
+    expect(auditLogs[0].action).toBe('ACCOUNT_DELETED');
+  });
+
+  it('D2-H6: DELETE rollback si AuditLog falla → cuenta y relaciones se conservan', async () => {
+    const user = await createTestUser('gl-d2h6-delete-rollback@example.com');
+    const company = await createTestCompany('D2-H6 Delete Rollback Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const parent = await createTestGlAccount({ companyId: company.id, code: 'RP10', name: 'Rollback Parent' });
+    const child = await createTestGlAccount({ companyId: company.id, code: 'RC10', name: 'Rollback Child' });
+    await db.glAccount.update({ where: { id: child.id }, data: { parentId: parent.id } });
+
+    const bankGl = await createTestGlAccount({ companyId: company.id, code: 'RB10', name: 'Bank GL RB' });
+    const bankAccount = await createTestBankAccount(company.id, bankGl.id, 'Test Bank RB');
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const bt = await db.bankTransaction.create({
+      data: {
+        statementId: statement.id,
+        date: new Date('2025-03-15'),
+        amount: 200,
+        description: 'BT for rollback',
+        glAccountId: parent.id,
+      },
+    });
+
+    mockCreateAuditLog.mockRejectedValueOnce(new Error('Simulated audit failure'));
+
+    const deleteReq = new NextRequest(`http://localhost/api/accounts/${parent.id}?companyId=${company.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const deleteRes = await deleteDELETE(deleteReq, { params: Promise.resolve({ id: parent.id }) });
+    expect(deleteRes.status).toBe(500);
+
+    const accountStillExists = await db.glAccount.findUnique({ where: { id: parent.id } });
+    expect(accountStillExists).not.toBeNull();
+    expect(accountStillExists!.code).toBe('RP10');
+
+    const childStillHasParent = await db.glAccount.findUnique({ where: { id: child.id } });
+    expect(childStillHasParent).not.toBeNull();
+    expect(childStillHasParent!.parentId).toBe(parent.id);
+
+    const btStillLinked = await db.bankTransaction.findUnique({ where: { id: bt.id } });
+    expect(btStillLinked).not.toBeNull();
+    expect(btStillLinked!.glAccountId).toBe(parent.id);
+
+    const auditLogs = await db.auditLog.findMany({
+      where: { entity: 'GlAccount', entityId: parent.id },
+    });
+    expect(auditLogs).toHaveLength(0);
+  });
+
+  it('D2-H6: DELETE rollback → cache NO invalidada', async () => {
+    const user = await createTestUser('gl-d2h6-delete-cache@example.com');
+    const company = await createTestCompany('D2-H6 Delete Cache Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const glAccount = await createTestGlAccount({ companyId: company.id, code: 'CC10', name: 'Cache Check' });
+
+    mockCreateAuditLog.mockRejectedValueOnce(new Error('Simulated audit failure'));
+    const cacheSpy = vi.spyOn(journalAccountsCache, 'invalidate');
+
+    const deleteReq = new NextRequest(`http://localhost/api/accounts/${glAccount.id}?companyId=${company.id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const deleteRes = await deleteDELETE(deleteReq, { params: Promise.resolve({ id: glAccount.id }) });
+    expect(deleteRes.status).toBe(500);
+    expect(cacheSpy).not.toHaveBeenCalled();
+
+    cacheSpy.mockRestore();
+  });
+
+  it('D2-H6: GET no genera eventos AuditLog', async () => {
+    const user = await createTestUser('gl-d2h6-get-no-audit@example.com');
+    const company = await createTestCompany('D2-H6 Get No Audit Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const glAccount = await createTestGlAccount({ companyId: company.id, code: 'GA10', name: 'No Audit' });
+
+    const beforeCount = await db.auditLog.count({
+      where: { entity: 'GlAccount' },
+    });
+
+    const getReq = new NextRequest(`http://localhost/api/accounts/${glAccount.id}?companyId=${company.id}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const getRes = await getGET(getReq, { params: Promise.resolve({ id: glAccount.id }) });
+    expect(getRes.status).toBe(200);
+
+    const afterCount = await db.auditLog.count({
+      where: { entity: 'GlAccount' },
+    });
+    expect(afterCount).toBe(beforeCount);
   });
 });

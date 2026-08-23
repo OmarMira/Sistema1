@@ -201,7 +201,7 @@ export const POST = apiHandler(
           accountType: created.accountType,
           normalBalance: created.normalBalance,
         }),
-      }, tx);
+      }, tx as any);
 
       return created;
     });

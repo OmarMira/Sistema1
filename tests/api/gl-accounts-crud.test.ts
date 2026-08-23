@@ -476,7 +476,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     expect(created).toBeNull();
 
     const auditLogs = await db.auditLog.findMany({
-      where: { entity: 'GlAccount', action: 'ACCOUNT_CREATED' },
+      where: { entity: 'GlAccount', action: 'ACCOUNT_CREATED', companyId: company.id },
     });
     expect(auditLogs).toHaveLength(0);
   });

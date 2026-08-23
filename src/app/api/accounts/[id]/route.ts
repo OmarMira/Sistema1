@@ -168,7 +168,7 @@ export const PUT = apiHandler(
         entity: 'GlAccount',
         entityId: id,
         details: JSON.stringify(updateData),
-      }, tx);
+      }, tx as any);
 
       return updated;
     });
@@ -270,7 +270,7 @@ export const DELETE = apiHandler(
           accountType: result.accountType,
           normalBalance: result.normalBalance,
         }),
-      }, tx);
+      }, tx as any);
 
       return result;
     });

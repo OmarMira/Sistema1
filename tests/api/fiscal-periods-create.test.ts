@@ -86,4 +86,11 @@ describe('POST /api/fiscal-periods — inclusive end day (D4)', () => {
     expect(res.status).toBe(400);
     expect(mockDbPeriodCreate).not.toHaveBeenCalled();
   });
+
+  it('D2-H12: rejects invalid date format before reaching persistence', async () => {
+    const res = await POST(createRequest({ name: 'Invalid period', startDate: 'not-a-date', endDate: '2026-12-31' }), { params: Promise.resolve({}) });
+    expect(res.status).toBe(400);
+    expect(mockDbTransaction).not.toHaveBeenCalled();
+    expect(mockDbPeriodCreate).not.toHaveBeenCalled();
+  });
 });

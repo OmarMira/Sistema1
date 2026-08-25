@@ -317,6 +317,8 @@ model JournalEntry {
   hash            String?
   previousHash    String?
   ruleApplyRecordId String?
+  idempotencyKey         String?
+  idempotencyRequestHash String?
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -326,6 +328,7 @@ model JournalEntry {
 
   @@index([companyId, date])
   @@index([ruleApplyRecordId])
+  @@unique([companyId, idempotencyKey])
 }
 
 model JournalLine {

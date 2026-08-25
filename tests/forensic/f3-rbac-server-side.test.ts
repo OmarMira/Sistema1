@@ -268,6 +268,252 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
     expect(entriesCompanyA).toBe(0);
   });
 
+  it('D2-H14 A: journal POST without idempotency key creates normally', async () => {
+    const user = await createTestUser('d2h14a@example.com');
+    const company = await createTestCompany('Idempotency Test Corp');
+    await createTestCompanyMember(user.id, company.id);
+    createdCompanyIds.add(company.id);
+
+    const gl1 = await createTestGlAccount({ companyId: company.id, code: '1000', name: 'Cash' });
+    const gl2 = await createTestGlAccount({ companyId: company.id, code: '2000', name: 'AP' });
+
+    const token = await createSession(user.id);
+    const res = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          companyId: company.id,
+          date: '2026-03-01',
+          description: 'No key entry',
+          status: 'draft',
+          lines: [
+            { glAccountId: gl1.id, debit: 100, credit: 0 },
+            { glAccountId: gl2.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body = await res.json();
+    log('D2-H14 A: status =', res.status, '| id =', body.id);
+    expect(res.status).toBe(201);
+    expect(body.id).toBeDefined();
+
+    const count = await db.journalEntry.count({ where: { companyId: company.id } });
+    expect(count).toBe(1);
+  });
+
+  it('D2-H14 B: first journal POST with idempotency key creates entry', async () => {
+    const user = await createTestUser('d2h14b@example.com');
+    const company = await createTestCompany('Idempotency Test Corp');
+    await createTestCompanyMember(user.id, company.id);
+    createdCompanyIds.add(company.id);
+
+    const gl1 = await createTestGlAccount({ companyId: company.id, code: '1000', name: 'Cash' });
+    const gl2 = await createTestGlAccount({ companyId: company.id, code: '2000', name: 'AP' });
+
+    const token = await createSession(user.id);
+    const res = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          companyId: company.id,
+          date: '2026-03-01',
+          description: 'First keyed entry',
+          status: 'draft',
+          idempotencyKey: 'd2-h14-key-1',
+          lines: [
+            { glAccountId: gl1.id, debit: 100, credit: 0 },
+            { glAccountId: gl2.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body = await res.json();
+    log('D2-H14 B: status =', res.status, '| id =', body.id);
+    expect(res.status).toBe(201);
+    expect(body.id).toBeDefined();
+
+    const count = await db.journalEntry.count({ where: { companyId: company.id } });
+    expect(count).toBe(1);
+  });
+
+  it('D2-H14 C: same idempotency key and same payload replays existing entry', async () => {
+    const user = await createTestUser('d2h14c@example.com');
+    const company = await createTestCompany('Idempotency Test Corp');
+    await createTestCompanyMember(user.id, company.id);
+    createdCompanyIds.add(company.id);
+
+    const gl1 = await createTestGlAccount({ companyId: company.id, code: '1000', name: 'Cash' });
+    const gl2 = await createTestGlAccount({ companyId: company.id, code: '2000', name: 'AP' });
+
+    const token = await createSession(user.id);
+    const payload = {
+      companyId: company.id,
+      date: '2026-03-01',
+      description: 'Replay test entry',
+      status: 'draft',
+      idempotencyKey: 'd2-h14-replay-key',
+      lines: [
+        { glAccountId: gl1.id, debit: 100, credit: 0 },
+        { glAccountId: gl2.id, debit: 0, credit: 100 },
+      ],
+    };
+
+    const res1 = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify(payload),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body1 = await res1.json();
+    log('D2-H14 C first: status =', res1.status, '| id =', body1.id);
+
+    const res2 = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify(payload),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    const body2 = await res2.json();
+    log('D2-H14 C replay: status =', res2.status, '| id =', body2.id);
+
+    expect(res1.status).toBe(201);
+    expect(res2.status).toBe(200);
+    expect(body1.id).toBe(body2.id);
+
+    const count = await db.journalEntry.count({ where: { companyId: company.id } });
+    expect(count).toBe(1);
+  });
+
+  it('D2-H14 D: same idempotency key with different payload returns conflict', async () => {
+    const user = await createTestUser('d2h14d@example.com');
+    const company = await createTestCompany('Idempotency Test Corp');
+    await createTestCompanyMember(user.id, company.id);
+    createdCompanyIds.add(company.id);
+
+    const gl1 = await createTestGlAccount({ companyId: company.id, code: '1000', name: 'Cash' });
+    const gl2 = await createTestGlAccount({ companyId: company.id, code: '2000', name: 'AP' });
+
+    const token = await createSession(user.id);
+
+    const res1 = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          companyId: company.id,
+          date: '2026-03-01',
+          description: 'Original payload',
+          status: 'draft',
+          idempotencyKey: 'd2-h14-conflict-key',
+          lines: [
+            { glAccountId: gl1.id, debit: 100, credit: 0 },
+            { glAccountId: gl2.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    expect(res1.status).toBe(201);
+
+    const res2 = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          companyId: company.id,
+          date: '2026-03-01',
+          description: 'Changed payload',
+          status: 'draft',
+          idempotencyKey: 'd2-h14-conflict-key',
+          lines: [
+            { glAccountId: gl1.id, debit: 100, credit: 0 },
+            { glAccountId: gl2.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    log('D2-H14 D: first =', res1.status, '| second =', res2.status);
+    expect(res2.status).toBe(409);
+
+    const count = await db.journalEntry.count({ where: { companyId: company.id } });
+    expect(count).toBe(1);
+  });
+
+  it('D2-H14 E: same idempotency key is allowed across different companies', async () => {
+    const userA = await createTestUser('d2h14e-a@example.com');
+    const userB = await createTestUser('d2h14e-b@example.com');
+    const companyA = await createTestCompany('Tenant A');
+    const companyB = await createTestCompany('Tenant B');
+    await createTestCompanyMember(userA.id, companyA.id);
+    await createTestCompanyMember(userB.id, companyB.id);
+    createdCompanyIds.add(companyA.id);
+    createdCompanyIds.add(companyB.id);
+
+    const gl1A = await createTestGlAccount({ companyId: companyA.id, code: '1000', name: 'Cash A' });
+    const gl2A = await createTestGlAccount({ companyId: companyA.id, code: '2000', name: 'AP A' });
+    const gl1B = await createTestGlAccount({ companyId: companyB.id, code: '1000', name: 'Cash B' });
+    const gl2B = await createTestGlAccount({ companyId: companyB.id, code: '2000', name: 'AP B' });
+
+    const tokenA = await createSession(userA.id);
+    const tokenB = await createSession(userB.id);
+
+    const resA = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${companyA.id}`, {
+        method: 'POST',
+        headers: authHeaders(tokenA),
+        body: JSON.stringify({
+          companyId: companyA.id,
+          date: '2026-03-01',
+          description: 'Tenant A entry',
+          status: 'draft',
+          idempotencyKey: 'd2-h14-shared-key',
+          lines: [
+            { glAccountId: gl1A.id, debit: 100, credit: 0 },
+            { glAccountId: gl2A.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+
+    const resB = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${companyB.id}`, {
+        method: 'POST',
+        headers: authHeaders(tokenB),
+        body: JSON.stringify({
+          companyId: companyB.id,
+          date: '2026-03-01',
+          description: 'Tenant B entry',
+          status: 'draft',
+          idempotencyKey: 'd2-h14-shared-key',
+          lines: [
+            { glAccountId: gl1B.id, debit: 100, credit: 0 },
+            { glAccountId: gl2B.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    log('D2-H14 E: A =', resA.status, '| B =', resB.status);
+    expect(resA.status).toBe(201);
+    expect(resB.status).toBe(201);
+
+    const countA = await db.journalEntry.count({ where: { companyId: companyA.id } });
+    const countB = await db.journalEntry.count({ where: { companyId: companyB.id } });
+    expect(countA).toBe(1);
+    expect(countB).toBe(1);
+  });
+
   it('viewer cannot post /api/journal/[id] { action: post } (403) and the entry stays unchanged', async () => {
     const user = await createTestUser('viewer-f3b@example.com');
     const company = await createTestCompany('RBAC Test Corp');

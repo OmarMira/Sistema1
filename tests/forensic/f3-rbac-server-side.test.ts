@@ -228,6 +228,46 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
     expect(res.status).toBe(201);
   });
 
+  it('D2-H15: company_admin of A cannot create journal entry in company B via body.companyId override', async () => {
+    const user = await createTestUser('d2h15-tenant@example.com');
+    const companyA = await createTestCompany('Tenant A');
+    const companyB = await createTestCompany('Tenant B');
+    await createTestCompanyMember(user.id, companyA.id);
+    createdCompanyIds.add(companyA.id);
+    createdCompanyIds.add(companyB.id);
+
+    const gl1B = await createTestGlAccount({ companyId: companyB.id, code: '1000', name: 'Cash B' });
+    const gl2B = await createTestGlAccount({ companyId: companyB.id, code: '2000', name: 'AP B' });
+
+    const token = await createSession(user.id);
+    const res = await journalPOST(
+      new NextRequest(`http://localhost/api/journal?companyId=${companyA.id}`, {
+        method: 'POST',
+        headers: authHeaders(token),
+        body: JSON.stringify({
+          companyId: companyB.id,
+          date: '2026-03-01',
+          description: 'Cross-tenant injection attempt',
+          status: 'draft',
+          lines: [
+            { glAccountId: gl1B.id, debit: 100, credit: 0 },
+            { glAccountId: gl2B.id, debit: 0, credit: 100 },
+          ],
+        }),
+      }),
+      { params: Promise.resolve({}) },
+    );
+    log('D2-H15 CROSS-TENANT POST: status =', res.status);
+    expect(res.status).toBe(400);
+
+    const entriesCompanyB = await db.journalEntry.count({ where: { companyId: companyB.id } });
+    const entriesCompanyA = await db.journalEntry.count({ where: { companyId: companyA.id } });
+    log('D2-H15 entries in B =', entriesCompanyB, '| entries in A =', entriesCompanyA);
+
+    expect(entriesCompanyB).toBe(0);
+    expect(entriesCompanyA).toBe(0);
+  });
+
   it('viewer cannot post /api/journal/[id] { action: post } (403) and the entry stays unchanged', async () => {
     const user = await createTestUser('viewer-f3b@example.com');
     const company = await createTestCompany('RBAC Test Corp');

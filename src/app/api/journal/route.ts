@@ -124,7 +124,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
   const body = await validateRequest(request, createJournalEntrySchema);
   if (body instanceof NextResponse) return body;
 
-  const entry = await JournalService.create(body, userId);
+  const entry = await JournalService.create({ ...body, companyId }, userId);
 
   return NextResponse.json(
     {

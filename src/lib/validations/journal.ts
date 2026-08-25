@@ -14,6 +14,7 @@ export const createJournalEntrySchema = z.object({
   reference: z.string().optional().nullable(),
   status: z.enum(['draft', 'posted']).default('draft'),
   lines: z.array(journalLineSchema).min(2, 'Se requieren al menos 2 líneas de asiento contable'),
+  idempotencyKey: z.string().min(1).optional(),
 });
 
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntrySchema>;

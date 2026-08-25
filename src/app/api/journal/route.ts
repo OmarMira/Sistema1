@@ -124,7 +124,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
   const body = await validateRequest(request, createJournalEntrySchema);
   if (body instanceof NextResponse) return body;
 
-  const entry = await JournalService.create({ ...body, companyId }, userId);
+  const { entry, replayed } = await JournalService.create({ ...body, companyId }, userId);
 
   return NextResponse.json(
     {
@@ -133,7 +133,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
       createdAt: entry.createdAt.toISOString(),
       updatedAt: entry.updatedAt.toISOString(),
     },
-    { status: 201 },
+    { status: replayed ? 200 : 201 },
   );
 });
 

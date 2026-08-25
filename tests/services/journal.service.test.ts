@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { JournalService } from '@/lib/services/journal.service';
 import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, clearDatabase } from '../helpers/factories';
@@ -19,7 +20,7 @@ describe('JournalService', () => {
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    const entry = await JournalService.create(
+    const { entry } = await JournalService.create(
       {
         companyId: company.id,
         date: '2026-05-25',
@@ -131,7 +132,7 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    const entry = await JournalService.create(
+    const { entry } = await JournalService.create(
       {
         companyId: company.id,
         date: '2026-08-22',
@@ -159,7 +160,7 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    const entry = await JournalService.create(
+    const { entry } = await JournalService.create(
       {
         companyId: company.id,
         date: '2026-08-22',
@@ -345,7 +346,7 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    const entry = await JournalService.create(
+    const { entry } = await JournalService.create(
       {
         companyId: company.id,
         date: '2026-08-22',
@@ -382,7 +383,7 @@ describe('D2-H4 — POST created posted entry with audit + balance recalculation
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    const entry = await JournalService.create(
+    const { entry } = await JournalService.create(
       {
         companyId: company.id,
         date: '2026-08-22',
@@ -465,7 +466,7 @@ describe('D2-H5 — draft creation creates AuditLog atomically', () => {
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital' });
 
-    const entry = await JournalService.create(
+    const { entry } = await JournalService.create(
       {
         companyId: company.id,
         date: '2026-08-22',
@@ -564,7 +565,7 @@ describe('D2-H5 — draft creation creates AuditLog atomically', () => {
     const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', normalBalance: 'debit' });
     const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital', normalBalance: 'credit', accountType: 'equity' });
 
-    const entry = await JournalService.create(
+    const { entry } = await JournalService.create(
       {
         companyId: company.id,
         date: '2026-08-22',
@@ -588,5 +589,185 @@ describe('D2-H5 — draft creation creates AuditLog atomically', () => {
     const afterEquity = await db.glAccount.findUnique({ where: { id: equity.id }, select: { balance: true } });
     expect(Number(afterCash?.balance)).toBe(300);
     expect(Number(afterEquity?.balance)).toBe(300);
+  });
+
+  it('D2-H14 P2002 same hash replays winner', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h14-p2002-same@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', normalBalance: 'debit' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital', normalBalance: 'credit', accountType: 'equity' });
+
+    const input = {
+      companyId: company.id,
+      date: '2026-08-25',
+      description: 'P2002 same hash',
+      reference: null as string | null,
+      status: 'draft' as const,
+      idempotencyKey: 'd2-h14-p2002-same',
+      lines: [
+        { glAccountId: cash.id, description: null, debit: 500, credit: 0 },
+        { glAccountId: equity.id, description: null, debit: 0, credit: 500 },
+      ],
+    };
+
+    // mirror of D2-H14 canonical request hash (canonicalizeInput + computeRequestHash)
+    const canonical = {
+      date: input.date,
+      description: input.description || null,
+      reference: input.reference || null,
+      status: input.status,
+      lines: [...input.lines]
+        .map((l) => ({
+          glAccountId: l.glAccountId,
+          description: l.description || null,
+          debit: Number(l.debit),
+          credit: Number(l.credit),
+        }))
+        .sort((a, b) =>
+          a.glAccountId.localeCompare(b.glAccountId) ||
+          (a.description ?? '').localeCompare(b.description ?? '') ||
+          b.debit - a.debit ||
+          b.credit - a.credit
+        ),
+    };
+
+    const expectedHash = createHash('sha256')
+      .update(JSON.stringify(canonical))
+      .digest('hex');
+
+    const winner = {
+      id: 'winner-same-hash-id',
+      companyId: company.id,
+      date: new Date(input.date),
+      description: input.description,
+      reference: null,
+      status: 'draft',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      idempotencyKey: 'd2-h14-p2002-same',
+      idempotencyRequestHash: expectedHash,
+      lines: [] as {
+        id: string;
+        entryId: string;
+        glAccountId: string;
+        description: string | null;
+        debit: number;
+        credit: number;
+        createdAt: Date;
+        updatedAt: Date;
+        glAccount: {
+          id: string;
+          code: string;
+          name: string;
+          accountType: string;
+          normalBalance: string;
+        };
+      }[],
+    };
+
+    const findUniqueSpy = vi
+      .spyOn(db.journalEntry, 'findUnique')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(winner);
+
+    const p2002 = Object.assign(new Error('unique violation'), {
+      code: 'P2002',
+    });
+
+    const txSpy = vi
+      .spyOn(db, '$transaction')
+      .mockRejectedValueOnce(p2002);
+
+    try {
+      const result = await JournalService.create(input, user.id);
+
+      expect(result.replayed).toBe(true);
+      expect(result.entry.id).toBe(winner.id);
+      expect(findUniqueSpy).toHaveBeenCalledTimes(2);
+      expect(txSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      findUniqueSpy.mockRestore();
+      txSpy.mockRestore();
+    }
+  });
+
+  it('D2-H14 P2002 different hash returns ConflictError', async () => {
+    const company = await createTestCompany();
+    const user = await createTestUser('d2h14-p2002-diff@example.com');
+    await createTestCompanyMember(user.id, company.id);
+    const cash = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', normalBalance: 'debit' });
+    const equity = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Capital', normalBalance: 'credit', accountType: 'equity' });
+
+    const input = {
+      companyId: company.id,
+      date: '2026-08-25',
+      description: 'P2002 different hash',
+      reference: null as string | null,
+      status: 'draft' as const,
+      idempotencyKey: 'd2-h14-p2002-diff',
+      lines: [
+        { glAccountId: cash.id, description: null, debit: 500, credit: 0 },
+        { glAccountId: equity.id, description: null, debit: 0, credit: 500 },
+      ],
+    };
+
+    const winner = {
+      id: 'winner-different-hash-id',
+      companyId: company.id,
+      date: new Date(input.date),
+      description: input.description,
+      reference: null,
+      status: 'draft',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      idempotencyKey: 'd2-h14-p2002-diff',
+      idempotencyRequestHash: 'hash-from-different-payload',
+      lines: [] as {
+        id: string;
+        entryId: string;
+        glAccountId: string;
+        description: string | null;
+        debit: number;
+        credit: number;
+        createdAt: Date;
+        updatedAt: Date;
+        glAccount: {
+          id: string;
+          code: string;
+          name: string;
+          accountType: string;
+          normalBalance: string;
+        };
+      }[],
+    };
+
+    const findUniqueSpy = vi
+      .spyOn(db.journalEntry, 'findUnique')
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(winner);
+
+    const p2002 = Object.assign(new Error('unique violation'), {
+      code: 'P2002',
+    });
+
+    const txSpy = vi
+      .spyOn(db, '$transaction')
+      .mockRejectedValueOnce(p2002);
+
+    try {
+      await expect(
+        JournalService.create(input, user.id)
+      ).rejects.toMatchObject({
+        statusCode: 409,
+        code: 'CONFLICT',
+      });
+
+      expect(findUniqueSpy).toHaveBeenCalledTimes(2);
+      expect(txSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      findUniqueSpy.mockRestore();
+      txSpy.mockRestore();
+    }
   });
 });

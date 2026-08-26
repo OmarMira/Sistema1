@@ -97,3 +97,6 @@ agent-ctx/
 
 # Database dump artifacts (local snapshots)
 *.dump
+# Local Pi runtime state
+.atl/
+.engram/

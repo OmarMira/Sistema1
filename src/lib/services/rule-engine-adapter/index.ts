@@ -3,12 +3,12 @@ import type { RuleInput, BankRule, RuleEngineExecution, EntityResolution, RuleCo
 import { normalize, NormalizationError } from './conditions-normalizer'
 import type { MatchResult, ParsedTransaction, PrismaBankRule } from './types'
 
-function buildEngineRule(rule: PrismaBankRule): BankRule {
+export function buildEngineRule(rule: PrismaBankRule): BankRule {
   let conditions: RuleCondition[];
   try {
     conditions = normalize(rule.conditions);
   } catch {
-    // Decision #2 — legacy-column fallback: when `conditions` is not usable,
+    // Decision #2 - legacy-column fallback: when \conditions\ is not usable,
     // normalize conditionType/conditionValue to the canonical model.
     if (rule.conditionType && rule.conditionValue != null) {
       const field =

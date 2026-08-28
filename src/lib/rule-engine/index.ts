@@ -8,6 +8,7 @@ import { persistRuleExecutionAudit } from './audit';
 import { MissingTransaction, MissingContext, InvalidTransaction, RuleEngineError } from './errors';
 import { buildDecisionTrace, cloneDecisionTrace } from './trace';
 import { RULE_ENGINE_VERSION } from './version';
+import { aiFallback, type AiFallbackProposal, type AiBridgeDeps } from './ai-bridge';
 
 function discardInvalidConfiguration(availableRules: RuleInput['context']['availableRules']): RuleInput['context']['availableRules'] {
   return availableRules.filter((rule) => rule.conditions && rule.conditions.length > 0);
@@ -85,6 +86,47 @@ export function evaluateRules(input: RuleInput, opts: EvaluateRulesOptions = {})
   if (execution.audit) persistRuleExecutionAudit(execution.audit).catch(() => {});
 
   return execution;
+}
+
+export interface EvaluateRulesWithAiFallbackOptions extends EvaluateRulesOptions {
+  aiBridgeDeps?: AiBridgeDeps;
+}
+
+export interface RuleEngineExecutionWithAi {
+  execution: RuleEngineExecution;
+  aiProposal: AiFallbackProposal | null;
+}
+
+/**
+ * Async wrapper that runs the deterministic engine and, when the result is
+ * NO_MATCH or AMBIGUOUS, invokes the AI fallback bridge to produce a
+ * classification proposal.
+ *
+ * The original execution is never mutated. The AI proposal is returned
+ * as a separate field.
+ */
+export async function evaluateRulesWithAiFallback(
+  input: RuleInput,
+  opts: EvaluateRulesWithAiFallbackOptions = {},
+): Promise<RuleEngineExecutionWithAi> {
+  const execution = evaluateRules(input, opts);
+
+  let aiProposal: AiFallbackProposal | null = null;
+
+  if (execution.output.decision) {
+    aiProposal = await aiFallback(
+      {
+        companyId: input.transaction.companyId,
+        transactionId: input.transaction.id,
+        description: input.transaction.description,
+        amount: input.transaction.amount,
+        decision: execution.output.decision,
+      },
+      opts.aiBridgeDeps,
+    );
+  }
+
+  return { execution, aiProposal };
 }
 
 export type {

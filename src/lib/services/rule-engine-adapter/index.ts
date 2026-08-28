@@ -1,7 +1,8 @@
-import { evaluateRules, evaluateRulesPure } from '@/lib/rule-engine'
+import { evaluateRules, evaluateRulesPure, evaluateRulesWithAiFallback } from '@/lib/rule-engine'
 import type { RuleInput, BankRule, RuleEngineExecution, EntityResolution, RuleCondition } from '@/lib/rule-engine/types'
+import type { AiFallbackProposal } from '@/lib/rule-engine/ai-bridge'
 import { normalize, NormalizationError } from './conditions-normalizer'
-import type { MatchResult, ParsedTransaction, PrismaBankRule } from './types'
+import type { MatchResult, ParsedTransaction, PrismaBankRule, AiProposalData } from './types'
 
 export function buildEngineRule(rule: PrismaBankRule): BankRule {
   let conditions: RuleCondition[];
@@ -39,7 +40,10 @@ export function buildEngineRule(rule: PrismaBankRule): BankRule {
   }
 }
 
-function mapDecisionToResult(execution: RuleEngineExecution): MatchResult {
+function mapDecisionToResult(
+  execution: RuleEngineExecution,
+  aiProposal?: AiFallbackProposal | null,
+): MatchResult {
   const { decision } = execution.output
 
   if (!decision) {
@@ -56,18 +60,34 @@ function mapDecisionToResult(execution: RuleEngineExecution): MatchResult {
           category: decision.classification.category,
         },
         matchedRuleId: decision.ruleId,
+        deterministicResult: 'winner',
       }
     }
 
     return {
       outcome: 'pending',
       classification: decision.classification,
+      deterministicResult: 'winner',
     }
   }
+
+  // NO_MATCH or AMBIGUOUS
+  const proposalData: AiProposalData | undefined = aiProposal
+    ? {
+        role: aiProposal.role,
+        glAccountCode: aiProposal.glAccountCode,
+        glAccountId: aiProposal.glAccountId,
+        conditions: aiProposal.conditions,
+        suggestSubAccount: aiProposal.suggestSubAccount,
+        subAccountName: aiProposal.subAccountName,
+      }
+    : undefined
 
   return {
     outcome: 'pending',
     classification: decision.classification,
+    deterministicResult: decision.result,
+    ...(proposalData ? { aiProposal: proposalData } : {}),
   }
 }
 
@@ -110,8 +130,11 @@ export async function runRuleEngineV2(
   opts?: RunRuleEngineV2Options,
 ): Promise<MatchResult> {
   try {
-    const execution = evaluateRules(buildRuleInput(txn, bankRules, entityResolution, companyId), opts)
-    return mapDecisionToResult(execution)
+    const { execution, aiProposal } = await evaluateRulesWithAiFallback(
+      buildRuleInput(txn, bankRules, entityResolution, companyId),
+      opts,
+    )
+    return mapDecisionToResult(execution, aiProposal)
   } catch (error) {
     if (error instanceof NormalizationError) {
       return { outcome: 'pending', errorCode: 'conditions_normalization_failed' }

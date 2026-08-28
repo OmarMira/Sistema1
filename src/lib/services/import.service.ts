@@ -129,7 +129,7 @@ export class ImportService {
     extension: string;
     buffer: Buffer;
     content: string;
-    userId?: string;
+    userId: string;
     bypassHolderValidation?: boolean;
   }): Promise<ImportResult> {
     // ─── PDF parsing ──────────────────────────────────────────────────
@@ -419,8 +419,8 @@ export class ImportService {
     transactions: { date: Date; description: string; amount: number; reference?: string }[],
     format: string,
     fileName: string,
-    balanceInfo?: Partial<StatementBalanceInfo>,
-    userId?: string,
+    balanceInfo: Partial<StatementBalanceInfo> | undefined,
+    userId: string,
   ) {
     if (transactions.length === 0) {
       throw new ValidationError('No hay transacciones para importar');
@@ -546,6 +546,24 @@ export class ImportService {
         );
         const matchedRuleId = resolution.matchedRuleId;
         const glAccountId = resolution.glAccountId;
+
+        // Persist AI proposal from adapter (if present)
+        if (resolution.aiProposal) {
+          await tx.pendingApproval.create({
+            data: {
+              action: 'ai_classification_proposal',
+              payload: {
+                companyId,
+                transactionId: uniqueHashes[idx]!,
+                bankAccountId,
+                deterministicResult: resolution.deterministicResult,
+                aiProposal: resolution.aiProposal,
+              },
+              requestedBy: userId,
+              status: 'pending',
+            },
+          });
+        }
 
         if (matchedRuleId) autoCategorizedCount++;
 

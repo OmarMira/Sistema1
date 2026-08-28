@@ -88,6 +88,7 @@ async function resolveWithV2(
     return {
       matchedRuleId: result.matchedRuleId,
       glAccountId: result.classification.glAccountId,
+      deterministicResult: result.deterministicResult,
     };
   }
 
@@ -100,7 +101,11 @@ async function resolveWithV2(
     });
   }
 
-  return { matchedRuleId: null, glAccountId: null };
+  return {
+    matchedRuleId: null,
+    glAccountId: null,
+    deterministicResult: result.deterministicResult,
+  };
 }
 
 async function resolveWithLegacy(

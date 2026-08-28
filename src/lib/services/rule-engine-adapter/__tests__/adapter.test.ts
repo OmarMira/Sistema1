@@ -1,6 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { buildEngineRule } from '../index';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { buildEngineRule, runRuleEngineV2 } from '../index';
 import type { PrismaBankRule } from '../types';
+
+// Enable V2 engine for adapter tests
+vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
 
 describe('rule-engine-adapter: buildEngineRule', () => {
   const baseRule = {
@@ -61,5 +64,84 @@ describe('rule-engine-adapter: buildEngineRule', () => {
   it('throws on normalization failure with no usable conditions', () => {
     const rule = { ...baseRule, isActive: true, conditions: null, conditionType: null, conditionValue: null };
     expect(() => buildEngineRule(rule)).toThrow();
+  });
+});
+
+describe('runRuleEngineV2 — deterministic result transport', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const baseRule: PrismaBankRule = {
+    id: 'rule-1',
+    companyId: 'company-1',
+    priority: 10,
+    conditions: [{ field: 'description', operator: 'contains', value: 'NETFLIX' }],
+    conditionType: null,
+    conditionValue: null,
+    transactionDirection: null,
+    glAccountId: 'gl-1',
+    debitGlAccountId: null,
+    creditGlAccountId: null,
+    isActive: true,
+  };
+
+  const baseTxn = {
+    id: 'tx-1',
+    date: new Date('2026-01-15'),
+    description: 'NETFLIX SUBSCRIPTION',
+    amount: -15.99,
+    bankAccountId: 'bank-1',
+  };
+
+  it('T8: NO_MATCH transports deterministicResult=no_match', async () => {
+    const result = await runRuleEngineV2(
+      { ...baseTxn, description: 'UNKNOWN TRANSACTION' },
+      [baseRule],
+      { status: 'not_run' },
+      'company-1',
+    );
+
+    expect(result.outcome).toBe('pending');
+    expect(result.deterministicResult).toBe('no_match');
+  });
+
+  it('T9: AMBIGUOUS transports deterministicResult=ambiguous', async () => {
+    const rule2: PrismaBankRule = {
+      ...baseRule,
+      id: 'rule-2',
+      glAccountId: 'gl-2',
+    };
+
+    const result = await runRuleEngineV2(
+      baseTxn,
+      [baseRule, rule2],
+      { status: 'not_run' },
+      'company-1',
+    );
+
+    expect(result.outcome).toBe('pending');
+    expect(result.deterministicResult).toBe('ambiguous');
+  });
+
+  it('T10: NormalizationError does NOT produce deterministicResult or aiProposal', async () => {
+    const invalidRule: PrismaBankRule = {
+      ...baseRule,
+      conditions: null,
+      conditionType: null,
+      conditionValue: null,
+    };
+
+    const result = await runRuleEngineV2(
+      baseTxn,
+      [invalidRule],
+      { status: 'not_run' },
+      'company-1',
+    );
+
+    expect(result.outcome).toBe('pending');
+    expect(result.deterministicResult).toBeUndefined();
+    expect(result.aiProposal).toBeUndefined();
+    expect('errorCode' in result ? result.errorCode : undefined).toBe('conditions_normalization_failed');
   });
 });

@@ -296,6 +296,7 @@ model RuleExecutionAudit {
   result         String   // 'MATCHED' | 'AMBIGUOUS' | 'NO_MATCH' | 'ERROR'
   winnerRuleId   String?
   candidateCount Int
+  candidateList  String?  // JSON string — full Candidate[] for auditability
   trace          String?  // JSON string
   executedAt     DateTime @default(now())
   createdAt      DateTime @default(now())

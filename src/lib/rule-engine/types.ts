@@ -156,6 +156,7 @@ export interface AuditRecord {
   result: DecisionResult;
   winnerRuleId?: string;
   candidateCount: number;
+  candidateList: Candidate[];
   trace: DecisionTrace;
 }
 

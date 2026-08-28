@@ -4,8 +4,19 @@ export interface RuleResolution {
   matchedRuleId: string | null;
 }
 
+export interface AiProposalData {
+  role: string;
+  glAccountCode: string;
+  glAccountId: string | null;
+  conditions?: { field: string; operator: string; value: string | number }[];
+  suggestSubAccount: boolean;
+  subAccountName: string | null;
+}
+
 export interface ImportRuleResolution extends RuleResolution {
   glAccountId: string | null;
+  deterministicResult?: 'winner' | 'no_match' | 'ambiguous';
+  aiProposal?: AiProposalData;
 }
 
 export interface AdapterRule {

@@ -19,6 +19,7 @@ export async function persistRuleExecutionAudit(data: AuditRecord): Promise<void
         result: mapResult(data.result),
         winnerRuleId: data.winnerRuleId ?? null,
         candidateCount: data.candidateCount,
+        candidateList: JSON.stringify(data.candidateList),
         trace: JSON.stringify(data.trace),
       },
     });

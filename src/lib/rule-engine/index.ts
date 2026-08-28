@@ -50,6 +50,7 @@ export function evaluateRulesPure(input: RuleInput): RuleEngineExecution {
       result: decision.result,
       winnerRuleId: decision.ruleId,
       candidateCount: decision.candidateList.length,
+      candidateList: decision.candidateList,
       trace: cloneDecisionTrace(trace),
     };
 

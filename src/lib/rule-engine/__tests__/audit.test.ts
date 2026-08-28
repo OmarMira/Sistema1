@@ -20,6 +20,16 @@ function makeAuditRecord(overrides?: Partial<AuditRecord>): AuditRecord {
     result: 'winner',
     winnerRuleId: 'rule-1',
     candidateCount: 1,
+    candidateList: [
+      {
+        ruleId: 'rule-1',
+        specificity: 100,
+        matchQuality: 0.9,
+        confidence: 0,
+        conditionScores: [1],
+        priority: 10,
+      },
+    ],
     trace: {
       engineVersion: '2.1.0',
       events: [{ stage: 'execution', event: 'complete' }],
@@ -51,6 +61,7 @@ describe('persistRuleExecutionAudit', () => {
         result: 'MATCHED',
         winnerRuleId: 'rule-1',
         candidateCount: 1,
+        candidateList: expect.any(String),
         trace: expect.any(String),
       },
     });
@@ -124,6 +135,19 @@ describe('persistRuleExecutionAudit', () => {
     const callArg = mockCreate.mock.calls[0][0];
     const parsed = JSON.parse(callArg.data.trace);
     expect(parsed).toEqual(audit.trace);
+  });
+
+  it('serializes candidateList as JSON string', async () => {
+    const audit = makeAuditRecord();
+    mockCreate.mockResolvedValue({ id: 'audit-7' });
+
+    await persistRuleExecutionAudit(audit);
+
+    const callArg = mockCreate.mock.calls[0][0];
+    const parsed = JSON.parse(callArg.data.candidateList);
+    expect(parsed).toEqual(audit.candidateList);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].ruleId).toBe('rule-1');
   });
 
   it('integration: evaluateRules calls persistRuleExecutionAudit', async () => {

@@ -121,28 +121,44 @@ export const DELETE = apiHandler(
       return NextResponse.json({ error: 'Company not found' }, { status: 404 });
     }
 
-    // ─── Delete all related records in dependency order ───────────────────────
-    // We fetch FK IDs first and use them in deleteMany to avoid Prisma nested-filter
-    // limitations and to handle missing DB cascade constraints.
+    // ─── Delete all related records atomically ────────────────────────────────
+    // All destructive operations run inside a single transaction so that any
+    // failure rolls back completely — no partial deletion is possible.
+    // CompanyKnowledge is deleted explicitly (FK has no onDelete cascade).
 
-    // Reverse dependency order: leaf tables first to avoid FK violations
-    await db.bankTransaction.deleteMany({
-      where: { statement: { companyId: id } },
+    await db.$transaction(async (tx) => {
+      // Reverse dependency order: leaf tables first to avoid FK violations
+
+      // First delete records that reference CompanyKnowledge (no direct companyId)
+      await tx.knowledgeAudit.deleteMany({
+        where: { companyKnowledge: { companyId: id } },
+      });
+      await tx.pendingApproval.deleteMany({
+        where: { companyKnowledge: { companyId: id } },
+      });
+
+      // Then delete CompanyKnowledge itself
+      await tx.companyKnowledge.deleteMany({ where: { companyId: id } });
+
+      // Continue with the rest of the cascade
+      await tx.bankTransaction.deleteMany({
+        where: { statement: { companyId: id } },
+      });
+      await tx.journalEntry.deleteMany({ where: { companyId: id } });
+      await tx.bankRule.deleteMany({ where: { companyId: id } });
+      await tx.bankStatement.deleteMany({ where: { companyId: id } });
+      await tx.bankAccount.deleteMany({ where: { companyId: id } });
+      await tx.entityContext.deleteMany({ where: { companyId: id } });
+      await tx.fiscalPeriod.deleteMany({ where: { companyId: id } });
+      await tx.glAccount.deleteMany({ where: { companyId: id } });
+      await tx.reconciliationPeriod.deleteMany({ where: { companyId: id } });
+      await tx.companyMember.deleteMany({ where: { companyId: id } });
+      await tx.auditLog.deleteMany({ where: { companyId: id } });
+      await tx.systemMemory.deleteMany({ where: { companyId: id } });
+
+      // ─── Finally delete the company ────────────────────────────────────────
+      await tx.company.delete({ where: { id } });
     });
-    await db.journalEntry.deleteMany({ where: { companyId: id } });
-    await db.bankRule.deleteMany({ where: { companyId: id } });
-    await db.bankStatement.deleteMany({ where: { companyId: id } });
-    await db.bankAccount.deleteMany({ where: { companyId: id } });
-    await db.entityContext.deleteMany({ where: { companyId: id } });
-    await db.fiscalPeriod.deleteMany({ where: { companyId: id } });
-    await db.glAccount.deleteMany({ where: { companyId: id } });
-    await db.reconciliationPeriod.deleteMany({ where: { companyId: id } });
-    await db.companyMember.deleteMany({ where: { companyId: id } });
-    await db.auditLog.deleteMany({ where: { companyId: id } });
-    await db.systemMemory.deleteMany({ where: { companyId: id } });
-
-    // ─── Finally delete the company ──────────────────────────────────────────
-    await db.company.delete({ where: { id } });
 
     // Log to audit (retry with userId fallback since company no longer exists)
     try {

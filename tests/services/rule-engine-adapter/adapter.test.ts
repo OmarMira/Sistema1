@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { EngineDecision, EntityResolution } from '@/lib/rule-engine/types'
 
 const mockEvaluateRules = vi.fn()
+const mockEvaluateRulesWithAiFallback = vi.fn()
 
 vi.mock('@/lib/rule-engine', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
+  evaluateRulesWithAiFallback: (...args: unknown[]) => mockEvaluateRulesWithAiFallback(...args),
 }))
 
 import { runRuleEngineV2 } from '@/lib/services/rule-engine-adapter'
@@ -56,11 +58,9 @@ beforeEach(() => {
 describe('runRuleEngineV2', () => {
   describe('outcome: matched', () => {
     it('returns matched when engine returns winner with glAccountId', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: {
-          candidates: [],
-          decision: makeEngineDecision(),
-        },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision() } },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -73,13 +73,16 @@ describe('runRuleEngineV2', () => {
     })
 
     it('includes entityId and category from classification', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: {
-          candidates: [],
-          decision: makeEngineDecision({
-            classification: { glAccountId: 'gl-001', entityId: 'ent-1', category: 'income' },
-          }),
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: {
+          output: {
+            candidates: [],
+            decision: makeEngineDecision({
+              classification: { glAccountId: 'gl-001', entityId: 'ent-1', category: 'income' },
+            }),
+          },
         },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -93,11 +96,9 @@ describe('runRuleEngineV2', () => {
 
   describe('outcome: pending', () => {
     it('returns pending when engine returns winner without glAccountId', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: {
-          candidates: [],
-          decision: makeEngineDecision({ classification: {} }),
-        },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ classification: {} }) } },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -105,11 +106,14 @@ describe('runRuleEngineV2', () => {
     })
 
     it('returns pending when engine returns ambiguous', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: {
-          candidates: [],
-          decision: makeEngineDecision({ result: 'ambiguous', ruleId: undefined, classification: undefined }),
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: {
+          output: {
+            candidates: [],
+            decision: makeEngineDecision({ result: 'ambiguous', ruleId: undefined, classification: undefined }),
+          },
         },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -117,11 +121,14 @@ describe('runRuleEngineV2', () => {
     })
 
     it('returns pending when engine returns no_match', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: {
-          candidates: [],
-          decision: makeEngineDecision({ result: 'no_match', ruleId: undefined, classification: undefined }),
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: {
+          output: {
+            candidates: [],
+            decision: makeEngineDecision({ result: 'no_match', ruleId: undefined, classification: undefined }),
+          },
         },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -129,8 +136,9 @@ describe('runRuleEngineV2', () => {
     })
 
     it('returns pending when engine output has no decision', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: undefined },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: undefined } },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -138,7 +146,7 @@ describe('runRuleEngineV2', () => {
     })
 
     it('returns pending with engine_execution_error when engine throws', async () => {
-      mockEvaluateRules.mockImplementationOnce(() => { throw new Error('engine failure') })
+      mockEvaluateRulesWithAiFallback.mockRejectedValueOnce(new Error('engine failure'))
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
       expect(result.outcome).toBe('pending')
@@ -158,11 +166,14 @@ describe('runRuleEngineV2', () => {
     })
 
     it('returns pending when winner has glAccountId but no ruleId', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: {
-          candidates: [],
-          decision: makeEngineDecision({ ruleId: undefined, classification: { glAccountId: 'gl-001' } }),
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: {
+          output: {
+            candidates: [],
+            decision: makeEngineDecision({ ruleId: undefined, classification: { glAccountId: 'gl-001' } }),
+          },
         },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -170,13 +181,16 @@ describe('runRuleEngineV2', () => {
     })
 
     it('preserves classification on pending when winner has no glAccountId', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: {
-          candidates: [],
-          decision: makeEngineDecision({
-            classification: { entityId: 'ent-1', category: 'expense' },
-          }),
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: {
+          output: {
+            candidates: [],
+            decision: makeEngineDecision({
+              classification: { entityId: 'ent-1', category: 'expense' },
+            }),
+          },
         },
+        aiProposal: null,
       })
 
       const result = await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
@@ -190,64 +204,70 @@ describe('runRuleEngineV2', () => {
 
   describe('identifier mapping', () => {
     it('maps transaction id to engine input', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn({ id: 'txn-real-1' }), [makeRule()], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { transaction: { id: string; bankAccountId: string; companyId: string } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { transaction: { id: string; bankAccountId: string; companyId: string } }
       expect(callArg.transaction.id).toBe('txn-real-1')
     })
 
     it('maps bankAccountId to engine input', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn({ bankAccountId: 'acct-real-1' }), [makeRule()], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { transaction: { bankAccountId: string } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { transaction: { bankAccountId: string } }
       expect(callArg.transaction.bankAccountId).toBe('acct-real-1')
     })
 
     it('maps companyId to each engine rule', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule({ id: 'r1', companyId: 'c1' }), makeRule({ id: 'r2', companyId: 'c2' })], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { context: { availableRules: Array<{ id: string; companyId: string }> } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { context: { availableRules: Array<{ id: string; companyId: string }> } }
       expect(callArg.context.availableRules[0].companyId).toBe('c1')
       expect(callArg.context.availableRules[1].companyId).toBe('c2')
     })
 
     it('maps companyId to engine transaction', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'my-company')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { transaction: { companyId: string } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { transaction: { companyId: string } }
       expect(callArg.transaction.companyId).toBe('my-company')
     })
   })
 
   describe('adapter purity', () => {
-    it('calls evaluateRules exactly once per invocation', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision() },
+    it('calls evaluateRulesWithAiFallback exactly once per invocation', async () => {
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision() } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
-      expect(mockEvaluateRules).toHaveBeenCalledTimes(1)
+      expect(mockEvaluateRulesWithAiFallback).toHaveBeenCalledTimes(1)
     })
 
     it('filters out inactive rules', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       const activeRule = makeRule({ id: 'active-1', isActive: true })
@@ -255,64 +275,69 @@ describe('runRuleEngineV2', () => {
 
       const result = await runRuleEngineV2(makeTxn(), [activeRule, inactiveRule], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { context: { availableRules: Array<{ id: string }> } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { context: { availableRules: Array<{ id: string }> } }
       const ruleIds = callArg.context.availableRules.map((r: { id: string }) => r.id)
       expect(ruleIds).toContain('active-1')
       expect(ruleIds).not.toContain('inactive-1')
     })
 
     it('maps rule glAccountId to engine action', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule({ glAccountId: 'gl-099' })], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
       expect(callArg.context.availableRules[0].action.glAccountId).toBe('gl-099')
     })
 
     it('falls back to debitGlAccountId when glAccountId is null', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule({ glAccountId: null, debitGlAccountId: 'debit-1' })], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
       expect(callArg.context.availableRules[0].action.glAccountId).toBe('debit-1')
     })
 
     it('falls back to creditGlAccountId when both glAccountId and debitGlAccountId are null', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule({ glAccountId: null, debitGlAccountId: null, creditGlAccountId: 'credit-1' })], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
       expect(callArg.context.availableRules[0].action.glAccountId).toBe('credit-1')
     })
 
     it('prioritizes glAccountId over debitGlAccountId and creditGlAccountId', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule({ glAccountId: 'gl-1', debitGlAccountId: 'debit-1', creditGlAccountId: 'credit-1' })], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string } }> } }
       expect(callArg.context.availableRules[0].action.glAccountId).toBe('gl-1')
     })
 
     it('sets glAccountId to undefined when all gl account fields are null', async () => {
-      mockEvaluateRules.mockReturnValueOnce({
-        output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+      mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+        execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+        aiProposal: null,
       })
 
       await runRuleEngineV2(makeTxn(), [makeRule({ glAccountId: null, debitGlAccountId: null, creditGlAccountId: null })], defaultEntityResolution, 'company-1')
 
-      const callArg = mockEvaluateRules.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string | undefined } }> } }
+      const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as { context: { availableRules: Array<{ action: { glAccountId: string | undefined } }> } }
       expect(callArg.context.availableRules[0].action.glAccountId).toBeUndefined()
     })
   })

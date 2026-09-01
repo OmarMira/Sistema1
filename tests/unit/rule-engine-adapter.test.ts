@@ -3,10 +3,12 @@ import type { EngineDecision, EntityResolution } from '@/lib/rule-engine/types'
 
 const mockEvaluateRules = vi.fn()
 const mockEvaluateRulesPure = vi.fn()
+const mockEvaluateRulesWithAiFallback = vi.fn()
 
 vi.mock('@/lib/rule-engine', () => ({
   evaluateRules: (...args: unknown[]) => mockEvaluateRules(...args),
   evaluateRulesPure: (...args: unknown[]) => mockEvaluateRulesPure(...args),
+  evaluateRulesWithAiFallback: (...args: unknown[]) => mockEvaluateRulesWithAiFallback(...args),
 }))
 
 import { runRuleEngineV2, runRuleEngineV2Shadow } from '@/lib/services/rule-engine-adapter'
@@ -120,25 +122,27 @@ describe('runRuleEngineV2 — edge cases', () => {
   })
 
   it('passes entityResolution status to engine context', async () => {
-    mockEvaluateRules.mockReturnValueOnce({
-      output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+    mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+      execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+      aiProposal: null,
     })
     const er: EntityResolution = { status: 'resolved', entityId: 'ent-1' }
     await runRuleEngineV2(makeTxn(), [makeRule()], er, 'company-1')
 
-    const callArg = mockEvaluateRules.mock.calls[0][0] as {
+    const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as {
       context: { entityResolution: EntityResolution }
     }
     expect(callArg.context.entityResolution).toEqual(er)
   })
 
   it('passes entityResolution with not_found status', async () => {
-    mockEvaluateRules.mockReturnValueOnce({
-      output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+    mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+      execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+      aiProposal: null,
     })
     await runRuleEngineV2(makeTxn(), [makeRule()], { status: 'not_found' }, 'company-1')
 
-    const callArg = mockEvaluateRules.mock.calls[0][0] as {
+    const callArg = mockEvaluateRulesWithAiFallback.mock.calls[0][0] as {
       context: { entityResolution: EntityResolution }
     }
     expect(callArg.context.entityResolution).toEqual({ status: 'not_found' })
@@ -220,27 +224,29 @@ describe('runRuleEngineV2 — edge cases', () => {
 })
 
 describe('runRuleEngineV2 — options forwarding', () => {
-  it('forwards persistAudit:false to evaluateRules', async () => {
-    mockEvaluateRules.mockReturnValueOnce({
-      output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+  it('forwards persistAudit:false to evaluateRulesWithAiFallback', async () => {
+    mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+      execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+      aiProposal: null,
     })
 
     await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1', {
       persistAudit: false,
     })
 
-    expect(mockEvaluateRules).toHaveBeenCalledTimes(1)
-    expect(mockEvaluateRules).toHaveBeenCalledWith(expect.anything(), { persistAudit: false })
+    expect(mockEvaluateRulesWithAiFallback).toHaveBeenCalledTimes(1)
+    expect(mockEvaluateRulesWithAiFallback).toHaveBeenCalledWith(expect.anything(), { persistAudit: false })
   })
 
   it('forwards undefined opts when no options are provided', async () => {
-    mockEvaluateRules.mockReturnValueOnce({
-      output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) },
+    mockEvaluateRulesWithAiFallback.mockResolvedValueOnce({
+      execution: { output: { candidates: [], decision: makeEngineDecision({ result: 'no_match' }) } },
+      aiProposal: null,
     })
 
     await runRuleEngineV2(makeTxn(), [makeRule()], defaultEntityResolution, 'company-1')
 
-    expect(mockEvaluateRules).toHaveBeenCalledWith(expect.anything(), undefined)
+    expect(mockEvaluateRulesWithAiFallback).toHaveBeenCalledWith(expect.anything(), undefined)
   })
 })
 

@@ -31,6 +31,9 @@ vi.mock('@/lib/db', () => ({
     systemConfig: {
       findMany: vi.fn(() => Promise.resolve(mockSystemConfig)),
     },
+    reconciliationPeriod: { findMany: vi.fn(() => Promise.resolve([])) },
+    companyKnowledge: { findMany: vi.fn(() => Promise.resolve([])) },
+    knowledgeAudit: { findMany: vi.fn(() => Promise.resolve([])) },
   },
 }));
 

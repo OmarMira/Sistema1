@@ -16,6 +16,13 @@ vi.mock('@/lib/services/web-search-service', () => ({
   searchEntity: vi.fn(),
 }));
 
+vi.mock('@/lib/security/safe-fetch', () => ({
+  safeFetch: vi.fn(),
+}));
+
+import { safeFetch } from '@/lib/security/safe-fetch';
+const safeFetchMock = vi.mocked(safeFetch);
+
 // ─── Helper ─────────────────────────────────────────────────────
 async function makeRequest(
   body: unknown,
@@ -62,6 +69,10 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    safeFetchMock.mockReset();
+    safeFetchMock.mockResolvedValue(new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ role: 'PROVEEDOR', confidence: 0.9, explanation: 'default test' }) } }],
+    }), { status: 200 }));
   });
 
   it('includes direction labels with percentages when directionProfile is provided', async () => {
@@ -80,7 +91,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
     };
 
     let capturedBody: string | null = null;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: string, opts?: RequestInit) => {
+    safeFetchMock.mockImplementationOnce(async (_url: string, opts?: { body?: unknown }) => {
       capturedBody = typeof opts?.body === 'string' ? opts.body : null;
       return new Response(JSON.stringify(mockResponse), { status: 200 });
     });
@@ -123,7 +134,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
     };
 
     let capturedBody: string | null = null;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: string, opts?: RequestInit) => {
+    safeFetchMock.mockImplementationOnce(async (_url: string, opts?: { body?: unknown }) => {
       capturedBody = typeof opts?.body === 'string' ? opts.body : null;
       return new Response(JSON.stringify(mockResponse), { status: 200 });
     });
@@ -169,7 +180,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
     };
 
     let capturedBody: string | null = null;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: string, opts?: RequestInit) => {
+    safeFetchMock.mockImplementationOnce(async (_url: string, opts?: { body?: unknown }) => {
       capturedBody = typeof opts?.body === 'string' ? opts.body : null;
       return new Response(JSON.stringify(mockResponse), { status: 200 });
     });
@@ -208,7 +219,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
     };
 
     let capturedBody: string | null = null;
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: string, opts?: RequestInit) => {
+    safeFetchMock.mockImplementationOnce(async (_url: string, opts?: { body?: unknown }) => {
       capturedBody = typeof opts?.body === 'string' ? opts.body : null;
       return new Response(JSON.stringify(mockResponse), { status: 200 });
     });
@@ -274,7 +285,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
       // First AI call returns low confidence, second returns high confidence
       let callCount = 0;
       let rePromptBody: string | null = null;
-      vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url: string, opts?: RequestInit) => {
+      safeFetchMock.mockImplementation(async (_url: string, opts?: { body?: unknown }) => {
         callCount++;
         if (callCount === 2) {
           rePromptBody = typeof opts?.body === 'string' ? opts.body : null;
@@ -322,7 +333,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
         }],
       };
 
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(highConf), { status: 200 }),
       );
 
@@ -343,7 +354,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
       const { searchEntity } = await import('@/lib/services/web-search-service');
       const mockSearchEntity = vi.mocked(searchEntity);
 
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(lowConfidenceResponse), { status: 200 }),
       );
 
@@ -365,7 +376,7 @@ describe('POST /api/learning/suggest-role — prompt construction', () => {
       mockSearchEntity.mockResolvedValue(null);
 
       // Only one AI call (no re-prompt since search returned null)
-      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(lowConfidenceResponse), { status: 200 }),
       );
 

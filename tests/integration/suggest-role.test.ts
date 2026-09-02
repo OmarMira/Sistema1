@@ -12,8 +12,14 @@ vi.mock('@/lib/ai-config', () => ({
   clearAiConfigCache: vi.fn(),
 }));
 
+vi.mock('@/lib/security/safe-fetch', () => ({
+  safeFetch: vi.fn(),
+}));
+
 // ─── Route handler under test ──────────────────────────────────
 import { POST } from '@/app/api/learning/suggest-role/route';
+import { safeFetch } from '@/lib/security/safe-fetch';
+const safeFetchMock = vi.mocked(safeFetch);
 
 // ─── Helper ─────────────────────────────────────────────────────
 async function makeRequest(
@@ -84,6 +90,7 @@ describe('POST /api/learning/suggest-role', () => {
       process.env.AI_API_KEY = 'test-key';
       process.env.AI_BASE_URL = 'https://api.test.openrouter.ai/v1';
       process.env.AI_MODEL = 'test-model';
+      safeFetchMock.mockReset();
     });
 
     afterEach(() => {
@@ -105,7 +112,7 @@ describe('POST /api/learning/suggest-role', () => {
           },
         }],
       };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(mockResponse), { status: 200 }),
       );
 
@@ -130,7 +137,7 @@ describe('POST /api/learning/suggest-role', () => {
           },
         }],
       };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(mockResponse), { status: 200 }),
       );
 
@@ -154,7 +161,7 @@ describe('POST /api/learning/suggest-role', () => {
           },
         }],
       };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(mockResponse), { status: 200 }),
       );
 
@@ -177,7 +184,7 @@ describe('POST /api/learning/suggest-role', () => {
           },
         }],
       };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(mockResponse), { status: 200 }),
       );
 
@@ -191,7 +198,7 @@ describe('POST /api/learning/suggest-role', () => {
     });
 
     it('handles AI API network failure gracefully (502)', async () => {
-      vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('Network error'));
+      safeFetchMock.mockRejectedValueOnce(new Error('Network error'));
 
       const req = await makeRequest({ description: 'Paga servicios' }, token, companyId);
       const res = await POST(req, { params: Promise.resolve({}) });
@@ -201,7 +208,7 @@ describe('POST /api/learning/suggest-role', () => {
     });
 
     it('handles AI API HTTP error gracefully (502)', async () => {
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response('Service Unavailable', { status: 503 }),
       );
 
@@ -241,7 +248,7 @@ describe('POST /api/learning/suggest-role', () => {
           },
         }],
       };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(mockResponse), { status: 200 }),
       );
 
@@ -268,7 +275,7 @@ describe('POST /api/learning/suggest-role', () => {
           },
         }],
       };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(mockResponse), { status: 200 }),
       );
 
@@ -295,7 +302,7 @@ describe('POST /api/learning/suggest-role', () => {
           },
         }],
       };
-      vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      safeFetchMock.mockResolvedValueOnce(
         new Response(JSON.stringify(mockResponse), { status: 200 }),
       );
 

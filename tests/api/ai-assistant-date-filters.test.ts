@@ -20,7 +20,9 @@ const mockDbBankTxAggregate = vi.hoisted(() =>
 );
 const mockDbSystemMemoryFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockDbSystemMemoryUpdateMany = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockSafeFetch = vi.hoisted(() => vi.fn());
 
+vi.mock('@/lib/security/safe-fetch', () => ({ safeFetch: mockSafeFetch }));
 vi.mock('@/lib/sessions', () => ({ getSessionUserId: mockGetSessionUserId }));
 vi.mock('@/lib/security/rate-limiter', () => ({ checkRateLimit: mockCheckRateLimit }));
 vi.mock('@/lib/ai-config', () => ({
@@ -78,7 +80,7 @@ function makeToolResponse(toolName: string, args: Record<string, unknown>) {
 const FINAL_REPLY = { choices: [{ message: { role: 'assistant', content: 'Hecho' } }] };
 
 async function runTool(toolName: string, args: Record<string, unknown>) {
-  vi.spyOn(globalThis, 'fetch')
+  mockSafeFetch
     .mockResolvedValueOnce(new Response(JSON.stringify(makeToolResponse(toolName, args)), { status: 200 }))
     .mockResolvedValueOnce(new Response(JSON.stringify(FINAL_REPLY), { status: 200 }));
 

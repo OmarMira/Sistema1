@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { safeAuditLog } from '@/lib/services/audit-service';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -9,6 +10,7 @@ import { ForbiddenError } from '@/lib/api-error';
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   try {
     const { userId, companyId } = requireCompanyContext();
+    await requireCompanyRole(companyId, ['company_admin']);
     const { id } = await context.params;
 
     // Load EntityContext by id

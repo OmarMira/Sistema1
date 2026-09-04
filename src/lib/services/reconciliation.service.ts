@@ -55,6 +55,8 @@ export class ReconciliationService {
             )
           : new Map();
 
+      const allAffectedGlAccountIds = new Set<string>();
+
       for (const txn of transactions) {
         // Find unreconciled bank transaction
         const bankTx = await tx.bankTransaction.findFirst({
@@ -265,13 +267,18 @@ export class ReconciliationService {
           data: updateData,
         });
 
-        // Recalculate materialized GL balances for every account touched by the
-        // new entry, so stored GlAccount.balance matches the derived trial balance.
+        // Collect affected GL account IDs for batch recalculation after the loop.
         for (const glAccountId of affectedGlAccountIds) {
-          await JournalEntryService.recalculateBalance(tx as any, glAccountId);
+          allAffectedGlAccountIds.add(glAccountId);
         }
 
         reconciledCount++;
+      }
+
+      // Recalculate materialized GL balances for all accounts touched during
+      // reconciliation. One query per unique account instead of per-transaction.
+      for (const glAccountId of allAffectedGlAccountIds) {
+        await JournalEntryService.recalculateBalance(tx as any, glAccountId);
       }
 
       // Update period transaction count if period provided

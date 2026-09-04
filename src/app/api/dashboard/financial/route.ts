@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { Prisma } from '@prisma/client';
 import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
@@ -45,26 +46,28 @@ export const GET = apiHandler(async (req: NextRequest) => {
   //    traslado sigue reflejado en el Balance Sheet, que no aplica esta exclusión.
   const yearCloseEntryIds = await getYearCloseEntryIds(companyId);
 
-  const postedLines = await db.journalLine.findMany({
-    where: {
-      entry: {
-        companyId,
-        status: 'posted',
-        ...(yearCloseEntryIds.length > 0 ? { id: { notIn: yearCloseEntryIds } } : {}),
-      },
-    },
-    select: {
-      debit: true,
-      credit: true,
-      entry: { select: { date: true } },
-      glAccount: {
-        select: {
-          accountType: true,
-          normalBalance: true,
-        },
-      },
-    },
-  });
+  // H-2 fix: use GROUP BY for totals and monthly trend instead of loading all lines.
+  const yearCloseClause =
+    yearCloseEntryIds.length > 0
+      ? `AND je.id NOT IN (${yearCloseEntryIds.map((id) => `'${id}'`).join(',')})`
+      : '';
+
+  const totalsRows = await db.$queryRaw<
+    Array<{ accountType: string; normalBalance: string; totalDebit: bigint; totalCredit: bigint }>
+  >`
+    SELECT
+      ga."accountType" AS "accountType",
+      ga."normalBalance" AS "normalBalance",
+      COALESCE(SUM(jl."debit"), 0) AS "totalDebit",
+      COALESCE(SUM(jl."credit"), 0) AS "totalCredit"
+    FROM "JournalLine" jl
+    JOIN "JournalEntry" je ON jl."entryId" = je.id
+    JOIN "GlAccount" ga ON jl."glAccountId" = ga.id
+    WHERE je."companyId" = ${companyId}
+      AND je."status" = 'posted'
+      ${Prisma.raw(yearCloseClause)}
+    GROUP BY ga."accountType", ga."normalBalance"
+  `;
 
   const totals = {
     asset: 0,
@@ -74,36 +77,55 @@ export const GET = apiHandler(async (req: NextRequest) => {
     expense: 0,
   };
 
-  const trendMap = new Map<string, { revenue: number; expenses: number }>();
-
-  for (const l of postedLines) {
-    const net = (l.debit || 0) - (l.credit || 0);
-    const type = l.glAccount.accountType as keyof typeof totals;
-
-    // Acumular totales históricos
+  for (const row of totalsRows) {
+    const type = row.accountType as keyof typeof totals;
     if (type in totals) {
-      if (l.glAccount.normalBalance === 'debit') {
+      const totalDebit = Number(row.totalDebit);
+      const totalCredit = Number(row.totalCredit);
+      const net = totalDebit - totalCredit;
+      if (row.normalBalance === 'debit') {
         totals[type] += net;
       } else {
         totals[type] -= net;
       }
     }
+  }
 
-    // Acumular tendencia mensual YTD para el año fiscal activo
-    if (l.entry?.date && l.entry.date >= fiscalStart && l.entry.date <= fiscalEnd) {
-      const d = new Date(l.entry.date);
-      const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  // Monthly trend YTD: GROUP BY month + accountType for revenue/expense
+  const trendRows = await db.$queryRaw<
+    Array<{ month: string; accountType: string; totalDebit: bigint; totalCredit: bigint }>
+  >`
+    SELECT
+      TO_CHAR(je."date", 'YYYY-MM') AS "month",
+      ga."accountType" AS "accountType",
+      COALESCE(SUM(jl."debit"), 0) AS "totalDebit",
+      COALESCE(SUM(jl."credit"), 0) AS "totalCredit"
+    FROM "JournalLine" jl
+    JOIN "JournalEntry" je ON jl."entryId" = je.id
+    JOIN "GlAccount" ga ON jl."glAccountId" = ga.id
+    WHERE je."companyId" = ${companyId}
+      AND je."status" = 'posted'
+      AND je."date" >= ${fiscalStart}
+      AND je."date" <= ${fiscalEnd}
+      AND ga."accountType" IN ('revenue', 'expense')
+      ${Prisma.raw(yearCloseClause)}
+    GROUP BY TO_CHAR(je."date", 'YYYY-MM'), ga."accountType"
+    ORDER BY "month" ASC
+  `;
 
-      if (!trendMap.has(monthKey)) {
-        trendMap.set(monthKey, { revenue: 0, expenses: 0 });
-      }
+  const trendMap = new Map<string, { revenue: number; expenses: number }>();
 
-      const trendEntry = trendMap.get(monthKey)!;
-      if (l.glAccount.accountType === 'revenue') {
-        trendEntry.revenue += -net; // Crédito - Débito
-      } else if (l.glAccount.accountType === 'expense') {
-        trendEntry.expenses += net; // Débito - Crédito
-      }
+  for (const row of trendRows) {
+    if (!trendMap.has(row.month)) {
+      trendMap.set(row.month, { revenue: 0, expenses: 0 });
+    }
+    const trendEntry = trendMap.get(row.month)!;
+    const totalDebit = Number(row.totalDebit);
+    const totalCredit = Number(row.totalCredit);
+    if (row.accountType === 'revenue') {
+      trendEntry.revenue += totalCredit - totalDebit; // Crédito - Débito
+    } else if (row.accountType === 'expense') {
+      trendEntry.expenses += totalDebit - totalCredit; // Débito - Crédito
     }
   }
 
@@ -179,6 +201,8 @@ export const GET = apiHandler(async (req: NextRequest) => {
     : null;
 
   // 4. Obtener transacciones del año fiscal en formato exacto i18n
+  // H-2 fix: add take limit to prevent loading unbounded result sets.
+  const MAX_TRANSACTIONS = 500;
   const bankTransactions = await db.bankTransaction.findMany({
     where: {
       statement: {
@@ -202,9 +226,13 @@ export const GET = apiHandler(async (req: NextRequest) => {
     orderBy: {
       date: 'desc',
     },
+    take: MAX_TRANSACTIONS + 1,
   });
 
-  const transactions = bankTransactions.map((tx) => ({
+  const hasMore = bankTransactions.length > MAX_TRANSACTIONS;
+  const limitedTransactions = hasMore ? bankTransactions.slice(0, MAX_TRANSACTIONS) : bankTransactions;
+
+  const transactions = limitedTransactions.map((tx) => ({
     id: tx.id,
     fecha: tx.date.toISOString().substring(0, 10),
     descripcion: tx.description,
@@ -230,6 +258,7 @@ export const GET = apiHandler(async (req: NextRequest) => {
     revenueTrend: 0,
     expenseTrend: 0,
     transactions,
+    hasMore,
     timestamp: new Date().toISOString(),
     configVersion: config.version,
   });

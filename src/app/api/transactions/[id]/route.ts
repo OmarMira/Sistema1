@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
@@ -11,6 +12,7 @@ import { logger } from '@/lib/logger';
 // corresponding journal entry automatically.
 export const PATCH = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin', 'employee']);
   const { id } = await context.params;
 
   const body = await request.json();

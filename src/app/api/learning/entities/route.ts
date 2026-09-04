@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { saveContext } from '@/lib/services/entity-context-service';
 import { handleRouteError } from '@/lib/route-error-handler';
 
@@ -17,6 +18,7 @@ const createEntitySchema = z.object({
 // Create a new entity context manually.
 export const POST = apiHandler(async (request: NextRequest, _routeCtx: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   try {
     const body = await request.json();

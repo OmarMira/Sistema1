@@ -26,9 +26,10 @@ export class JournalEntryService {
       bankGlAccountId: string;
       counterpartyGlAccountId: string;
       companyId: string;
+      skipRecalculate?: boolean;
     },
   ): Promise<string | null> {
-    const { bankTxId, bankTxDate, bankTxAmount, bankTxDescription, bankGlAccountId, counterpartyGlAccountId, companyId } = params;
+    const { bankTxId, bankTxDate, bankTxAmount, bankTxDescription, bankGlAccountId, counterpartyGlAccountId, companyId, skipRecalculate } = params;
 
     await assertActiveFiscalPeriod(companyId, bankTxDate, prisma);
 
@@ -65,8 +66,10 @@ export class JournalEntryService {
     }
 
     // Update balances for both affected GL accounts from their journal lines
-    await JournalEntryService.recalculateBalance(prisma, debitAccountId);
-    await JournalEntryService.recalculateBalance(prisma, creditAccountId);
+    if (!skipRecalculate) {
+      await JournalEntryService.recalculateBalance(prisma, debitAccountId);
+      await JournalEntryService.recalculateBalance(prisma, creditAccountId);
+    }
 
     return entry.id;
   }
@@ -138,6 +141,7 @@ export class JournalEntryService {
     });
 
     let created = 0;
+    const affectedGlAccountIds = new Set<string>();
     for (const tx of pending) {
       if (!tx.glAccountId) continue;
       const result = await JournalEntryService.createFromBankTransaction(prisma, {
@@ -148,8 +152,16 @@ export class JournalEntryService {
         bankGlAccountId,
         counterpartyGlAccountId: tx.glAccountId,
         companyId,
+        skipRecalculate: true,
       });
-      if (result) created++;
+      if (result) {
+        created++;
+        affectedGlAccountIds.add(bankGlAccountId);
+        affectedGlAccountIds.add(tx.glAccountId);
+      }
+    }
+    for (const glAccountId of affectedGlAccountIds) {
+      await JournalEntryService.recalculateBalance(prisma, glAccountId);
     }
     return created;
   }
@@ -162,20 +174,19 @@ export class JournalEntryService {
     prisma: Prisma.TransactionClient,
     companyId: string,
   ): Promise<string> {
-    const existing = await prisma.glAccount.findFirst({
-      where: { companyId, name: 'Opening Balance Equity', isActive: true },
-      select: { id: true },
-    });
-    if (existing) return existing.id;
-
-    // Create it under the Equity parent account
+    // Find the Equity parent account
     const equityParent = await prisma.glAccount.findFirst({
       where: { companyId, accountType: 'equity', parentId: null, isActive: true },
       select: { id: true },
     });
 
-    const created = await prisma.glAccount.create({
-      data: {
+    // Atomic upsert using unique constraint @@unique([companyId, code])
+    // Prevents TOCTOU race condition on concurrent bank connection creation
+    const result = await prisma.glAccount.upsert({
+      where: {
+        companyId_code: { companyId, code: '3050' },
+      },
+      create: {
         companyId,
         code: '3050',
         name: 'Opening Balance Equity',
@@ -185,7 +196,8 @@ export class JournalEntryService {
         isSystem: true,
         isActive: true,
       },
+      update: {}, // no-op — just ensure the row exists
     });
-    return created.id;
+    return result.id;
   }
 }

@@ -39,24 +39,19 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const start = new Date(startDate);
   const end = new Date(endDate + 'T23:59:59.999Z');
 
-  const existing = await db.fiscalPeriod.findMany({ where: { companyId: companyId } });
-  const overlap = existing.some((e) => !(end < e.startDate || start > e.endDate));
-  if (overlap) {
-    return NextResponse.json(
-      { error: serverT(locale, 'apiErrors.fiscalPeriods.overlap') },
-      { status: 409 },
-    );
-  }
-
-  const nameExists = existing.some((e) => e.name === name);
-  if (nameExists) {
-    return NextResponse.json(
-      { error: serverT(locale, 'apiErrors.fiscalPeriods.duplicateName') },
-      { status: 409 },
-    );
-  }
-
   const period = await db.$transaction(async (tx) => {
+    // Overlap check INSIDE transaction to prevent TOCTOU race condition
+    const existing = await tx.fiscalPeriod.findMany({ where: { companyId: companyId } });
+    const overlap = existing.some((e) => !(end < e.startDate || start > e.endDate));
+    if (overlap) {
+      throw new Error('OVERLAP');
+    }
+
+    const nameExists = existing.some((e) => e.name === name);
+    if (nameExists) {
+      throw new Error('DUPLICATE_NAME');
+    }
+
     const result = await tx.fiscalPeriod.create({
       data: {
         companyId: companyId,
@@ -78,7 +73,24 @@ export const POST = apiHandler(async (req: NextRequest) => {
     });
 
     return result;
+  }).catch((err) => {
+    if (err instanceof Error && err.message === 'OVERLAP') {
+      return NextResponse.json(
+        { error: serverT(locale, 'apiErrors.fiscalPeriods.overlap') },
+        { status: 409 },
+      );
+    }
+    if (err instanceof Error && err.message === 'DUPLICATE_NAME') {
+      return NextResponse.json(
+        { error: serverT(locale, 'apiErrors.fiscalPeriods.duplicateName') },
+        { status: 409 },
+      );
+    }
+    throw err;
   });
+
+  // If the transaction returned a NextResponse (error), return it directly
+  if (period instanceof NextResponse) return period;
 
   companySettingsCache.invalidate(companyId);
 

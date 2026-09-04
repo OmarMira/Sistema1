@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import {
   updateEntityContext,
   removeEntityContext,
@@ -11,6 +12,7 @@ import { logger } from '@/lib/logger';
 // Update entity context (role, glAccountId, roles)
 export const PATCH = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const params = await context.params;
   const id = params.id as string;
 
@@ -52,6 +54,7 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
 // Delete single entity context
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const params = await context.params;
   const id = params.id as string;
 

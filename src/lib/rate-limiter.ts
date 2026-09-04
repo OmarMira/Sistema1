@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 
 interface HitInfo {
   count: number;
@@ -43,7 +44,7 @@ export class RateLimiter {
         }
       })
       .catch((err) => {
-        console.warn('[RATE LIMITER] Failed to load persisted counters', String(err));
+        logger.warn('[RATE LIMITER] Failed to load persisted counters', { error: String(err) });
         // In-memory default starts empty — safe fallback
       });
   }
@@ -56,8 +57,8 @@ export class RateLimiter {
         update: { hits, resetAt },
         create: { key, hits, resetAt, windowMs },
       })
-      .catch(() => {
-        // In-memory cache remains functional even if persistence fails
+      .catch((err) => {
+        logger.warn('[RATE LIMITER] Failed to persist counter', { key, error: String(err) });
       });
   }
 

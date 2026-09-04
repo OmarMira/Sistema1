@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { AppError } from '@/lib/api-error';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { classifyEntity, getEntityCandidates } from '@/lib/services/entity-classifier';
 import { parseConversationalContext } from '@/lib/services/conversational-service';
 import { safeAuditLog } from '@/lib/services/audit-service';
@@ -13,6 +14,7 @@ import { handleRouteError } from '@/lib/route-error-handler';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const locale = request.headers.get('x-locale') ?? 'en';
 
   try {

@@ -10,7 +10,7 @@ const mockDbPeriodFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockDbPeriodCreate = vi.hoisted(() => vi.fn());
 const mockDbAuditLogCreate = vi.hoisted(() => vi.fn().mockResolvedValue({}));
 const mockDbTransaction = vi.hoisted(() => vi.fn((fn: any) => fn({
-  fiscalPeriod: { create: mockDbPeriodCreate },
+  fiscalPeriod: { findMany: mockDbPeriodFindMany, create: mockDbPeriodCreate },
   auditLog: { create: mockDbAuditLogCreate },
 })));
 

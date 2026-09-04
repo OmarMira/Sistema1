@@ -10,6 +10,7 @@ const mockDb = vi.hoisted(() => ({
   bankTransaction: { findMany: vi.fn(), count: vi.fn() },
   fiscalPeriod: { findFirst: vi.fn(), findMany: vi.fn() },
   journalEntry: { count: vi.fn() },
+  $queryRaw: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@/lib/sessions', () => ({
@@ -36,7 +37,13 @@ function mockContext() {
 function mockTransactions(reconciledTxs: Array<Record<string, unknown>>) {
   mockDb.bankTransaction.findMany.mockImplementation((args: any) => {
     const where = args?.where ?? {};
-    if (where.isReconciled === true) return Promise.resolve(reconciledTxs);
+    if (where.isReconciled === true) {
+      // H-2 fix: route now filters journalEntryId: null at DB level
+      if (where.journalEntryId === null) {
+        return Promise.resolve(reconciledTxs.filter((tx) => tx.journalEntryId === null));
+      }
+      return Promise.resolve(reconciledTxs);
+    }
     return Promise.resolve([]);
   });
   mockDb.bankTransaction.count.mockResolvedValue(0);
@@ -53,10 +60,13 @@ describe('GET /api/dashboard — dedup by journalEntryId', () => {
   });
 
   it('skips a reconciled tx WITH journalEntryId even when the JE description differs', async () => {
-    mockDb.journalLine.findMany.mockResolvedValue([
-      { id: 'jl-1', debit: 100, credit: 0, glAccount: EXPENSE, entry: { description: 'Auto-reconcile: Compra (Rule: X)' } },
-      { id: 'jl-2', debit: 0, credit: 100, glAccount: BANK_ASSET, entry: { description: 'Auto-reconcile: Compra (Rule: X)' } },
-    ]);
+    // H-2 fix: dashboard now uses $queryRaw for type balances and monthly trend
+    mockDb.$queryRaw
+      .mockResolvedValueOnce([
+        { accountType: 'expense', normalBalance: 'debit', totalDebit: BigInt(100), totalCredit: BigInt(0) },
+        { accountType: 'asset', normalBalance: 'debit', totalDebit: BigInt(0), totalCredit: BigInt(100) },
+      ])
+      .mockResolvedValueOnce([]); // monthly trend
     mockTransactions([
       { id: 'tx-1', amount: -100, description: 'Compra', journalEntryId: 'je-1', glAccount: EXPENSE },
     ]);
@@ -70,7 +80,10 @@ describe('GET /api/dashboard — dedup by journalEntryId', () => {
   });
 
   it('counts a reconciled tx WITHOUT journalEntryId as a virtual movement', async () => {
-    mockDb.journalLine.findMany.mockResolvedValue([]);
+    // H-2 fix: dashboard now uses $queryRaw for type balances and monthly trend
+    mockDb.$queryRaw
+      .mockResolvedValueOnce([]) // type balances (no journal lines)
+      .mockResolvedValueOnce([]); // monthly trend
     mockTransactions([
       { id: 'tx-2', amount: -100, description: 'Compra', journalEntryId: null, glAccount: EXPENSE },
     ]);

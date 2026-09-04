@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 
 const reconciliationPeriodSchema = z.object({
@@ -17,6 +18,7 @@ const reconciliationPeriodSchema = z.object({
 // Body: { companyId, bankAccountId, action: 'start'|'complete'|'cancel', periodId?, notes? }
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const body = await validateRequest(request, reconciliationPeriodSchema);
   if (body instanceof NextResponse) return body;

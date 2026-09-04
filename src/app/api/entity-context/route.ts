@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import {
   listEntityContexts,
   bulkRemoveEntityContexts,
@@ -46,6 +47,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 // Batch delete entity contexts scoped to the user's company
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   try {
     const body = await request.json();

@@ -2,12 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 
 // ─── POST /api/reconciliation/unreconcile ─────────────────────────
 // Undo reconciliation for selected transactions.
 // Body: { companyId, bankAccountId, transactionIds: string[] }
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const body = await request.json();
   const { bankAccountId, transactionIds } = body;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
 
 /**
@@ -11,6 +12,7 @@ import { restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
  */
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   let backupData: BackupData;
 

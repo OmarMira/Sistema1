@@ -805,15 +805,25 @@ export async function restoreBackup(
 
       // Insert company members
       let normalizedMembershipRoles = 0;
+      // R2-4: validate ALL members before inserting any — fail-closed.
+      const sanitizedMembers: Array<Record<string, unknown>> = [];
       for (const member of backupData.data.companyMembers) {
         const clean = sanitizeForRestore(member as Record<string, unknown>);
-        // RC2-3: normalize membership roles to the current tenant authority
-        // contract before persisting ('super_admin' folds to 'company_admin',
-        // unknown values collapse to 'viewer').
+        if (clean.companyId !== companyId) {
+          throw new Error(
+            `Backup integrity error: CompanyMember ${clean.id ?? 'unknown'} has companyId ${clean.companyId} which does not match manifest companyId ${companyId}. Restore aborted.`,
+          );
+        }
+        sanitizedMembers.push(clean);
+      }
+      // All validated — normalize roles, then batch insert (H-3: createMany)
+      for (const clean of sanitizedMembers) {
         const originalMemberRole = clean.role;
         clean.role = normalizeRestoredMembershipRole(clean.role);
         if (clean.role !== originalMemberRole) normalizedMembershipRoles += 1;
-        await tx.companyMember.create({ data: clean as never });
+      }
+      if (sanitizedMembers.length > 0) {
+        await tx.companyMember.createMany({ data: sanitizedMembers as never[], skipDuplicates: true });
       }
       restoredCounts.companyMembers = backupData.data.companyMembers.length;
 
@@ -920,10 +930,12 @@ export async function restoreBackup(
       }
       restoredCounts.bankTransactions = backupData.data.bankTransactions.length;
 
-      // Insert fiscal periods
-      for (const period of backupData.data.fiscalPeriods) {
-        const clean = sanitizeForRestore(period as Record<string, unknown>);
-        await tx.fiscalPeriod.create({ data: clean as never });
+      // Insert fiscal periods — no FK remapping, safe for createMany (H-3)
+      if (backupData.data.fiscalPeriods.length > 0) {
+        const cleanPeriods = backupData.data.fiscalPeriods.map(
+          (p) => sanitizeForRestore(p as Record<string, unknown>),
+        );
+        await tx.fiscalPeriod.createMany({ data: cleanPeriods as never[], skipDuplicates: true });
       }
       restoredCounts.fiscalPeriods = backupData.data.fiscalPeriods.length;
 

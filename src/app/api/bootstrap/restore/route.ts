@@ -90,21 +90,20 @@ export const POST = apiHandler(
     }
 
     const companyId = backupData.manifest.companyId;
-    const result = await restoreBackup(companyId, backupData, 'system_bootstrap', { bootstrap: true });
+    const firstUser = backupData.data.users[0];
+    if (!firstUser?.id) {
+      return NextResponse.json({ error: 'El respaldo no contiene usuarios' }, { status: 400 });
+    }
+    const result = await restoreBackup(companyId, backupData, firstUser.id as string, { bootstrap: true });
 
     if (!result.success) {
       return NextResponse.json({ error: result.message }, { status: 400 });
     }
 
-    const restoredUser = backupData.data.users[0];
-    if (!restoredUser?.id) {
-      return NextResponse.json({ error: 'El respaldo no contiene usuarios' }, { status: 400 });
-    }
-
-    const token = await createSession(restoredUser.id as string);
+    const token = await createSession(firstUser.id as string);
 
     const user = await db.user.findUnique({
-      where: { id: restoredUser.id as string },
+      where: { id: firstUser.id as string },
       select: { id: true, email: true, firstName: true, lastName: true, platformRole: true },
     });
 
@@ -129,7 +128,7 @@ export const POST = apiHandler(
       // Tenant contract (mirror /api/auth/me member branch):
       // Company.role = CompanyMember.role, already fetched above — no extra query.
       const memberships = await db.companyMember.findMany({
-        where: { userId: restoredUser.id as string },
+        where: { userId: firstUser.id as string },
         include: {
           company: {
             select: { id: true, legalName: true, entityType: true, taxId: true, isOnboardingComplete: true },

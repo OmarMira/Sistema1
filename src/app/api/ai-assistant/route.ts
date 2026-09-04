@@ -4,6 +4,7 @@ import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { getAiConfig } from '@/lib/ai-config';
 import { safeFetch } from '@/lib/security/safe-fetch';
@@ -827,6 +828,7 @@ async function executeTool(
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { userId, companyId } = requireCompanyContext();
+    await requireCompanyRole(companyId, ['company_admin']);
 
     try {
       const raw: unknown = await request.json();

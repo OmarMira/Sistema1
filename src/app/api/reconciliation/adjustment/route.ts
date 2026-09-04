@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 
@@ -21,6 +22,7 @@ const adjustmentSchema = z.object({
 // Body: { companyId, bankAccountId, date, description, debitAccountId, creditAccountId, amount, notes? }
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const body = await validateRequest(request, adjustmentSchema);
   if (body instanceof NextResponse) return body;

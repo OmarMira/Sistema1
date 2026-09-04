@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 
@@ -32,6 +33,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 //   Dr Bank GL / Cr Opening Balance Equity
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const body = await request.json();
   const { accountName, bankName, accountNo, routingNo, glAccountId, balance, currency } = body;
 

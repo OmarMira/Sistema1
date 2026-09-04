@@ -8,6 +8,7 @@ import { createReconciliationSchema } from '@/lib/validations/reconciliation';
 import { NotFoundError, ValidationError } from '@/lib/api-error';
 import { ReconciliationService } from '@/lib/services/reconciliation.service';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 
 // ─── GET /api/reconciliation ───────────────────────────────────────
 // Get reconciliation data for a bank account with filters.
@@ -284,6 +285,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
 // Reconcile transactions. Sets isReconciled=true and updates glAccountId.
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const body = await validateRequest(request, createReconciliationSchema);
   if (body instanceof NextResponse) return body;

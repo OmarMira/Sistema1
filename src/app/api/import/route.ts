@@ -4,6 +4,7 @@ import { ValidationError } from '@/lib/api-error';
 import { ImportService } from '@/lib/services/import.service';
 import { trackAPIResponseTime } from '@/lib/metrics';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { validateFile } from '@/lib/file-validation';
 import { serverT } from '@/lib/server-i18n';
 
@@ -13,6 +14,7 @@ import { serverT } from '@/lib/server-i18n';
 export const POST = apiHandler(async (request: NextRequest) => {
   const locale = request.headers.get('x-locale') || 'es';
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const formData = await request.formData();
   const file = formData.get('file') as File | null;

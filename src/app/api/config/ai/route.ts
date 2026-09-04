@@ -123,7 +123,8 @@ export const POST = apiHandler(
         providerId: providerIdForCanonicalBaseUrl(resolvedBaseUrl),
       });
     } catch (error) {
-      console.error('Error saving AI configuration:', error);
+      const errMsg = error instanceof Error ? error.message : String(error);
+      logger.error('[AI CONFIG] Failed to save configuration', { error: errMsg });
       return NextResponse.json(
         { error: 'Fallo al guardar la configuración' },
         { status: 500 },

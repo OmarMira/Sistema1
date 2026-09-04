@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { ConflictError } from '@/lib/api-error';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
@@ -54,6 +55,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 // ─── PUT /api/banks/[id] ───────────────────────────────────────────────
 export const PUT = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const { id } = await context.params;
 
   const body = await request.json();
@@ -188,6 +190,7 @@ export const PUT = apiHandler(async (request: NextRequest, context: RouteContext
 // ─── DELETE /api/banks/[id] ────────────────────────────────────────────
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const { id } = await context.params;
 
   // Soft delete: set isActive = false

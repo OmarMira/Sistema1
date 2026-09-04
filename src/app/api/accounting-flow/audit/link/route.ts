@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { ForbiddenError, ValidationError } from '@/lib/api-error';
 
 /**
@@ -16,6 +17,7 @@ import { ForbiddenError, ValidationError } from '@/lib/api-error';
  */
 export const PATCH = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const body = await request.json();
   const { bankTransactionId, journalLineId } = body;

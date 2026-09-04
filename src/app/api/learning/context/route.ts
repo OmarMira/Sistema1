@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { findContext, saveContext } from '@/lib/services/entity-context-service';
 import { entityContextSchema } from '@/lib/validations/entity-context';
 import { handleRouteError } from '@/lib/route-error-handler';
@@ -30,6 +31,7 @@ export const GET = apiHandler(async (request: NextRequest, _routeCtx: RouteConte
 // Save or update an entity context.
 export const POST = apiHandler(async (request: NextRequest, _routeCtx: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   try {
     const body = await request.json();

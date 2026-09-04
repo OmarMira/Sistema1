@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { logger } from '@/lib/logger';
 
 // ─── PATCH /api/reconciliation/ignore ──────────────────────────────
@@ -13,6 +14,8 @@ export const PATCH = apiHandler(async (request: NextRequest) => {
   try {
     const body = await request.json();
     const { companyId, transactionIds, ignore } = body;
+
+    await requireCompanyRole(companyId, ['company_admin']);
 
     if (!companyId) {
       return NextResponse.json(

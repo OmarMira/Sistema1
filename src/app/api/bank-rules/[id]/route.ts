@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
+import { logger } from '@/lib/logger';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { validateDirectionProfile } from '@/lib/services/direction-validation';
@@ -60,6 +62,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 // ─── PUT /api/bank-rules/[id] ──────────────────────────────────────
 export const PUT = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const { id } = await context.params;
 
   const body = await request.json();
@@ -366,6 +369,7 @@ export const PUT = apiHandler(async (request: NextRequest, context: RouteContext
 // ─── DELETE /api/bank-rules/[id] ───────────────────────────────────
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const { id } = await context.params;
 
   const existing = await db.bankRule.findFirst({ where: { id, companyId } });
@@ -389,6 +393,7 @@ export const DELETE = apiHandler(async (request: NextRequest, context: RouteCont
 // Body: { action: 'apply' }
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
   const { id } = await context.params;
 
   const body = await request.json();
@@ -487,10 +492,10 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   }
 
   if (actualMatched < matchedIds.length) {
-    console.warn(
-      `[single-rule apply] ${matchedIds.length - actualMatched} of ${matchedIds.length} ` +
-      `candidate transactions were protected and not updated (TOCTOU).`,
-    );
+    logger.warn('[single-rule apply] TOCTOU protection', {
+      protected: matchedIds.length - actualMatched,
+      total: matchedIds.length,
+    });
   }
 
   return NextResponse.json({

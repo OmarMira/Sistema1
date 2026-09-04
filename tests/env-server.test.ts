@@ -5,6 +5,7 @@ function buildEnv(overrides: Record<string, string | undefined> = {}): NodeJS.Pr
   const base: Record<string, string | undefined> = {
     DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
     SESSION_SECRET: 'test-secret',
+    HMAC_SECRET: 'test-hmac-secret',
   };
   return { ...base, ...overrides };
 }
@@ -44,9 +45,10 @@ describe('validateEnv server startup policy', () => {
     ).not.toThrow();
   });
 
-  it('missing HMAC_SECRET never blocks validateEnv', () => {
-    const env = buildEnv({ NODE_ENV: 'production', HMAC_SECRET: undefined });
-    expect(() => validateEnv(env)).not.toThrow();
+  it('production without HMAC_SECRET fails', () => {
+    expect(() =>
+      validateEnv(buildEnv({ NODE_ENV: 'production', HMAC_SECRET: undefined })),
+    ).toThrow(/HMAC_SECRET/);
   });
 
   it('defaults to development mode when NODE_ENV is unset', () => {

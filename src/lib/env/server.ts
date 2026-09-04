@@ -18,6 +18,10 @@ const REQUIREMENTS: EnvRequirement[] = [
     name: 'SESSION_SECRET',
     requiredIn: ['production'],
   },
+  {
+    name: 'HMAC_SECRET',
+    requiredIn: ['production'],
+  },
 ];
 
 export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {

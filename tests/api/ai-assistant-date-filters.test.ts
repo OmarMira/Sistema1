@@ -113,7 +113,7 @@ describe('POST /api/ai-assistant — D6 date filter boundaries', () => {
     mockCheckRateLimit.mockReturnValue({ allowed: true, limit: 100, remaining: 99, resetAt: Math.ceil(Date.now() / 1000) + 60 });
     mockDbUserFindUnique.mockResolvedValue({ platformRole: 'user' });
     mockDbCompanyFindUnique.mockResolvedValue({ isActive: true });
-    mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1' });
+    mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1', role: 'company_admin' });
     mockDbCompanyMemberFindFirst.mockResolvedValue({ id: 'member-1', companyId: 'c1', userId: 'user-1' });
   });
 

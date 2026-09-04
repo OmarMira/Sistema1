@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
@@ -20,6 +21,7 @@ import {
 // Body: { companyId, bankAccountId, createJournalEntries?, periodId?, matchByAmount? }
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin']);
 
   const body = await request.json();
   const { bankAccountId, createJournalEntries = false, periodId, matchByAmount = true } = body;
@@ -204,6 +206,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
     }
 
     let journalEntriesCreated = 0;
+    const allAffectedGlAccountIds = new Set<string>();
 
     // Process matched transactions
     for (const [txId, match] of matchMap) {
@@ -267,10 +270,15 @@ export const POST = apiHandler(async (request: NextRequest) => {
           data: { journalEntryId: entry.id },
         });
 
-        await JournalEntryService.recalculateBalance(tx as any, debitAccountId);
-        await JournalEntryService.recalculateBalance(tx as any, creditAccountId);
+        allAffectedGlAccountIds.add(debitAccountId);
+        allAffectedGlAccountIds.add(creditAccountId);
         journalEntriesCreated++;
       }
+    }
+
+    // Recalculate GL balances once per unique account after the loop.
+    for (const glAccountId of allAffectedGlAccountIds) {
+      await JournalEntryService.recalculateBalance(tx as any, glAccountId);
     }
 
     // Update period transaction count

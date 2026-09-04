@@ -470,6 +470,7 @@ export async function executeApplyAll(
 
   let journalEntryCount = 0;
   const journalEntryByTx = new Map<string, string>();
+  const affectedGlAccountIds = new Set<string>();
   for (const bt of matchedTxs) {
     const bankGl = bankGlByStatement.get(bt.statementId);
     if (!bankGl || !bt.glAccountId) continue;
@@ -482,12 +483,18 @@ export async function executeApplyAll(
       bankGlAccountId: bankGl,
       counterpartyGlAccountId: bt.glAccountId,
       companyId,
+      skipRecalculate: true,
     });
 
     if (entryId) {
       journalEntryCount++;
       journalEntryByTx.set(bt.id, entryId);
+      affectedGlAccountIds.add(bankGl);
+      affectedGlAccountIds.add(bt.glAccountId);
     }
+  }
+  for (const glAccountId of affectedGlAccountIds) {
+    await JournalEntryService.recalculateBalance(tx, glAccountId);
   }
 
   // Durable anchor: create the RuleApplyRecord and link via FK on affected

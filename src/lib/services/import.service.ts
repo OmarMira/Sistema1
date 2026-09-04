@@ -632,6 +632,7 @@ export class ImportService {
         where: { statementId: statement.id, glAccountId: { not: null }, journalEntryId: null },
         select: { id: true, date: true, amount: true, description: true, glAccountId: true },
       });
+      const affectedGlAccountIds = new Set<string>();
       for (const bt of createdTxs) {
         // A transaction falling in a locked/closed fiscal period must not be
         // posted. Abort the whole import (the $transaction rolls back).
@@ -645,7 +646,13 @@ export class ImportService {
           bankGlAccountId,
           counterpartyGlAccountId: bt.glAccountId!,
           companyId,
+          skipRecalculate: true,
         });
+        affectedGlAccountIds.add(bankGlAccountId);
+        affectedGlAccountIds.add(bt.glAccountId!);
+      }
+      for (const glAccountId of affectedGlAccountIds) {
+        await JournalEntryService.recalculateBalance(tx as any, glAccountId);
       }
 
        

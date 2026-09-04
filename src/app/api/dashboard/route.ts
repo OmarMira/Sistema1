@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
-import { monthlyTrendKey } from '@/lib/dashboard-monthly-trend';
 
 // ─── GET /api/dashboard?companyId=xxx ──────────────────────────────
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
@@ -24,31 +23,23 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   const totalBankBalance = bankAccounts.reduce((sum, a) => sum + a.balance, 0);
 
   // ── GL account balances by type ──
-  const journalLines = await db.journalLine.findMany({
-    where: {
-      entry: {
-        companyId,
-        status: 'posted',
-      },
-    },
-    select: {
-      debit: true,
-      credit: true,
-      glAccount: {
-        select: {
-          accountType: true,
-          normalBalance: true,
-        },
-      },
-      entry: {
-        select: {
-          description: true,
-        },
-      },
-    },
-  });
+  // H-2 fix: use GROUP BY instead of loading all journal lines into memory.
+  const typeBalanceRows = await db.$queryRaw<
+    Array<{ accountType: string; normalBalance: string; totalDebit: bigint; totalCredit: bigint }>
+  >`
+    SELECT
+      ga."accountType" AS "accountType",
+      ga."normalBalance" AS "normalBalance",
+      COALESCE(SUM(jl."debit"), 0) AS "totalDebit",
+      COALESCE(SUM(jl."credit"), 0) AS "totalCredit"
+    FROM "JournalLine" jl
+    JOIN "JournalEntry" je ON jl."entryId" = je.id
+    JOIN "GlAccount" ga ON jl."glAccountId" = ga.id
+    WHERE je."companyId" = ${companyId}
+      AND je."status" = 'posted'
+    GROUP BY ga."accountType", ga."normalBalance"
+  `;
 
-  // Aggregate by account type
   const typeBalances = {
     asset: 0,
     liability: 0,
@@ -57,13 +48,15 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     expense: 0,
   };
 
-  for (const line of journalLines) {
-    const aType = line.glAccount.accountType;
+  for (const row of typeBalanceRows) {
+    const aType = row.accountType;
     if (!(aType in typeBalances)) continue;
     const acctKey = aType as keyof typeof typeBalances;
 
-    const net = line.debit - Number(line.credit);
-    if (line.glAccount.normalBalance === 'debit') {
+    const totalDebit = Number(row.totalDebit);
+    const totalCredit = Number(row.totalCredit);
+    const net = totalDebit - totalCredit;
+    if (row.normalBalance === 'debit') {
       typeBalances[acctKey]! += net;
     } else {
       typeBalances[acctKey]! -= net;
@@ -71,16 +64,17 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   }
 
   // Include reconciled bank transactions that didn't generate journal entries
+  // H-2 fix: use NOT relation filter instead of loading all and filtering in JS.
   const reconciledTxs = await db.bankTransaction.findMany({
     where: {
       statement: { bankAccount: { companyId } },
       isReconciled: true,
       glAccountId: { not: null },
+      journalEntryId: null,
     },
     select: {
       amount: true,
       description: true,
-      journalEntryId: true,
       glAccount: {
         select: {
           accountType: true,
@@ -92,9 +86,6 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 
   for (const tx of reconciledTxs) {
     if (!tx.glAccount) continue;
-    // A transaction already represented by a journal entry (journalEntryId) is
-    // reflected via the posted lines above — never as a virtual movement.
-    if (tx.journalEntryId) continue;
 
     const aType = tx.glAccount.accountType;
     if (!(aType in typeBalances)) continue;
@@ -197,49 +188,38 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   });
 
   // ── Monthly trend (last 12 months from bank transactions) ──
+  // H-2 fix: use GROUP BY instead of loading all transactions into memory.
   const twelveMonthsAgo = new Date(now);
   twelveMonthsAgo.setMonth(twelveMonthsAgo.getMonth() - 11);
   twelveMonthsAgo.setDate(1);
   twelveMonthsAgo.setHours(0, 0, 0, 0);
 
-  const trendTxs = await db.bankTransaction.findMany({
-    where: {
-      statement: { bankAccount: { companyId } },
-      date: { gte: twelveMonthsAgo },
-    },
-    select: { date: true, amount: true },
-  });
+  const trendRows = await db.$queryRaw<
+    Array<{ month: string; income: bigint; expenses: bigint }>
+  >`
+    SELECT
+      TO_CHAR(bt."date", 'YYYY-MM') AS "month",
+      COALESCE(SUM(CASE WHEN bt."amount" > 0 THEN bt."amount" ELSE 0 END), 0) AS "income",
+      COALESCE(SUM(CASE WHEN bt."amount" < 0 THEN ABS(bt."amount") ELSE 0 END), 0) AS "expenses"
+    FROM "BankTransaction" bt
+    JOIN "BankStatement" bs ON bt."statementId" = bs.id
+    JOIN "BankAccount" ba ON bs."bankAccountId" = ba.id
+    WHERE ba."companyId" = ${companyId}
+      AND bt."date" >= ${twelveMonthsAgo}
+    GROUP BY TO_CHAR(bt."date", 'YYYY-MM')
+    ORDER BY "month" ASC
+  `;
 
-  const monthMap: Record<string, { income: number; expenses: number }> = {};
   const MONTH_NAMES = [
-    'Ene',
-    'Feb',
-    'Mar',
-    'Abr',
-    'May',
-    'Jun',
-    'Jul',
-    'Ago',
-    'Sep',
-    'Oct',
-    'Nov',
-    'Dic',
+    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
+    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
   ];
 
-  for (const tx of trendTxs) {
-    const key = monthlyTrendKey(tx.date);
-    if (!monthMap[key]) monthMap[key] = { income: 0, expenses: 0 };
-    if (Number(tx.amount) > 0) monthMap[key].income += Number(tx.amount);
-    else monthMap[key].expenses += Math.abs(tx.amount);
-  }
-
-  const monthlyTrend = Object.entries(monthMap)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, val]) => ({
-      month: MONTH_NAMES[parseInt(key.split('-')[1] ?? '1') - 1] ?? '',
-      income: Math.round(val.income * 100) / 100,
-      expenses: Math.round(val.expenses * 100) / 100,
-    }));
+  const monthlyTrend = trendRows.map((row) => ({
+    month: MONTH_NAMES[parseInt(row.month.split('-')[1] ?? '1') - 1] ?? '',
+    income: Math.round(Number(row.income) * 100) / 100,
+    expenses: Math.round(Number(row.expenses) * 100) / 100,
+  }));
 
   // ── Build response ──
   const accountBalances = Object.entries(typeBalances).map(([accountType, balance]) => ({

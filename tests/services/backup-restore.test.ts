@@ -85,6 +85,17 @@ function buildTx(): any {
               return { id: `new-member-${args.data.userId}` };
             });
           }
+          if (model === 'companyMember' && method === 'createMany') {
+            return vi.fn((args: any) => {
+              for (const item of args.data) companyMemberCreates.push(item);
+              return { count: args.data.length };
+            });
+          }
+          if (model === 'fiscalPeriod' && method === 'createMany') {
+            return vi.fn((args: any) => {
+              return { count: args.data.length };
+            });
+          }
           return vi.fn().mockResolvedValue({ count: 0 });
         },
       });
@@ -549,6 +560,62 @@ describe('computeDepths', () => {
     expect(glAccountCreates[0].code).toBe('1000');
     expect(glAccountCreates[1].code).toBe('1010');
     expect(glAccountCreates[2].code).toBe('1010-01');
+  });
+});
+
+describe('R2.4 — CompanyMember companyId validation', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    (db.$transaction as Mock).mockImplementation((cb: any) => {
+      currentTx = buildTx();
+      return cb(currentTx);
+    });
+    glAccountCreates.length = 0;
+    companyUpsertCalls.length = 0;
+    userUpsertCalls.length = 0;
+    companyMemberCreates.length = 0;
+    reconciliationPeriodCreates.length = 0;
+    bankTransactionCreates.length = 0;
+    companyKnowledgeCreates.length = 0;
+    companyKnowledgeUpdates.length = 0;
+    knowledgeAuditCreates.length = 0;
+    currentTx = null;
+  });
+
+  it('continues normally when all CompanyMembers match manifest companyId', async () => {
+    const data = buildBackupData();
+    const result = await restoreBackup('company-1', data, 'test-user');
+    expect(result.success).toBe(true);
+    expect(companyMemberCreates).toHaveLength(3);
+  });
+
+  it('aborts restore when a CompanyMember has mismatched companyId', async () => {
+    const data = buildBackupData();
+    data.data.companyMembers = [
+      makeMember('user-1', 'company-1'),
+      makeMember('user-2', 'company-ENTERPRISE-X'),
+      makeMember('user-3', 'company-1'),
+    ];
+
+    const result = await restoreBackup('company-1', data, 'test-user');
+
+    expect(result.success).toBe(false);
+    expect(result.message).toMatch(/CompanyMember.*company-ENTERPRISE-X.*does not match/);
+    // R2-4: no CompanyMembers persisted — all-or-nothing validation
+    expect(companyMemberCreates).toHaveLength(0);
+  });
+
+  it('aborts immediately on first mismatched CompanyMember', async () => {
+    const data = buildBackupData();
+    data.data.companyMembers = [
+      makeMember('user-1', 'company-EVIL'),
+      makeMember('user-2', 'company-1'),
+    ];
+
+    const result = await restoreBackup('company-1', data, 'test-user');
+
+    expect(result.success).toBe(false);
+    expect(companyMemberCreates).toHaveLength(0);
   });
 });
 

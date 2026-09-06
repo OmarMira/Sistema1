@@ -2,7 +2,7 @@
 
 **Versión:** 1.11
 **Fecha:** 2026-09-06
-**Estado:** Borrador
+**Estado:** Congelado — Contrato Conceptual Permanente
 **Fase:** 1 — Conocimiento General (Disciplina Fundacional)
 
 ---
@@ -629,4 +629,4 @@ Eso pertenece al diseño del Knowledge Engine (Fase 2).
 
 **Documento:** conocimiento-general.md
 **Versión:** 1.11
-**Estado:** Borrador — listo para congelar
+**Estado:** Congelado — Contrato Conceptual Permanente

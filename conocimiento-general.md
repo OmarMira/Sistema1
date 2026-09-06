@@ -1,6 +1,6 @@
 # Conocimiento General
 
-**Versión:** 1.4
+**Versión:** 1.5
 **Fecha:** 2026-09-06
 **Estado:** Borrador
 **Fase:** 1 — Conocimiento General (Disciplina Fundacional)
@@ -27,6 +27,56 @@ Es el contrato que sobrevive incluso si el motor cambia completamente.
 
 ---
 
+## Los tres niveles de comprensión
+
+**Los datos describen hechos.**
+
+**Las reglas describen acciones.**
+
+**El conocimiento describe comprensión.**
+
+| Nivel | Qué hace | Ejemplo |
+|-------|----------|---------|
+| Dato | Registra un hecho aislado | "Amazon — $500 — 05/09/2026" |
+| Regla | Define qué hacer ante una condición | "Si contiene 'Amazon', clasificar como Gasto Operativo" |
+| Conocimiento | Explica por qué | "Esta empresa usa Amazon para compras de oficina; siempre se clasifica como Gasto Operativo" |
+
+La regla dice qué hacer.
+
+El conocimiento dice por qué.
+
+---
+
+## Qué es una afirmación de negocio
+
+**El Knowledge Engine no almacena datos; almacena afirmaciones sobre el negocio.**
+
+Una afirmación es la unidad mínima de significado.
+
+Toda afirmación tiene:
+
+- **Sujeto:** Sobre qué afirma.
+- **Predicado:** Qué dice del sujeto.
+- **Contexto:** Bajo qué condiciones es válida.
+- **Evidencia:** Qué la sostiene.
+- **Autoridad:** Quién la creó o validó.
+
+**Ejemplo:**
+
+| Componente | Valor |
+|------------|-------|
+| Sujeto | Amazon |
+| Predicado | es clasificado como Gasto Operativo |
+| Contexto | Empresa A, cuenta 5110, pagos a proveedores |
+| Evidencia | 47 transacciones consistentes |
+| Autoridad | Contador Juan Pérez, 15/03/2026 |
+
+**Principio:**
+
+El conocimiento es la comprensión acumulada de afirmaciones de negocio que se sostienen con evidencia suficiente y han sido validadas por una autoridad.
+
+---
+
 ## Qué es conocimiento
 
 Conocimiento es la comprensión acumulada y validada de cómo opera un negocio específico.
@@ -38,16 +88,6 @@ No es un dato aislado.
 No es una regla.
 
 Es la interpretación persistente de patrones, preferencias, excepciones y comportamientos que se repiten en el tiempo dentro de una empresa.
-
-**Diferencia fundamental:**
-
-- **Dato:** "Hoy se importaron 47 transacciones." (Hecho aislado, sin contexto)
-- **Regla:** "Si la descripción contiene 'Amazon', clasificar como Gasto Operativo." (Condición → Acción)
-- **Conocimiento:** "Esta empresa usa Amazon exclusivamente para compras de oficina y logística, nunca para equipos." (Comprensión del comportamiento)
-
-La regla dice qué hacer.
-
-El conocimiento dice por qué.
 
 ---
 
@@ -67,6 +107,39 @@ Todo lo que sea temporal, transitorio, accidental o no represente un patrón del
 **La frontera:**
 
 Un dato se convierte en conocimiento cuando demuestra un patrón que se espera que continúe en el tiempo.
+
+---
+
+## Qué es conocer
+
+**Conocimiento** es la información persistida.
+
+**Conocer** es el acto de poder responder preguntas sobre esa información.
+
+Son cosas distintas.
+
+**Ejemplo:**
+
+- Tener almacenado: "Amazon → Gasto Operativo" → Eso es conocimiento (información persistida).
+- Poder responder: "¿Por qué?", "¿Desde cuándo?", "¿Con qué evidencia?", "¿Quién lo validó?", "¿Cuándo dejaría de ser cierto?" → Eso es conocer.
+
+**La diferencia:**
+
+- Una base de datos almacena conocimiento.
+- Un cerebro conoce.
+
+**Principio:**
+
+El Knowledge Engine no solo debe almacenar afirmaciones; debe poder razonar sobre ellas.
+
+Conocer implica poder responder:
+
+1. **Por qué** es cierta esta afirmación.
+2. **Desde cuándo** se sostiene.
+3. **Con qué evidencia** se sostiene.
+4. **Quién** la validó.
+5. **Cuándo** dejaría de ser cierta.
+6. **Qué** otras afirmaciones entran en conflicto con ella.
 
 ---
 
@@ -100,7 +173,7 @@ Sin contexto, el conocimiento puede ser verdadero y falso al mismo tiempo.
 
 **Principio:**
 
-Toda unidad de conocimiento debe tener contexto suficiente para determinar cuándo aplica.
+Toda afirmación de conocimiento debe tener contexto suficiente para determinar cuándo aplica.
 
 ---
 
@@ -355,31 +428,34 @@ Ninguna autoridad puede contradecir a una superior.
 |---|-----------|-----------|
 | P1 | Definición | Conocimiento General es la disciplina que define qué constituye conocimiento empresarial |
 | P2 | Propósito | Preservar, organizar y reutilizar para que las decisiones sean consistentes, explicables y acumulativas |
-| P3 | Conocimiento ≠ Dato ≠ Regla | Comprensión persistente, no datos aislados ni reglas binarias |
-| P4 | Frontera del conocimiento | Solo persiste lo que representa un patrón estable |
-| P5 | Unidad fundamental | Mínima entidad independiente con identidad, evidencia, confianza, autoridad, contexto, historia y relaciones |
-| P6 | Identidad inmutable | La identidad es permanente; el contenido evoluciona |
-| P7 | Evidencia verificable | Toda afirmación debe sostenerse con evidencia verificable |
-| P8 | Fuerza de evidencia | Depende de origen, volumen, consistencia, actualidad y validación |
-| P9 | Confianza proporcional | Nunca supera la fuerza de la evidencia |
-| P10 | Contexto necesario | Toda unidad debe tener contexto suficiente para determinar cuándo aplica |
-| P11 | Saber vs. Creer | Solo sabe cuando una autoridad lo ha validado |
-| P12 | Consecuencia operativa | Solo el conocimiento en estado "sabe" puede fundamentar decisiones automáticas |
-| P13 | Aprendizaje por evidencia | Solo de evidencia suficiente para justificar persistencia |
-| P14 | Desaprendizaje por contradicción | No por antigüedad, por contradicción demostrada |
-| P15 | Corrección preserva coherencia | Toda corrección debe preservar la coherencia existente |
-| P16 | Explicabilidad obligatoria | Si no se puede explicar, no se debería haber decidido |
-| P17 | Autoridad jerárquica | Operativa > Aprendizaje > Contexto |
-| P18 | Autoridad necesaria | Toda unidad requiere supervisión |
-| P19 | Tipos de conocimiento | Diferentes tipos evolucionan diferente |
-| P20 | Ámbitos de conocimiento | Global, grupo, empresa, usuario |
-| P21 | Frontera conocimiento/configuración | Configuración = CÓMO; Conocimiento = QUÉ |
-| P22 | Red de conocimiento | El conocimiento es una red de relaciones |
-| P23 | Propagación | Toda propagación debe preservar coherencia, trazabilidad y explicabilidad |
-| P24 | Origen y estado | Origen inmutable, estado evoluciona |
-| P25 | Evolución, no modificación | Nunca se modifica; se crea nueva versión |
-| P26 | Trazabilidad total | Origen, evidencia, historia y estado |
-| P27 | Razonamiento | Debe poder responder qué sabe, por qué lo sabe, y qué tan seguro está |
+| P3 | **Tres niveles** | **Los datos describen hechos. Las reglas describen acciones. El conocimiento describe comprensión.** |
+| P4 | **Afirmación de negocio** | **El Knowledge Engine no almacena datos; almacena afirmaciones sobre el negocio** |
+| P5 | **Conocer vs. Conocimiento** | **Conocimiento es información persistida; conocer es poder razonar sobre ella** |
+| P6 | Conocimiento ≠ Dato ≠ Regla | Comprensión persistente, no datos aislados ni reglas binarias |
+| P7 | Frontera del conocimiento | Solo persiste lo que representa un patrón estable |
+| P8 | Unidad fundamental | Mínima entidad independiente con identidad, evidencia, confianza, autoridad, contexto, historia y relaciones |
+| P9 | Identidad inmutable | La identidad es permanente; el contenido evoluciona |
+| P10 | Evidencia verificable | Toda afirmación debe sostenerse con evidencia verificable |
+| P11 | Fuerza de evidencia | Depende de origen, volumen, consistencia, actualidad y validación |
+| P12 | Confianza proporcional | Nunca supera la fuerza de la evidencia |
+| P13 | Contexto necesario | Toda afirmación debe tener contexto suficiente para determinar cuándo aplica |
+| P14 | Saber vs. Creer | Solo sabe cuando una autoridad lo ha validado |
+| P15 | Consecuencia operativa | Solo el conocimiento en estado "sabe" puede fundamentar decisiones automáticas |
+| P16 | Aprendizaje por evidencia | Solo de evidencia suficiente para justificar persistencia |
+| P17 | Desaprendizaje por contradicción | No por antigüedad, por contradicción demostrada |
+| P18 | Corrección preserva coherencia | Toda corrección debe preservar la coherencia existente |
+| P19 | Explicabilidad obligatoria | Si no se puede explicar, no se debería haber decidido |
+| P20 | Autoridad jerárquica | Operativa > Aprendizaje > Contexto |
+| P21 | Autoridad necesaria | Toda unidad requiere supervisión |
+| P22 | Tipos de conocimiento | Diferentes tipos evolucionan diferente |
+| P23 | Ámbitos de conocimiento | Global, grupo, empresa, usuario |
+| P24 | Frontera conocimiento/configuración | Configuración = CÓMO; Conocimiento = QUÉ |
+| P25 | Red de conocimiento | El conocimiento es una red de relaciones |
+| P26 | Propagación | Toda propagación debe preservar coherencia, trazabilidad y explicabilidad |
+| P27 | Origen y estado | Origen inmutable, estado evoluciona |
+| P28 | Evolución, no modificación | Nunca se modifica; se crea nueva versión |
+| P29 | Trazabilidad total | Origen, evidencia, historia y estado |
+| P30 | **Razonamiento** | **El Knowledge Engine debe poder responder qué sabe, por qué lo sabe, y qué tan seguro está** |
 
 ---
 
@@ -404,30 +480,33 @@ Eso pertenece al diseño del Knowledge Engine (Fase 2).
 ## Criterio de Finalización
 
 1. Propósito definido ✅
-2. Qué es conocimiento definido ✅
-3. Qué no es conocimiento definido ✅
-4. Qué es evidencia definido ✅
-5. Qué es contexto definido ✅
-6. Unidad de Conocimiento definida ✅
-7. Tipos de conocimiento definidos ✅
-8. Ámbitos definidos ✅
-9. Frontera conocimiento/configuración definida ✅
-10. Qué significa aprender definido ✅
-11. Qué significa desaprender definido ✅
-12. Qué significa explicar definido ✅
-13. Qué significa saber definido ✅
-14. Qué significa creer definido ✅
-15. Red de conocimiento definida ✅
-16. Propagación como principio ✅
-17. Evolución como principio ✅
-18. Autoridad definida ✅
-19. 27 principios definidos ✅
-20. Sin diseño del motor ✅
+2. **Tres niveles de comprensión definidos** ✅
+3. **Afirmación de negocio definida** ✅
+4. **Conocer vs. Conocimiento definido** ✅
+5. Qué es conocimiento definido ✅
+6. Qué no es conocimiento definido ✅
+7. Qué es evidencia definido ✅
+8. Qué es contexto definido ✅
+9. Unidad de Conocimiento definida ✅
+10. Tipos de conocimiento definidos ✅
+11. Ámbitos definidos ✅
+12. Frontera conocimiento/configuración definida ✅
+13. Qué significa aprender definido ✅
+14. Qué significa desaprender definido ✅
+15. Qué significa explicar definido ✅
+16. Qué significa saber definido ✅
+17. Qué significa creer definido ✅
+18. Red de conocimiento definida ✅
+19. Propagación como principio ✅
+20. Evolución como principio ✅
+21. Autoridad definida ✅
+22. 30 principios definidos ✅
+23. Sin diseño del motor ✅
 
 **Documento listo para congelarse como contrato conceptual.**
 
 ---
 
 **Documento:** conocimiento-general.md
-**Versión:** 1.4
+**Versión:** 1.5
 **Estado:** Borrador — listo para congelar

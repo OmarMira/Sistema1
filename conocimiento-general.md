@@ -1,6 +1,6 @@
 # Conocimiento General
 
-**Versión:** 1.10
+**Versión:** 1.11
 **Fecha:** 2026-09-06
 **Estado:** Borrador
 **Fase:** 1 — Conocimiento General (Disciplina Fundacional)
@@ -23,7 +23,7 @@ Es el contrato que sobrevive incluso si el motor cambia completamente.
 
 ## Propósito
 
-**El propósito del Conocimiento General es organizar y hacer reutilizable el conocimiento del negocio para que las decisiones futuras sean consistentes, explicables y acumulatives.**
+**El propósito del Conocimiento General es organizar y hacer reutilizable el conocimiento del negocio para que las decisiones futuras sean consistentes, explicables y acumulativas.**
 
 ---
 
@@ -438,23 +438,54 @@ Nunca deben mezclarse.
 
 ---
 
-## Qué significa aprender
+## Adquirir conocimiento
 
-El sistema aprende cuando una afirmación sobre el negocio pasa de no tener evidencia a estar respaldada por evidencia dentro de un contexto determinado.
+El conocimiento puede incorporarse de dos maneras:
 
-**No aprende de datos aislados.**
+### Adquisición explícita
 
-Aprende de repeticiones consistentes.
+Una autoridad incorpora conocimiento directamente.
+
+- Una norma fiscal se incorpora como conocimiento externo.
+- Un contador define una política.
+- Un usuario declara una preferencia.
+
+No fue aprendido. Fue incorporado.
+
+### Adquisición por aprendizaje
+
+El sistema detecta un patrón en la evidencia y lo incorpora como conocimiento.
+
+- Un comportamiento se repite con consistencia.
+- Un proveedor siempre se asocia con la misma categoría.
+
+El sistema aprende a partir de observaciones.
+
+**Principio:**
+
+Adquirir conocimiento y aprender conocimiento no son sinónimos.
+
+El motor decidirá qué mecanismo utiliza en cada caso.
 
 ---
 
 ## Qué significa desaprender
 
-El sistema desaprende cuando una afirmación que tenía evidencia pierde esa evidencia por contradicción.
+Desaprender es dejar de considerar válida una afirmación previamente conocida.
 
-**No se olvida por antigüedad.**
+Las causas pueden ser múltiples:
 
-Se olvida por contradicción demostrada.
+- Contradicción de evidencia.
+- Obsolescencia.
+- Reemplazo por conocimiento actualizado.
+- Anulación por autoridad.
+- Expiración.
+
+**Principio:**
+
+La disciplina define qué es desaprender.
+
+El motor decide por qué ocurrió.
 
 ---
 
@@ -573,31 +604,29 @@ Eso pertenece al diseño del Knowledge Engine (Fase 2).
 4. Afirmación de negocio definida ✅
 5. Definición fuerte de afirmación ✅
 6. Identidad semántica definida ✅
-7. **Definición de conocimiento sin umbral: "respaldada por evidencia dentro de un contexto determinado"** ✅
+7. Definición de conocimiento sin umbral ✅
 8. Verdad vs. Autorización separados ✅
-9. **Saber y creer como conceptos epistemológicos** ✅
+9. Saber y creer como conceptos epistemológicos ✅
 10. Conocer vs. Conocimiento definido ✅
-11. Qué no es conocimiento definido ✅
-12. Qué es evidencia definido ✅
-13. Qué es contexto definido ✅
-14. Unidad de Conocimiento definida ✅
-15. **Trazabilidad como propiedad fundamental** ✅
-16. Tipos de conocimiento definidos ✅
-17. Ámbitos definidos ✅
-18. Frontera conocimiento/configuración definida ✅
-19. Qué significa aprender definido ✅
-20. Qué significa desaprender definido ✅
+11. Adquirir vs. Aprender separados ✅
+12. Desaprender como definición conceptual ✅
+13. Qué no es conocimiento definido ✅
+14. Qué es evidencia definido ✅
+15. Qué es contexto definido ✅
+16. Unidad de Conocimiento definida ✅
+17. Trazabilidad como propiedad fundamental ✅
+18. Tipos de conocimiento definidos ✅
+19. Ámbitos definidos ✅
+20. Frontera conocimiento/configuración definida ✅
 21. Qué significa explicar definido ✅
 22. Red de conocimiento definida ✅
 23. Evolución como principio ✅
-24. 22 principios definidos ✅
-25. Sin comportamiento del motor ✅
-26. Sin umbrales en definiciones ✅
+24. Todos los principios fundacionales definidos ✅
 
 **Documento listo para congelarse como contrato conceptual permanente.**
 
 ---
 
 **Documento:** conocimiento-general.md
-**Versión:** 1.10
+**Versión:** 1.11
 **Estado:** Borrador — listo para congelar

@@ -1,6 +1,6 @@
 # Conocimiento General
 
-**Versión:** 1.6
+**Versión:** 1.7
 **Fecha:** 2026-09-06
 **Estado:** Borrador
 **Fase:** 1 — Conocimiento General (Disciplina Fundacional)
@@ -23,7 +23,7 @@ Es el contrato que sobrevive incluso si el motor cambia completamente.
 
 ## Propósito
 
-**El propósito del Conocimiento General es preservar, organizar y reutilizar el conocimiento del negocio para que las decisiones futuras sean consistentes, explicables y acumulativas.**
+**El propósito del Conocimiento General es preservar, organizar y reutilizar el conocimiento del negocio para que las decisiones futuras sean consistentes, explicables y acumulatives.**
 
 ---
 
@@ -51,21 +51,37 @@ El conocimiento dice por qué.
 
 El conocimiento no aparece de la nada.
 
-Pasa por un proceso de maduración.
+Una forma habitual de maduración es:
 
 ```
-Dato
+Realidad
   ↓
 Observación
+  ↓
+Dato
   ↓
 Afirmación
   ↓
 Conocimiento
 ```
 
+### Realidad
+
+El mundo tal como es.
+
+No es accesible directamente.
+
+Solo puede ser observado.
+
+### Observación
+
+La percepción de un aspecto de la realidad.
+
+No es el dato en sí, sino el acto de percibirlo.
+
 ### Dato
 
-Un hecho aislado, sin contexto.
+Un hecho aislado, extraído de una observación, sin contexto.
 
 - Ejemplo: "Amazon"
 - Ejemplo: "$500"
@@ -73,18 +89,9 @@ Un hecho aislado, sin contexto.
 
 El dato por sí mismo no significa nada.
 
-### Observación
-
-Un dato al que se le ha agregado contexto mínimo.
-
-- Ejemplo: "Amazon apareció 47 veces en las transacciones de septiembre."
-- Ejemplo: "Amazon apareció 47 veces clasificado como Gasto Operativo."
-
-La observación empieza a mostrar un patrón, pero aún no es una afirmación.
-
 ### Afirmación
 
-Una declaración sobre el mundo que puede ser verdadera o falsa.
+Una proposición evaluable cuya validez puede sostenerse o refutarse mediante evidencia dentro de un contexto determinado.
 
 - Ejemplo: "Amazon se clasifica como Gasto Operativo."
 - Ejemplo: "Amazon es proveedor de esta empresa."
@@ -93,19 +100,21 @@ La afirmación es el objeto sobre el cual recae la evidencia.
 
 ### Conocimiento
 
-Una afirmación validada, contextualizada y sustentada por evidencia suficiente.
+Una afirmación que ha acumulado evidencia suficiente, ha sido contextualizada y puede sostenerse con confianza.
 
-- Ejemplo: "En esta empresa Amazon representa compras operativas y nunca activos. Esto se sostiene con 47 transacciones consistentes y fue validado por el contador Juan Pérez."
+- Ejemplo: "En esta empresa Amazon representa compras operativas y nunca activos. Esto se sostiene con 47 transacciones consistentes."
 
-El conocimiento es una afirmación que ha madurado lo suficiente como para ser confiable.
+**Nota importante:**
 
-**Principio:**
+Esta secuencia describe una ruta frecuente, no una ley.
 
-La persistencia es una propiedad técnica del motor.
+Existen otras rutas:
 
-No define el conocimiento.
+- Una **política** definida por un contador nace directamente como afirmación.
+- Una **norma fiscal** nace como conocimiento externo.
+- Una **preferencia explícita** del usuario no pasa por observaciones.
 
-Lo que define al conocimiento es que sea una afirmación validada, contextualizada y sustentada por evidencia suficiente.
+El modelo debe admitir múltiples rutas de maduración.
 
 ---
 
@@ -113,7 +122,7 @@ Lo que define al conocimiento es que sea una afirmación validada, contextualiza
 
 **La unidad fundamental del conocimiento es una afirmación sobre el negocio.**
 
-Una afirmación es la unidad mínima de significado.
+Una afirmación es una proposición evaluable cuya validez puede sostenerse o refutarse mediante evidencia dentro de un contexto determinado.
 
 Toda afirmación tiene:
 
@@ -121,7 +130,6 @@ Toda afirmación tiene:
 - **Predicado:** Qué dice del sujeto.
 - **Contexto:** Bajo qué condiciones es válida.
 - **Evidencia:** Qué la sostiene.
-- **Autoridad:** Quién la creó o validó.
 
 **Ejemplo:**
 
@@ -131,13 +139,44 @@ Toda afirmación tiene:
 | Predicado | es clasificado como Gasto Operativo |
 | Contexto | Empresa A, cuenta 5110, pagos a proveedores |
 | Evidencia | 47 transacciones consistentes |
-| Autoridad | Contador Juan Pérez, 15/03/2026 |
+
+---
+
+## Verdad y autorización
+
+Son conceptos distintos.
+
+### Verdad / evidencia
+
+Una afirmación puede ser verdadera antes de que nadie la valide.
+
+Ejemplo:
+
+- "IVA = 21%" es verdadero independientemente de que un usuario lo apruebe.
+- "Amazon apareció 47 veces como Gasto Operativo" es un hecho observable.
+
+La verdad depende de la evidencia, no de la autoridad.
+
+### Autorización operacional
+
+La autorización define si Sistema1 está autorizado a utilizar una afirmación automáticamente.
+
+Ejemplo:
+
+- "IVA = 21%" puede ser verdadero, pero Sistema1 quizás no esté autorizado a aplicarlo sin supervisión.
+- "Amazon siempre es Gasto Operativo" puede ser verdadero y estar autorizado.
+
+**Principio:**
+
+La verdad de una afirmación no depende de la autorización.
+
+La autorización operacional es un concepto separado que determina si el sistema puede usar esa afirmación para decidir automáticamente.
 
 ---
 
 ## Qué es conocimiento
 
-**Conocimiento es una afirmación validada, contextualizada y sustentada por evidencia suficiente.**
+**Conocimiento es una afirmación que ha acumulado evidencia suficiente, ha sido contextualizada y puede sostenerse con confianza.**
 
 No es información cruda.
 
@@ -149,7 +188,7 @@ No es simplemente información persistida.
 
 La persistencia es una propiedad técnica.
 
-Lo que define al conocimiento es su madurez: ha sido validado, tiene contexto y se sostiene con evidencia.
+Lo que define al conocimiento es su madurez: tiene evidencia suficiente y contexto adecuado.
 
 ---
 
@@ -169,7 +208,7 @@ Todo lo que sea temporal, transitorio, accidental o no represente un patrón del
 
 **La frontera:**
 
-Un dato se convierte en conocimiento cuando ha pasado por el proceso de maduración: observación → afirmación → validación → contexto → evidencia suficiente.
+Un dato se convierte en conocimiento cuando ha acumulado evidencia suficiente y ha sido contextualizado.
 
 ---
 
@@ -218,11 +257,10 @@ La fuerza de la evidencia depende de:
 - **Volumen:** Cuántas observaciones la sostienen.
 - **Consistencia:** Qué tan uniforme es.
 - **Actualidad:** Qué tan reciente es.
-- **Validación:** Si una autoridad la ha confirmado.
 
 **Principio:**
 
-El nivel de confianza de una unidad nunca puede superar la fuerza de la evidencia que la respalda.
+El nivel de confianza de una afirmación nunca puede superar la fuerza de la evidencia que la respalda.
 
 ---
 
@@ -386,17 +424,17 @@ No sabe → Cree → Sabe
 
 **Cree:** Evidencia parcial que sugiere algo, pero no es concluyente.
 
-**Sabe:** Evidencia suficiente y validada para afirmar algo con confianza.
+**Sabe:** Evidencia suficiente y contextualizada para afirmar algo con confianza.
 
 ### La frontera
 
-El sistema pasa de "creer" a "saber" cuando la evidencia es suficiente y una autoridad operativa ha validado la afirmación.
+El sistema pasa de "creer" a "saber" cuando la evidencia es suficiente y la afirmación ha sido contextualizada adecuadamente.
 
 **Principio:**
 
-El sistema nunca puede afirmar que sabe algo sin que una autoridad lo haya validado.
+El sistema puede afirmar que sabe algo cuando la evidencia es suficiente y la afirmación está contextualizada.
 
-La evidencia sola no es suficiente.
+La autorización para usar esa afirmación automáticamente es un concepto separado.
 
 ---
 
@@ -408,7 +446,7 @@ El sistema cree cuando tiene evidencia pero no cumple las condiciones para saber
 
 El conocimiento en estado "creer" puede usarse como sugerencia, pero nunca como decisión automática.
 
-Solo el conocimiento en estado "sabe" puede fundamentar decisiones automáticas.
+Solo el conocimiento en estado "sabe" puede fundamentar decisiones automáticas, y solo cuando está autorizado.
 
 ---
 
@@ -492,35 +530,37 @@ Ninguna autoridad puede contradecir a una superior.
 | P1 | Definición | Conocimiento General es la disciplina que define qué constituye conocimiento empresarial |
 | P2 | Propósito | Preservar, organizar y reutilizar para que las decisiones sean consistentes, explicables y acumulativas |
 | P3 | Tres niveles | Los datos describen hechos. Las reglas describen acciones. El conocimiento describe comprensión |
-| P4 | Jerarquía del conocimiento | Dato → Observación → Afirmación → Conocimiento |
+| P4 | Jerarquía del conocimiento | Realidad → Observación → Dato → Afirmación → Conocimiento (una ruta habitual, no la única) |
 | P5 | Afirmación de negocio | La unidad fundamental del conocimiento es una afirmación sobre el negocio |
-| P6 | Conocer vs. Conocimiento | Conocimiento es una afirmación madura; conocer es poder razonar sobre ella |
-| P7 | Conocimiento ≠ Dato ≠ Regla | Comprensión persistente, no datos aislados ni reglas binarias |
-| P8 | **Definición de conocimiento** | **Una afirmación validada, contextualizada y sustentada por evidencia suficiente** |
-| P9 | Frontera del conocimiento | Solo persiste lo que representa un patrón estable |
-| P10 | Unidad fundamental | Mínima entidad independiente con identidad, evidencia, confianza, autoridad, contexto, historia y relaciones |
-| P11 | Identidad inmutable | La identidad es permanente; el contenido evoluciona |
-| P12 | Evidencia verificable | Toda afirmación debe sostenerse con evidencia verificable |
-| P13 | Fuerza de evidencia | Depende de origen, volumen, consistencia, actualidad y validación |
-| P14 | Confianza proporcional | Nunca supera la fuerza de la evidencia |
-| P15 | Contexto necesario | Toda afirmación debe tener contexto suficiente para determinar cuándo aplica |
-| P16 | Saber vs. Creer | Solo sabe cuando una autoridad lo ha validado |
-| P17 | Consecuencia operativa | Solo el conocimiento en estado "sabe" puede fundamentar decisiones automáticas |
-| P18 | Aprendizaje por evidencia | Solo de evidencia suficiente para justificar persistencia |
-| P19 | Desaprendizaje por contradicción | No por antigüedad, por contradicción demostrada |
-| P20 | Corrección preserva coherencia | Toda corrección debe preservar la coherencia existente |
-| P21 | Explicabilidad obligatoria | Si no se puede explicar, no se debería haber decidido |
-| P22 | Autoridad jerárquica | Operativa > Aprendizaje > Contexto |
-| P23 | Autoridad necesaria | Toda unidad requiere supervisión |
-| P24 | Tipos de conocimiento | Diferentes tipos evolucionan diferente |
-| P25 | Ámbitos de conocimiento | Global, grupo, empresa, usuario |
-| P26 | Frontera conocimiento/configuración | Configuración = CÓMO; Conocimiento = QUÉ |
-| P27 | Red de conocimiento | El conocimiento es una red de relaciones |
-| P28 | Propagación | Toda propagación debe preservar coherencia, trazabilidad y explicabilidad |
-| P29 | Origen y estado | Origen inmutable, estado evoluciona |
-| P30 | Evolución, no modificación | Nunca se modifica; se crea nueva versión |
-| P31 | Trazabilidad total | Origen, evidencia, historia y estado |
-| P32 | **Razonamiento** | **El sistema debe poder responder qué sabe, por qué lo sabe, y qué tan seguro está** |
+| P6 | Definición de afirmación | Una proposición evaluable cuya validez puede sostenerse o refutarse mediante evidencia dentro de un contexto determinado |
+| P7 | Conocer vs. Conocimiento | Conocimiento es una afirmación madura; conocer es poder razonar sobre ella |
+| P8 | Conocimiento ≠ Dato ≠ Regla | Comprensión persistente, no datos aislados ni reglas binarias |
+| P9 | **Definición de conocimiento** | **Una afirmación que ha acumulado evidencia suficiente, ha sido contextualizada y puede sostenerse con confianza** |
+| P10 | Frontera del conocimiento | Solo persiste lo que representa un patrón estable |
+| P11 | Unidad fundamental | Mínima entidad independiente con identidad, evidencia, confianza, autoridad, contexto, historia y relaciones |
+| P12 | Identidad inmutable | La identidad es permanente; el contenido evoluciona |
+| P13 | Evidencia verificable | Toda afirmación debe sostenerse con evidencia verificable |
+| P14 | Fuerza de evidencia | Depende de origen, volumen, consistencia y actualidad |
+| P15 | Confianza proporcional | Nunca supera la fuerza de la evidencia |
+| P16 | Contexto necesario | Toda afirmación debe tener contexto suficiente para determinar cuándo aplica |
+| P17 | **Verdad vs. Autorización** | **La verdad de una afirmación no depende de la autorización; la autorización es un concepto separado** |
+| P18 | Saber vs. Creer | Solo sabe cuando la evidencia es suficiente y la afirmación está contextualizada |
+| P19 | Consecuencia operativa | Solo el conocimiento en estado "sabe" puede fundamentar decisiones automáticas, y solo cuando está autorizado |
+| P20 | Aprendizaje por evidencia | Solo de evidencia suficiente para justificar persistencia |
+| P21 | Desaprendizaje por contradicción | No por antigüedad, por contradicción demostrada |
+| P22 | Corrección preserva coherencia | Toda corrección debe preservar la coherencia existente |
+| P23 | Explicabilidad obligatoria | Si no se puede explicar, no se debería haber decidido |
+| P24 | Autoridad jerárquica | Operativa > Aprendizaje > Contexto |
+| P25 | Autoridad necesaria | Toda unidad requiere supervisión |
+| P26 | Tipos de conocimiento | Diferentes tipos evolucionan diferente |
+| P27 | Ámbitos de conocimiento | Global, grupo, empresa, usuario |
+| P28 | Frontera conocimiento/configuración | Configuración = CÓMO; Conocimiento = QUÉ |
+| P29 | Red de conocimiento | El conocimiento es una red de relaciones |
+| P30 | Propagación | Toda propagación debe preservar coherencia, trazabilidad y explicabilidad |
+| P31 | Origen y estado | Origen inmutable, estado evoluciona |
+| P32 | Evolución, no modificación | Nunca se modifica; se crea nueva versión |
+| P33 | Trazabilidad total | Origen, evidencia, historia y estado |
+| P34 | **Razonamiento** | **El sistema debe poder responder qué sabe, por qué lo sabe, y qué tan seguro está** |
 
 ---
 
@@ -547,34 +587,36 @@ Eso pertenece al diseño del Knowledge Engine (Fase 2).
 
 1. Propósito definido ✅
 2. Tres niveles de comprensión definidos ✅
-3. **Jerarquía del conocimiento definida (Dato → Observación → Afirmación → Conocimiento)** ✅
+3. **Jerarquía no lineal (una ruta habitual, no la única)** ✅
 4. Afirmación de negocio definida ✅
-5. Conocer vs. Conocimiento definido ✅
-6. **Definición de conocimiento: "afirmación validada, contextualizada y sustentada por evidencia suficiente"** ✅
-7. Qué no es conocimiento definido ✅
-8. Qué es evidencia definido ✅
-9. Qué es contexto definido ✅
-10. Unidad de Conocimiento definida ✅
-11. Tipos de conocimiento definidos ✅
-12. Ámbitos definidos ✅
-13. Frontera conocimiento/configuración definida ✅
-14. Qué significa aprender definido ✅
-15. Qué significa desaprender definido ✅
-16. Qué significa explicar definido ✅
-17. Qué significa saber definido ✅
-18. Qué significa creer definido ✅
-19. Red de conocimiento definida ✅
-20. Propagación como principio ✅
-21. Evolución como principio ✅
-22. Autoridad definida ✅
-23. 32 principios definidos ✅
-24. **Sin referencia al motor (Knowledge Engine)** ✅
-25. **Sin dependencia de la persistencia técnica** ✅
+5. **Definición fuerte de afirmación** ✅
+6. Conocer vs. Conocimiento definido ✅
+7. Definición de conocimiento refinada ✅
+8. **Verdad vs. Autorización separados** ✅
+9. Qué no es conocimiento definido ✅
+10. Qué es evidencia definido ✅
+11. Qué es contexto definido ✅
+12. Unidad de Conocimiento definida ✅
+13. Tipos de conocimiento definidos ✅
+14. Ámbitos definidos ✅
+15. Frontera conocimiento/configuración definida ✅
+16. Qué significa aprender definido ✅
+17. Qué significa desaprender definido ✅
+18. Qué significa explicar definido ✅
+19. Qué significa saber definido ✅
+20. Qué significa creer definido ✅
+21. Red de conocimiento definida ✅
+22. Propagación como principio ✅
+23. Evolución como principio ✅
+24. Autoridad definida ✅
+25. 34 principios definidos ✅
+26. Sin referencia al motor ✅
+27. Sin dependencia de persistencia técnica ✅
 
 **Documento listo para congelarse como contrato conceptual permanente.**
 
 ---
 
 **Documento:** conocimiento-general.md
-**Versión:** 1.6
+**Versión:** 1.7
 **Estado:** Borrador — listo para congelar

@@ -1,6 +1,6 @@
 # Conocimiento General
 
-**Versión:** 1.9
+**Versión:** 1.10
 **Fecha:** 2026-09-06
 **Estado:** Borrador
 **Fase:** 1 — Conocimiento General (Disciplina Fundacional)
@@ -23,7 +23,7 @@ Es el contrato que sobrevive incluso si el motor cambia completamente.
 
 ## Propósito
 
-**El propósito del Conocimiento General es organizar y hacer reutilizable el conocimiento del negocio para que las decisiones futuras sean consistentes, explicables y acumulativas.**
+**El propósito del Conocimiento General es organizar y hacer reutilizable el conocimiento del negocio para que las decisiones futuras sean consistentes, explicables y acumulatives.**
 
 ---
 
@@ -98,7 +98,7 @@ La afirmación es el objeto sobre el cual recae la evidencia.
 
 ### Conocimiento
 
-Una afirmación respaldada por evidencia suficiente para justificarla dentro de un contexto determinado.
+Una afirmación respaldada por evidencia dentro de un contexto determinado.
 
 - Ejemplo: "En esta empresa Amazon representa compras operativas y nunca activos. Esto se sostiene con 47 transacciones consistentes."
 
@@ -197,9 +197,49 @@ La autorización operacional es un concepto separado que determina si el sistema
 
 ---
 
+## Saber y creer
+
+Son estados epistemológicos del conocimiento.
+
+No son consecuencias operativas.
+
+Son la naturaleza del conocimiento desde el punto de vista conceptual.
+
+### Creer
+
+El sistema cree cuando tiene evidencia pero esa evidencia aún no alcanza para justificar la afirmación como conocimiento.
+
+**Ejemplo:**
+
+- "Amazon podría ser Gasto Operativo" → El sistema cree, pero no sabe.
+
+### Saber
+
+El sistema sabe cuando la afirmación está respaldada por evidencia dentro de un contexto determinado.
+
+**Ejemplo:**
+
+- "En esta empresa Amazon siempre es Gasto Operativo" → El sistema sabe.
+
+### La frontera entre creer y saber
+
+La frontera depende de:
+
+- La fuerza de la evidencia.
+- El contexto de la afirmación.
+- El criterio que el motor utilice para determinar cuándo la evidencia alcanza.
+
+**Principio:**
+
+Existe una diferencia conceptual entre creer y saber.
+
+El motor decidirá cuándo esa diferencia tiene consecuencias operativas.
+
+---
+
 ## Qué es conocimiento
 
-**Conocimiento es una afirmación respaldada por evidencia suficiente para justificarla dentro de un contexto determinado.**
+**Conocimiento es una afirmación respaldada por evidencia dentro de un contexto determinado.**
 
 No es información cruda.
 
@@ -211,7 +251,7 @@ No es simplemente información persistida.
 
 La persistencia es una propiedad técnica del sistema.
 
-Lo que define al conocimiento es que tiene evidencia suficiente y contexto adecuado para justificarse.
+Lo que define al conocimiento es que tiene evidencia y contexto.
 
 ---
 
@@ -231,7 +271,7 @@ Todo lo que sea temporal, transitorio, accidental o no represente un patrón del
 
 **La frontera:**
 
-Una afirmación se convierte en conocimiento cuando tiene evidencia suficiente para justificarse y contexto adecuado.
+Una afirmación se convierte en conocimiento cuando tiene evidencia y contexto.
 
 ---
 
@@ -305,7 +345,7 @@ Toda afirmación de conocimiento debe tener contexto suficiente para determinar 
 
 ### Definición
 
-**Una Unidad de Conocimiento es la mínima entidad independiente que puede existir, evolucionar, tener identidad, evidencia, contexto, historia y relaciones.**
+**Una Unidad de Conocimiento es la mínima entidad independiente que puede existir, evolucionar, tener identidad, evidencia, contexto, historia, trazabilidad y relaciones.**
 
 ### Identidad
 
@@ -325,6 +365,7 @@ Si la identidad cambia → otra unidad completamente diferente.
 - **Contexto:** En qué condiciones aplica.
 - **Ámbito:** A qué nivel de alcance pertenece.
 - **Historia:** Cómo evolucionó.
+- **Trazabilidad:** Capacidad de reconstruir su historia completa.
 - **Relaciones:** Con qué otras unidades se relaciona.
 
 ---
@@ -399,7 +440,7 @@ Nunca deben mezclarse.
 
 ## Qué significa aprender
 
-El sistema aprende cuando una afirmación sobre el negocio pasa de no tener evidencia a estar respaldada por evidencia suficiente.
+El sistema aprende cuando una afirmación sobre el negocio pasa de no tener evidencia a estar respaldada por evidencia dentro de un contexto determinado.
 
 **No aprende de datos aislados.**
 
@@ -479,26 +520,27 @@ Es inmutable.
 | # | Principio | Enunciado |
 |---|-----------|-----------|
 | P1 | Definición | Conocimiento General es la disciplina que define qué constituye conocimiento empresarial |
-| P2 | Propósito | Organizar y hacer reutilizable para que las decisiones sean consistentes, explicables y acumulativas |
+| P2 | Propósito | Organizar y hacer reutilizable para que las decisiones sean consistentes, explicables y acumulatives |
 | P3 | Tres niveles | Los datos describen hechos. Las reglas describen acciones. El conocimiento describe comprensión |
 | P4 | Jerarquía | Observación → Dato → Afirmación → Conocimiento (una ruta habitual, no la única) |
 | P5 | Afirmación de negocio | La unidad fundamental del conocimiento es una afirmación sobre el negocio |
 | P6 | Definición de afirmación | Una proposición evaluable cuya validez puede sostenerse o refutarse mediante evidencia dentro de un contexto determinado |
 | P7 | Identidad semántica | Dos afirmaciones representan la misma unidad cuando mantienen la misma identidad semántica dentro de su contexto |
 | P8 | Conocimiento ≠ Dato ≠ Regla | Comprensión, no datos aislados ni reglas binarias |
-| P9 | Definición de conocimiento | Una afirmación respaldada por evidencia suficiente para justificarla dentro de un contexto determinado |
+| P9 | Definición de conocimiento | Una afirmación respaldada por evidencia dentro de un contexto determinado |
 | P10 | Verdad vs. Autorización | La verdad no depende de la autorización |
-| P11 | Conocer vs. Conocimiento | Conocimiento es afirmación respaldada; conocer es poder razonar sobre ella |
-| P12 | Evidencia verificable | Toda afirmación debe sostenerse con evidencia verificable |
-| P13 | Fuerza de evidencia | Depende de origen, volumen, consistencia y actualidad |
-| P14 | Confianza proporcional | Nunca supera la fuerza de la evidencia |
-| P15 | Contexto necesario | Toda afirmación debe tener contexto suficiente |
-| P16 | Explicabilidad obligatoria | Si no se puede explicar, no se debería haber decidido |
-| P17 | Identidad inmutable | La identidad es permanente; el contenido evoluciona |
-| P18 | Red de conocimiento | El conocimiento es una red de relaciones |
-| P19 | Evolución, no modificación | Nunca se modifica; se crea nueva versión |
-| P20 | Origen inmutable | El origen no cambia |
-| P21 | Trazabilidad | Toda unidad debe poder reconstruir su historia |
+| P11 | Saber vs. Creer | Existe una diferencia conceptual entre creer y saber |
+| P12 | Conocer vs. Conocimiento | Conocimiento es afirmación respaldada; conocer es poder razonar sobre ella |
+| P13 | Evidencia verificable | Toda afirmación debe sostenerse con evidencia verificable |
+| P14 | Fuerza de evidencia | Depende de origen, volumen, consistencia y actualidad |
+| P15 | Confianza proporcional | Nunca supera la fuerza de la evidencia |
+| P16 | Contexto necesario | Toda afirmación debe tener contexto suficiente |
+| P17 | Explicabilidad obligatoria | Si no se puede explicar, no se debería haber decidido |
+| P18 | Identidad inmutable | La identidad es permanente; el contenido evoluciona |
+| P19 | Red de conocimiento | El conocimiento es una red de relaciones |
+| P20 | Evolución, no modificación | Nunca se modifica; se crea nueva versión |
+| P21 | Origen inmutable | El origen no cambia |
+| P22 | **Trazabilidad** | **Toda unidad debe poder reconstruir su historia completa** |
 
 ---
 
@@ -531,29 +573,31 @@ Eso pertenece al diseño del Knowledge Engine (Fase 2).
 4. Afirmación de negocio definida ✅
 5. Definición fuerte de afirmación ✅
 6. Identidad semántica definida ✅
-7. Definición de conocimiento refinada ✅
+7. **Definición de conocimiento sin umbral: "respaldada por evidencia dentro de un contexto determinado"** ✅
 8. Verdad vs. Autorización separados ✅
-9. Conocer vs. Conocimiento definido ✅
-10. Qué no es conocimiento definido ✅
-11. Qué es evidencia definido ✅
-12. Qué es contexto definido ✅
-13. Unidad de Conocimiento definida ✅
-14. Tipos de conocimiento definidos ✅
-15. Ámbitos definidos ✅
-16. Frontera conocimiento/configuración definida ✅
-17. Qué significa aprender definido ✅
-18. Qué significa desaprender definido ✅
-19. Qué significa explicar definido ✅
-20. Red de conocimiento definida ✅
-21. Evolución como principio ✅
-22. 21 principios definidos ✅
-23. Sin comportamiento del motor ✅
-24. Sin duplicación entre capítulos y principios ✅
+9. **Saber y creer como conceptos epistemológicos** ✅
+10. Conocer vs. Conocimiento definido ✅
+11. Qué no es conocimiento definido ✅
+12. Qué es evidencia definido ✅
+13. Qué es contexto definido ✅
+14. Unidad de Conocimiento definida ✅
+15. **Trazabilidad como propiedad fundamental** ✅
+16. Tipos de conocimiento definidos ✅
+17. Ámbitos definidos ✅
+18. Frontera conocimiento/configuración definida ✅
+19. Qué significa aprender definido ✅
+20. Qué significa desaprender definido ✅
+21. Qué significa explicar definido ✅
+22. Red de conocimiento definida ✅
+23. Evolución como principio ✅
+24. 22 principios definidos ✅
+25. Sin comportamiento del motor ✅
+26. Sin umbrales en definiciones ✅
 
 **Documento listo para congelarse como contrato conceptual permanente.**
 
 ---
 
 **Documento:** conocimiento-general.md
-**Versión:** 1.9
+**Versión:** 1.10
 **Estado:** Borrador — listo para congelar

@@ -104,6 +104,7 @@ model Company {
   journalEntries        JournalEntry[]
   reconciliationPeriods ReconciliationPeriod[]
   systemMemories        SystemMemory[]
+  memoryItems           MemoryItem[]
   detectionConfig       DetectionConfig?
   companyKnowledge      CompanyKnowledge[]
   ruleApplyRecords      RuleApplyRecord[]
@@ -571,4 +572,144 @@ model KnowledgeAudit {
 
   @@index([knowledgeId])
   @@index([timestamp])
+}
+
+// ─── Memory Core (C1-C11) ───────────────────────────────────────────
+
+enum MemoryStatus {
+  active
+  forgotten
+}
+
+enum ConfidenceLevel {
+  certain
+  tentative
+  uncertain
+}
+
+/// C1/C2/C3/C4/C5/C6/C8/C9/C10/C11 — Core identity for all memory operations.
+model MemoryItem {
+  id            String           @id @default(cuid())
+  companyId     String
+  content       String
+  type          String           // C6: free-form type label
+  confidence    ConfidenceLevel  @default(tentative) // C11
+  status        MemoryStatus     @default(active) // C10
+  forgetReason  String?          // C10
+  sourceAuthor  String           // C8
+  sourceName    String           // C8
+  sourceObservedAt DateTime?     // C8
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  versions           MemoryVersion[]
+  relationships      Relationship[]       @relation("SourceItem")
+  relatedBy          Relationship[]       @relation("TargetItem")
+  contradictionsA    Contradiction[]      @relation("ContradictionA")
+  contradictionsB    Contradiction[]      @relation("ContradictionB")
+  evolutionLinks     EvolutionLink[]      @relation("SupersededItem")
+  supersededByLinks  EvolutionLink[]      @relation("SupersedingItem")
+  traceabilityLogs   TraceabilityLog[]
+  confidenceLogs     ConfidenceLog[]
+
+  @@index([companyId])
+  @@index([type])
+  @@index([status])
+  @@index([companyId, type])
+  @@index([companyId, status])
+}
+
+/// C4/C5 — Append-only version history.
+model MemoryVersion {
+  id            String   @id @default(cuid())
+  itemId        String
+  versionNumber Int
+  content       String
+  snapshot      Json     // full item state at version
+  createdAt     DateTime @default(now())
+
+  item MemoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([itemId, versionNumber])
+  @@index([itemId])
+}
+
+/// C3 — Binary connection between two memory items.
+model Relationship {
+  id         String   @id @default(cuid())
+  sourceId   String
+  targetId   String
+  label      String
+  createdAt  DateTime @default(now())
+
+  source MemoryItem @relation("SourceItem", fields: [sourceId], references: [id], onDelete: Cascade)
+  target MemoryItem @relation("TargetItem", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([targetId])
+  @@index([sourceId, targetId])
+}
+
+/// C7 — Detected contradiction pair (deterministic scope only).
+model Contradiction {
+  id         String   @id @default(cuid())
+  itemAId    String
+  itemBId    String
+  evidence   String   // why they contradict
+  confidence Float    @default(1.0) // detection confidence 0-1
+  detectedAt DateTime @default(now())
+  resolved   Boolean  @default(false)
+
+  itemA MemoryItem @relation("ContradictionA", fields: [itemAId], references: [id], onDelete: Cascade)
+  itemB MemoryItem @relation("ContradictionB", fields: [itemBId], references: [id], onDelete: Cascade)
+
+  @@index([itemAId])
+  @@index([itemBId])
+  @@index([resolved])
+}
+
+/// C9 — Evolution link: what replaced what and how.
+model EvolutionLink {
+  id              String   @id @default(cuid())
+  supersededId    String
+  supersededById  String
+  linkType        String   @default("supersedes") // supersedes | complements
+  createdAt       DateTime @default(now())
+
+  superseded   MemoryItem @relation("SupersededItem", fields: [supersededId], references: [id], onDelete: Cascade)
+  supersedingBy MemoryItem @relation("SupersedingItem", fields: [supersededById], references: [id], onDelete: Cascade)
+
+  @@index([supersededId])
+  @@index([supersededById])
+}
+
+/// C8 — Append-only action log for traceability.
+model TraceabilityLog {
+  id        String   @id @default(cuid())
+  itemId    String
+  action    String   // recorded | updated | related | superseded | forgotten
+  timestamp DateTime @default(now())
+  actor     String   // user | system
+  details   Json
+
+  item MemoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([itemId, timestamp])
+}
+
+/// C11 — Confidence change history.
+model ConfidenceLog {
+  id            String   @id @default(cuid())
+  itemId        String
+  previousLevel ConfidenceLevel
+  newLevel      ConfidenceLevel
+  reason        String
+  changedAt     DateTime @default(now())
+
+  item MemoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([itemId])
+  @@index([itemId, changedAt])
 }

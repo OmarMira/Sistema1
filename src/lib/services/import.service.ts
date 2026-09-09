@@ -46,6 +46,8 @@ import type { PrismaBankRule } from '@/lib/services/rule-engine-adapter';
 import { evaluateOperationalPolicy } from '@/lib/operational-policy/policy-service';
 import { IMPORT_OBSERVATION_CONFIG } from '@/lib/operational-policy/import-observation-config';
 import type { PolicyObservationResponse, OperationalPolicyDecision } from '@/lib/operational-policy/types';
+import { MemoryAdapter } from '@/memory/adapter';
+import { createAdapter, lookupClassification } from '@/memory/classification-knowledge';
 
 export interface ImportResult {
   statementId: string;
@@ -55,6 +57,75 @@ export interface ImportResult {
   newAccountCreated: boolean;
   bankAccountName: string;
   policyObservation?: PolicyObservationResponse;
+}
+
+// ─── Import Decision (KE → Rule Engine) ──────────────────────────
+
+export interface ImportDecision {
+  source: 'ke' | 'rule_engine' | 'ke_error';
+  glAccountId: string | null;
+  matchedRuleId: string | null;
+}
+
+/**
+ * Resolve import classification: KE first, then rule engine fallback.
+ *
+ * This is the productive function extracted from the import loop
+ * (lines 540-593). It encapsulates the KE→Rule decision logic
+ * so it can be tested directly without simulating functions.
+ *
+ * @param keAdapter — MemoryAdapter for KE lookup
+ * @param companyId — Company scope
+ * @param description — Transaction description to classify
+ * @param resolveRule — Callback that runs the rule engine (only called if KE misses)
+ * @returns ImportDecision with source, glAccountId, and matchedRuleId
+ */
+export async function resolveImportDecision(
+  keAdapter: MemoryAdapter,
+  companyId: string,
+  description: string,
+  resolveRule: () => Promise<{ matchedRuleId: string | null; glAccountId: string | null }>,
+): Promise<ImportDecision> {
+  // KE check before rule engine
+  let matchedRuleId: string | null = null;
+  let glAccountId: string | null = null;
+  let keHit = false;
+
+  try {
+    const keResult = await lookupClassification(keAdapter, companyId, description);
+    if (keResult.kind === 'hit') {
+      // KE_HIT: use learned classification, skip rule engine
+      glAccountId = keResult.glAccountId;
+      matchedRuleId = null; // No rule matched — knowledge was used
+      keHit = true;
+    }
+  } catch (keError) {
+    // KE_ERROR: distinct from KE_MISS — do NOT fall back to rule engine.
+    // The caller must know the KE failed, not pretend it simply didn't know.
+    logger.error('[KE] Lookup error — not falling back to rule engine', {
+      companyId,
+      description,
+      error: String(keError),
+    });
+    return {
+      source: 'ke_error',
+      glAccountId: null,
+      matchedRuleId: null,
+    };
+  }
+
+  // Only call rule engine if KE missed (NOT if KE errored — that returns above)
+  if (!keHit) {
+    const resolution = await resolveRule();
+    matchedRuleId = resolution.matchedRuleId;
+    glAccountId = resolution.glAccountId;
+  }
+
+  return {
+    source: keHit ? 'ke' : 'rule_engine',
+    glAccountId,
+    matchedRuleId,
+  };
 }
 
 interface BuildV2ShadowDivergenceEventParams {
@@ -529,40 +600,63 @@ export class ImportService {
         shadowSummary = createEmptyShadowImportSummary();
       }
 
+      // Knowledge Engine adapter — created once per import, reused across transactions
+      const keAdapter = createAdapter(db, (fn) => db.$transaction(fn));
+
       for (let idx = 0; idx < uniqueTransactions.length; idx++) {
         const txn = uniqueTransactions[idx]!;
 
-        const resolution = await resolveImportRule(
-          {
-            id: uniqueHashes[idx]!,
-            date: txn.date,
-            description: txn.description,
-            amount: txn.amount,
-            bankAccountId,
-            reference: txn.reference,
-          },
-          bankRules,
+        // ─── KE → Rule Engine decision (productive function) ──────
+        const decision = await resolveImportDecision(
+          keAdapter,
           companyId,
-        );
-        const matchedRuleId = resolution.matchedRuleId;
-        const glAccountId = resolution.glAccountId;
-
-        // Persist AI proposal from adapter (if present)
-        if (resolution.aiProposal) {
-          await tx.pendingApproval.create({
-            data: {
-              action: 'ai_classification_proposal',
-              payload: {
-                companyId,
-                transactionId: uniqueHashes[idx]!,
+          txn.description,
+          async () => {
+            const resolution = await resolveImportRule(
+              {
+                id: uniqueHashes[idx]!,
+                date: txn.date,
+                description: txn.description,
+                amount: txn.amount,
                 bankAccountId,
-                deterministicResult: resolution.deterministicResult,
-                aiProposal: resolution.aiProposal,
+                reference: txn.reference,
               },
-              requestedBy: userId,
-              status: 'pending',
-            },
-          });
+              bankRules,
+              companyId,
+            );
+
+            // Persist AI proposal from adapter (if present)
+            if (resolution.aiProposal) {
+              await tx.pendingApproval.create({
+                data: {
+                  action: 'ai_classification_proposal',
+                  payload: {
+                    companyId,
+                    transactionId: uniqueHashes[idx]!,
+                    bankAccountId,
+                    deterministicResult: resolution.deterministicResult,
+                    aiProposal: resolution.aiProposal,
+                  },
+                  requestedBy: userId,
+                  status: 'pending',
+                },
+              });
+            }
+
+            return resolution;
+          },
+        );
+
+        const matchedRuleId = decision.matchedRuleId;
+        const glAccountId = decision.glAccountId;
+
+        // KE_ERROR: explicit failure — rollback entire import, do NOT persist unclassified transaction
+        if (decision.source === 'ke_error') {
+          throw new AppError(
+            500,
+            `KE_ERROR: Knowledge Engine failed for transaction "${txn.description}". Import rolled back.`,
+            'KE_ERROR',
+          );
         }
 
         if (matchedRuleId) autoCategorizedCount++;

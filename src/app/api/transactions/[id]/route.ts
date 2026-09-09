@@ -6,6 +6,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
+import { createAdapter, learnFromCorrection } from '@/memory/classification-knowledge';
 
 // ─── PATCH /api/transactions/[id] ───────────────────────────────────────
 // Manual GL account assignment: updates the transaction and creates the
@@ -117,6 +118,25 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
     glAccountId,
     journalEntryId: result.journalEntryId,
   });
+
+  // ─── Knowledge Engine: learn from confirmed correction ─────────
+  // Only after accounting persistence succeeds.
+  // KE failure is logged but does NOT revert the accounting correction.
+  // The caller receives no indication — the accounting result stands.
+  const keResult = await learnFromCorrection(
+    createAdapter(db, (fn) => db.$transaction(fn)),
+    companyId,
+    transaction.description,
+    glAccountId,
+    'any',
+    id,
+  );
+  if (!keResult.ok) {
+    logger.warn('[KE] Learn failed — accounting correction stands', {
+      transactionId: id,
+      error: keResult.error,
+    });
+  }
 
   return NextResponse.json({ transaction: result });
 });

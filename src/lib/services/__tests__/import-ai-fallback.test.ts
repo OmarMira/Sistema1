@@ -34,6 +34,7 @@ vi.mock('@/lib/db', () => ({
     bankAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'bank-1', accountNo: '001' }) },
     company: { findUnique: vi.fn().mockResolvedValue({ id: 'company-1', legalName: 'Test Co', entityType: 'individual' }) },
     memoryItem: { findMany: vi.fn().mockResolvedValue([]) },
+    companyKnowledge: { findMany: vi.fn().mockResolvedValue([]) },
     memoryVersion: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({}) },
     $transaction: vi.fn(async (fn: (tx: Record<string, unknown>) => Promise<unknown>) => {
       const tx = {
@@ -48,6 +49,7 @@ vi.mock('@/lib/db', () => ({
           create: mockBankStatementCreate,
         },
         memoryItem: { findMany: vi.fn().mockResolvedValue([]) },
+        companyKnowledge: { findMany: vi.fn().mockResolvedValue([]) },
         memoryVersion: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);

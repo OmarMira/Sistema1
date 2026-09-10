@@ -30,7 +30,6 @@ export async function findContext(companyId: string, description: string) {
   const normalized = normalizePattern(stripTransactionPrefixes(description));
   const contexts = await db.entityContext.findMany({
     where: { companyId },
-    include: { glAccount: true },
   });
   return contexts.find((ctx) => normalized.includes(ctx.pattern.toLowerCase())) || null;
 }
@@ -74,7 +73,6 @@ export async function saveContext(data: {
     update: {
       role: validated.role,
       roles: rolesJson,
-      glAccountId: validated.glAccountId,
       source: data.source ?? 'user',
       transactionDirection: validated.transactionDirection ?? null,
       userDescription: trimmedUserDescription ?? null,
@@ -85,7 +83,6 @@ export async function saveContext(data: {
       pattern: validated.pattern,
       role: validated.role,
       roles: rolesJson,
-      glAccountId: validated.glAccountId,
       source: data.source ?? 'user',
       transactionDirection: validated.transactionDirection ?? null,
       userDescription: trimmedUserDescription ?? null,
@@ -106,7 +103,6 @@ export async function saveContext(data: {
           pattern: validated.pattern,
           role: validated.role,
           roles: data.roles,
-          glAccountId: validated.glAccountId,
           source: data.source ?? 'user',
           userDescription: trimmedUserDescription ?? null,
           autoAssignedAt: data.autoAssignedAt ?? null,

@@ -18,9 +18,20 @@ vi.mock('@/lib/services/entity-context-service', () => ({
   findContext: vi.fn(),
 }));
 
+vi.mock('@/memory/entity-resolution', () => ({
+  resolveEntity: vi.fn(),
+}));
+
+vi.mock('@/memory/classification-knowledge', () => ({
+  lookupTreatment: vi.fn(),
+  createAdapter: vi.fn(),
+}));
+
 import { parseConversationalContext } from '@/lib/services/conversational-service';
 import { db } from '@/lib/db';
 import { findContext } from '@/lib/services/entity-context-service';
+import { resolveEntity } from '@/memory/entity-resolution';
+import { lookupTreatment } from '@/memory/classification-knowledge';
 
 const mockGlAccounts: Record<string, any> = {
   '5000': { id: 'gl-5000', code: '5000', name: 'Gastos Operativos', companyId: 'comp_1', isActive: true },
@@ -51,6 +62,7 @@ describe('parseConversationalContext — full contract integration', () => {
       glAccountId: 'gl-5000',
       glAccount: { code: '5000', name: 'Gastos Operativos' },
     });
+    (resolveEntity as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'UNKNOWN' });
 
     const result = await parseConversationalContext(
       'comp_1',
@@ -64,8 +76,9 @@ describe('parseConversationalContext — full contract integration', () => {
     expect(result.suggestSubAccount).toBe(false);
     expect(result.subAccountName).toBeNull();
     expect(result.account.name).toBe('Gastos Operativos');
-    expect(result.confidence).toBeGreaterThanOrEqual(0.8);
-    expect(result.confidenceLabel).toBe('high');
+    // Post-cutover: EntityContext no longer provides high confidence; heuristic fallback gives 0.7
+    expect(result.confidence).toBeGreaterThanOrEqual(0.7);
+    expect(result.confidenceLabel).toBe('medium');
     expect(typeof result.explanation).toBe('string');
     expect(result.explanation.length).toBeGreaterThan(0);
     expect(Array.isArray(result.uncertaintyReasons)).toBe(true);
@@ -73,6 +86,7 @@ describe('parseConversationalContext — full contract integration', () => {
 
   it('devuelve SIN_CLASIFICAR (confianza 0) sin EntityContext y sin heuristic match', async () => {
     (findContext as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (resolveEntity as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'UNKNOWN' });
 
     const result = await parseConversationalContext(
       'comp_1',
@@ -94,6 +108,7 @@ describe('parseConversationalContext — full contract integration', () => {
 
   it('incluye todos los campos del contrato en la respuesta', async () => {
     (findContext as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (resolveEntity as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'UNKNOWN' });
 
     const result = await parseConversationalContext(
       'comp_1',
@@ -123,6 +138,7 @@ describe('parseConversationalContext — full contract integration', () => {
 
   it('usa heuristic match cuando el input contiene keyword exacta', async () => {
     (findContext as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (resolveEntity as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'UNKNOWN' });
 
     const result = await parseConversationalContext(
       'comp_1',
@@ -138,6 +154,7 @@ describe('parseConversationalContext — full contract integration', () => {
 
   it('asigna GASTO_OPERATIVO con confianza media cuando heuristic match es parcial', async () => {
     (findContext as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+    (resolveEntity as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'UNKNOWN' });
 
     const result = await parseConversationalContext(
       'comp_1',
@@ -160,6 +177,9 @@ describe('parseConversationalContext — full contract integration', () => {
       glAccountId: 'gl-5000',
       glAccount: { code: '5000', name: 'Gastos Operativos' },
     });
+    (resolveEntity as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'KNOWN', entityId: 'ck_1' });
+    (lookupTreatment as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'FOUND', glAccountId: 'gl-5000', direction: 'any' });
+    (db.glAccount as any).findUnique = vi.fn().mockResolvedValue({ id: 'gl-5000', code: '5000', name: 'Gastos Operativos', accountType: 'expense', normalBalance: 'debit' });
 
     const result = await parseConversationalContext(
       'comp_1',
@@ -167,6 +187,7 @@ describe('parseConversationalContext — full contract integration', () => {
       'gasto de oficina',
     );
 
+    // KE path returns 0.95 (high) when treatment is FOUND
     expect(result.confidenceLabel).toBe('high');
     expect(result.confidence).toBeGreaterThanOrEqual(0.9);
   });

@@ -79,7 +79,7 @@ export async function detectConflict(
   // 2. Load active EntityContext records for company
   const entities = await db.entityContext.findMany({
     where: { companyId },
-    select: { id: true, pattern: true, role: true, glAccountId: true },
+    select: { id: true, pattern: true, role: true },
   });
 
   // 3. Extract SOCIO patterns for the sync function

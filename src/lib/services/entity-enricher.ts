@@ -2,15 +2,18 @@ import { normalizePattern } from '@/lib/services/pattern-normalizer';
 import { detectConflictSync } from '@/lib/services/entity-conflict-detector';
 import type { EntityCandidate } from '@/lib/services/entity-detector';
 import type { EntityContextWithGlAccount } from '@/lib/types/entity-context';
-import { ROLE_ACCOUNT_MAP } from '@/lib/constants/role-account-map';
-import type { EntityRole } from '@/lib/constants/entity-roles';
 import { toConfidenceLabel } from '@/lib/types/reasoning';
 import { serverT } from '@/lib/server-i18n';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
+import { resolveEntity } from '@/memory/entity-resolution';
+import { createAdapter, lookupTreatment } from '@/memory/classification-knowledge';
+import type { ExtendedPrismaClient } from '@/lib/db';
 
 // ========== TYPES ==========
 
 export interface EnrichmentInput {
+  companyId: string;
+  prismaClient: ExtendedPrismaClient;
   contexts: EntityContextWithGlAccount[];
   glAccounts: Array<{
     id: string;
@@ -110,51 +113,49 @@ export function resolveContextRole(
 }
 
 // ========== T5b: SUGGEST GL ACCOUNT ==========
+// Post-cutover: source is KE treatment (resolveEntity → lookupTreatment).
+// UNKNOWN / NOT_FOUND → null (no suggestion).
+// ERROR → propagates as exception (distinguishable from absence of knowledge).
 
-export function suggestGlAccount(
-  context: EntityContextWithGlAccount | null,
-  direction: 'debit' | 'credit' | null,
+export async function suggestGlAccount(
+  companyId: string,
+  description: string,
+  _context: EntityContextWithGlAccount | null,
+  _direction: 'debit' | 'credit' | null,
   glAccounts: EnrichmentInput['glAccounts'],
-): { name: string; code: string; id: string } | null {
-  if (!context) return null;
+  prismaClient: ExtendedPrismaClient,
+): Promise<{ name: string; code: string; id: string } | null> {
+  // Step 1: Entity Resolution
+  const entityResolution = await resolveEntity(companyId, description);
 
-  // Priority 1: context has linked glAccount
-  if (context.glAccount) {
+  if (entityResolution.status === 'ERROR') {
+    throw new Error(`KE entity resolution error: ${entityResolution.reason}`);
+  }
+
+  if (entityResolution.status === 'UNKNOWN') {
+    return null;
+  }
+
+  // Step 2: Treatment Lookup
+  const keAdapter = createAdapter(prismaClient, (fn) => prismaClient.$transaction(fn));
+  const treatment = await lookupTreatment(keAdapter, companyId, entityResolution.entityId);
+
+  if (treatment.status === 'ERROR') {
+    throw new Error(`KE treatment lookup error: ${treatment.reason}`);
+  }
+
+  if (treatment.status === 'NOT_FOUND') {
+    return null;
+  }
+
+  // Step 3: Resolve GL account from treatment
+  const account = glAccounts.find((a) => a.id === treatment.glAccountId);
+  if (account) {
     return {
-      name: context.glAccount.name,
-      code: context.glAccount.code,
-      id: context.glAccount.id,
+      name: account.name,
+      code: account.code,
+      id: account.id,
     };
-  }
-
-  // Priority 2: resolve via ROLE_ACCOUNT_MAP
-  const role = context.role.toUpperCase();
-  let mapping = ROLE_ACCOUNT_MAP[role as EntityRole];
-
-  // Priority 2b: parcial — roles compuestos/personalizados como "EMPRESA DE LOS SOCIOS"
-  // que contienen un rol canónico pero no son iguales exactamente.
-  if (!mapping) {
-    const matchedCanonical = (Object.keys(ROLE_ACCOUNT_MAP) as EntityRole[]).find(
-      (cr) => role.includes(cr),
-    );
-    if (matchedCanonical) {
-      mapping = ROLE_ACCOUNT_MAP[matchedCanonical];
-    }
-  }
-
-  if (mapping) {
-    const targetCode = direction ? (direction === 'debit' ? mapping.debit : mapping.credit) : mapping.fallback;
-    let account = glAccounts.find((a) => a.code === targetCode);
-    if (!account && targetCode !== mapping.fallback) {
-      account = glAccounts.find((a) => a.code === mapping.fallback);
-    }
-    if (account) {
-      return {
-        name: account.name,
-        code: account.code,
-        id: account.id,
-      };
-    }
   }
 
   return null;
@@ -203,7 +204,7 @@ export function buildScanPattern(
 
 // ========== T6: ENRICH CANDIDATES PIPELINE ==========
 
-export function enrichCandidates(
+export async function enrichCandidates(
   candidates: EntityCandidate[],
   descriptions: Map<string, string>,
   input: EnrichmentInput,
@@ -212,7 +213,7 @@ export function enrichCandidates(
     minOccurrences?: number;
   },
   locale?: string,
-): EnrichedCandidate[] {
+): Promise<EnrichedCandidate[]> {
   const result: EnrichedCandidate[] = [];
 
   for (const candidate of candidates) {
@@ -229,9 +230,16 @@ export function enrichCandidates(
     }
     if (candidate.occurrences < effectiveMinOccurrences) continue;
 
-    // Step 3: suggest GL account
+    // Step 3: suggest GL account via KE treatment lookup
     const direction = majorityDirection(candidate);
-    const suggested = suggestGlAccount(context, direction, input.glAccounts);
+    const suggested = await suggestGlAccount(
+      input.companyId,
+      description,
+      context,
+      direction,
+      input.glAccounts,
+      input.prismaClient,
+    );
 
     // Step 4: compute confidence — multi-factor instead of binary 0.0/0.95
     const directionMatch = direction && context

@@ -243,8 +243,8 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         },
       });
 
-      // Upsert Entity Context inside transaction
-      if (pattern && role && legacyGlAccountId) {
+      // Upsert Entity Context inside transaction (role only — GL authority is KE, not EntityContext)
+      if (pattern && role) {
         const normalizedPattern = pattern.toLowerCase();
         await tx.entityContext.upsert({
           where: {
@@ -255,14 +255,12 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
           },
           update: {
             role,
-            glAccountId: legacyGlAccountId,
             source: 'user',
           },
           create: {
             companyId,
             pattern: normalizedPattern,
             role,
-            glAccountId: legacyGlAccountId,
             source: 'user',
           },
         });

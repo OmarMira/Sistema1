@@ -47,7 +47,8 @@ import { evaluateOperationalPolicy } from '@/lib/operational-policy/policy-servi
 import { IMPORT_OBSERVATION_CONFIG } from '@/lib/operational-policy/import-observation-config';
 import type { PolicyObservationResponse, OperationalPolicyDecision } from '@/lib/operational-policy/types';
 import { MemoryAdapter } from '@/memory/adapter';
-import { createAdapter, lookupClassification } from '@/memory/classification-knowledge';
+import { createAdapter, lookupTreatment } from '@/memory/classification-knowledge';
+import { resolveEntity } from '@/memory/entity-resolution';
 
 export interface ImportResult {
   statementId: string;
@@ -68,16 +69,21 @@ export interface ImportDecision {
 }
 
 /**
- * Resolve import classification: KE first, then rule engine fallback.
+ * Resolve import classification using single-memory architecture:
+ * Entity Resolution → Treatment Lookup → Rule Engine fallback.
  *
- * This is the productive function extracted from the import loop
- * (lines 540-593). It encapsulates the KE→Rule decision logic
- * so it can be tested directly without simulating functions.
+ * Flow:
+ *   1. resolveEntity(companyId, description) → KNOWN / UNKNOWN / ERROR
+ *   2. If KNOWN: lookupTreatment(companyId, entityId) → FOUND / NOT_FOUND / ERROR
+ *   3. FOUND → use KE treatment (glAccountId), skip rule engine
+ *   4. NOT_FOUND → rule engine
+ *   5. Any ERROR → ke_error (no rule engine, no AI)
+ *   6. UNKNOWN → rule engine
  *
  * @param keAdapter — MemoryAdapter for KE lookup
  * @param companyId — Company scope
  * @param description — Transaction description to classify
- * @param resolveRule — Callback that runs the rule engine (only called if KE misses)
+ * @param resolveRule — Callback that runs the rule engine (only called on MISS/UNKNOWN)
  * @returns ImportDecision with source, glAccountId, and matchedRuleId
  */
 export async function resolveImportDecision(
@@ -86,45 +92,80 @@ export async function resolveImportDecision(
   description: string,
   resolveRule: () => Promise<{ matchedRuleId: string | null; glAccountId: string | null }>,
 ): Promise<ImportDecision> {
-  // KE check before rule engine
   let matchedRuleId: string | null = null;
   let glAccountId: string | null = null;
-  let keHit = false;
 
+  // Step 1: Entity Resolution
+  let entityResolution;
   try {
-    const keResult = await lookupClassification(keAdapter, companyId, description);
-    if (keResult.kind === 'hit') {
-      // KE_HIT: use learned classification, skip rule engine
-      glAccountId = keResult.glAccountId;
-      matchedRuleId = null; // No rule matched — knowledge was used
-      keHit = true;
-    }
-  } catch (keError) {
-    // KE_ERROR: distinct from KE_MISS — do NOT fall back to rule engine.
-    // The caller must know the KE failed, not pretend it simply didn't know.
-    logger.error('[KE] Lookup error — not falling back to rule engine', {
+    entityResolution = await resolveEntity(companyId, description);
+  } catch (resolutionError) {
+    logger.error('[KE] Entity resolution threw — not falling back to rule engine', {
       companyId,
       description,
-      error: String(keError),
+      error: String(resolutionError),
     });
+    return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
+  }
+
+  // Step 2a: ERROR → ke_error (ambiguous identity)
+  if (entityResolution.status === 'ERROR') {
+    logger.error('[KE] Entity resolution error — not falling back to rule engine', {
+      companyId,
+      description,
+      reason: entityResolution.reason,
+    });
+    return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
+  }
+
+  // Step 2b: UNKNOWN → rule engine
+  if (entityResolution.status === 'UNKNOWN') {
+    const resolution = await resolveRule();
     return {
-      source: 'ke_error',
-      glAccountId: null,
+      source: 'rule_engine',
+      glAccountId: resolution.glAccountId,
+      matchedRuleId: resolution.matchedRuleId,
+    };
+  }
+
+  // Step 3: KNOWN → Treatment Lookup
+  let treatment;
+  try {
+    treatment = await lookupTreatment(keAdapter, companyId, entityResolution.entityId);
+  } catch (treatmentError) {
+    logger.error('[KE] Treatment lookup threw — not falling back to rule engine', {
+      companyId,
+      entityId: entityResolution.entityId,
+      error: String(treatmentError),
+    });
+    return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
+  }
+
+  // Step 4a: Treatment ERROR → ke_error (ambiguous treatment)
+  if (treatment.status === 'ERROR') {
+    logger.error('[KE] Treatment lookup error — not falling back to rule engine', {
+      companyId,
+      entityId: entityResolution.entityId,
+      reason: treatment.reason,
+    });
+    return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
+  }
+
+  // Step 4b: Treatment FOUND → use KE treatment
+  if (treatment.status === 'FOUND') {
+    return {
+      source: 'ke',
+      glAccountId: treatment.glAccountId,
       matchedRuleId: null,
     };
   }
 
-  // Only call rule engine if KE missed (NOT if KE errored — that returns above)
-  if (!keHit) {
-    const resolution = await resolveRule();
-    matchedRuleId = resolution.matchedRuleId;
-    glAccountId = resolution.glAccountId;
-  }
-
+  // Step 4c: Treatment NOT_FOUND → rule engine
+  const resolution = await resolveRule();
   return {
-    source: keHit ? 'ke' : 'rule_engine',
-    glAccountId,
-    matchedRuleId,
+    source: 'rule_engine',
+    glAccountId: resolution.glAccountId,
+    matchedRuleId: resolution.matchedRuleId,
   };
 }
 

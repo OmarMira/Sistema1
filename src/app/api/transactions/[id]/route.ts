@@ -6,7 +6,8 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
-import { createAdapter, learnFromCorrection } from '@/memory/classification-knowledge';
+import { createAdapter, learnEntityTreatment } from '@/memory/classification-knowledge';
+import { resolveEntity } from '@/memory/entity-resolution';
 
 // ─── PATCH /api/transactions/[id] ───────────────────────────────────────
 // Manual GL account assignment: updates the transaction and creates the
@@ -123,18 +124,36 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
   // Only after accounting persistence succeeds.
   // KE failure is logged but does NOT revert the accounting correction.
   // The caller receives no indication — the accounting result stands.
-  const keResult = await learnFromCorrection(
-    createAdapter(db, (fn) => db.$transaction(fn)),
-    companyId,
-    transaction.description,
-    glAccountId,
-    'any',
-    id,
-  );
-  if (!keResult.ok) {
-    logger.warn('[KE] Learn failed — accounting correction stands', {
+  const entityResolution = await resolveEntity(companyId, transaction.description);
+
+  if (entityResolution.status === 'KNOWN') {
+    const keResult = await learnEntityTreatment(
+      createAdapter(db, (fn) => db.$transaction(fn)),
+      companyId,
+      entityResolution.entityId,
+      glAccountId,
+      'any',
+      'user_correction',
+      id,
+    );
+    if (keResult.status === 'ERROR') {
+      logger.warn('[KE] Learn failed — accounting correction stands', {
+        transactionId: id,
+        error: keResult.reason,
+      });
+    }
+  } else if (entityResolution.status === 'UNKNOWN') {
+    // Entity not identified — cannot attach treatment to unknown identity.
+    // Accounting correction stands; KE learning is skipped.
+    logger.info('[KE] Unknown entity — learning skipped', {
       transactionId: id,
-      error: keResult.error,
+      description: transaction.description,
+    });
+  } else {
+    // ERROR (ambiguous entity identity)
+    logger.warn('[KE] Entity resolution error — learning skipped', {
+      transactionId: id,
+      reason: entityResolution.reason,
     });
   }
 

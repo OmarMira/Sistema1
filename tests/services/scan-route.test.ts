@@ -23,6 +23,7 @@ vi.mock('@/lib/db', () => ({
     bankRule: { findMany: vi.fn() },
     glAccount: { findMany: vi.fn() },
     entityContext: { findMany: vi.fn() },
+    companyKnowledge: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 
@@ -44,6 +45,18 @@ vi.mock('@/lib/services/rule-matching-engine', () => ({
   entityFirstCheck: vi.fn((tx, patterns, mode) => ({
     skipSocioRules: false,
   })),
+}));
+
+vi.mock('@/memory/classification-knowledge', () => ({
+  createAdapter: vi.fn(() => ({ getByType: vi.fn() })),
+  lookupTreatment: vi.fn().mockImplementation(async (_adapter: unknown, companyId: string, entityId: string) => {
+    // Map entity IDs to GL accounts for KE treatment lookup
+    const treatmentMap: Record<string, { status: string; glAccountId: string }> = {
+      ent_acme: { status: 'FOUND', glAccountId: 'gla_1' },
+      ent_walmart: { status: 'NOT_FOUND' },
+    };
+    return treatmentMap[entityId] ?? { status: 'NOT_FOUND' };
+  }),
 }));
 
 // ─── Imports after mocks ──────────────────────────────────────────────
@@ -129,6 +142,15 @@ function setupDefaultMocks() {
       updatedAt: new Date('2026-01-01'),
       glAccount: null,
     },
+  ]);
+
+  // KE: resolveEntity needs companyKnowledge records to resolve entity names
+  // In production, each learned transaction description becomes a knowledge record.
+  // resolveEntity does exact-match after normalization (UPPER + collapse whitespace).
+  // The mock descriptions used in tests are "Zelle payment to ACME CORP" and "Zelle payment to WAL-MART".
+  mockDb.companyKnowledge.findMany.mockResolvedValue([
+    { id: 'ent_acme', canonicalName: 'Zelle payment to ACME CORP', aliases: [], status: 'active' },
+    { id: 'ent_walmart', canonicalName: 'Zelle payment to WAL-MART', aliases: [], status: 'active' },
   ]);
 
   mockDb.bankRule.findMany.mockResolvedValue([]);

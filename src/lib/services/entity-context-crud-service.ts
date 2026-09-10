@@ -31,7 +31,6 @@ export async function listEntityContexts(
   const [data, total] = await Promise.all([
     db.entityContext.findMany({
       where,
-      include: { glAccount: true },
       orderBy,
       skip,
       take: limit,
@@ -64,16 +63,6 @@ export async function updateEntityContext(
     return null;
   }
 
-  // If glAccountId is provided, verify it exists and is active in the same company
-  if (input.glAccountId !== undefined && input.glAccountId !== null) {
-    const glAccount = await db.glAccount.findFirst({
-      where: { id: input.glAccountId, companyId, isActive: true },
-    });
-    if (!glAccount) {
-      throw new Error('GL_ACCOUNT_NOT_FOUND');
-    }
-  }
-
   // Prepare roles JSON — preserve null/empty distinction from undefined
   const rolesJson = input.roles === undefined ? undefined
     : input.roles === null ? null
@@ -84,14 +73,12 @@ export async function updateEntityContext(
     where: { id },
     data: {
       role: input.role?.toUpperCase(),
-      glAccountId: input.glAccountId,
       roles: rolesJson,
       transactionDirection: input.transactionDirection === null ? null : input.transactionDirection,
     },
-    include: { glAccount: true },
   });
 
-  return updated;
+  return updated as EntityContextWithGlAccount;
 }
 
 export async function removeEntityContext(companyId: string, id: string): Promise<boolean> {

@@ -18,22 +18,21 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
 
   try {
     const body = await request.json();
-    const { role, glAccountId, roles, transactionDirection } = body as {
+    const { role, roles, transactionDirection } = body as {
       role?: string;
-      glAccountId?: string | null;
       roles?: string[];
       transactionDirection?: string | null;
     };
 
     // At least one field must be provided
-    if (role === undefined && glAccountId === undefined && roles === undefined && transactionDirection === undefined) {
+    if (role === undefined && roles === undefined && transactionDirection === undefined) {
       return NextResponse.json(
-        { error: 'At least one field (role, glAccountId, roles, transactionDirection) is required' },
+        { error: 'At least one field (role, roles, transactionDirection) is required' },
         { status: 400 },
       );
     }
 
-    const updated = await updateEntityContext(companyId, id, { role, glAccountId, roles, transactionDirection });
+    const updated = await updateEntityContext(companyId, id, { role, roles, transactionDirection });
 
     if (!updated) {
       return NextResponse.json({ error: 'Entity not found' }, { status: 404 });
@@ -42,9 +41,6 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
     return NextResponse.json({ success: true, data: updated });
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage === 'GL_ACCOUNT_NOT_FOUND') {
-      return NextResponse.json({ error: 'GL Account not found or inactive' }, { status: 400 });
-    }
     logger.error('[PATCH ENTITY CONTEXT ERROR]', { error: errorMessage, id });
     return NextResponse.json({ error: 'Failed to update entity' }, { status: 500 });
   }

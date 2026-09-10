@@ -72,10 +72,22 @@ vi.mock('@/lib/db', () => {
     company: {
       findUnique: vi.fn().mockResolvedValue({ id: 'company-1', entityFirstMode: false }),
     },
+    companyKnowledge: {
+      findMany: vi.fn().mockResolvedValue([]),
+    },
     $transaction: vi.fn((cb) => cb(mockDb)),
   };
   return { db: mockDb };
 });
+
+vi.mock('@/memory/entity-resolution', () => ({
+  resolveEntity: vi.fn().mockResolvedValue({ status: 'UNKNOWN' }),
+}));
+
+vi.mock('@/memory/classification-knowledge', () => ({
+  createAdapter: vi.fn(() => ({ getByType: vi.fn() })),
+  lookupTreatment: vi.fn().mockResolvedValue({ status: 'NOT_FOUND' }),
+}));
 
 describe('Security Layer - Unit & Integration Tests', () => {
   beforeEach(() => {

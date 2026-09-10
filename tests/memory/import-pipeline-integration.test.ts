@@ -3,12 +3,13 @@
 // Uses the REAL resolveImportDecision function (no simulated functions).
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  learnFromCorrection,
-} from '../../src/memory/classification-knowledge';
 import { resolveImportDecision } from '../../src/lib/services/import.service';
 import { MemoryAdapter } from '../../src/memory/adapter';
 import type { MemoryPrismaClient, TransactionRunner } from '../../src/memory/prisma-types';
+
+// ─── Hoisted mock for companyKnowledge.findMany ──────────────────
+// Used by resolveEntity (via @/lib/db) — must be accessible in vi.mock factory
+const _hoistedCompanyKnowledgeFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 
 // ─── Mock Prisma Client (satisfies MemoryPrismaClient) ──────────
 
@@ -87,6 +88,9 @@ function createMockPrisma() {
       create: vi.fn(async () => ({})),
       findMany: vi.fn(async () => []),
     },
+    companyKnowledge: {
+      findMany: vi.fn(async () => []),
+    },
     _store: store,
   };
 }
@@ -113,15 +117,26 @@ describe('KE_HIT skips rule engine (real function)', () => {
   });
 
   it('KE hit → glAccountId from KE, resolveRule never called', async () => {
-    // Seed knowledge
-    await learnFromCorrection(
-      mock.adapter,
-      'company_1',
-      'AMZN MKTPLACE',
-      'gl_account_ke',
-      'any',
-      'txn_001',
-    );
+    // Seed entity identity for resolveEntity (uses our hoisted mock, not real db)
+    _hoistedCompanyKnowledgeFindMany.mockResolvedValue([{
+      id: 'ck_1', companyId: 'company_1', entityType: 'COMPANY',
+      canonicalName: 'AMZN MKTPLACE', canonicalNameNormalized: 'AMZN MKTPLACE',
+      aliases: [], status: 'active', createdAt: new Date(), updatedAt: new Date(),
+    }]);
+
+    // Seed treatment via adapter memoryItem (used by lookupTreatment)
+    // lookupTreatment calls adapter.getByType(companyId, 'classification')
+    const mockMemFindMany = mock.prisma.memoryItem.findMany as ReturnType<typeof vi.fn>;
+    mockMemFindMany.mockImplementation(async (args?: { where?: { companyId?: string; type?: string } }) => {
+      if (args?.where?.companyId === 'company_1' && args?.where?.type === 'classification') {
+        return [{
+          id: 'mem_1', content: JSON.stringify({ entityId: 'ck_1', glAccountId: 'gl_account_ke', direction: 'any' }),
+          type: 'classification', status: 'active',
+          confidence: 'tentative', companyId: 'company_1',
+        }];
+      }
+      return [];
+    });
 
     const decision = await resolveImportDecision(
       mock.adapter,
@@ -177,17 +192,33 @@ describe('Company isolation in pipeline (real function)', () => {
   });
 
   it('KE knowledge from company_1 does not affect company_2', async () => {
-    // Seed knowledge for company_1
-    await learnFromCorrection(
-      mock.adapter,
-      'company_1',
-      'AMZN MKTPLACE',
-      'gl_account_c1',
-      'any',
-      'txn_001',
-    );
+    // Seed entity identity for company_1 (uses our hoisted mock)
+    _hoistedCompanyKnowledgeFindMany.mockImplementation(async (args?: { where?: { companyId?: string } }) => {
+      if (args?.where?.companyId === 'company_1') {
+        return [{
+          id: 'ck_1', companyId: 'company_1', entityType: 'COMPANY',
+          canonicalName: 'AMZN MKTPLACE', canonicalNameNormalized: 'AMZN MKTPLACE',
+          aliases: [], status: 'active', createdAt: new Date(), updatedAt: new Date(),
+        }];
+      }
+      return [];
+    });
 
-    // company_2 should miss
+    // Seed treatment for company_1 via adapter memoryItem
+    const mockMemFindMany = mock.prisma.memoryItem.findMany as ReturnType<typeof vi.fn>;
+    mockMemFindMany.mockImplementation(async (args?: { where?: { companyId?: string; type?: string } }) => {
+      if (args?.where?.companyId === 'company_1' && args?.where?.type === 'classification') {
+        return [{
+          id: 'mem_1', content: JSON.stringify({ entityId: 'ck_1', glAccountId: 'gl_account_c1', direction: 'any' }),
+          type: 'classification', status: 'active',
+          confidence: 'tentative', companyId: 'company_1',
+          metadata: JSON.stringify({ entityId: 'ck_1', glAccountId: 'gl_account_c1', direction: 'any' }),
+        }];
+      }
+      return [];
+    });
+
+    // company_2 has no matching entity → UNKNOWN → rule engine
     const decision = await resolveImportDecision(
       mock.adapter,
       'company_2',
@@ -241,14 +272,11 @@ describe('KE error does NOT fall back to rule engine (real function)', () => {
   });
 
   it('KE adapter throws → source is ke_error, rule engine NOT called', async () => {
-    // Create a broken adapter that throws on getByType via a failing Prisma client
-    const brokenPrisma = createMockPrisma();
-    brokenPrisma.memoryItem.findMany.mockRejectedValue(new Error('KE adapter failure'));
-    const brokenRunTx: TransactionRunner = async (fn) => fn(brokenPrisma as Parameters<TransactionRunner>[0] extends (tx: infer T) => Promise<unknown> ? T : never);
-    const brokenAdapter = new MemoryAdapter(brokenPrisma as MemoryPrismaClient, brokenRunTx);
+    // Entity resolution throws (simulating KE adapter failure)
+    _hoistedCompanyKnowledgeFindMany.mockRejectedValue(new Error('KE adapter failure'));
 
     const decision = await resolveImportDecision(
-      brokenAdapter,
+      mock.adapter,
       'company_1',
       'SOME TRANSACTION',
       resolveRule,
@@ -274,7 +302,8 @@ const mockBankRuleFindMany = vi.fn().mockResolvedValue([]);
 const mockPendingApprovalCreate = vi.fn();
 
 // Mock db — memoryItem.findMany throws to simulate KE failure
-vi.mock('@/lib/db', () => ({
+vi.mock('@/lib/db', () => {
+  return {
   db: {
     bankAccount: {
       findFirst: vi.fn().mockResolvedValue({ id: 'bank-1', accountNo: '001', accountName: 'Test Bank' }),
@@ -292,9 +321,12 @@ vi.mock('@/lib/db', () => ({
     },
     bankRule: { findMany: (...args: unknown[]) => mockBankRuleFindMany(...args) },
     pendingApproval: { create: (...args: unknown[]) => mockPendingApprovalCreate(...args) },
-    // memoryItem.findMany throws to simulate KE adapter failure
+    // Default: memoryItem and companyKnowledge return empty (no KE error)
     memoryItem: {
-      findMany: vi.fn().mockRejectedValue(new Error('Database connection lost')),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
+    companyKnowledge: {
+      findMany: (...args: unknown[]) => _hoistedCompanyKnowledgeFindMany(...args),
     },
     $transaction: vi.fn(async (fn: (tx: Record<string, unknown>) => Promise<unknown>) => {
       const tx = {
@@ -307,11 +339,19 @@ vi.mock('@/lib/db', () => ({
           findMany: mockBankTransactionFindMany,
         },
         pendingApproval: { create: mockPendingApprovalCreate },
+        memoryItem: { findMany: vi.fn().mockResolvedValue([]) },
+        companyKnowledge: { findMany: vi.fn().mockResolvedValue([]) },
+        relationship: { findMany: vi.fn(async () => []) },
+        contradiction: { findMany: vi.fn(async () => []) },
+        traceabilityLog: { findMany: vi.fn(async () => []) },
+        evolutionLink: { findMany: vi.fn(async () => []) },
+        confidenceLog: { findMany: vi.fn(async () => []) },
       };
       return fn(tx);
     }),
   },
-}));
+};
+});
 
 // Mock other dependencies
 vi.mock('@/lib/services/journal-entry.service', () => ({
@@ -394,6 +434,9 @@ describe('KE_ERROR rollback through ImportService.importFile()', () => {
   });
 
   it('KE failure → importFile() throws, statement creation rolled back', async () => {
+    // Entity resolution throws (simulating database connection lost)
+    _hoistedCompanyKnowledgeFindMany.mockRejectedValue(new Error('Database connection lost'));
+
     const { ImportService } = await import('@/lib/services/import.service');
 
     const csvContent = 'Date,Description,Amount\n2025-04-01,AMZN MKTPLACE PAYMENT,-100.00';

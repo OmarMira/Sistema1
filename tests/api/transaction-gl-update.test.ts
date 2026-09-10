@@ -5,6 +5,7 @@ import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import * as JournalEntryServiceModule from '@/lib/services/journal-entry.service';
+import * as ClassificationKnowledgeModule from '@/memory/classification-knowledge';
 
 describe('H1 — PATCH /api/transactions/[id] (verificación de mitigación)', () => {
   beforeEach(async () => {
@@ -431,5 +432,59 @@ describe('H1 — PATCH /api/transactions/[id] (caracterización de validaciones)
 
     const res = await PATCH(req, { params: Promise.resolve({ id: tx.id }) });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('KE — PATCH accounting failure blocks learnFromCorrection', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+  });
+
+  it('accounting failure → learnFromCorrection called 0 times', async () => {
+    const user = await createTestUser('ke-fail@example.com');
+    const company = await createTestCompany('KE Fail Co');
+    await createTestCompanyMember(user.id, company.id);
+    const token = await createSession(user.id);
+
+    const glAccount = await createTestGlAccount({ companyId: company.id, code: '3000', name: 'Bank Account KE' });
+    const counterpartyGl = await createTestGlAccount({ companyId: company.id, code: '4000', name: 'Counterparty KE' });
+    const bankAccount = await createTestBankAccount(company.id, glAccount.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+    const tx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-04-01',
+      amount: 1000.0,
+      description: 'AMZN MKTPLACE PAYMENT',
+    });
+
+    // Mock accounting to fail
+    const accountingSpy = vi.spyOn(JournalEntryServiceModule.JournalEntryService, 'createFromBankTransaction')
+      .mockRejectedValueOnce(new Error('Simulated accounting failure'));
+
+    // Spy on learnFromCorrection — must NOT be called when accounting fails
+    const learnSpy = vi.spyOn(ClassificationKnowledgeModule, 'learnFromCorrection');
+
+    const req = new NextRequest(`http://localhost/api/transactions/${tx.id}?companyId=${company.id}`, {
+      method: 'PATCH',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ glAccountId: counterpartyGl.id }),
+    });
+
+    // Accounting fails → 500
+    const res = await PATCH(req, { params: Promise.resolve({ id: tx.id }) });
+    expect(res.status).toBe(500);
+
+    // learnFromCorrection must NOT have been called — accounting failed,
+    // so the handler threw before reaching the KE write path (line 126).
+    expect(learnSpy).not.toHaveBeenCalled();
+
+    accountingSpy.mockRestore();
+    learnSpy.mockRestore();
   });
 });

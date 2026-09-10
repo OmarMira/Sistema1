@@ -109,7 +109,7 @@ describe('listEntityContexts()', () => {
     expect(patterns).toEqual(['home depot', 'lyft', 'turo', 'uber']);
   });
 
-  it('includes glAccount relation when available', async () => {
+  it('does not include glAccount relation (GL not authority post-cutover)', async () => {
     const gl = await createTestGlAccount({ companyId, code: '5010', name: 'Proveedores' });
     await saveContext({
       companyId,
@@ -119,8 +119,9 @@ describe('listEntityContexts()', () => {
     });
 
     const result = await listEntityContexts(companyId, 1, 10, 'createdAt', 'desc', 'AMAZON');
-    expect(result.data[0].glAccount).not.toBeNull();
-    expect(result.data[0].glAccount!.code).toBe('5010');
+    expect(result.data).toHaveLength(1);
+    // glAccount is no longer included in the query
+    expect((result.data[0] as Record<string, unknown>).glAccount).toBeUndefined();
   });
 });
 
@@ -157,16 +158,14 @@ describe('updateEntityContext()', () => {
     expect(dbCtx!.role).toBe('INGRESO');
   });
 
-  it('updates glAccountId', async () => {
+  it('always sets glAccountId to null (GL not authority post-cutover)', async () => {
     const gl = await createTestGlAccount({ companyId, code: '4010', name: 'Ingresos' });
 
     const updated = await updateEntityContext(companyId, entityId, {
       glAccountId: gl.id,
     });
 
-    expect(updated!.glAccountId).toBe(gl.id);
-    expect(updated!.glAccount).not.toBeNull();
-    expect(updated!.glAccount!.code).toBe('4010');
+    expect(updated!.glAccountId).toBeNull();
   });
 
   it('updates roles array as JSON', async () => {
@@ -204,22 +203,22 @@ describe('updateEntityContext()', () => {
     expect(dbCtx!.role).toBe('GASTO_OPERATIVO');
   });
 
-  it('throws GL_ACCOUNT_NOT_FOUND when glAccount does not exist', async () => {
-    await expect(
-      updateEntityContext(companyId, entityId, {
-        glAccountId: 'fake-gl-id',
-      }),
-    ).rejects.toThrow('GL_ACCOUNT_NOT_FOUND');
+  it('ignores glAccountId and stores null (GL not authority post-cutover)', async () => {
+    const updated = await updateEntityContext(companyId, entityId, {
+      glAccountId: 'fake-gl-id',
+    });
+
+    expect(updated!.glAccountId).toBeNull();
   });
 
-  it('throws GL_ACCOUNT_NOT_FOUND when glAccount belongs to different company', async () => {
+  it('ignores cross-company glAccountId and stores null (GL not authority post-cutover)', async () => {
     const otherGl = await createTestGlAccount({ companyId: otherCompanyId, code: '9999', name: 'Other Co GL' });
 
-    await expect(
-      updateEntityContext(companyId, entityId, {
-        glAccountId: otherGl.id,
-      }),
-    ).rejects.toThrow('GL_ACCOUNT_NOT_FOUND');
+    const updated = await updateEntityContext(companyId, entityId, {
+      glAccountId: otherGl.id,
+    });
+
+    expect(updated!.glAccountId).toBeNull();
   });
 
   it('sets glAccountId to null when explicitly passed', async () => {

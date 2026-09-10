@@ -73,18 +73,19 @@ export async function computeDirectionProfile(
  */
 export async function autoCreateRule(
   companyId: string,
-  context: { id: string; pattern: string; glAccountId: string | null; conditions?: any[] },
+  /** DTO with explicit user-confirmed GL — NOT EntityContext DB authority */
+  dto: { entityContextId: string; pattern: string; glAccountId: string | null; conditions?: any[] },
   direction: 'debit' | 'credit' | 'any',
   intent?: TransactionIntent | null,
   tx?: TxClient,
 ): Promise<{ warning?: string }> {
-  if (!context.glAccountId) {
+  if (!dto.glAccountId) {
     return { warning: 'No GL account linked — rule not created' };
   }
 
   const client = tx || db;
-  const normalizedPattern = normalizePattern(context.pattern);
-  const newConditions = context.conditions ?? [];
+  const normalizedPattern = normalizePattern(dto.pattern);
+  const newConditions = dto.conditions ?? [];
 
   function conditionsSig(conds: unknown[]): string {
     if (conds.length === 0) return '[]';
@@ -107,7 +108,7 @@ export async function autoCreateRule(
   const newSig = conditionsSig(newConditions);
 
   const existingRules = await client.bankRule.findMany({
-    where: { entityContextId: context.id },
+    where: { entityContextId: dto.entityContextId },
   });
 
   const existingMatch = existingRules.find((rule: any) => {
@@ -121,7 +122,7 @@ export async function autoCreateRule(
 
   if (existingMatch) {
     if (existingMatch.isActive) {
-      if (existingMatch.glAccountId !== context.glAccountId) {
+      if (existingMatch.glAccountId !== dto.glAccountId) {
         throw new ConflictError('Rule already exists with a different GL Account');
       }
       return {};
@@ -130,9 +131,9 @@ export async function autoCreateRule(
       where: { id: existingMatch.id },
       data: {
         isActive: true,
-        glAccountId: context.glAccountId,
-        ...(direction === 'debit' ? { debitGlAccountId: context.glAccountId } : {}),
-        ...(direction === 'credit' ? { creditGlAccountId: context.glAccountId } : {}),
+        glAccountId: dto.glAccountId,
+        ...(direction === 'debit' ? { debitGlAccountId: dto.glAccountId } : {}),
+        ...(direction === 'credit' ? { creditGlAccountId: dto.glAccountId } : {}),
       },
     });
     return {};
@@ -141,18 +142,18 @@ export async function autoCreateRule(
   await client.bankRule.create({
     data: {
       companyId,
-      name: `Auto: ${context.pattern}${intent ? ` (${intent})` : ''}`,
+      name: `Auto: ${dto.pattern}${intent ? ` (${intent})` : ''}`,
       conditionType: 'contains',
       conditionValue: normalizedPattern,
       conditions: newConditions.length > 0 ? newConditions : undefined,
-      glAccountId: context.glAccountId,
+      glAccountId: dto.glAccountId,
       transactionDirection: direction,
       priority: 5,
       isActive: true,
-      entityContextId: context.id,
+      entityContextId: dto.entityContextId,
       intent: intent ?? null,
-      ...(direction === 'debit' ? { debitGlAccountId: context.glAccountId } : {}),
-      ...(direction === 'credit' ? { creditGlAccountId: context.glAccountId } : {}),
+      ...(direction === 'debit' ? { debitGlAccountId: dto.glAccountId } : {}),
+      ...(direction === 'credit' ? { creditGlAccountId: dto.glAccountId } : {}),
     },
   });
 
@@ -207,7 +208,7 @@ export async function classifyEntity(
     let warning: string | undefined;
     if (decidedToCreate || autoAssign) {
       if (intent && glAccountId) {
-        const result = await autoCreateRule(companyId, { id: context.id, pattern, glAccountId }, direction, intent, tx);
+        const result = await autoCreateRule(companyId, { entityContextId: context.id, pattern, glAccountId }, direction, intent, tx);
         warning = result.warning;
       } else {
         warning = 'No rule created: intent or GL account not specified';
@@ -250,7 +251,6 @@ export async function getEntityCandidates(companyId: string): Promise<EntityCand
 
   const existingContexts = await db.entityContext.findMany({
     where: { companyId },
-    include: { glAccount: { select: { code: true } } },
   });
   const contextByPattern = new Map(existingContexts.map((c) => [c.pattern.toLowerCase(), c]));
 

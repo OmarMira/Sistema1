@@ -14,7 +14,7 @@ const mockHeuristicRules = [
 ];
 
 describe('collectEntityContextSignal', () => {
-  it('returns Signal with confidence 0.95 when context has role and glAccount', () => {
+  it('returns Signal with confidence 0.75 when context has role (GL no longer authority)', () => {
     const ctx = {
       role: 'PROVEEDOR',
       glAccountId: 'gla_1',
@@ -23,8 +23,8 @@ describe('collectEntityContextSignal', () => {
     const signal = collectEntityContextSignal(ctx);
     expect(signal.source).toBe('entity_context');
     expect(signal.role).toBe('PROVEEDOR');
-    expect(signal.glAccountCode).toBe('6070');
-    expect(signal.confidence).toBe(0.95);
+    expect(signal.glAccountCode).toBeNull();
+    expect(signal.confidence).toBe(0.75);
     expect(signal.reasoning).toBeTruthy();
   });
 
@@ -118,7 +118,7 @@ describe('collectSignals', () => {
     expect(sources).toContain('ai');
   });
 
-  it('includes high-confidence entity context signal when available', () => {
+  it('includes entity context signal when available', () => {
     const signals = collectSignals({
       entityContext: { role: 'PROVEEDOR', glAccountId: 'gla_1', glAccount: { code: '6070', name: 'Costo de Ventas' } },
       userInput: 'pago a proveedor',
@@ -128,6 +128,6 @@ describe('collectSignals', () => {
     });
     const entitySignal = signals.find((s: Signal) => s.source === 'entity_context');
     expect(entitySignal).toBeDefined();
-    expect(entitySignal!.confidence).toBe(0.95);
+    expect(entitySignal!.confidence).toBe(0.75);
   });
 });

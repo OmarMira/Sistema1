@@ -13,6 +13,8 @@ import { safeFetch } from '@/lib/security/safe-fetch';
 import type { RuleCondition, AssistantConfig } from '@/lib/types/shared';
 import { collectSignals } from './signal-collector';
 import { decide } from './decision-engine';
+import { resolveEntity } from '@/memory/entity-resolution';
+import { createAdapter, lookupTreatment } from '@/memory/classification-knowledge';
 
 export interface ConversationalParseResult {
   role: string;
@@ -238,11 +240,11 @@ export async function resolveGLAccount(
 }
 
 // ── Facade: parseConversationalContext ──
-// Uses the signal-based decision engine to resolve role + GL account.
-// 1. Checks EntityContext, tries AI, runs heuristic → collects all signals
-// 2. Calls decide() to resolve conflicts
-// 3. Resolves GL account from the selected signal
-// 4. Returns with confidence, explanation, uncertaintyReasons
+// Single-memory architecture: Entity Resolution → Treatment Lookup → AI/heuristic fallback.
+// 1. resolveEntity → KNOWN/UNKNOWN/ERROR
+// 2. If KNOWN: lookupTreatment → FOUND/NOT_FOUND/ERROR
+// 3. FOUND → return KE treatment (no AI, no heuristic)
+// 4. NOT_FOUND/UNKNOWN → AI/heuristic fallback
 export async function parseConversationalContext(
   companyId: string,
   pattern: string,
@@ -253,8 +255,124 @@ export async function parseConversationalContext(
   direction?: 'debit' | 'credit',
   locale?: string,
 ): Promise<ConversationalParseResult> {
+  // Step 1: Entity Resolution via KE
+  const entityResolution = await resolveEntity(companyId, pattern);
+
+  // ERROR → no AI fallback, no heuristic fallback
+  if (entityResolution.status === 'ERROR') {
+    logger.error('[KE] Entity resolution error in conversational path', {
+      companyId,
+      pattern,
+      reason: entityResolution.reason,
+    });
+    return {
+      role: '',
+      glAccountCode: '',
+      glAccountId: null,
+      suggestSubAccount: false,
+      subAccountName: null,
+      account: { code: '', name: serverT(locale, 'accounts.unclassified') },
+      conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+      confidence: 0,
+      confidenceLabel: 'low',
+      explanation: `KE entity resolution error: ${entityResolution.reason}`,
+      uncertaintyReasons: [`KE entity resolution error: ${entityResolution.reason}`],
+    };
+  }
+
+  if (entityResolution.status === 'KNOWN') {
+    // Step 2: Treatment Lookup via KE
+    const keAdapter = createAdapter(prismaClient ?? db, (fn) => (prismaClient ?? db).$transaction(fn));
+    let treatment;
+    try {
+      treatment = await lookupTreatment(keAdapter, companyId, entityResolution.entityId);
+    } catch (error) {
+      logger.error('[KE] Treatment lookup threw in conversational path', {
+        companyId,
+        entityId: entityResolution.entityId,
+        error: String(error),
+      });
+      return {
+        role: '',
+        glAccountCode: '',
+        glAccountId: null,
+        suggestSubAccount: false,
+        subAccountName: null,
+        account: { code: '', name: serverT(locale, 'accounts.unclassified') },
+        conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+        confidence: 0,
+        confidenceLabel: 'low',
+        explanation: `KE treatment lookup error: ${error instanceof Error ? error.message : String(error)}`,
+        uncertaintyReasons: [`KE treatment lookup error`],
+      };
+    }
+
+    if (treatment.status === 'ERROR') {
+      logger.error('[KE] Treatment lookup error in conversational path', {
+        companyId,
+        entityId: entityResolution.entityId,
+        reason: treatment.reason,
+      });
+      return {
+        role: '',
+        glAccountCode: '',
+        glAccountId: null,
+        suggestSubAccount: false,
+        subAccountName: null,
+        account: { code: '', name: serverT(locale, 'accounts.unclassified') },
+        conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+        confidence: 0,
+        confidenceLabel: 'low',
+        explanation: `KE treatment lookup error: ${treatment.reason}`,
+        uncertaintyReasons: [`KE treatment lookup error: ${treatment.reason}`],
+      };
+    }
+
+    if (treatment.status === 'FOUND') {
+      // KE hit — resolve GL account from treatment
+      const glAccount = await (prismaClient ?? db).glAccount.findUnique({
+        where: { id: treatment.glAccountId },
+      });
+
+      const glAccountId = glAccount?.id ?? null;
+      const account = glAccount
+        ? { code: glAccount.code, name: glAccount.name, accountType: glAccount.accountType, normalBalance: glAccount.normalBalance }
+        : { code: '', name: serverT(locale, 'accounts.unclassified') };
+
+      // Resolve role from EntityContext for display
+      const existingContext = await findContext(companyId, pattern).catch(() => null);
+      const role = existingContext?.role?.toUpperCase() ?? '';
+
+      const suggestSubAccount = role === 'SOCIO';
+      const subAccountName = suggestSubAccount
+        ? pattern.trim().split(/\s+/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+        : null;
+
+      return {
+        role,
+        glAccountCode: account?.code ?? '',
+        glAccountId,
+        suggestSubAccount,
+        subAccountName,
+        account: {
+          code: account?.code ?? '',
+          name: account?.name ?? '',
+          accountType: account?.accountType ?? undefined,
+          normalBalance: account?.normalBalance ?? undefined,
+        },
+        conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+        confidence: 0.95,
+        confidenceLabel: 'high',
+        explanation: `KE treatment found for entity ${entityResolution.entityId}`,
+        uncertaintyReasons: [],
+      };
+    }
+
+    // treatment.status === 'NOT_FOUND' → fall through to AI/heuristic
+  }
+
+  // Entity UNKNOWN or treatment NOT_FOUND → AI/heuristic fallback
   const assistantConfig = readAssistantConfigSync() as any;
-  // Flatten heuristics: config has { priorities: [], rules: [] }, engine expects { heuristics: Array<{keywords, role, glAccountCode}> }
   const rawRules = assistantConfig?.heuristics?.rules ?? [];
   const flattenedRules = rawRules.map((r: any) => ({
     keywords: [...(r.keywords?.es ?? []), ...(r.keywords?.en ?? [])],
@@ -265,10 +383,10 @@ export async function parseConversationalContext(
   const engineConfig = { heuristics: flattenedRules };
   const directionVal = direction ?? 'mixed';
 
-  // Step 1: get EntityContext
+  // Get EntityContext for role context (GL no longer used)
   const existingContext = await findContext(companyId, pattern).catch(() => null);
 
-  // Step 2: try AI (parseWithAI)
+  // Try AI
   let apiKey: string | undefined;
   let baseUrl: string | undefined;
   let model: string | undefined;
@@ -278,7 +396,7 @@ export async function parseConversationalContext(
     baseUrl = aiConfig.baseUrl;
     model = aiConfig.model;
   } catch {
-    // AI not configured — skip AI parsing
+    // AI not configured
   }
 
   let aiResponse: { role?: string; glAccountCode?: string } | null = null;
@@ -322,11 +440,11 @@ export async function parseConversationalContext(
         }
       }
     } catch {
-      // AI failed — aiResponse stays null
+      // AI failed
     }
   }
 
-  // Step 3: collect signals from all sources
+  // Collect signals — EntityContext signal now has no GL authority
   const signals = collectSignals({
     entityContext: existingContext,
     userInput,
@@ -335,15 +453,13 @@ export async function parseConversationalContext(
     aiResponse,
   }, locale);
 
-  // Step 4: decide which signal wins
   const result = decide(signals, locale);
 
-  // Step 5: resolve GL account from the selected signal
   if (result.selected) {
     let role = String(result.selected.role ?? '').toUpperCase().trim();
     let glAccountCode = String(result.selected.glAccountCode ?? '').trim();
 
-    // If entity context was selected but has no assigned glAccount, resolve via ROLE_ACCOUNT_MAP
+    // ROLE_ACCOUNT_MAP fallback when no GL from signal
     if (!glAccountCode && existingContext) {
       const mapping = ROLE_ACCOUNT_MAP[role as EntityRole];
       if (mapping) {
@@ -450,7 +566,7 @@ export async function parseConversationalContext(
     };
   }
 
-  // Step 6: SIN_CLASIFICAR — no signal with sufficient confidence
+  // SIN_CLASIFICAR — no signal with sufficient confidence
   return {
     role: '',
     glAccountCode: '',

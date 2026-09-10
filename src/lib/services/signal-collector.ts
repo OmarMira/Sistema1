@@ -15,17 +15,18 @@ export function collectEntityContextSignal(
     };
   }
 
-  const hasGlAccount = entityContext.glAccount && entityContext.glAccount.code;
-  const confidence = hasGlAccount ? 0.95 : 0.75;
+  // Post-cutover: EntityContext GL is NOT authority.
+  // Role-only confidence preserved from pre-cutover contract (was 0.75 for role-without-GL).
+  const confidence = entityContext.role ? 0.75 : 0;
 
   return {
     source: 'entity_context',
     role: entityContext.role,
-    glAccountCode: hasGlAccount ? entityContext.glAccount!.code.trim() || null : null,
+    glAccountCode: null,
     confidence,
-    reasoning: hasGlAccount
-      ? `${serverT(locale, 'reasoning.entityContextHigh').replace('{role}', entityContext.role ?? '').replace('{confidence}', String(Math.round(confidence * 100)))}`
-      : `${serverT(locale, 'reasoning.entityContextMedium').replace('{role}', entityContext.role ?? '').replace('{confidence}', String(Math.round(confidence * 100)))}`,
+    reasoning: entityContext.role
+      ? `${serverT(locale, 'reasoning.entityContextMedium').replace('{role}', entityContext.role ?? '').replace('{confidence}', String(Math.round(confidence * 100)))}`
+      : `${serverT(locale, 'reasoning.uncertaintyNoContext')}`,
   };
 }
 

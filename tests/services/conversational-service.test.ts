@@ -2,7 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { parseConversationalContext, parseWithAI, resolveGLAccount } from '@/lib/services/conversational-service';
 
 vi.mock('@/lib/db', () => ({
-  db: { glAccount: { findFirst: vi.fn() } },
+  db: {
+    glAccount: { findFirst: vi.fn() },
+    companyKnowledge: { findMany: vi.fn().mockResolvedValue([]) },
+  },
+}));
+
+vi.mock('@/memory/entity-resolution', () => ({
+  resolveEntity: vi.fn().mockResolvedValue({ status: 'UNKNOWN' }),
+}));
+
+vi.mock('@/memory/classification-knowledge', () => ({
+  createAdapter: vi.fn(() => ({ getByType: vi.fn() })),
+  lookupTreatment: vi.fn().mockResolvedValue({ status: 'NOT_FOUND' }),
 }));
 
 vi.mock('@/lib/services/audit-service', () => ({

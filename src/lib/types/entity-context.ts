@@ -1,7 +1,7 @@
 import { EntityContext } from '@prisma/client';
 
 export interface EntityContextWithGlAccount extends EntityContext {
-  glAccount: {
+  glAccount?: {
     id: string;
     code: string;
     name: string;

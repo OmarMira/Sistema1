@@ -119,6 +119,36 @@ describe('P15 — POST /api/learning/rules (aislamiento cross-tenant de cuentas 
     expect(rules[0].creditGlAccountId).toBe(glA.id);
   });
 
+  it('PASS — BankRule GL persists correctly, EntityContext.glAccountId NOT written', async () => {
+    const userA = await createTestUser('p15-ec@example.com');
+    const companyA = await createTestCompany('Company EC');
+    await createTestCompanyMember(userA.id, companyA.id);
+    const tokenA = await createSession(userA.id);
+
+    const glA = await createTestGlAccount({ companyId: companyA.id, code: '6100', name: 'Travel Expenses' });
+
+    const res = await POST(
+      authRequest(`http://localhost/api/learning/rules?companyId=${companyA.id}`, tokenA, {
+        pattern: 'UBER',
+        role: 'TRANSPORTE',
+        glAccountCode: '6100',
+      }),
+      { params: Promise.resolve({}) },
+    );
+
+    expect(res.status).toBe(200);
+
+    // BankRule must have the correct GL account
+    const rules = await db.bankRule.findMany({ where: { companyId: companyA.id } });
+    expect(rules).toHaveLength(1);
+    expect(rules[0].glAccountId).toBe(glA.id);
+
+    // EntityContext must NOT have glAccountId written
+    const contexts = await db.entityContext.findMany({ where: { companyId: companyA.id } });
+    expect(contexts).toHaveLength(1);
+    expect(contexts[0].glAccountId).toBeNull();
+  });
+
   it('PASS — vector apply cross-tenant cerrado: no se contamina la empresa B', async () => {
     const userA = await createTestUser('p15-apply@example.com');
     const companyA = await createTestCompany('Company A');

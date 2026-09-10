@@ -72,7 +72,7 @@ describe('Entity Classification Flow — Integration', () => {
       expect(parsed).toContain('PROVEEDOR');
     });
 
-    it('debe asociar GL account code si existe', async () => {
+    it('no asocia GL account code (GL not authority post-cutover)', async () => {
       const capGl = await createTestGlAccount({ companyId, code: '3010', name: 'Capital Social' });
 
       await classifyEntity({
@@ -89,7 +89,8 @@ describe('Entity Classification Flow — Integration', () => {
       });
 
       expect(ctx).not.toBeNull();
-      expect(ctx!.glAccountId).toBe(capGl.id);
+      // glAccountId is no longer written by classifyEntity
+      expect(ctx!.glAccountId).toBeNull();
     });
   });
 

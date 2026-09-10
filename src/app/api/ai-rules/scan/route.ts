@@ -73,7 +73,6 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
   const contexts = await db.entityContext.findMany({
     where: { companyId },
-    include: { glAccount: true },
   });
 
   const knownSocioPatterns = contexts
@@ -87,7 +86,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   }
 
   // ── 6. Enrich candidates (no requireRole — context-less now included with low confidence) ──
-  const enriched = enrichCandidates(candidates, descriptions, {
+  const enriched = await enrichCandidates(candidates, descriptions, {
+    companyId,
+    prismaClient: db,
     contexts,
     glAccounts,
     rolePriorities: await loadRolePriorities(),

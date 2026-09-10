@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   resolveContextRole,
   suggestGlAccount,
@@ -9,6 +9,20 @@ import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import type { EntityContextWithGlAccount } from '@/lib/types/entity-context';
 import type { EntityCandidate } from '@/lib/services/entity-detector';
 import type { EnrichmentInput, EnrichedCandidate } from '@/lib/services/entity-enricher';
+
+// ─── Mocks for KE modules ──────────────────────────────────────────
+const mockResolveEntity = vi.fn();
+const mockLookupTreatment = vi.fn();
+const mockCreateAdapter = vi.fn(() => ({ getByType: vi.fn() }));
+
+vi.mock('@/memory/entity-resolution', () => ({
+  resolveEntity: (...args: unknown[]) => mockResolveEntity(...args),
+}));
+
+vi.mock('@/memory/classification-knowledge', () => ({
+  createAdapter: (...args: unknown[]) => mockCreateAdapter(...args),
+  lookupTreatment: (...args: unknown[]) => mockLookupTreatment(...args),
+}));
 
 // ─── Shared test data ─────────────────────────────────────────────
 
@@ -163,42 +177,43 @@ describe('resolveContextRole', () => {
 
 // ─── suggestGlAccount ─────────────────────────────────────────────
 describe('suggestGlAccount', () => {
-  it('returns context.glAccount when context has linked GL account', () => {
-    const result = suggestGlAccount(mockContextProveedor, 'debit', mockGlAccounts);
+  // createAdapter is mocked, so only $transaction needs a real stub.
+  // Build a structural mock that satisfies ExtendedPrismaClient via vi.fn().
+  const mockPrismaClient = { $transaction: vi.fn() } as { $transaction: typeof vi.fn; [key: string]: unknown } & Record<string, unknown>;
+
+  it('returns KE treatment GL when KNOWN + FOUND', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'FOUND', glAccountId: 'gla_1' });
+    const result = await suggestGlAccount('comp_1', 'acme corp', mockContextProveedor, 'debit', mockGlAccounts, mockPrismaClient);
     expect(result).not.toBeNull();
     expect(result!.id).toBe('gla_1');
     expect(result!.code).toBe('6070');
     expect(result!.name).toBe('Costo de Ventas');
   });
 
-  it('resolves debit account via ROLE_ACCOUNT_MAP when context has role but no glAccount', () => {
-    // CLIENTE role: debit = '4010', credit = '4010', fallback = '4010'
-    const result = suggestGlAccount(mockContextCliente, 'debit', mockGlAccounts);
-    expect(result).not.toBeNull();
-    expect(result!.code).toBe('4010');
-  });
-
-  it('resolves credit account via ROLE_ACCOUNT_MAP when direction is credit', () => {
-    const result = suggestGlAccount(mockContextCliente, 'credit', mockGlAccounts);
-    expect(result).not.toBeNull();
-    expect(result!.code).toBe('4010');
-  });
-
-  it('returns null when no context and no role', () => {
-    const result = suggestGlAccount(null, 'debit', mockGlAccounts);
+  it('returns null when UNKNOWN', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'UNKNOWN' });
+    const result = await suggestGlAccount('comp_1', 'unknown vendor', null, 'debit', mockGlAccounts, mockPrismaClient);
     expect(result).toBeNull();
   });
 
-  it('returns null when role has no mapping in ROLE_ACCOUNT_MAP', () => {
-    const contextOtro: EntityContextWithGlAccount = {
-      ...mockContextProveedor,
-      pattern: 'otro',
-      role: 'OTRO',
-      glAccountId: null,
-      glAccount: null,
-    };
-    const result = suggestGlAccount(contextOtro, 'debit', mockGlAccounts);
+  it('returns null when KNOWN + NOT_FOUND', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_2' });
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
+    const result = await suggestGlAccount('comp_1', 'some entity', null, 'debit', mockGlAccounts, mockPrismaClient);
     expect(result).toBeNull();
+  });
+
+  it('returns null when KNOWN + FOUND but GL account not in list', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_3' });
+    mockLookupTreatment.mockResolvedValue({ status: 'FOUND', glAccountId: 'gla_not_in_list' });
+    const result = await suggestGlAccount('comp_1', 'entity without gl', null, 'debit', mockGlAccounts, mockPrismaClient);
+    expect(result).toBeNull();
+  });
+
+  it('throws on ERROR', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'ERROR', reason: 'ambiguous' });
+    await expect(suggestGlAccount('comp_1', 'ambiguous entity', null, 'debit', mockGlAccounts, mockPrismaClient)).rejects.toThrow('KE entity resolution error');
   });
 });
 
@@ -288,22 +303,29 @@ describe('enrichCandidates', () => {
   let input: EnrichmentInput;
 
   beforeEach(() => {
+    vi.clearAllMocks();
+    mockResolveEntity.mockResolvedValue({ status: 'UNKNOWN' });
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
     input = {
+      companyId: 'comp_1',
+      prismaClient: { $transaction: vi.fn() } as { $transaction: typeof vi.fn; [key: string]: unknown } & Record<string, unknown>,
       contexts: [mockContextProveedor, mockContextCliente],
       glAccounts: mockGlAccounts,
       rolePriorities: { PROVEEDOR: 1, CLIENTE: 2 },
     };
   });
 
-  it('returns empty array for empty candidates', () => {
-    const result = enrichCandidates([], new Map(), input);
+  it('returns empty array for empty candidates', async () => {
+    const result = await enrichCandidates([], new Map(), input);
     expect(result).toEqual([]);
   });
 
-  it('fully enriches a candidate with matching context and confidence fields', () => {
+  it('fully enriches a candidate with matching context and confidence fields', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'FOUND', glAccountId: 'gla_1' });
     const candidate = makeCandidate({ canonicalName: 'ACME CORP' });
     const descs = new Map([['acme corp', 'Zelle payment to ACME CORP']]);
-    const result = enrichCandidates([candidate], descs, input);
+    const result = await enrichCandidates([candidate], descs, input);
 
     expect(result).toHaveLength(1);
     const enriched = result[0];
@@ -317,14 +339,14 @@ describe('enrichCandidates', () => {
     expect(enriched.explanation).toBeTruthy();
   });
 
-  it('includes candidates without context but marks them as low confidence (no requireRole filter)', () => {
+  it('includes candidates without context but marks them as low confidence (no requireRole filter)', async () => {
     const withoutContext = makeCandidate({
       id: 'can_2',
       canonicalName: 'UNKNOWN VENDOR',
       sampleDescriptions: ['Zelle to unknown vendor'],
     });
     const descs = new Map([['unknown vendor', 'Zelle to unknown vendor']]);
-    const result = enrichCandidates([withoutContext], descs, input);
+    const result = await enrichCandidates([withoutContext], descs, input);
 
     expect(result).toHaveLength(1);
     const enriched = result[0];
@@ -334,7 +356,7 @@ describe('enrichCandidates', () => {
     expect(enriched.explanation).toBeTruthy();
   });
 
-  it('smartFrequency: true adjusts minOccurrences (context → 1, no context → minOccurrences)', () => {
+  it('smartFrequency: true adjusts minOccurrences (context → 1, no context → minOccurrences)', async () => {
     const withContext = makeCandidate({
       id: 'can_1',
       canonicalName: 'ACME CORP',
@@ -351,7 +373,7 @@ describe('enrichCandidates', () => {
       ['acme corp', 'Zelle payment to ACME CORP'],
       ['rare vendor', 'Zelle to rare vendor'],
     ]);
-    const result = enrichCandidates(
+    const result = await enrichCandidates(
       [withContext, withoutContext],
       descs,
       input,
@@ -364,7 +386,7 @@ describe('enrichCandidates', () => {
     expect(result[0].canonicalName).toBe('ACME CORP');
   });
 
-  it('skips candidates that already have an existing rule', () => {
+  it('skips candidates that already have an existing rule', async () => {
     const candidate = makeCandidate({ canonicalName: 'ACME CORP' });
     const descs = new Map([['acme corp', 'Zelle payment to ACME CORP']]);
     const inputWithRules: EnrichmentInput = {
@@ -373,19 +395,21 @@ describe('enrichCandidates', () => {
         { conditionValue: 'acme corp', conditionType: 'contains' },
       ],
     };
-    const result = enrichCandidates([candidate], descs, inputWithRules);
+    const result = await enrichCandidates([candidate], descs, inputWithRules);
 
     expect(result).toHaveLength(0);
   });
 
-  it('preserves directionProfile and occurrences in enriched output', () => {
+  it('preserves directionProfile and occurrences in enriched output', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'FOUND', glAccountId: 'gla_1' });
     const candidate = makeCandidate({
       canonicalName: 'ACME CORP',
       occurrences: 5,
       directionProfile: { creditPct: 0.2, debitPct: 0.8 },
     });
     const descs = new Map([['acme corp', 'Zelle payment to ACME CORP']]);
-    const result = enrichCandidates([candidate], descs, input);
+    const result = await enrichCandidates([candidate], descs, input);
 
     expect(result).toHaveLength(1);
     expect(result[0].occurrences).toBe(5);

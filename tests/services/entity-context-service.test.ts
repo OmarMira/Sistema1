@@ -146,7 +146,7 @@ describe('saveContext()', () => {
     expect(ctx.transactionDirection).toBeNull();
   });
 
-  it('stores glAccountId when provided', async () => {
+  it('always stores glAccountId as null (GL not authority post-cutover)', async () => {
     const gl = await createTestGlAccount({ companyId, code: '4010', name: 'Ingresos Financieros' });
 
     const ctx = await saveContext({
@@ -156,7 +156,7 @@ describe('saveContext()', () => {
       glAccountId: gl.id,
     });
 
-    expect(ctx.glAccountId).toBe(gl.id);
+    expect(ctx.glAccountId).toBeNull();
   });
 
   it('stores glAccountId as null when not provided', async () => {
@@ -236,7 +236,7 @@ describe('findContext()', () => {
     expect(ctx).toBeNull();
   });
 
-  it('includes glAccount relation when available', async () => {
+  it('does not include glAccount relation (GL not authority post-cutover)', async () => {
     const gl = await createTestGlAccount({ companyId, code: '5010', name: 'Proveedores' });
     await saveContext({
       companyId,
@@ -247,8 +247,7 @@ describe('findContext()', () => {
 
     const ctx = await findContext(companyId, 'AMAZON');
     expect(ctx).not.toBeNull();
-    expect(ctx!.glAccount).not.toBeNull();
-    expect(ctx!.glAccount!.code).toBe('5010');
-    expect(ctx!.glAccount!.name).toBe('Proveedores');
+    // glAccount is no longer included in the query
+    expect((ctx as Record<string, unknown>).glAccount).toBeUndefined();
   });
 });

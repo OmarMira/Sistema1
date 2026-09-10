@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { POST as scanPOST } from '../../src/app/api/ai-rules/scan/route';
 import {
   createTestUser,
@@ -14,9 +14,22 @@ import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 
+vi.mock('@/memory/entity-resolution', () => ({
+  resolveEntity: vi.fn(),
+}));
+
+vi.mock('@/memory/classification-knowledge', () => ({
+  lookupTreatment: vi.fn(),
+  createAdapter: vi.fn(),
+}));
+
+import { resolveEntity } from '@/memory/entity-resolution';
+import { lookupTreatment } from '@/memory/classification-knowledge';
+
 describe('POST /api/ai-rules/scan - Role Hierarchy Resolution', () => {
   beforeEach(async () => {
     await clearDatabase();
+    vi.clearAllMocks();
   });
 
   afterEach(async () => {
@@ -35,7 +48,11 @@ describe('POST /api/ai-rules/scan - Role Hierarchy Resolution', () => {
     const statement = await createTestBankStatement(company.id, bankAccount.id);
 
     // Accounts for suggestions
-    const providerAccount = await createTestGlAccount({ companyId: company.id, code: '5010', name: 'Provider Expense', accountType: 'expense' });
+    const providerAccount = await createTestGlAccount({ companyId: company.id, code: '6070', name: 'Provider Expense', accountType: 'expense' });
+
+    // Mock KE to return a treatment for the resolved PROVEEDOR entity
+    (resolveEntity as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'KNOWN', entityId: 'ck_toyota' });
+    (lookupTreatment as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'FOUND', glAccountId: providerAccount.id, direction: 'any' });
     const socioAccount = await createTestGlAccount({ companyId: company.id, code: '3010', name: 'Socio Equity', accountType: 'equity', normalBalance: 'credit' });
 
     // Create entity contexts
@@ -100,6 +117,6 @@ describe('POST /api/ai-rules/scan - Role Hierarchy Resolution', () => {
     const pattern = body.patterns[0];
     expect(pattern.contextRole).toBe('PROVEEDOR');
     expect(pattern.suggestedAccountId).toBe(providerAccount.id);
-    expect(pattern.suggestedAccountCode).toBe('5010');
+    expect(pattern.suggestedAccountCode).toBe('6070');
   });
 });

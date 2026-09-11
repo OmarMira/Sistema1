@@ -14,6 +14,7 @@ import type { EnrichmentInput, EnrichedCandidate } from '@/lib/services/entity-e
 const mockResolveEntity = vi.fn();
 const mockLookupTreatment = vi.fn();
 const mockCreateAdapter = vi.fn(() => ({ getByType: vi.fn() }));
+const mockMatchAuthorizedPattern = vi.fn().mockResolvedValue({ kind: 'no_match' } as const);
 
 vi.mock('@/memory/entity-resolution', () => ({
   resolveEntity: (...args: unknown[]) => mockResolveEntity(...args),
@@ -22,6 +23,7 @@ vi.mock('@/memory/entity-resolution', () => ({
 vi.mock('@/memory/classification-knowledge', () => ({
   createAdapter: (...args: unknown[]) => mockCreateAdapter(...args),
   lookupTreatment: (...args: unknown[]) => mockLookupTreatment(...args),
+  matchAuthorizedPattern: (...args: unknown[]) => mockMatchAuthorizedPattern(...args),
 }));
 
 // ─── Shared test data ─────────────────────────────────────────────

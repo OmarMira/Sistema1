@@ -6,7 +6,7 @@ import { toConfidenceLabel } from '@/lib/types/reasoning';
 import { serverT } from '@/lib/server-i18n';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import { resolveEntity } from '@/memory/entity-resolution';
-import { createAdapter, lookupTreatment } from '@/memory/classification-knowledge';
+import { createAdapter, lookupTreatment, matchAuthorizedPattern } from '@/memory/classification-knowledge';
 import type { ExtendedPrismaClient } from '@/lib/db';
 
 // ========== TYPES ==========
@@ -145,6 +145,32 @@ export async function suggestGlAccount(
   }
 
   if (treatment.status === 'NOT_FOUND') {
+    // Structural match of AUTHORIZED patterns (GENERALIZACIÓN-005 knowledge)
+    // before giving up on a suggestion — informative read only, no authority.
+    const structural = await matchAuthorizedPattern(
+      keAdapter,
+      companyId,
+      entityResolution.entityId,
+      description,
+      _direction ?? 'any',
+    );
+
+    if (structural.kind === 'error') {
+      // ERROR stays explicit — never degraded to "no suggestion"
+      throw new Error(`KE structural match error: ${structural.reason}`);
+    }
+    if (structural.kind === 'ambiguous') {
+      // Cannot suggest an undecided GL
+      return null;
+    }
+    // NO_MATCH → null
+    if (structural.kind === 'match') {
+      const account = glAccounts.find((a) => a.id === structural.glAccountId);
+      if (account) {
+        return { name: account.name, code: account.code, id: account.id };
+      }
+      return null;
+    }
     return null;
   }
 

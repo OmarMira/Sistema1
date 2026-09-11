@@ -14,7 +14,8 @@ import type { RuleCondition, AssistantConfig } from '@/lib/types/shared';
 import { collectSignals } from './signal-collector';
 import { decide } from './decision-engine';
 import { resolveEntity } from '@/memory/entity-resolution';
-import { createAdapter, lookupTreatment } from '@/memory/classification-knowledge';
+import { createAdapter, lookupTreatment, matchAuthorizedPattern } from '@/memory/classification-knowledge';
+import type { AuthorizedPatternMatch } from '@/memory/classification-knowledge';
 
 export interface ConversationalParseResult {
   role: string;
@@ -282,6 +283,10 @@ export async function parseConversationalContext(
   direction?: 'debit' | 'credit',
   locale?: string,
 ): Promise<ConversationalParseResult> {
+  // Unknown structural ambiguity (added when a structural match was ambiguous)
+  // appended to fallback results so a KE verdict is never falsely attributed.
+  let structuralAmbiguity: string[] = [];
+
   // Step 1: Entity Resolution via KE
   const entityResolution = await resolveEntity(companyId, pattern);
 
@@ -395,7 +400,120 @@ export async function parseConversationalContext(
       };
     }
 
-    // treatment.status === 'NOT_FOUND' → fall through to AI/heuristic
+    // treatment.status === 'NOT_FOUND' → structural match of AUTHORIZED
+    // patterns (GENERALIZACIÓN-005 knowledge) before AI/heuristic fallback.
+    // Precedence preserved: exact treatment won unless NOT_FOUND.
+    if (treatment.status === 'NOT_FOUND') {
+      let structural: AuthorizedPatternMatch;
+      try {
+        structural = await matchAuthorizedPattern(
+          keAdapter,
+          companyId,
+          entityResolution.entityId,
+          pattern,
+          direction ?? 'any',
+        );
+      } catch (structuralError) {
+        logger.error('[KE] Structural match threw in conversational path', {
+          companyId,
+          entityId: entityResolution.entityId,
+          error: String(structuralError),
+        });
+        return {
+          role: '',
+          glAccountCode: '',
+          glAccountId: null,
+          suggestSubAccount: false,
+          subAccountName: null,
+          account: { code: '', name: serverT(locale, 'accounts.unclassified') },
+          conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+          confidence: 0,
+          confidenceLabel: 'low',
+          explanation: `KE structural match error: ${structuralError instanceof Error ? structuralError.message : String(structuralError)}`,
+          uncertaintyReasons: [`KE structural match error`],
+        };
+      }
+
+      if (structural.kind === 'match') {
+        // Authorized learned treatment from a structural pattern — KE knowledge,
+        // NOT AI, NOT heuristic. Source remains distinguishable from exact lookup.
+        logger.info('[KE] Authorized structural pattern matched in conversational path', {
+          companyId,
+          entityId: entityResolution.entityId,
+          authorizedPatternId: structural.authorizedPatternId,
+        });
+        const glAccount = await (prismaClient ?? db).glAccount.findUnique({
+          where: { id: structural.glAccountId },
+        });
+        const glAccountId = glAccount?.id ?? null;
+        const structuralAccount = glAccount
+          ? { code: glAccount.code, name: glAccount.name, accountType: glAccount.accountType, normalBalance: glAccount.normalBalance }
+          : { code: '', name: serverT(locale, 'accounts.unclassified') };
+
+        // Resolve role from EntityContext for display only
+        const existingContextForDisplay = await findContext(companyId, pattern).catch(() => null);
+        const structuralRole = existingContextForDisplay?.role?.toUpperCase() ?? '';
+        const suggestSubAccount = structuralRole === 'SOCIO';
+        const subAccountName = suggestSubAccount
+          ? pattern.trim().split(/\s+/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+          : null;
+
+        return {
+          role: structuralRole,
+          glAccountCode: structuralAccount?.code ?? '',
+          glAccountId,
+          suggestSubAccount,
+          subAccountName,
+          account: {
+            code: structuralAccount?.code ?? '',
+            name: structuralAccount?.name ?? '',
+            accountType: structuralAccount?.accountType ?? undefined,
+            normalBalance: structuralAccount?.normalBalance ?? undefined,
+          },
+          conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+          confidence: 0.95,
+          confidenceLabel: 'high',
+          explanation: `Authorized structural treatment applied (pattern ${structural.authorizedPatternId}, candidate ${structural.sourceCandidateId}) for entity ${entityResolution.entityId}`,
+          uncertaintyReasons: [],
+        };
+      }
+
+      if (structural.kind === 'error') {
+        logger.error('[KE] Structural match error in conversational path', {
+          companyId,
+          entityId: entityResolution.entityId,
+          reason: structural.reason,
+        });
+        return {
+          role: '',
+          glAccountCode: '',
+          glAccountId: null,
+          suggestSubAccount: false,
+          subAccountName: null,
+          account: { code: '', name: serverT(locale, 'accounts.unclassified') },
+          conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+          confidence: 0,
+          confidenceLabel: 'low',
+          explanation: `KE structural match error: ${structural.reason}`,
+          uncertaintyReasons: [`KE structural match error: ${structural.reason}`],
+        };
+      }
+
+      if (structural.kind === 'ambiguous') {
+        // No KE decision exists — ambiguity is explicit; AI/heuristic remains
+        // the next pipeline authority, but NOTHING may present a KE verdict.
+        logger.warn('[KE] Structural match ambiguous in conversational path', {
+          companyId,
+          entityId: entityResolution.entityId,
+          matchedPatternIds: structural.matchedPatternIds,
+        });
+        structuralAmbiguity = [
+          `Authorized structural match ambiguous (patterns: ${structural.matchedPatternIds.join(', ')}) — KE did not decide`,
+        ];
+      }
+
+      // structural.kind === 'no_match' → fall through to legacy AI/heuristic
+    }
   }
 
   // Entity UNKNOWN or treatment NOT_FOUND → AI/heuristic fallback
@@ -589,7 +707,7 @@ export async function parseConversationalContext(
       confidence: result.confidence,
       confidenceLabel: result.confidenceLabel,
       explanation: result.explanation,
-      uncertaintyReasons: result.uncertaintyReasons,
+      uncertaintyReasons: [...result.uncertaintyReasons, ...structuralAmbiguity],
       proposedEntity: aiResponse?.proposedEntity ?? null,
     };
   }
@@ -606,7 +724,7 @@ export async function parseConversationalContext(
     confidence: 0,
     confidenceLabel: 'low',
     explanation: result.explanation,
-    uncertaintyReasons: result.uncertaintyReasons,
+    uncertaintyReasons: [...result.uncertaintyReasons, ...structuralAmbiguity],
     proposedEntity: aiResponse?.proposedEntity ?? null,
   };
 }

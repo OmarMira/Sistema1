@@ -52,6 +52,7 @@ vi.mock('@/memory/classification-knowledge', () => ({
   createAdapter: vi.fn(() => ({ getByType: vi.fn() })),
   lookupTreatment: vi.fn(),
   learnEntityTreatment: vi.fn(),
+  matchAuthorizedPattern: vi.fn().mockResolvedValue({ kind: 'no_match' as const }),
 }));
 
 vi.mock('@/internal/company-knowledge/entity/service', () => ({

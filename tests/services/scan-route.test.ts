@@ -57,6 +57,7 @@ vi.mock('@/memory/classification-knowledge', () => ({
     };
     return treatmentMap[entityId] ?? { status: 'NOT_FOUND' };
   }),
+  matchAuthorizedPattern: vi.fn().mockResolvedValue({ kind: 'no_match' as const }),
 }));
 
 // ─── Imports after mocks ──────────────────────────────────────────────

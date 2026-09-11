@@ -25,6 +25,7 @@ vi.mock('@/memory/entity-resolution', () => ({
 vi.mock('@/memory/classification-knowledge', () => ({
   lookupTreatment: vi.fn(),
   createAdapter: vi.fn(),
+  matchAuthorizedPattern: vi.fn().mockResolvedValue({ kind: 'no_match' as const }),
 }));
 
 import { parseConversationalContext } from '@/lib/services/conversational-service';

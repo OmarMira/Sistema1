@@ -33,6 +33,10 @@ export interface ConversationalParseResult {
   confidenceLabel: 'high' | 'medium' | 'low';
   explanation: string;
   uncertaintyReasons: string[];
+  proposedEntity?: {
+    canonicalName: string;
+    entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset';
+  } | null;
 }
 
 // ── Internal: read assistant config from disk ──
@@ -65,6 +69,10 @@ export async function parseWithAI(
   conditions?: RuleCondition[];
   suggestSubAccount: boolean;
   subAccountName: string | null;
+  proposedEntity: {
+    canonicalName: string;
+    entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset';
+  } | null;
 }> {
   const { apiKey, baseUrl, model } = deps;
   const fetchFn = deps.fetch ?? safeFetch;
@@ -120,7 +128,7 @@ export async function parseWithAI(
             { role: 'system', content: systemInstruction },
             {
               role: 'user',
-              content: `Entity: "${pattern}"\nUser description: "${userInput}"\nReturn only the JSON object.`,
+              content: `Entity: "${pattern}"\nUser description: "${userInput}"\n\nReturn a JSON object with:\n- "role": the role of this entity (e.g. PROVEEDOR, CLIENTE, SOCIO, etc.)\n- "glAccountCode": the GL account code that best fits this transaction\n- "conditions": optional matching conditions array\n- "suggestSubAccount": true if this looks like a person who needs a sub-account\n- "subAccountName": the sub-account name if suggestSubAccount is true\n- "proposedEntity": if you can identify the real-world entity behind this description, return { "canonicalName": "the entity name", "entityType": "person|company|financial_product|platform|asset" }. If you cannot reasonably determine the identity, return null.\n\nReturn only the JSON object.`,
             },
           ],
         }),
@@ -146,6 +154,24 @@ export async function parseWithAI(
         throw new Error('AI returned incomplete result');
       }
 
+      // Validate proposedEntity if present
+      let proposedEntity: {
+        canonicalName: string;
+        entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset';
+      } | null = null;
+      if (
+        parsed.proposedEntity &&
+        typeof parsed.proposedEntity === 'object' &&
+        typeof parsed.proposedEntity.canonicalName === 'string' &&
+        parsed.proposedEntity.canonicalName.length > 0 &&
+        ['person', 'company', 'financial_product', 'platform', 'asset'].includes(parsed.proposedEntity.entityType)
+      ) {
+        proposedEntity = {
+          canonicalName: parsed.proposedEntity.canonicalName,
+          entityType: parsed.proposedEntity.entityType,
+        };
+      }
+
       // Success — return parsed data
       return {
         role: parsed.role,
@@ -153,6 +179,7 @@ export async function parseWithAI(
         conditions: parsed.conditions,
         suggestSubAccount: Boolean(parsed.suggestSubAccount),
         subAccountName: parsed.subAccountName ? String(parsed.subAccountName) : null,
+        proposedEntity,
       };
     } catch (err: unknown) {
       clearTimeout(timeout);
@@ -399,7 +426,7 @@ export async function parseConversationalContext(
     // AI not configured
   }
 
-  let aiResponse: { role?: string; glAccountCode?: string } | null = null;
+  let aiResponse: { role?: string; glAccountCode?: string; proposedEntity?: { canonicalName: string; entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset' } | null } | null = null;
 
   if (apiKey && baseUrl && model) {
     try {
@@ -431,7 +458,7 @@ export async function parseConversationalContext(
           where: { companyId, code: String(parsed.glAccountCode).trim(), isActive: true },
         });
         if (existingAccount) {
-          aiResponse = { role: parsed.role, glAccountCode: parsed.glAccountCode };
+          aiResponse = { role: parsed.role, glAccountCode: parsed.glAccountCode, proposedEntity: parsed.proposedEntity };
         } else {
           logger.warn('[AI SUGGESTED CODE NOT FOUND IN DB]', {
             code: parsed.glAccountCode,
@@ -563,6 +590,7 @@ export async function parseConversationalContext(
       confidenceLabel: result.confidenceLabel,
       explanation: result.explanation,
       uncertaintyReasons: result.uncertaintyReasons,
+      proposedEntity: aiResponse?.proposedEntity ?? null,
     };
   }
 
@@ -579,5 +607,6 @@ export async function parseConversationalContext(
     confidenceLabel: 'low',
     explanation: result.explanation,
     uncertaintyReasons: result.uncertaintyReasons,
+    proposedEntity: aiResponse?.proposedEntity ?? null,
   };
 }

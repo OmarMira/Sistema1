@@ -115,6 +115,10 @@ const AI_PROPOSAL: AiProposalData = {
   conditions: undefined,
   suggestSubAccount: false,
   subAccountName: null,
+  proposedEntity: {
+    canonicalName: 'Netflix',
+    entityType: 'company',
+  },
 };
 
 const RESOLUTION_WITH_AI: ImportRuleResolution = {
@@ -211,6 +215,73 @@ describe('import AI fallback integration', () => {
 
     // Verify JournalEntry was NOT created (no glAccountId)
     expect(mockCreateFromBankTransaction).not.toHaveBeenCalled();
+  });
+
+  it('T12b: PendingApproval payload includes proposedEntity from aiProposal', async () => {
+    const { ImportService } = await import('@/lib/services/import.service');
+
+    await ImportService.importFile({
+      companyId: 'company-1',
+      bankAccountId: 'bank-1',
+      fileName: 'test.csv',
+      extension: 'csv',
+      buffer: Buffer.from('date,description,amount\n2026-01-15,NETFLIX,-15.99'),
+      content: 'date,description,amount\n2026-01-15,NETFLIX,-15.99',
+      userId: 'user-123',
+    });
+
+    expect(mockPendingApprovalCreate).toHaveBeenCalledOnce();
+
+    const callArgs = mockPendingApprovalCreate.mock.calls[0][0];
+
+    // Verify proposedEntity is present in payload
+    expect(callArgs.data.payload.proposedEntity).toEqual({
+      canonicalName: 'Netflix',
+      entityType: 'company',
+    });
+
+    // Verify aiProposal is also present (backward compat)
+    expect(callArgs.data.payload.aiProposal.proposedEntity).toEqual({
+      canonicalName: 'Netflix',
+      entityType: 'company',
+    });
+  });
+
+  it('T12c: PendingApproval payload has proposedEntity null when aiProposal has none', async () => {
+    const aiProposalNoEntity: AiProposalData = {
+      role: 'expense',
+      glAccountCode: '6100',
+      glAccountId: null,
+      suggestSubAccount: false,
+      subAccountName: null,
+      // no proposedEntity
+    };
+
+    mockResolveImportRule.mockResolvedValue({
+      matchedRuleId: null,
+      glAccountId: null,
+      deterministicResult: 'no_match',
+      aiProposal: aiProposalNoEntity,
+    });
+
+    const { ImportService } = await import('@/lib/services/import.service');
+
+    await ImportService.importFile({
+      companyId: 'company-1',
+      bankAccountId: 'bank-1',
+      fileName: 'test.csv',
+      extension: 'csv',
+      buffer: Buffer.from('date,description,amount\n2026-01-15,NETFLIX,-15.99'),
+      content: 'date,description,amount\n2026-01-15,NETFLIX,-15.99',
+      userId: 'user-123',
+    });
+
+    expect(mockPendingApprovalCreate).toHaveBeenCalledOnce();
+
+    const callArgs = mockPendingApprovalCreate.mock.calls[0][0];
+
+    // proposedEntity should be null when aiProposal has none
+    expect(callArgs.data.payload.proposedEntity).toBeNull();
   });
 
   it('does not create PendingApproval when aiProposal is absent', async () => {

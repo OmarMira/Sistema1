@@ -11,6 +11,10 @@ export interface AiProposalData {
   conditions?: { field: string; operator: string; value: string | number }[];
   suggestSubAccount: boolean;
   subAccountName: string | null;
+  proposedEntity?: {
+    canonicalName: string;
+    entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset';
+  } | null;
 }
 
 export interface ImportRuleResolution extends RuleResolution {

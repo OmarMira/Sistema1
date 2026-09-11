@@ -196,6 +196,108 @@ describe('parseWithAI', () => {
     ).rejects.toThrow('The operation was aborted');
   });
 
+  it('should return proposedEntity when AI response includes it', async () => {
+    const mockFetch: typeof globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                role: 'PROVEEDOR',
+                glAccountCode: '5000',
+                suggestSubAccount: false,
+                subAccountName: null,
+                proposedEntity: {
+                  canonicalName: 'Amazon',
+                  entityType: 'company',
+                },
+              }),
+            },
+          },
+        ],
+      }),
+    }) as Response;
+
+    const result = await parseWithAI('AMAZON MKTP US', 'compra en amazon', {
+      apiKey: 'test-key',
+      baseUrl: 'https://test.ai',
+      model: 'test-model',
+      fetch: mockFetch,
+      readAssistantConfig: () => ({ systemInstruction: 'test', temperature: 0.1, maxTokens: 300 }),
+    });
+
+    expect(result.proposedEntity).toEqual({
+      canonicalName: 'Amazon',
+      entityType: 'company',
+    });
+  });
+
+  it('should return proposedEntity null when AI does not include it', async () => {
+    const mockFetch: typeof globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                role: 'GASTO_OPERATIVO',
+                glAccountCode: '5000',
+                suggestSubAccount: false,
+                subAccountName: null,
+                // no proposedEntity
+              }),
+            },
+          },
+        ],
+      }),
+    }) as Response;
+
+    const result = await parseWithAI('gasto random', 'compra random', {
+      apiKey: 'test-key',
+      baseUrl: 'https://test.ai',
+      model: 'test-model',
+      fetch: mockFetch,
+      readAssistantConfig: () => ({ systemInstruction: 'test', temperature: 0.1, maxTokens: 300 }),
+    });
+
+    expect(result.proposedEntity).toBeNull();
+  });
+
+  it('should return proposedEntity null when AI returns malformed proposedEntity', async () => {
+    const mockFetch: typeof globalThis.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                role: 'PROVEEDOR',
+                glAccountCode: '5000',
+                suggestSubAccount: false,
+                subAccountName: null,
+                proposedEntity: {
+                  // missing canonicalName
+                  entityType: 'company',
+                },
+              }),
+            },
+          },
+        ],
+      }),
+    }) as Response;
+
+    const result = await parseWithAI('AMAZON MKTP US', 'compra en amazon', {
+      apiKey: 'test-key',
+      baseUrl: 'https://test.ai',
+      model: 'test-model',
+      fetch: mockFetch,
+      readAssistantConfig: () => ({ systemInstruction: 'test', temperature: 0.1, maxTokens: 300 }),
+    });
+
+    expect(result.proposedEntity).toBeNull();
+  });
+
   it('should throw on missing configuration (empty env vars)', async () => {
     await expect(
       parseWithAI('test', 'test', {

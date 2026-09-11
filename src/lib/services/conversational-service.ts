@@ -285,7 +285,12 @@ export async function parseConversationalContext(
 ): Promise<ConversationalParseResult> {
   // Unknown structural ambiguity (added when a structural match was ambiguous)
   // appended to fallback results so a KE verdict is never falsely attributed.
+  // KE-EVOL-003: questionedKnowledge carries explicit disclosure about KE
+  // knowledge that exists but is uncertain (exact or structural). That
+  // knowledge is observable and traceable, but it NEVER decides and NEVER
+  // grants authority to the result.
   let structuralAmbiguity: string[] = [];
+  let questionedKnowledge: string[] = [];
 
   // Step 1: Entity Resolution via KE
   const entityResolution = await resolveEntity(companyId, pattern);
@@ -361,43 +366,68 @@ export async function parseConversationalContext(
     }
 
     if (treatment.status === 'FOUND') {
-      // KE hit — resolve GL account from treatment
-      const glAccount = await (prismaClient ?? db).glAccount.findUnique({
-        where: { id: treatment.glAccountId },
-      });
+      // KE-EVOL-003: authority depends on the stored treatment confidence.
+      // certain → KE authoritative, may skip AI. tentative → KE
+      // authoritative with explicit tentative disclosure. uncertain → the
+      // knowledge is questioned: NO KE decision is presented; the questioned
+      // treatment stays observable in the disclosure and the existing
+      // AI/heuristic fallback continues. Never NOT_FOUND, never ERROR.
+      if (treatment.confidence === 'uncertain') {
+        logger.info('[KE] Exact treatment found with uncertain confidence in conversational path — no KE decision; questioned treatment stays observable', {
+          companyId,
+          entityId: entityResolution.entityId,
+          memoryItemId: treatment.memoryItemId,
+          questionedGlAccountId: treatment.glAccountId,
+          confidence: treatment.confidence,
+        });
+        questionedKnowledge.push(
+          `Questioned KE exact treatment for entity ${entityResolution.entityId} (memory item ${treatment.memoryItemId}, questioned GL ${treatment.glAccountId}) - prior knowledge exists but is currently uncertain; it did not decide this result`,
+        );
+        // Fall through to the existing AI/heuristic fallback — no KE decision.
+      } else {
+        // KE hit — resolve GL account from treatment
+        const glAccount = await (prismaClient ?? db).glAccount.findUnique({
+          where: { id: treatment.glAccountId },
+        });
 
-      const glAccountId = glAccount?.id ?? null;
-      const account = glAccount
-        ? { code: glAccount.code, name: glAccount.name, accountType: glAccount.accountType, normalBalance: glAccount.normalBalance }
-        : { code: '', name: serverT(locale, 'accounts.unclassified') };
+        const glAccountId = glAccount?.id ?? null;
+        const account = glAccount
+          ? { code: glAccount.code, name: glAccount.name, accountType: glAccount.accountType, normalBalance: glAccount.normalBalance }
+          : { code: '', name: serverT(locale, 'accounts.unclassified') };
 
-      // Resolve role from EntityContext for display
-      const existingContext = await findContext(companyId, pattern).catch(() => null);
-      const role = existingContext?.role?.toUpperCase() ?? '';
+        // Resolve role from EntityContext for display
+        const existingContext = await findContext(companyId, pattern).catch(() => null);
+        const role = existingContext?.role?.toUpperCase() ?? '';
 
-      const suggestSubAccount = role === 'SOCIO';
-      const subAccountName = suggestSubAccount
-        ? pattern.trim().split(/\s+/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
-        : null;
+        const suggestSubAccount = role === 'SOCIO';
+        const subAccountName = suggestSubAccount
+          ? pattern.trim().split(/\s+/).map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+          : null;
 
-      return {
-        role,
-        glAccountCode: account?.code ?? '',
-        glAccountId,
-        suggestSubAccount,
-        subAccountName,
-        account: {
-          code: account?.code ?? '',
-          name: account?.name ?? '',
-          accountType: account?.accountType ?? undefined,
-          normalBalance: account?.normalBalance ?? undefined,
-        },
-        conditions: [{ field: 'description', operator: 'contains', value: pattern }],
-        confidence: 0.95,
-        confidenceLabel: 'high',
-        explanation: `KE treatment found for entity ${entityResolution.entityId}`,
-        uncertaintyReasons: [],
-      };
+        const isTentative = treatment.confidence === 'tentative';
+        const tentativeReason = `KE exact treatment for entity ${entityResolution.entityId} is tentative - applied as authoritative, knowledge evidence is not final`;
+
+        return {
+          role,
+          glAccountCode: account?.code ?? '',
+          glAccountId,
+          suggestSubAccount,
+          subAccountName,
+          account: {
+            code: account?.code ?? '',
+            name: account?.name ?? '',
+            accountType: account?.accountType ?? undefined,
+            normalBalance: account?.normalBalance ?? undefined,
+          },
+          conditions: [{ field: 'description', operator: 'contains', value: pattern }],
+          confidence: 0.95,
+          confidenceLabel: 'high',
+          explanation: isTentative
+            ? `KE treatment found for entity ${entityResolution.entityId} - treatment confidence: tentative (applied as authoritative, knowledge evidence is not final)`
+            : `KE treatment found for entity ${entityResolution.entityId}`,
+          uncertaintyReasons: isTentative ? [tentativeReason] : [],
+        };
+      }
     }
 
     // treatment.status === 'NOT_FOUND' → structural match of AUTHORIZED
@@ -437,6 +467,24 @@ export async function parseConversationalContext(
       if (structural.kind === 'match') {
         // Authorized learned treatment from a structural pattern — KE knowledge,
         // NOT AI, NOT heuristic. Source remains distinguishable from exact lookup.
+        // KE-EVOL-003: an uncertain structural match is NOT authority — the
+        // questioned match stays observable (with its pattern lineage) and the
+        // existing AI/heuristic fallback continues. Never degraded to no_match.
+        if (structural.confidence === 'uncertain') {
+          logger.info('[KE] Authorized structural pattern matched with uncertain confidence in conversational path — no KE decision; questioned match stays observable', {
+            companyId,
+            entityId: entityResolution.entityId,
+            authorizedPatternId: structural.authorizedPatternId,
+            matchedPatternIds: structural.matchedPatternIds,
+            questionedGlAccountId: structural.glAccountId,
+            sourceCandidateId: structural.sourceCandidateId,
+            confidence: structural.confidence,
+          });
+          questionedKnowledge.push(
+            `Questioned authorized structural match (pattern ${structural.authorizedPatternId}) — prior structural knowledge exists but is currently uncertain; it did not decide this result`,
+          );
+          // Fall through to the existing AI/heuristic fallback — no KE decision.
+        } else {
         logger.info('[KE] Authorized structural pattern matched in conversational path', {
           companyId,
           entityId: entityResolution.entityId,
@@ -476,6 +524,7 @@ export async function parseConversationalContext(
           explanation: `Authorized structural treatment applied (pattern ${structural.authorizedPatternId}, candidate ${structural.sourceCandidateId}) for entity ${entityResolution.entityId}`,
           uncertaintyReasons: [],
         };
+        }
       }
 
       if (structural.kind === 'error') {
@@ -707,7 +756,7 @@ export async function parseConversationalContext(
       confidence: result.confidence,
       confidenceLabel: result.confidenceLabel,
       explanation: result.explanation,
-      uncertaintyReasons: [...result.uncertaintyReasons, ...structuralAmbiguity],
+      uncertaintyReasons: [...result.uncertaintyReasons, ...structuralAmbiguity, ...questionedKnowledge],
       proposedEntity: aiResponse?.proposedEntity ?? null,
     };
   }
@@ -724,7 +773,7 @@ export async function parseConversationalContext(
     confidence: 0,
     confidenceLabel: 'low',
     explanation: result.explanation,
-    uncertaintyReasons: [...result.uncertaintyReasons, ...structuralAmbiguity],
+    uncertaintyReasons: [...result.uncertaintyReasons, ...structuralAmbiguity, ...questionedKnowledge],
     proposedEntity: aiResponse?.proposedEntity ?? null,
   };
 }

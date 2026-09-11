@@ -152,18 +152,37 @@ export async function resolveImportDecision(
     return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
   }
 
-  // Step 4b: Treatment FOUND → use KE treatment
+  // Step 4b: Treatment FOUND → use KE treatment.
+  // KE-EVOL-003: authority depends on the stored treatment confidence.
+  // certain/tentative → KE authoritative (tentative exact keeps authority,
+  // per certified semantics). uncertain → the knowledge is questioned:
+  // NO GL is assigned from KE and the exact treatment evidence is preserved
+  // for traceability before the existing Rule Engine continues. A questioned
+  // treatment is NEVER transformed into NOT_FOUND and NEVER into ke_error.
   if (treatment.status === 'FOUND') {
-    return {
-      source: 'ke',
-      glAccountId: treatment.glAccountId,
-      matchedRuleId: null,
-    };
+    if (treatment.confidence === 'uncertain') {
+      logger.info('[KE] Exact treatment found with uncertain confidence — no KE authority; questioned treatment preserved for traceability; continuing to rule engine', {
+        companyId,
+        entityId: entityResolution.entityId,
+        memoryItemId: treatment.memoryItemId,
+        questionedGlAccountId: treatment.glAccountId,
+        confidence: treatment.confidence,
+      });
+    } else {
+      return {
+        source: 'ke',
+        glAccountId: treatment.glAccountId,
+        matchedRuleId: null,
+      };
+    }
   }
 
   // Step 4c: Treatment NOT_FOUND → structural match of AUTHORIZED patterns
   // (GENERALIZACIÓN-005). The exact lookup keeps precedence; the structural
   // match is generalization OF the stored knowledge, not a replacement.
+  // KE-EVOL-003: a FOUND-but-questioned exact treatment skips structural
+  // matching entirely — the exact knowledge was found, not missing.
+  if (treatment.status === 'NOT_FOUND') {
   let structural: AuthorizedPatternMatch;
   try {
     structural = await matchAuthorizedPattern(keAdapter, companyId, entityResolution.entityId, description, 'any');
@@ -175,22 +194,37 @@ export async function resolveImportDecision(
     });
     return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
   }
-
   // Step 4d-a: structural MATCH → use the authorized learned treatment.
   // No rule engine, no AI, no mutation of stored knowledge, no new
   // authorization — the match executes knowledge, it does not create it.
+  // KE-EVOL-003: an uncertain structural match is NOT authority — the
+  // questioned match metadata (authorizedPatternId, matchedPatternIds,
+  // glAccountId, sourceCandidateId) is preserved for traceability and the
+  // existing Rule Engine continues. It is never degraded to no_match.
   if (structural.kind === 'match') {
-    logger.info('[KE] Authorized structural pattern matched — using learned treatment', {
-      companyId,
-      entityId: entityResolution.entityId,
-      authorizedPatternId: structural.authorizedPatternId,
-      matchedPatternIds: structural.matchedPatternIds,
-    });
-    return {
-      source: 'ke',
-      glAccountId: structural.glAccountId,
-      matchedRuleId: null,
-    };
+    if (structural.confidence === 'uncertain') {
+      logger.info('[KE] Authorized structural pattern matched with uncertain confidence — no KE authority; questioned match preserved for traceability; continuing to rule engine', {
+        companyId,
+        entityId: entityResolution.entityId,
+        authorizedPatternId: structural.authorizedPatternId,
+        matchedPatternIds: structural.matchedPatternIds,
+        questionedGlAccountId: structural.glAccountId,
+        sourceCandidateId: structural.sourceCandidateId,
+        confidence: structural.confidence,
+      });
+    } else {
+      logger.info('[KE] Authorized structural pattern matched — using learned treatment', {
+        companyId,
+        entityId: entityResolution.entityId,
+        authorizedPatternId: structural.authorizedPatternId,
+        matchedPatternIds: structural.matchedPatternIds,
+      });
+      return {
+        source: 'ke',
+        glAccountId: structural.glAccountId,
+        matchedRuleId: null,
+      };
+    }
   }
 
   // Step 4d-b: structural ERROR → ke_error (explicit, never silent NO_MATCH)
@@ -220,6 +254,15 @@ export async function resolveImportDecision(
     source: 'rule_engine',
     glAccountId: resolution.glAccountId,
     matchedRuleId: resolution.matchedRuleId,
+  };
+  }
+
+  // Step 4d-d (uncertain exact treatment): legacy continuation — rule engine
+  const resolutionExactlyQuestioned = await resolveRule();
+  return {
+    source: 'rule_engine',
+    glAccountId: resolutionExactlyQuestioned.glAccountId,
+    matchedRuleId: resolutionExactlyQuestioned.matchedRuleId,
   };
 }
 

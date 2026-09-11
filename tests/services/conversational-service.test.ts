@@ -3,7 +3,7 @@ import { parseConversationalContext, parseWithAI, resolveGLAccount } from '@/lib
 
 vi.mock('@/lib/db', () => ({
   db: {
-    glAccount: { findFirst: vi.fn() },
+    glAccount: { findFirst: vi.fn(), findUnique: vi.fn() },
     companyKnowledge: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
@@ -23,11 +23,14 @@ vi.mock('@/lib/services/audit-service', () => ({
 }));
 
 vi.mock('@/lib/logger', () => ({
-  logger: { warn: vi.fn(), error: vi.fn() },
+  logger: { warn: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
+import { findContext } from '@/lib/services/entity-context-service';
+import { resolveEntity } from '@/memory/entity-resolution';
+import { lookupTreatment } from '@/memory/classification-knowledge';
 
 describe('parseConversationalContext — engine-based flow (real engine)', () => {
   beforeEach(() => {
@@ -364,5 +367,97 @@ describe('resolveGLAccount', () => {
     expect(result.glAccountId).toBeNull();
     expect(result.account.name).toBe('Cuenta No Clasificada');
     expect(result.account.code).toBe('');
+  });
+});
+
+// ─── KE exact confidence semantics (KE-EVOL-003) ─────────────────
+
+describe('parseConversationalContext — exact confidence semantics (KE-EVOL-003)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.AI_API_KEY;
+    delete process.env.AI_BASE_URL;
+    delete process.env.AI_MODEL;
+    (db.glAccount.findFirst as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(null);
+  });
+
+  function setupKeLookup(confidence: 'certain' | 'tentative' | 'uncertain') {
+    (resolveEntity as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({ status: 'KNOWN', entityId: 'ck_1' });
+    (lookupTreatment as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 'FOUND',
+      glAccountId: 'gl-ke',
+      direction: 'any',
+      confidence,
+      memoryItemId: 'mem_questioned',
+    });
+    (db.glAccount as unknown as { findUnique: ReturnType<typeof vi.fn> }).findUnique = vi.fn().mockResolvedValue({
+      id: 'gl-ke', code: '7777', name: 'KE Account', accountType: 'expense', normalBalance: 'debit',
+    });
+  }
+
+  // T18: exact certain → GL from KE, no AI fallback, normal disclosure
+  it('T18: exact certain → KE GL assigned, no AI, normal disclosure', async () => {
+    setupKeLookup('certain');
+
+    const result = await parseConversationalContext('comp_1', 'ke entity', 'compra');
+
+    expect(result.glAccountId).toBe('gl-ke');
+    expect(result.glAccountCode).toBe('7777');
+    expect(result.uncertaintyReasons).toHaveLength(0);
+    expect(result.confidence).toBe(0.95);
+    expect(result.confidenceLabel).toBe('high');
+    expect(result.explanation).toContain('KE treatment found for entity');
+  });
+
+  // T19: exact tentative → GL from KE, no AI, explicit tentative disclosure
+  it('T19: exact tentative → KE GL assigned, no AI, tentative disclosure', async () => {
+    setupKeLookup('tentative');
+
+    const result = await parseConversationalContext('comp_1', 'ke entity', 'compra');
+
+    expect(result.glAccountId).toBe('gl-ke');
+    expect(result.glAccountCode).toBe('7777');
+    expect(result.confidence).toBe(0.95);
+    expect(result.confidenceLabel).toBe('high');
+    expect(result.uncertaintyReasons.join(' ')).toContain('tentative');
+    expect(result.explanation).toContain('tentative');
+  });
+
+  // T20: exact uncertain → no authoritative KE GL, fallback continues, disclosure present
+  it('T20: exact uncertain → no KE decision, fallback continues with disclosure', async () => {
+    setupKeLookup('uncertain');
+
+    const result = await parseConversationalContext('comp_1', 'zxqwmklp acbd', 'qbrxzn wyvkm pld');
+
+    // The questioned KE GL was NOT presented as a decision
+    expect(result.glAccountId).not.toBe('gl-ke');
+    expect(result.glAccountId).toBeNull();
+    // Fallback (AI/heuristic pipeline) continued and produced its own result
+    expect(result.explanation).not.toContain('KE treatment found for entity');
+    // Explicit disclosure: the questioned knowledge remains observable
+    expect(result.uncertaintyReasons.join(' ')).toContain('Questioned KE exact treatment');
+    expect(result.uncertaintyReasons.join(' ')).toContain('mem_questioned');
+    expect(result.uncertaintyReasons.join(' ')).toContain('uncertain');
+  });
+
+  // T21: uncertain is NOT presented as 0.95/high
+  it('T21: exact uncertain never presented as 0.95/high', async () => {
+    setupKeLookup('uncertain');
+
+    const result = await parseConversationalContext('comp_1', 'zxqwmklp acbd', 'qbrxzn wyvkm pld');
+
+    const presentedAsAuthoritative = result.glAccountId === 'gl-ke' && result.confidence === 0.95 && result.confidenceLabel === 'high';
+    expect(presentedAsAuthoritative).toBe(false);
+  });
+
+  // T22: the questioned treatment stays observable (traceability/disclosure)
+  it('T22: questioned exact treatment stays observable in the result disclosure', async () => {
+    setupKeLookup('uncertain');
+
+    const result = await parseConversationalContext('comp_1', 'ke entity', 'compra');
+
+    expect(result.uncertaintyReasons.join(' ')).toContain('mem_questioned');
+    expect(result.uncertaintyReasons.join(' ')).toContain('gl-ke');
+    expect(result.uncertaintyReasons.join(' ')).toContain('did not decide');
   });
 });

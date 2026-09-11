@@ -365,3 +365,130 @@ describe('conversational structural matching (KE propagation)', () => {
     expect(explanationExact).not.toContain('Authorized structural');
   });
 });
+// ─── Confidence semantics (KE-EVOL-003) ─────────────────────────
+
+describe('conversational — uncertain knowledge is non-authoritative and observable (KE-EVOL-003)', () => {
+  function makeItemUncertain(store: Map<string, StoredItem>, itemId: string) {
+    const item = store.get(itemId);
+    if (!item) throw new Error('item missing');
+    item.confidence = 'uncertain';
+  }
+
+  // T24/T25: structural uncertain → fallback continues with explicit disclosure
+  it('T24/T25: structural uncertain MATCH is not KE authority; fallback continues with disclosure', async () => {
+    const harness = createMockPrisma();
+    const adapter = new MemoryAdapter(harness.prisma as MemoryPrismaClient, async (fn) => fn(harness.prisma));
+    const patternId = await buildAuthorized(adapter, KEY_ANY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    makeItemUncertain(harness._store, patternId);
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: ENTITY });
+
+    const result = await callParse(harness.prisma, 'ABC 999 XYZ');
+
+    // No KE decision for questioned knowledge
+    expect(result.glAccountId).not.toBe('gl_A');
+    expect(result.confidence).not.toBe(0.95);
+    expect(result.explanation).not.toContain('Authorized structural treatment');
+    // Fallback produced its own verdict (SIN_CLASIFICAR here) with disclosure
+    expect(result.confidenceLabel).toBe('low');
+    expect(result.uncertaintyReasons.join(' ')).toContain('Questioned authorized structural match');
+    expect(result.uncertaintyReasons.join(' ')).toContain(patternId);
+    expect(result.uncertaintyReasons.join(' ')).toContain('uncertain');
+  });
+
+  // T26: uncertain preserves pattern lineage/metadata in the trace log
+  it('T26: uncertain structural match preserves pattern lineage in the existing log', async () => {
+    const harness = createMockPrisma();
+    const adapter = new MemoryAdapter(harness.prisma as MemoryPrismaClient, async (fn) => fn(harness.prisma));
+    const patternId = await buildAuthorized(adapter, KEY_ANY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    // Divergent legacy lineage: custom sourceCandidateId on the pattern
+    const rawItem = harness._store.get(patternId);
+    if (!rawItem) throw new Error('pattern missing');
+    rawItem.confidence = 'uncertain';
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: ENTITY });
+
+    const result = await callParse(harness.prisma, 'ABC 999 XYZ');
+
+    // Lineage survives in the result disclosure (pattern id) and the store
+    expect(result.uncertaintyReasons.join(' ')).toContain(patternId);
+    expect(harness._store.get(patternId)?.confidence).toBe('uncertain');
+    expect(JSON.parse(harness._store.get(patternId)!.content).sourceCandidateId).toBeTruthy();
+  });
+
+  // T27/T28: ambiguous and error keep prior behavior
+  it('T27: AMBIGUOUS structural match keeps prior behavior', async () => {
+    const harness = createMockPrisma();
+    const adapter = new MemoryAdapter(harness.prisma as MemoryPrismaClient, async (fn) => fn(harness.prisma));
+    await buildAuthorized(adapter, KEY_ANY, ['ABC 111 XYZ', 'ABC 222 XYZ']);
+    await adapter.record({
+      content: JSON.stringify({
+        companyId: COMPANY, entityId: ENTITY, glAccountId: 'gl_B', direction: 'any',
+        segments: [{ kind: 'stable', value: 'abc' }, { kind: 'variable', evidence: [] }, { kind: 'stable', value: 'xyz' }],
+        sourceCandidateId: 'legacy-candidate', observationIds: ['o1', 'o2'],
+        authorizedBy: 'legacy-user', authorizedAt: new Date().toISOString(),
+      }),
+      type: AUTHORIZED_PATTERN_TYPE,
+      companyId: COMPANY,
+      sourceAuthor: 'legacy-user',
+      sourceName: 'pattern_authorization',
+      sourceObservedAt: new Date(),
+      confidence: 'certain',
+    });
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: ENTITY });
+
+    const result = await callParse(harness.prisma, 'ABC 999 XYZ');
+
+    expect(result.glAccountId).not.toBe('gl_A');
+    expect(result.uncertaintyReasons.join(' ')).toContain('structural match ambiguous');
+  });
+
+  it('T28: structural ERROR keeps prior behavior (explicit KE error)', async () => {
+    const harness = createMockPrisma();
+    const adapter = new MemoryAdapter(harness.prisma as MemoryPrismaClient, async (fn) => fn(harness.prisma));
+    const patternId = await buildAuthorized(adapter, KEY_ANY, ['ABC 111 XYZ', 'ABC 222 XYZ']);
+    await adapter.update(patternId, 'corrupt{{', COMPANY);
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: ENTITY });
+
+    const result = await callParse(harness.prisma, 'ABC 999 XYZ');
+
+    expect(result.glAccountId).toBeNull();
+    expect(result.explanation).toContain('KE structural match error');
+  });
+
+  // Exact uncertain through the REAL harness: fallback continues, disclosure present
+  it('KE-EVOL-003: exact uncertain treatment → no KE decision, fallback + disclosure (real pipeline)', async () => {
+    const harness = createMockPrisma();
+    const adapter = new MemoryAdapter(harness.prisma as MemoryPrismaClient, async (fn) => fn(harness.prisma));
+    const learn = await learnEntityTreatment(adapter, COMPANY, ENTITY, 'gl_A', 'any', 'user_correction', 'tx_exact');
+    expect(learn.status).toBe('CREATED');
+    makeItemUncertain(harness._store, learn.itemId);
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: ENTITY });
+
+    const result = await callParse(harness.prisma, 'QQQ qqq QQQ');
+
+    expect(result.glAccountId).not.toBe('gl_A');
+    expect(result.uncertaintyReasons.join(' ')).toContain('Questioned KE exact treatment');
+    expect(result.uncertaintyReasons.join(' ')).toContain(learn.itemId);
+  });
+
+  // T37: tentative !== uncertain demonstrated productively (authoritative vs non-authoritative)
+  it('T37: tentative exact keeps KE authority while uncertain exact loses it', async () => {
+    const harness = createMockPrisma();
+    const adapter = new MemoryAdapter(harness.prisma as MemoryPrismaClient, async (fn) => fn(harness.prisma));
+    const learn = await learnEntityTreatment(adapter, COMPANY, ENTITY, 'gl_A', 'any', 'user_correction', 'tx_exact');
+    expect(learn.status).toBe('CREATED');
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: ENTITY });
+
+    // learnEntityTreatment records tentative exact → KE authoritative + disclosure
+    const tentative = await callParse(harness.prisma, 'QQQ qqq QQQ');
+    expect(tentative.glAccountId).toBe('gl_A');
+    expect(tentative.uncertaintyReasons.join(' ')).toContain('tentative');
+    expect(tentative.confidence).toBe(0.95);
+
+    // Same treatment degraded to uncertain → NOT authoritative
+    const sameHarness = harness;
+    makeItemUncertain(sameHarness._store, learn.itemId);
+    const uncertain = await callParse(harness.prisma, 'QQQ qqq QQQ');
+    expect(uncertain.glAccountId).not.toBe('gl_A');
+    expect(uncertain.uncertaintyReasons.join(' ')).toContain('uncertain');
+  });
+});

@@ -406,6 +406,79 @@ describe('matchAuthorizedPattern (GENERALIZACIÓN-005)', () => {
   });
 });
 
+// ─── Matcher: confidence exposure (KE-EVOL-003) ─────────────────
+
+describe('matchAuthorizedPattern — MemoryItem.confidence exposure (KE-EVOL-003)', () => {
+  // T1: structural certain MATCH exposes confidence='certain'
+  it('T1: structural certain MATCH exposes confidence="certain"', async () => {
+    const { adapter } = createMockAdapter();
+    await buildAuthorized(adapter, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+
+    const m = await matchAuthorizedPattern(adapter, 'comp_1', 'entity_1', 'ABC 999 XYZ', 'any');
+    expect(m.kind).toBe('match');
+    if (m.kind !== 'match') return;
+    expect(m.confidence).toBe('certain');
+  });
+
+  // T2: structural uncertain MATCH exposes confidence='uncertain'
+  it('T2: structural uncertain MATCH exposes confidence="uncertain"', async () => {
+    const { adapter, store } = createMockAdapter();
+    const { patternId } = await buildAuthorized(adapter, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    // Divergent historical state: the pattern item was degraded to uncertain
+    store.get(patternId)!.confidence = 'uncertain';
+
+    const m = await matchAuthorizedPattern(adapter, 'comp_1', 'entity_1', 'ABC 999 XYZ', 'any');
+    // The matcher never converts an uncertain match into no_match
+    expect(m.kind).toBe('match');
+    if (m.kind !== 'match') return;
+    expect(m.confidence).toBe('uncertain');
+  });
+
+  // T3: exposing confidence does not change structural matching
+  it('T3: exposing confidence does not change structural matching', async () => {
+    const { adapter } = createMockAdapter();
+    await buildAuthorized(adapter, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+
+    // Still-matching variants resolve as before with identical fields
+    const m = await matchAuthorizedPattern(adapter, 'comp_1', 'entity_1', 'ABC 999 XYZ', 'any');
+    expect(m.kind).toBe('match');
+    if (m.kind !== 'match') return;
+    expect(m.glAccountId).toBe('gl_A');
+    expect(m.matchedPatternIds).toHaveLength(1);
+    expect(m.sourceCandidateId).toBeTruthy();
+    expect(m.observationIds).toHaveLength(3);
+
+    // Still non-matching variants do not match
+    expect((await matchAuthorizedPattern(adapter, 'comp_1', 'entity_1', 'ABD 999 XYZ', 'any')).kind).toBe('no_match');
+    expect((await matchAuthorizedPattern(adapter, 'comp_1', 'entity_1', 'ABC 999 XYZ EXTRA', 'any')).kind).toBe('no_match');
+  });
+
+  // T4: ambiguous keeps prior semantics (and does not expose confidence)
+  it('T4: AMBIGUOUS keeps prior semantics — no single treatment invented', async () => {
+    const { adapter } = createMockAdapter();
+    const a = await buildAuthorized(adapter, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ']);
+    const b = await recordRawAuthorizedPattern(adapter, { ...KEY, glAccountId: 'gl_B' }, [
+      { kind: 'stable', value: 'abc' },
+      { kind: 'variable', evidence: [] },
+      { kind: 'stable', value: 'xyz' },
+    ]);
+
+    const m = await matchAuthorizedPattern(adapter, 'comp_1', 'entity_1', 'ABC 999 XYZ', 'any');
+    expect(m.kind).toBe('ambiguous');
+    if (m.kind !== 'ambiguous') return;
+    expect(m.matchedPatternIds.sort()).toEqual([a.patternId, b].sort());
+  });
+
+  // T5: no-match keeps prior semantics
+  it('T5: NO_MATCH keeps prior semantics', async () => {
+    const { adapter } = createMockAdapter();
+    await buildAuthorized(adapter, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+
+    const m = await matchAuthorizedPattern(adapter, 'comp_1', 'entity_1', 'ZZZ 111 YYY', 'any');
+    expect(m.kind).toBe('no_match');
+  });
+});
+
 // ─── Productive integration: resolveImportDecision ───────────────
 
 describe('resolveImportDecision with structural matching (GENERALIZACIÓN-005)', () => {
@@ -553,5 +626,239 @@ describe('resolveImportDecision with structural matching (GENERALIZACIÓN-005)',
       (item) => item.type === 'classification',
     );
     expect(classificationItems).toHaveLength(0);
+  });
+});
+
+
+// ─── Import confidence semantics (KE-EVOL-003) ──────────────────
+
+describe('resolveImportDecision — confidence semantics (KE-EVOL-003)', () => {
+  let resolveRule: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    mockResolveEntity.mockReset();
+    resolveRule = vi.fn().mockResolvedValue({ matchedRuleId: 'rule-9', glAccountId: 'gl_RULE' });
+  });
+
+  function known(entityId: string) {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId });
+  }
+
+  function makePatternUncertain(store: Map<string, StoredItem>, patternId: string) {
+    const item = store.get(patternId);
+    if (!item) throw new Error('pattern item missing');
+    item.confidence = 'uncertain';
+  }
+
+  function makeExactUncertain(store: Map<string, StoredItem>, itemId: string) {
+    const item = store.get(itemId);
+    if (!item) throw new Error('exact item missing');
+    item.confidence = 'uncertain';
+  }
+
+  /** Divergent historical state: a second active exact treatment, raw store. */
+  async function recordRawExactTreatment(adapter: MemoryAdapter, companyId: string, entityId: string, glAccountId: string): Promise<string> {
+    const item = await adapter.record({
+      content: JSON.stringify({ entityId, glAccountId, direction: 'any' }),
+      type: 'classification',
+      companyId,
+      sourceAuthor: 'legacy-user',
+      sourceName: 'correction',
+      sourceObservedAt: new Date(),
+      confidence: 'certain',
+    });
+    return item.id;
+  }
+
+
+  // T12: structural certain → KE authoritative, no rule engine
+  it('T12: structural certain MATCH remains KE authoritative', async () => {
+    const { adapter: fresh } = createMockAdapter();
+    await buildAuthorized(fresh, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ABC 999 XYZ', resolveRule);
+
+    expect(decision.source).toBe('ke');
+    expect(decision.glAccountId).toBe('gl_A');
+    expect(resolveRule).not.toHaveBeenCalled();
+  });
+
+  // T13: structural uncertain → KE NOT authoritative, rule engine executes
+  it('T13: structural uncertain MATCH is not KE authority — rule engine executes', async () => {
+    const { adapter: fresh, store } = createMockAdapter();
+    const { patternId } = await buildAuthorized(fresh, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    makePatternUncertain(store, patternId);
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ABC 999 XYZ', resolveRule);
+
+    expect(decision.source).toBe('rule_engine');
+    expect(decision.glAccountId).toBe('gl_RULE');
+    expect(decision.matchedRuleId).toBe('rule-9');
+    expect(resolveRule).toHaveBeenCalledTimes(1);
+  });
+
+  // T14: uncertain structural + rule engine resolves → final authority is the rule engine
+  it('T14: uncertain structural with rule engine resolution → result from rule engine, not KE', async () => {
+    const { adapter: fresh, store } = createMockAdapter();
+    const { patternId } = await buildAuthorized(fresh, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    makePatternUncertain(store, patternId);
+    known('entity_1');
+    resolveRule = vi.fn().mockResolvedValue({ matchedRuleId: 'rule-final', glAccountId: 'gl_FINAL' });
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ABC 999 XYZ', resolveRule);
+
+    expect(decision.source).toBe('rule_engine');
+    expect(decision.glAccountId).toBe('gl_FINAL');
+    expect(decision.matchedRuleId).toBe('rule-final');
+  });
+
+  // T15: uncertain structural preserves questioned match metadata (traceability)
+  it('T15: uncertain structural preserves questioned match metadata in the trace log', async () => {
+    const { logger } = await import('../../../src/lib/logger');
+    const infoSpy = vi.spyOn(logger, 'info');
+
+    const { adapter: fresh, store } = createMockAdapter();
+    const { patternId } = await buildAuthorized(fresh, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    makePatternUncertain(store, patternId);
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ABC 999 XYZ', resolveRule);
+
+    expect(decision.source).toBe('rule_engine');
+    const uncertainLog = (infoSpy.mock.calls.map((c) => JSON.stringify(c))).join('\n');
+    expect(uncertainLog).toContain('uncertain confidence');
+    expect(uncertainLog).toContain(patternId);
+    infoSpy.mockRestore();
+  });
+
+  // T16: AMBIGUOUS keeps existing behavior
+  it('T16: AMBIGUOUS structural match keeps existing behavior (rule engine continues)', async () => {
+    const { adapter: fresh } = createMockAdapter();
+    await buildAuthorized(fresh, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ']);
+    await recordRawAuthorizedPattern(fresh, { ...KEY, glAccountId: 'gl_B' }, [
+      { kind: 'stable', value: 'abc' },
+      { kind: 'variable', evidence: [] },
+      { kind: 'stable', value: 'xyz' },
+    ]);
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ABC 999 XYZ', resolveRule);
+
+    expect(decision.source).toBe('rule_engine');
+    expect(decision.glAccountId).toBe('gl_RULE');
+    expect(resolveRule).toHaveBeenCalledTimes(1);
+  });
+
+  // T17: ERROR keeps existing behavior
+  it('T17: corrupt authorized pattern → ke_error keeps existing behavior', async () => {
+    const { adapter: fresh, store } = createMockAdapter();
+    const { patternId } = await buildAuthorized(fresh, KEY, ['ABC 111 XYZ', 'ABC 222 XYZ', 'ABC 333 XYZ']);
+    store.get(patternId)!.content = 'corrupt{';
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ABC 999 XYZ', resolveRule);
+
+    expect(decision.source).toBe('ke_error');
+    expect(decision.glAccountId).toBeNull();
+    expect(resolveRule).not.toHaveBeenCalled();
+  });
+
+  // T6: exact certain → KE authoritative, rule engine NOT executed
+  it('T6: exact certain treatment → KE authoritative, rule engine not executed', async () => {
+    const { adapter: fresh, store } = createMockAdapter();
+    const learn = await learnEntityTreatment(fresh, 'comp_1', 'entity_1', 'gl_EXACT', 'any', 'user_correction', 'tx_e');
+    expect(learn.status).toBe('CREATED');
+    // Divergent historical state: already-confirmed exact treatment (certain)
+    store.get(learn.itemId)!.confidence = 'certain';
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ANY DESCRIPTION', resolveRule);
+
+    expect(decision.source).toBe('ke');
+    expect(decision.glAccountId).toBe('gl_EXACT');
+    expect(resolveRule).not.toHaveBeenCalled();
+  });
+
+  // T7: exact tentative → keeps KE authority, rule engine NOT executed
+  it('T7: exact tentative treatment keeps KE authority — rule engine not executed', async () => {
+    const { adapter: fresh } = createMockAdapter();
+    const learn = await learnEntityTreatment(fresh, 'comp_1', 'entity_1', 'gl_EXACT', 'any', 'user_correction', 'tx_e');
+    expect(learn.status).toBe('CREATED');
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ANY DESCRIPTION', resolveRule);
+
+    expect(decision.source).toBe('ke');
+    expect(decision.glAccountId).toBe('gl_EXACT');
+    expect(resolveRule).not.toHaveBeenCalled();
+  });
+
+  // T8: exact uncertain → KE NOT authoritative, rule engine executes
+  it('T8: exact uncertain treatment is NOT KE authority — rule engine executes', async () => {
+    const { adapter: fresh, store } = createMockAdapter();
+    const learn = await learnEntityTreatment(fresh, 'comp_1', 'entity_1', 'gl_EXACT', 'any', 'user_correction', 'tx_e');
+    expect(learn.status).toBe('CREATED');
+    makeExactUncertain(store, learn.itemId);
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ANY DESCRIPTION', resolveRule);
+
+    expect(decision.source).toBe('rule_engine');
+    expect(decision.glAccountId).toBe('gl_RULE');
+    expect(resolveRule).toHaveBeenCalledTimes(1);
+  });
+
+  // T9: exact uncertain + rule engine resolves → result from rule engine, not KE
+  it('T9: exact uncertain with rule engine resolution → result from rule engine, not KE', async () => {
+    const { adapter: fresh, store } = createMockAdapter();
+    const learn = await learnEntityTreatment(fresh, 'comp_1', 'entity_1', 'gl_EXACT', 'any', 'user_correction', 'tx_e');
+    expect(learn.status).toBe('CREATED');
+    makeExactUncertain(store, learn.itemId);
+    known('entity_1');
+    resolveRule = vi.fn().mockResolvedValue({ matchedRuleId: 'rule-final', glAccountId: 'gl_FINAL' });
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ANY DESCRIPTION', resolveRule);
+
+    expect(decision.source).toBe('rule_engine');
+    expect(decision.glAccountId).toBe('gl_FINAL');
+    expect(decision.matchedRuleId).toBe('rule-final');
+  });
+
+  // T10: exact uncertain remains observable/traceable in the existing decision log
+  it('T10: exact uncertain remains observable/traceable in the existing log', async () => {
+    const { logger } = await import('../../../src/lib/logger');
+    const infoSpy = vi.spyOn(logger, 'info');
+
+    const { adapter: fresh, store } = createMockAdapter();
+    const learn = await learnEntityTreatment(fresh, 'comp_1', 'entity_1', 'gl_EXACT', 'any', 'user_correction', 'tx_e');
+    expect(learn.status).toBe('CREATED');
+    makeExactUncertain(store, learn.itemId);
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ANY DESCRIPTION', resolveRule);
+
+    expect(decision.source).toBe('rule_engine');
+    const logged = (infoSpy.mock.calls.map((c) => JSON.stringify(c))).join('\n');
+    expect(logged).toContain('uncertain');
+    expect(logged).toContain(learn.itemId);
+    expect(logged).toContain('gl_EXACT');
+    infoSpy.mockRestore();
+  });
+
+  // T11: ERROR keeps current semantics, never confused with uncertain
+  it('T11: exact lookup ERROR keeps ke_error semantics (never treated as uncertain)', async () => {
+    const { adapter: fresh } = createMockAdapter();
+    // Two active treatments for the same entity → ambiguous → ERROR
+    await learnEntityTreatment(fresh, 'comp_1', 'entity_1', 'gl_A', 'any', 'user_correction', 'tx_e1');
+    await recordRawExactTreatment(fresh, 'comp_1', 'entity_1', 'gl_B');
+    known('entity_1');
+
+    const decision = await resolveImportDecision(fresh, 'comp_1', 'ANY DESCRIPTION', resolveRule);
+
+    expect(decision.source).toBe('ke_error');
+    expect(decision.glAccountId).toBeNull();
+    expect(resolveRule).not.toHaveBeenCalled();
   });
 });

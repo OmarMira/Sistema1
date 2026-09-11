@@ -2,6 +2,7 @@ import { normalizePattern } from '@/lib/services/pattern-normalizer';
 import { detectConflictSync } from '@/lib/services/entity-conflict-detector';
 import type { EntityCandidate } from '@/lib/services/entity-detector';
 import type { EntityContextWithGlAccount } from '@/lib/types/entity-context';
+import type { ConfidenceLevel } from '@prisma/client';
 import { toConfidenceLabel } from '@/lib/types/reasoning';
 import { serverT } from '@/lib/server-i18n';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
@@ -41,6 +42,12 @@ export interface EnrichedCandidate extends EntityCandidate {
   confidenceLabel: 'high' | 'medium' | 'low';
   explanation: string;
   directionWarning?: string | null;
+  /**
+   * KE-EVOL-003: explicit disclosure that prior KE knowledge behind the
+   * suggestion is questioned (MemoryItem.confidence = uncertain). Advisory
+   * only — the human decides.
+   */
+  uncertaintyReasons?: string[];
 }
 
 export interface ScanEntry {
@@ -116,15 +123,30 @@ export function resolveContextRole(
 // Post-cutover: source is KE treatment (resolveEntity → lookupTreatment).
 // UNKNOWN / NOT_FOUND → null (no suggestion).
 // ERROR → propagates as exception (distinguishable from absence of knowledge).
+// KE-EVOL-003: the suggestion remains ADVISORY and HUMAN-GATED. The stored
+// MemoryItem.confidence travels with the suggestion so the uncertainty
+// channel (ScanPattern.uncertaintyReasons) can disclose questioned knowledge.
+// An uncertain suggestion is never collapsed to null and the enricher's own
+// heuristic confidence is never substituted for MemoryItem.confidence.
 
-export async function suggestGlAccount(
+export interface KnowledgeSuggestion {
+  account: { name: string; code: string; id: string } | null;
+  knowledgeKind: 'exact' | 'structural' | null;
+  knowledgeConfidence?: ConfidenceLevel;
+  knowledgeMemoryItemId?: string;
+  knowledgePatternId?: string;
+}
+
+export async function resolveKnowledgeSuggestion(
   companyId: string,
   description: string,
   _context: EntityContextWithGlAccount | null,
   _direction: 'debit' | 'credit' | null,
   glAccounts: EnrichmentInput['glAccounts'],
   prismaClient: ExtendedPrismaClient,
-): Promise<{ name: string; code: string; id: string } | null> {
+): Promise<KnowledgeSuggestion> {
+  const resolution: KnowledgeSuggestion = { account: null, knowledgeKind: null };
+
   // Step 1: Entity Resolution
   const entityResolution = await resolveEntity(companyId, description);
 
@@ -133,7 +155,7 @@ export async function suggestGlAccount(
   }
 
   if (entityResolution.status === 'UNKNOWN') {
-    return null;
+    return resolution;
   }
 
   // Step 2: Treatment Lookup
@@ -144,47 +166,65 @@ export async function suggestGlAccount(
     throw new Error(`KE treatment lookup error: ${treatment.reason}`);
   }
 
-  if (treatment.status === 'NOT_FOUND') {
-    // Structural match of AUTHORIZED patterns (GENERALIZACIÓN-005 knowledge)
-    // before giving up on a suggestion — informative read only, no authority.
-    const structural = await matchAuthorizedPattern(
-      keAdapter,
-      companyId,
-      entityResolution.entityId,
-      description,
-      _direction ?? 'any',
-    );
-
-    if (structural.kind === 'error') {
-      // ERROR stays explicit — never degraded to "no suggestion"
-      throw new Error(`KE structural match error: ${structural.reason}`);
+  if (treatment.status === 'FOUND') {
+    const account = glAccounts.find((a) => a.id === treatment.glAccountId);
+    if (account) {
+      resolution.account = { name: account.name, code: account.code, id: account.id };
+      resolution.knowledgeKind = 'exact';
+      resolution.knowledgeConfidence = treatment.confidence;
+      resolution.knowledgeMemoryItemId = treatment.memoryItemId;
     }
-    if (structural.kind === 'ambiguous') {
-      // Cannot suggest an undecided GL
-      return null;
-    }
-    // NO_MATCH → null
-    if (structural.kind === 'match') {
-      const account = glAccounts.find((a) => a.id === structural.glAccountId);
-      if (account) {
-        return { name: account.name, code: account.code, id: account.id };
-      }
-      return null;
-    }
-    return null;
+    return resolution;
   }
 
-  // Step 3: Resolve GL account from treatment
-  const account = glAccounts.find((a) => a.id === treatment.glAccountId);
-  if (account) {
-    return {
-      name: account.name,
-      code: account.code,
-      id: account.id,
-    };
-  }
+  // Treatment NOT_FOUND → structural match of AUTHORIZED patterns before
+  // giving up on a suggestion — informative read only, no authority.
+  const structural = await matchAuthorizedPattern(
+    keAdapter,
+    companyId,
+    entityResolution.entityId,
+    description,
+    _direction ?? 'any',
+  );
 
-  return null;
+  if (structural.kind === 'error') {
+    // ERROR stays explicit — never degraded to "no suggestion"
+    throw new Error(`KE structural match error: ${structural.reason}`);
+  }
+  if (structural.kind === 'ambiguous') {
+    // Cannot suggest an undecided GL
+    return resolution;
+  }
+  if (structural.kind === 'match') {
+    const account = glAccounts.find((a) => a.id === structural.glAccountId);
+    if (account) {
+      resolution.account = { name: account.name, code: account.code, id: account.id };
+      resolution.knowledgeKind = 'structural';
+      resolution.knowledgeConfidence = structural.confidence;
+      resolution.knowledgePatternId = structural.authorizedPatternId;
+    }
+    return resolution;
+  }
+  return resolution;
+}
+
+export async function suggestGlAccount(
+  companyId: string,
+  description: string,
+  _context: EntityContextWithGlAccount | null,
+  _direction: 'debit' | 'credit' | null,
+  glAccounts: EnrichmentInput['glAccounts'],
+  prismaClient: ExtendedPrismaClient,
+): Promise<{ name: string; code: string; id: string } | null> {
+  const resolution = await resolveKnowledgeSuggestion(
+    companyId,
+    description,
+    _context,
+    _direction,
+    glAccounts,
+    prismaClient,
+  );
+  return resolution.account;
 }
 
 // ========== T5c: MAJORITY DIRECTION ==========
@@ -225,6 +265,9 @@ export function buildScanPattern(
     confidence: enriched.confidence,
     confidenceLabel: enriched.confidenceLabel,
     explanation: enriched.explanation,
+    ...(enriched.uncertaintyReasons?.length
+      ? { uncertaintyReasons: enriched.uncertaintyReasons }
+      : {}),
   };
 }
 
@@ -256,9 +299,9 @@ export async function enrichCandidates(
     }
     if (candidate.occurrences < effectiveMinOccurrences) continue;
 
-    // Step 3: suggest GL account via KE treatment lookup
+    // Step 3: suggest GL account via KE treatment lookup (advisory, human-gated)
     const direction = majorityDirection(candidate);
-    const suggested = await suggestGlAccount(
+    const knowledge = await resolveKnowledgeSuggestion(
       input.companyId,
       description,
       context,
@@ -266,6 +309,7 @@ export async function enrichCandidates(
       input.glAccounts,
       input.prismaClient,
     );
+    const suggested = knowledge.account;
 
     // Step 4: compute confidence — multi-factor instead of binary 0.0/0.95
     const directionMatch = direction && context
@@ -276,6 +320,21 @@ export async function enrichCandidates(
     const contextBoost = context ? 0.3 : 0;
     const confidence = Math.min(contextBoost + directionBoost + occurrenceBoost + 0.5, 0.95);
     const confidenceLabel = toConfidenceLabel(confidence);
+
+    // KE-EVOL-003: questioned prior knowledge discloses through the
+    // uncertaintyReasons channel — the reason derives from the stored
+    // MemoryItem.confidence (via lookupTreatment / matchAuthorizedPattern),
+    // never from the enricher's own heuristic score. The suggestion stays
+    // visible for the human to judge; it is never collapsed to null and
+    // nothing is written.
+    const knowledgeUncertaintyReasons: string[] = [];
+    if (suggested && knowledge.knowledgeConfidence === 'uncertain') {
+      knowledgeUncertaintyReasons.push(
+        knowledge.knowledgeKind === 'exact'
+          ? `KE exact treatment is uncertain (memory item ${knowledge.knowledgeMemoryItemId ?? 'unknown'}) — prior knowledge is questioned; review the suggestion`
+          : `Authorized structural pattern match is uncertain (pattern ${knowledge.knowledgePatternId ?? 'unknown'}) — prior knowledge is questioned; review the suggestion`,
+      );
+    }
     const explanation = context
       ? serverT(locale, 'reasoning.entityContextHigh')
           .replace('{role}', context.role)
@@ -307,6 +366,9 @@ export async function enrichCandidates(
       confidenceLabel,
       explanation,
       directionWarning: directionWarning?.warning ?? null,
+      ...(knowledgeUncertaintyReasons.length
+        ? { uncertaintyReasons: knowledgeUncertaintyReasons }
+        : {}),
     });
   }
 

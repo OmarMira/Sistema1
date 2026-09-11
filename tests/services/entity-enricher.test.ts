@@ -418,3 +418,125 @@ describe('enrichCandidates', () => {
     expect(result[0].directionProfile.debitPct).toBe(0.8);
   });
 });
+// ─── KE-EVOL-003: enricher confidence semantics (advisory, human-gated) ──
+
+describe('enrichCandidates — uncertaintyReasons channel (KE-EVOL-003)', () => {
+  let input: EnrichmentInput;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    input = {
+      companyId: 'comp_1',
+      prismaClient: { $transaction: vi.fn() } as { $transaction: typeof vi.fn; [key: string]: unknown } & Record<string, unknown>,
+      contexts: [mockContextProveedor],
+      glAccounts: mockGlAccounts,
+      rolePriorities: { PROVEEDOR: 1 },
+    };
+  });
+
+  function candidate() {
+    return makeCandidate({ canonicalName: 'ACME CORP' });
+  }
+
+  function descriptions() {
+    return new Map([['acme corp', 'Zelle payment to ACME CORP']]);
+  }
+
+  // T29: exact certain → advisory suggestion, no uncertainty disclosure
+  it('T29: exact certain → advisory suggestion (no uncertaintyReasons)', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({
+      status: 'FOUND', glAccountId: 'gla_1', direction: 'any', confidence: 'certain', memoryItemId: 'mem_1',
+    });
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.suggestedAccountId).toBe('gla_1');
+    expect(result[0]!.uncertaintyReasons).toBeUndefined();
+  });
+
+  // T30: exact tentative → advisory suggestion (advisory state unchanged)
+  it('T30: exact tentative → advisory suggestion', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({
+      status: 'FOUND', glAccountId: 'gla_1', direction: 'any', confidence: 'tentative', memoryItemId: 'mem_1',
+    });
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.suggestedAccountId).toBe('gla_1');
+  });
+
+  // T31/T32: exact uncertain → suggestion stays + uncertaintyReasons, NOT collapsed to null
+  it('T31/T32: exact uncertain → suggestion NOT collapsed to null; uncertaintyReasons populated', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({
+      status: 'FOUND', glAccountId: 'gla_1', direction: 'any', confidence: 'uncertain', memoryItemId: 'mem_q',
+    });
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result).toHaveLength(1);
+    const enriched = result[0];
+    expect(enriched.suggestedAccountId).toBe('gla_1');
+    expect(enriched.suggestedAccountCode).toBe('6070');
+    expect(enriched.uncertaintyReasons).toBeDefined();
+    expect(enriched.uncertaintyReasons!.length).toBeGreaterThan(0);
+    expect(enriched.uncertaintyReasons!.join(' ')).toContain('uncertain');
+    expect(enriched.uncertaintyReasons!.join(' ')).toContain('mem_q');
+  });
+
+  // T33: structural certain → advisory suggestion
+  it('T33: structural certain match → advisory suggestion', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
+    mockMatchAuthorizedPattern.mockResolvedValue({
+      kind: 'match', authorizedPatternId: 'apt_1', matchedPatternIds: ['apt_1'],
+      entityId: 'ent_1', glAccountId: 'gla_1', direction: 'any',
+      sourceCandidateId: 'can_1', observationIds: ['o1'], confidence: 'certain',
+    });
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.suggestedAccountId).toBe('gla_1');
+    expect(result[0]!.uncertaintyReasons).toBeUndefined();
+  });
+
+  // T34/T35: structural uncertain → suggestion stays + uncertaintyReasons, NOT collapsed
+  it('T34/T35: structural uncertain → suggestion + uncertaintyReasons, not null', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
+    mockMatchAuthorizedPattern.mockResolvedValue({
+      kind: 'match', authorizedPatternId: 'apt_q', matchedPatternIds: ['apt_q'],
+      entityId: 'ent_1', glAccountId: 'gla_1', direction: 'any',
+      sourceCandidateId: 'can_1', observationIds: ['o1'], confidence: 'uncertain',
+    });
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.suggestedAccountId).toBe('gla_1');
+    expect(result[0]!.uncertaintyReasons).toBeDefined();
+    expect(result[0]!.uncertaintyReasons!.join(' ')).toContain('uncertain');
+    expect(result[0]!.uncertaintyReasons!.join(' ')).toContain('apt_q');
+  });
+
+  // T36: matcher ERROR keeps existing behavior
+  it('T36: structural match ERROR keeps existing behavior (propagates)', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
+    mockMatchAuthorizedPattern.mockResolvedValue({ kind: 'error', reason: 'DB failure' });
+
+    await expect(enrichCandidates([candidate()], descriptions(), input)).rejects.toThrow('KE structural match error');
+  });
+
+  // T40: enricher stays advisory/human-gated — no new writes, reason derives from MemoryItem.confidence
+  it('T40: uncertain disclosure does not write anything (advisory, human-gated)', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({
+      status: 'FOUND', glAccountId: 'gla_1', direction: 'any', confidence: 'uncertain', memoryItemId: 'mem_q',
+    });
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(input.prismaClient.$transaction).not.toHaveBeenCalled();
+    expect(result[0]!.suggestedAccountId).toBe('gla_1');
+  });
+});

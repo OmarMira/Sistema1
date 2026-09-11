@@ -1065,6 +1065,12 @@ export type AuthorizedPatternMatch =
       direction: 'debit' | 'credit' | 'any';
       sourceCandidateId: string;
       observationIds: string[];
+      /**
+       * Real MemoryItem.confidence of the matched authorized pattern item
+       * (KE-EVOL-003). Exposed verbatim; the matcher never converts an
+       * uncertain match into no_match — authority is decided by the consumer.
+       */
+      confidence?: ConfidenceLevel;
     }
   | { kind: 'no_match' }
   | { kind: 'ambiguous'; matchedPatternIds: string[] }
@@ -1166,7 +1172,7 @@ export async function matchAuthorizedPattern(
     return { kind: 'error', reason: 'Invalid direction' };
   }
 
-  let items: Array<{ id: string; content: string; status: string }>;
+  let items: Array<{ id: string; content: string; status: string; confidence?: ConfidenceLevel }>;
   try {
     items = await adapter.getByType(companyId, AUTHORIZED_PATTERN_TYPE);
   } catch (error) {
@@ -1177,7 +1183,7 @@ export async function matchAuthorizedPattern(
   }
 
   const tokens = normalizeTokensForStructure(description);
-  const matched: Array<{ id: string; content: AuthorizedPatternContent }> = [];
+  const matched: Array<{ id: string; content: AuthorizedPatternContent; confidence?: ConfidenceLevel }> = [];
 
   for (const item of items) {
     if (item.status !== 'active') continue;
@@ -1197,7 +1203,7 @@ export async function matchAuthorizedPattern(
     if (content.entityId !== entityId) continue;
     if (!directionsCompatible(direction, content.direction)) continue;
     if (structuralMatch(tokens, content.segments)) {
-      matched.push({ id: item.id, content });
+      matched.push({ id: item.id, content, confidence: item.confidence });
     }
   }
 
@@ -1222,6 +1228,7 @@ export async function matchAuthorizedPattern(
     direction: primary.direction,
     sourceCandidateId: primary.sourceCandidateId,
     observationIds: primary.observationIds,
+    confidence: matched[0].confidence,
   };
 }
 

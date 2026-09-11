@@ -6,10 +6,83 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
-import { createAdapter, learnEntityTreatment, recordClassificationObservation, detectConflictingPattern } from '@/memory/classification-knowledge';
+import {
+  createAdapter,
+  learnEntityTreatment,
+  recordClassificationObservation,
+  detectConflictingPattern,
+  evolveClassificationConfidence,
+  degradeKnowledgeOnConflict,
+} from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
+
+// ─── KE-EVOL-002 secondary confidence helpers ───────────────────
+// Confidence is a SECONDARY KE operation after accounting success.
+// Failures are logged with an explicit stage and never revert the
+// already-committed accounting correction.
+
+function logConfidenceFailure(
+  stage: 'confidence_promotion' | 'confidence_degradation',
+  context: {
+    transactionId: string;
+    companyId: string;
+    entityId: string;
+    error: string;
+  },
+): void {
+  logger.warn(`[KE] Confidence ${stage === 'confidence_promotion' ? 'promotion' : 'degradation'} failed — accounting correction stands`, {
+    ...context,
+    stage,
+  });
+}
+
+/** Promote the confirmed exact treatment to certain (human_confirmation). */
+async function promoteConfirmedTreatment(
+  itemId: string,
+  transactionId: string,
+  companyId: string,
+  entityId: string,
+): Promise<void> {
+  const result = await evolveClassificationConfidence(
+    createAdapter(db, (fn) => db.$transaction(fn)),
+    companyId,
+    itemId,
+    'certain',
+    'human_confirmation',
+  );
+  if (result.status === 'ERROR') {
+    logConfidenceFailure('confidence_promotion', {
+      transactionId,
+      companyId,
+      entityId,
+      error: result.error,
+    });
+  }
+}
+
+/** Degrade knowledge questioned by a persisted deterministic conflict. */
+async function degradeOnPersistedConflict(
+  conflictId: string,
+  transactionId: string,
+  companyId: string,
+  entityId: string,
+): Promise<void> {
+  const degrade = await degradeKnowledgeOnConflict(
+    createAdapter(db, (fn) => db.$transaction(fn)),
+    companyId,
+    conflictId,
+  );
+  if (degrade.status === 'ERROR') {
+    logConfidenceFailure('confidence_degradation', {
+      transactionId,
+      companyId,
+      entityId,
+      error: degrade.error,
+    });
+  }
+}
 
 // ─── PATCH /api/transactions/[id] ───────────────────────────────────────
 // Manual GL account assignment: updates the transaction and creates the
@@ -165,6 +238,10 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             stage: 'entity_treatment_learning',
             error: keResult.reason,
           });
+        } else {
+          // KE-EVOL-002: user-confirmed correction is human authority over
+          // THIS exact treatment → promote to certain via existing C11.
+          await promoteConfirmedTreatment(keResult.itemId, id, companyId, confirmed.id);
         }
 
         // Record observation (independent of treatment UNCHANGED/UPDATED)
@@ -206,6 +283,10 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             stage: 'conflict_detection',
             error: conflictResult.error,
           });
+        } else if (conflictResult.status === 'RECORDED' || conflictResult.status === 'ALREADY_RECORDED') {
+          // KE-EVOL-002: persisted deterministic conflict degrades the
+          // questioned knowledge via existing C11 infrastructure.
+          await degradeOnPersistedConflict(conflictResult.conflictId, id, companyId, confirmed.id);
         }
       } else if (entityResolution.status === 'KNOWN') {
         // Entity already known — just learn treatment
@@ -225,6 +306,10 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             stage: 'entity_treatment_learning',
             error: keResult.reason,
           });
+        } else {
+          // KE-EVOL-002: user-confirmed correction promotes THIS exact
+          // treatment to certain via existing C11.
+          await promoteConfirmedTreatment(keResult.itemId, id, companyId, entityResolution.entityId);
         }
 
         // Record observation (independent of treatment UNCHANGED/UPDATED)
@@ -266,6 +351,10 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             stage: 'conflict_detection',
             error: conflictResult.error,
           });
+        } else if (conflictResult.status === 'RECORDED' || conflictResult.status === 'ALREADY_RECORDED') {
+          // KE-EVOL-002: persisted deterministic conflict degrades the
+          // questioned knowledge via existing C11 infrastructure.
+          await degradeOnPersistedConflict(conflictResult.conflictId, id, companyId, entityResolution.entityId);
         }
       } else {
         // ERROR — do not persist identity or treatment silently
@@ -297,6 +386,10 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             stage: 'entity_treatment_learning',
             error: keResult.reason,
           });
+        } else {
+          // KE-EVOL-002: user-confirmed correction promotes THIS exact
+          // treatment to certain via existing C11.
+          await promoteConfirmedTreatment(keResult.itemId, id, companyId, entityResolution.entityId);
         }
 
         // Record observation (independent of treatment UNCHANGED/UPDATED)
@@ -338,6 +431,10 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             stage: 'conflict_detection',
             error: conflictResult.error,
           });
+        } else if (conflictResult.status === 'RECORDED' || conflictResult.status === 'ALREADY_RECORDED') {
+          // KE-EVOL-002: persisted deterministic conflict degrades the
+          // questioned knowledge via existing C11 infrastructure.
+          await degradeOnPersistedConflict(conflictResult.conflictId, id, companyId, entityResolution.entityId);
         }
       } else if (entityResolution.status === 'UNKNOWN') {
         logger.info('[KE] Unknown entity — learning skipped', {

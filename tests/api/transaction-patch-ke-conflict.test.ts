@@ -148,6 +148,8 @@ vi.mock('@/memory/classification-knowledge', async (importOriginal) => {
     learnEntityTreatment: vi.fn(actual.learnEntityTreatment),
     recordClassificationObservation: vi.fn(actual.recordClassificationObservation),
     detectConflictingPattern: vi.fn(actual.detectConflictingPattern),
+    evolveClassificationConfidence: vi.fn(actual.evolveClassificationConfidence),
+    degradeKnowledgeOnConflict: vi.fn(actual.degradeKnowledgeOnConflict),
   };
 });
 
@@ -158,9 +160,12 @@ import { logger } from '@/lib/logger';
 import type { MemoryPrismaClient, TransactionRunner } from '@/memory/prisma-types';
 import {
   createAdapter,
+  learnEntityTreatment,
   recordClassificationObservation,
   detectConflictingPattern,
   getPendingConflicts,
+  evolveClassificationConfidence,
+  degradeKnowledgeOnConflict,
   recordStructuralCandidate,
   authorizeStructuralCandidate,
   discoverStructuralCandidateForGroup,
@@ -244,34 +249,43 @@ describe('KE-EVOL-001 — PATCH /api/transactions/[id] conflict integration', ()
     } as never);
   });
 
-  // T13: accounting correction FAILS at the $transaction level →
-  // NO observation, NO conflict detection, and the request fails
-  it('T13: accounting failure → observation & detection NOT called; request fails', async () => {
+  // T15: accounting correction FAILS at the $transaction level →
+  // NO learning, NO promotion, NO observation, NO conflict, NO degradation
+  it('T15: accounting failure → no learn, no promote, no observation, no detection, no degradation; request fails', async () => {
     db.setBlockBankTransactionUpdate(true);
 
     const { PATCH } = await import('@/app/api/transactions/[id]/route');
 
     await expect(PATCH(makeRequest(), patchContext())).rejects.toThrow('ACCOUNTING_FAILURE_FORCED');
 
+    expect(learnEntityTreatment).not.toHaveBeenCalled();
+    expect(evolveClassificationConfidence).not.toHaveBeenCalled();
     expect(recordClassificationObservation).not.toHaveBeenCalled();
     expect(detectConflictingPattern).not.toHaveBeenCalled();
+    expect(degradeKnowledgeOnConflict).not.toHaveBeenCalled();
 
     // Nothing was learned at all
     expect(db.store.size).toBe(0);
   });
 
-  // T14: accounting success + divergence → observation BEFORE detection,
-  // conflict RECORDED and REALLY persisted, accounting response 200
-  it('T14: success → observation → detection (order) → conflict persisted → 200', async () => {
+  // T16: accounting success + divergence → ORDER learn → promote →
+  // observation → detect → degrade; conflict RECORDED, REAL degradation, 200
+  it('T16: success → learn → promote → observation → detect → degrade (order) → conflict persisted → 200', async () => {
     await seedAuthorizedPattern();
 
     // Seeding also ran through the call-through spies —reset counters so the
     // PATCH-specific calls are what we assert on.
+    (learnEntityTreatment as ReturnType<typeof vi.fn>).mockClear();
+    (evolveClassificationConfidence as ReturnType<typeof vi.fn>).mockClear();
     (recordClassificationObservation as ReturnType<typeof vi.fn>).mockClear();
     (detectConflictingPattern as ReturnType<typeof vi.fn>).mockClear();
+    (degradeKnowledgeOnConflict as ReturnType<typeof vi.fn>).mockClear();
 
+    const learnMock = learnEntityTreatment as ReturnType<typeof vi.fn>;
+    const promoteMock = evolveClassificationConfidence as ReturnType<typeof vi.fn>;
     const recordMock = recordClassificationObservation as ReturnType<typeof vi.fn>;
     const detectMock = detectConflictingPattern as ReturnType<typeof vi.fn>;
+    const degradeMock = degradeKnowledgeOnConflict as ReturnType<typeof vi.fn>;
 
     const { PATCH } = await import('@/app/api/transactions/[id]/route');
 
@@ -281,10 +295,35 @@ describe('KE-EVOL-001 — PATCH /api/transactions/[id] conflict integration', ()
     const body = await res.json();
     expect(body.transaction.glaccountId ?? body.transaction.glAccountId).toBe('gl-b');
 
-    // ORDER: observation recorded BEFORE conflict detection
+    // Each stage ran exactly once
+    expect(learnMock).toHaveBeenCalledTimes(1);
+    expect(promoteMock).toHaveBeenCalledTimes(1);
     expect(recordMock).toHaveBeenCalledTimes(1);
     expect(detectMock).toHaveBeenCalledTimes(1);
-    expect(recordMock.mock.invocationCallOrder[0]).toBeLessThan(detectMock.mock.invocationCallOrder[0]);
+    expect(degradeMock).toHaveBeenCalledTimes(1);
+
+    // ORDER: learn < promote < observation < detect < degrade
+    const order = [
+      learnMock.mock.invocationCallOrder[0],
+      promoteMock.mock.invocationCallOrder[0],
+      recordMock.mock.invocationCallOrder[0],
+      detectMock.mock.invocationCallOrder[0],
+      degradeMock.mock.invocationCallOrder[0],
+    ];
+    expect(order[0]).toBeLessThan(order[1]);
+    expect(order[1]).toBeLessThan(order[2]);
+    expect(order[2]).toBeLessThan(order[3]);
+    expect(order[3]).toBeLessThan(order[4]);
+
+    // Promotion arguments: human_confirmation → certain on the learned item
+    // (the call-through learn spy returns a Promise, so the linked id is
+    // verified against the real store item created by the PATCH)
+    expect(promoteMock.mock.calls[0][0]).toBeTruthy(); // adapter
+    const learnedItem = Array.from(db.store.values()).find((i) => i.type === 'classification');
+    expect(learnedItem).toBeTruthy();
+    expect(promoteMock.mock.calls[0][2]).toBe(learnedItem!.id);
+    expect(promoteMock.mock.calls[0][3]).toBe('certain');
+    expect(promoteMock.mock.calls[0][4]).toBe('human_confirmation');
 
     // REAL persistence: conflict readable through the read contract
     const conflicts = await getPendingConflicts(makeAdapter(), COMPANY, ENTITY);
@@ -295,9 +334,94 @@ describe('KE-EVOL-001 — PATCH /api/transactions/[id] conflict integration', ()
     expect(conflicts.conflicts[0].conflictingGlAccountId).toBe('gl-b');
   });
 
-  // T15: accounting success + detection ERROR → warn logged with the
-  // conflict_detection stage, accounting response still 200, no conflict persisted
-  it('T15: success + detection ERROR → logger.warn stage=conflict_detection; response 200', async () => {
+  // T17: accounting success + promotion ERROR → secondary, logged, response 200
+  it('T17: success + promotion ERROR → logger.warn stage=confidence_promotion; response 200', async () => {
+    await seedAuthorizedPattern();
+
+    (learnEntityTreatment as ReturnType<typeof vi.fn>).mockClear();
+    (evolveClassificationConfidence as ReturnType<typeof vi.fn>).mockClear();
+    (recordClassificationObservation as ReturnType<typeof vi.fn>).mockClear();
+    (detectConflictingPattern as ReturnType<typeof vi.fn>).mockClear();
+    (degradeKnowledgeOnConflict as ReturnType<typeof vi.fn>).mockClear();
+
+    (evolveClassificationConfidence as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ERROR',
+      error: 'PROMOTION_DOWN_FORCED',
+    });
+
+    const { PATCH } = await import('@/app/api/transactions/[id]/route');
+
+    const res = await PATCH(makeRequest(), patchContext());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.transaction.glaccountId ?? body.transaction.glAccountId).toBe('gl-b');
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Confidence promotion failed — accounting correction stands'),
+      expect.objectContaining({
+        stage: 'confidence_promotion',
+        error: 'PROMOTION_DOWN_FORCED',
+        companyId: COMPANY,
+        entityId: ENTITY,
+        transactionId: TX_ID,
+      }),
+    );
+
+    // The pipeline continued: observation + conflict detection still ran.
+    // Detection was NOT the forced error source: it ran REAL (call-through)
+    // and persisted a conflict — readable through the read contract.
+    expect(recordClassificationObservation).toHaveBeenCalledTimes(1);
+    expect(detectConflictingPattern).toHaveBeenCalledTimes(1);
+    const conflicts = await getPendingConflicts(makeAdapter(), COMPANY, ENTITY);
+    expect(conflicts.status).toBe('FOUND');
+  });
+
+  // T18: accounting success + degradation ERROR → secondary, logged, response 200
+  it('T18: success + degradation ERROR → logger.warn stage=confidence_degradation; response 200', async () => {
+    await seedAuthorizedPattern();
+
+    (learnEntityTreatment as ReturnType<typeof vi.fn>).mockClear();
+    (evolveClassificationConfidence as ReturnType<typeof vi.fn>).mockClear();
+    (recordClassificationObservation as ReturnType<typeof vi.fn>).mockClear();
+    (detectConflictingPattern as ReturnType<typeof vi.fn>).mockClear();
+    (degradeKnowledgeOnConflict as ReturnType<typeof vi.fn>).mockClear();
+
+    (degradeKnowledgeOnConflict as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      status: 'ERROR',
+      error: 'DEGRADE_DOWN_FORCED',
+    });
+
+    const { PATCH } = await import('@/app/api/transactions/[id]/route');
+
+    const res = await PATCH(makeRequest(), patchContext());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.transaction.glaccountId ?? body.transaction.glAccountId).toBe('gl-b');
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('Confidence degradation failed — accounting correction stands'),
+      expect.objectContaining({
+        stage: 'confidence_degradation',
+        error: 'DEGRADE_DOWN_FORCED',
+        companyId: COMPANY,
+        entityId: ENTITY,
+        transactionId: TX_ID,
+      }),
+    );
+
+    // The conflict REALLY existed before degradation was attempted:
+    // real detection (call-through) persisted it — degradation failed AFTER.
+    const conflicts = await getPendingConflicts(makeAdapter(), COMPANY, ENTITY);
+    expect(conflicts.status).toBe('FOUND');
+    if (conflicts.status !== 'FOUND') return;
+    expect(conflicts.conflicts.length).toBe(1);
+    expect(conflicts.conflicts[0].kind).toBe('OBSERVATION_VS_AUTHORIZED');
+  });
+
+  // DET-ERR: detection ERROR keeps prior behavior (EVOL-001 contract intact)
+  it('DET-ERR: success + detection ERROR → logger.warn stage=conflict_detection; response 200', async () => {
     await seedAuthorizedPattern();
 
     (detectConflictingPattern as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -310,8 +434,6 @@ describe('KE-EVOL-001 — PATCH /api/transactions/[id] conflict integration', ()
     const res = await PATCH(makeRequest(), patchContext());
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.transaction.glaccountId ?? body.transaction.glAccountId).toBe('gl-b');
 
     expect(logger.warn).toHaveBeenCalledWith(
       expect.stringContaining('Conflict detection failed — observation stands'),
@@ -324,8 +446,9 @@ describe('KE-EVOL-001 — PATCH /api/transactions/[id] conflict integration', ()
       }),
     );
 
-    // ERROR never became a persisted conflict (ERROR != NO_CONFLICT silence)
+    // No conflict persisted and no degradation was asked for
     const conflicts = await getPendingConflicts(makeAdapter(), COMPANY, ENTITY);
     expect(conflicts.status).toBe('EMPTY');
+    expect(degradeKnowledgeOnConflict as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 });

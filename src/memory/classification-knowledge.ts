@@ -1254,6 +1254,13 @@ export interface ConflictingPatternContent {
   observationIds: string[];
   detectedAt: string;
   sourceCandidateId?: string;
+  /**
+   * Exact-treatment MemoryItem ids implicated by an AUTHORIZED_VS_EXACT
+   * conflict, captured at detection time so degradation hits exactly the
+   * implicated item and not other treatments of the same entity.
+   * Legacy conflicts (pre KE-EVOL-002) omit this field.
+   */
+  exactTreatmentItemIds?: string[];
 }
 
 export type ConflictDetectionResult =
@@ -1282,6 +1289,10 @@ function isValidConflictingPatternContent(content: unknown): content is Conflict
   if (typeof content.conflictingGlAccountId !== 'string' || content.conflictingGlAccountId === '') return false;
   if (!Array.isArray(content.observationIds)) return false;
   if (typeof content.detectedAt !== 'string' || content.detectedAt === '') return false;
+  if (content.exactTreatmentItemIds !== undefined) {
+    if (!Array.isArray(content.exactTreatmentItemIds)) return false;
+    if (!content.exactTreatmentItemIds.every((id) => typeof id === 'string')) return false;
+  }
   return true;
 }
 
@@ -1449,7 +1460,7 @@ export async function detectConflictingPattern(
 
     // Gather exact treatment for this entity (validated classification content only)
     const allClassifications = await adapter.getByType(companyId, TYPE);
-    const exactMatches: Array<{ glAccountId: string; direction: 'debit' | 'credit' | 'any' }> = [];
+    const exactMatches: Array<{ id: string; glAccountId: string; direction: 'debit' | 'credit' | 'any' }> = [];
     for (const item of allClassifications) {
       if (item.status !== 'active') continue;
       try {
@@ -1457,6 +1468,7 @@ export async function detectConflictingPattern(
         if (!isValidEntityClassificationContent(parsed)) continue;
         if (parsed.entityId === entityId) {
           exactMatches.push({
+            id: item.id,
             glAccountId: parsed.glAccountId,
             direction: parsed.direction,
           });
@@ -1543,6 +1555,7 @@ export async function detectConflictingPattern(
             observationIds: [],
             detectedAt: new Date().toISOString(),
             sourceCandidateId: pattern.content.sourceCandidateId,
+            exactTreatmentItemIds: [exactMatches[0].id],
           };
           return await persistConflict(adapter, companyId, conflictContent);
         }
@@ -1662,6 +1675,241 @@ export async function lookupTreatment(
     return {
       status: 'ERROR',
       reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// ─── Confidence Evolution (KE-EVOL-002) ─────────────────────────
+//
+// Activates the EXISTING C11 infrastructure (updateConfidence →
+// ConfidenceLog + TraceabilityLog) with deterministic signals only:
+//   human_confirmation     → certain (explicit user correction authority)
+//   deterministic_conflict → uncertain (persisted conflict evidence)
+//
+// No scoring, no percentages, no thresholds, no counts, no decay,
+// no probabilities, no automatic rehabilitation. Compatible evidence
+// NEVER changes confidence by itself.
+
+export type ConfidenceEvolutionReason = 'human_confirmation' | 'deterministic_conflict';
+
+export type ConfidenceEvolutionResult =
+  | {
+      status: 'UPDATED';
+      itemId: string;
+      previousConfidence: ConfidenceLevel;
+      newConfidence: ConfidenceLevel;
+    }
+  | { status: 'UNCHANGED'; itemId: string; confidence: ConfidenceLevel }
+  | { status: 'NOT_FOUND' }
+  | { status: 'ERROR'; error: string };
+
+/**
+ * Evolve the confidence of ONE knowledge item through the existing C11
+ * infrastructure (adapter.updateConfidence, which writes ConfidenceLog +
+ * TraceabilityLog action=confidence_changed).
+ *
+ * Idempotent by refusal: if the item's current confidence already equals
+ * the requested level, returns UNCHANGED WITHOUT writing any log row —
+ * no fake ConfidenceLog for a non-change.
+ *
+ * ERROR is explicit and distinct from UNCHANGED: a read/write failure
+ * never degrades into "nothing to do".
+ */
+export async function evolveClassificationConfidence(
+  adapter: MemoryAdapter,
+  companyId: string,
+  itemId: string,
+  newConfidence: ConfidenceLevel,
+  reason: ConfidenceEvolutionReason,
+): Promise<ConfidenceEvolutionResult> {
+  if (!companyId || typeof companyId !== 'string') {
+    return { status: 'ERROR', error: 'Invalid companyId' };
+  }
+  if (!itemId || typeof itemId !== 'string') {
+    return { status: 'ERROR', error: 'Invalid itemId' };
+  }
+  if (newConfidence !== 'certain' && newConfidence !== 'tentative' && newConfidence !== 'uncertain') {
+    return { status: 'ERROR', error: 'Invalid newConfidence' };
+  }
+  if (reason !== 'human_confirmation' && reason !== 'deterministic_conflict') {
+    return { status: 'ERROR', error: 'Invalid reason' };
+  }
+
+  try {
+    const item = await adapter.getById(itemId, companyId);
+    if (!item) {
+      return { status: 'NOT_FOUND' };
+    }
+
+    if (item.confidence === newConfidence) {
+      return {
+        status: 'UNCHANGED',
+        itemId,
+        confidence: item.confidence,
+      };
+    }
+
+    // Snapshot BEFORE the mutation: practitioners may hand back
+    // shared-reference objects that updateConfidence mutates in place.
+    const previousConfidence = item.confidence;
+
+    await adapter.updateConfidence(itemId, newConfidence, reason, companyId);
+    return {
+      status: 'UPDATED',
+      itemId,
+      previousConfidence,
+      newConfidence,
+    };
+  } catch (error) {
+    return {
+      status: 'ERROR',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export type ConflictDegradationResult =
+  | { status: 'UPDATED'; degradedItemIds: string[] }
+  | { status: 'UNCHANGED' }
+  | { status: 'NOT_FOUND' }
+  | { status: 'ERROR'; error: string };
+
+/**
+ * Degrade to 'uncertain' every ACTIVE knowledge item really questioned by
+ * a persisted deterministic conflict:
+ *   OBSERVATION_VS_AUTHORIZED → the contradicted authorized pattern(s)
+ *   AUTHORIZED_VS_EXACT       → the authorized pattern AND the exact treatment
+ *   AUTHORIZED_VS_AUTHORIZED  → every participating authorized pattern
+ *
+ * The conflict item itself is NEVER degraded or promoted: the certainty
+ * that a divergence was DETECTED is different from trust in WHICH
+ * treatment is correct.
+ *
+ * Deterministic: if any target is missing or foreign to the tenant →
+ * NOT_FOUND and NOTHING is modified. Idempotent: re-running after a
+ * first degradation returns UNCHANGED without writing new log rows.
+ *
+ * All real changes flow through evolveClassificationConfidence → existing
+ * C11 infrastructure (ConfidenceLog + TraceabilityLog) with reason
+ * 'deterministic_conflict'.
+ */
+export async function degradeKnowledgeOnConflict(
+  adapter: MemoryAdapter,
+  companyId: string,
+  conflictId: string,
+): Promise<ConflictDegradationResult> {
+  if (!companyId || typeof companyId !== 'string') {
+    return { status: 'ERROR', error: 'Invalid companyId' };
+  }
+  if (!conflictId || typeof conflictId !== 'string') {
+    return { status: 'ERROR', error: 'Invalid conflictId' };
+  }
+
+  try {
+    const conflictItem = await adapter.getById(conflictId, companyId);
+    if (!conflictItem || conflictItem.type !== CONFLICTING_PATTERN_TYPE) {
+      return { status: 'NOT_FOUND' };
+    }
+
+    let conflictContent: ConflictingPatternContent;
+    try {
+      const parsed: unknown = JSON.parse(conflictItem.content);
+      if (!isValidConflictingPatternContent(parsed)) {
+        return { status: 'ERROR', error: 'Malformed conflict content' };
+      }
+      if (parsed.companyId !== companyId) {
+        return { status: 'ERROR', error: 'Malformed conflict content' };
+      }
+      conflictContent = parsed;
+    } catch {
+      return { status: 'ERROR', error: 'Malformed conflict content' };
+    }
+
+    // Target set from REAL persisted conflict data
+    const targetIds: string[] = [];
+    for (const patternId of conflictContent.authorizedPatternIds) {
+      if (!targetIds.includes(patternId)) {
+        targetIds.push(patternId);
+      }
+    }
+
+    if (conflictContent.kind === 'AUTHORIZED_VS_EXACT') {
+      // Degrade EXACTLY the implicated exact treatment item(s) captured at
+      // detection time — never other treatments of the same entity.
+      if (Array.isArray(conflictContent.exactTreatmentItemIds)
+          && conflictContent.exactTreatmentItemIds.length > 0) {
+        for (const exactId of conflictContent.exactTreatmentItemIds) {
+          if (!targetIds.includes(exactId)) {
+            targetIds.push(exactId);
+          }
+        }
+      } else {
+        // Legacy conflicts (pre KE-EVOL-002): fall back to the CURRENT
+        // active exact treatment for the same entity+direction. A working
+        // detection state for this kind can only have had ONE exact match.
+        const allClassifications = await adapter.getByType(companyId, TYPE);
+        const legacyExactIds: Array<{ id: string; glAccountId: string }> = [];
+        for (const item of allClassifications) {
+          if (item.status !== 'active') continue;
+          try {
+            const parsed: unknown = JSON.parse(item.content);
+            if (!isValidEntityClassificationContent(parsed)) continue;
+            if (parsed.entityId === conflictContent.entityId
+                && directionsCompatible(conflictContent.direction, parsed.direction)) {
+              legacyExactIds.push({ id: item.id, glAccountId: parsed.glAccountId });
+            }
+          } catch {
+            // Malformed — skip
+          }
+        }
+        // Only degrade when the state still matches the persisted conflict
+        // (exactly one exact treatment AND its GL is the conflicting one)
+        if (legacyExactIds.length === 1
+            && legacyExactIds[0].glAccountId === conflictContent.conflictingGlAccountId) {
+          if (!targetIds.includes(legacyExactIds[0].id)) {
+            targetIds.push(legacyExactIds[0].id);
+          }
+        }
+      }
+    }
+
+    // Verify ALL targets exist within this tenant BEFORE touching anything
+    const targets: Array<{ id: string; item: NonNullable<Awaited<ReturnType<typeof adapter.getById>>> }> = [];
+    for (const id of targetIds) {
+      const item = await adapter.getById(id, companyId);
+      if (!item) {
+        return { status: 'NOT_FOUND' };
+      }
+      targets.push({ id, item });
+    }
+
+    // Idempotent ordering: only evolve items whose confidence differs
+    const degradedItemIds: string[] = [];
+    for (const { id, item } of targets) {
+      if (item.confidence === 'uncertain') continue;
+      const evolved = await evolveClassificationConfidence(
+        adapter,
+        companyId,
+        id,
+        'uncertain',
+        'deterministic_conflict',
+      );
+      if (evolved.status === 'ERROR') {
+        return { status: 'ERROR', error: evolved.error };
+      }
+      if (evolved.status === 'UPDATED') {
+        degradedItemIds.push(id);
+      }
+    }
+
+    if (degradedItemIds.length > 0) {
+      return { status: 'UPDATED', degradedItemIds };
+    }
+    return { status: 'UNCHANGED' };
+  } catch (error) {
+    return {
+      status: 'ERROR',
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }

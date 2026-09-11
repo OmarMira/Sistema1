@@ -112,6 +112,9 @@ const mockConfirmEntityIdentity = vi.fn();
 const mockLearnEntityTreatment = vi.fn();
 const mockCreateAdapter = vi.fn();
 const mockRecordClassificationObservation = vi.fn();
+const mockDetectConflictingPattern = vi.fn();
+const mockEvolveClassificationConfidence = vi.fn();
+const mockDegradeKnowledgeOnConflict = vi.fn();
 
 vi.mock('@/memory/entity-resolution', () => ({
   resolveEntity: (...args: unknown[]) => mockResolveEntity(...args),
@@ -126,6 +129,12 @@ vi.mock('@/memory/classification-knowledge', () => ({
   learnEntityTreatment: (...args: unknown[]) => mockLearnEntityTreatment(...args),
   recordClassificationObservation: (...args: unknown[]) =>
     mockRecordClassificationObservation(...args),
+  detectConflictingPattern: (...args: unknown[]) =>
+    mockDetectConflictingPattern(...args),
+  evolveClassificationConfidence: (...args: unknown[]) =>
+    mockEvolveClassificationConfidence(...args),
+  degradeKnowledgeOnConflict: (...args: unknown[]) =>
+    mockDegradeKnowledgeOnConflict(...args),
 }));
 
 // ─── Mock logger ──────────────────────────────────────────────────────────────
@@ -207,6 +216,14 @@ function setupMocks(overrides: {
   mockCreateAdapter.mockReturnValue({ getByType: vi.fn() });
   // Default success per real contract: { ok: true, observationId: string }
   mockRecordClassificationObservation.mockResolvedValue({ ok: true, observationId: 'obs-1' });
+  // Real contract defaults for the KE-EVOL-001/002 sekundary KE operations
+  mockDetectConflictingPattern.mockResolvedValue({ status: 'NO_CONFLICT' });
+  mockEvolveClassificationConfidence.mockResolvedValue({
+    status: 'UNCHANGED',
+    itemId: 'mem-1',
+    confidence: 'tentative',
+  });
+  mockDegradeKnowledgeOnConflict.mockResolvedValue({ status: 'UNCHANGED' });
 
   // $transaction executes the callback with a mock tx
   mockTransactionFn.mockImplementation(

@@ -6,7 +6,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
-import { createAdapter, learnEntityTreatment } from '@/memory/classification-knowledge';
+import { createAdapter, learnEntityTreatment, recordClassificationObservation } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
@@ -166,6 +166,30 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             error: keResult.reason,
           });
         }
+
+        // Record observation (independent of treatment UNCHANGED/UPDATED)
+        const obsResult = await recordClassificationObservation(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          {
+            entityId: confirmed.id,
+            originalDescription: transaction.description,
+            glAccountId,
+            direction: 'any',
+            source: 'user_correction',
+            transactionId: id,
+          },
+        );
+
+        if (!obsResult.ok) {
+          logger.warn('[KE] Observation record failed — treatment stands', {
+            transactionId: id,
+            companyId,
+            entityId: confirmed.id,
+            stage: 'observation_recording',
+            error: obsResult.error,
+          });
+        }
       } else if (entityResolution.status === 'KNOWN') {
         // Entity already known — just learn treatment
         const keResult = await learnEntityTreatment(
@@ -183,6 +207,30 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             companyId,
             stage: 'entity_treatment_learning',
             error: keResult.reason,
+          });
+        }
+
+        // Record observation (independent of treatment UNCHANGED/UPDATED)
+        const obsResult = await recordClassificationObservation(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          {
+            entityId: entityResolution.entityId,
+            originalDescription: transaction.description,
+            glAccountId,
+            direction: 'any',
+            source: 'user_correction',
+            transactionId: id,
+          },
+        );
+
+        if (!obsResult.ok) {
+          logger.warn('[KE] Observation record failed — treatment stands', {
+            transactionId: id,
+            companyId,
+            entityId: entityResolution.entityId,
+            stage: 'observation_recording',
+            error: obsResult.error,
           });
         }
       } else {
@@ -214,6 +262,30 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             companyId,
             stage: 'entity_treatment_learning',
             error: keResult.reason,
+          });
+        }
+
+        // Record observation (independent of treatment UNCHANGED/UPDATED)
+        const obsResult = await recordClassificationObservation(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          {
+            entityId: entityResolution.entityId,
+            originalDescription: transaction.description,
+            glAccountId,
+            direction: 'any',
+            source: 'user_correction',
+            transactionId: id,
+          },
+        );
+
+        if (!obsResult.ok) {
+          logger.warn('[KE] Observation record failed — treatment stands', {
+            transactionId: id,
+            companyId,
+            entityId: entityResolution.entityId,
+            stage: 'observation_recording',
+            error: obsResult.error,
           });
         }
       } else if (entityResolution.status === 'UNKNOWN') {

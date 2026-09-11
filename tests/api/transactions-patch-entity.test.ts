@@ -111,6 +111,7 @@ const mockResolveEntity = vi.fn();
 const mockConfirmEntityIdentity = vi.fn();
 const mockLearnEntityTreatment = vi.fn();
 const mockCreateAdapter = vi.fn();
+const mockRecordClassificationObservation = vi.fn();
 
 vi.mock('@/memory/entity-resolution', () => ({
   resolveEntity: (...args: unknown[]) => mockResolveEntity(...args),
@@ -123,6 +124,8 @@ vi.mock('@/internal/company-knowledge/entity/service', () => ({
 vi.mock('@/memory/classification-knowledge', () => ({
   createAdapter: (...args: unknown[]) => mockCreateAdapter(...args),
   learnEntityTreatment: (...args: unknown[]) => mockLearnEntityTreatment(...args),
+  recordClassificationObservation: (...args: unknown[]) =>
+    mockRecordClassificationObservation(...args),
 }));
 
 // ─── Mock logger ──────────────────────────────────────────────────────────────
@@ -138,6 +141,7 @@ vi.mock('@/lib/logger', () => ({
 // ─── Import after mocks ───────────────────────────────────────────────────────
 
 import { PATCH } from '../../../src/app/api/transactions/[id]/route';
+import { logger } from '@/lib/logger';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -201,6 +205,8 @@ function setupMocks(overrides: {
     overrides.learnResult ?? { status: 'CREATED', itemId: 'mem-1' },
   );
   mockCreateAdapter.mockReturnValue({ getByType: vi.fn() });
+  // Default success per real contract: { ok: true, observationId: string }
+  mockRecordClassificationObservation.mockResolvedValue({ ok: true, observationId: 'obs-1' });
 
   // $transaction executes the callback with a mock tx
   mockTransactionFn.mockImplementation(
@@ -296,6 +302,20 @@ describe('PATCH /api/transactions/[id] — confirmedEntity KE wiring (BLOQUE3-10
       'user_correction',
       TX_ID,
     );
+
+    // Observation evidence attached to the newly confirmed identity
+    expect(mockRecordClassificationObservation).toHaveBeenCalledWith(
+      expect.anything(), // adapter
+      COMPANY_ID,
+      {
+        entityId: 'entity-new',
+        originalDescription: 'AMAZON MARKETPLACE',
+        glAccountId: GL_ACCOUNT_ID,
+        direction: 'any',
+        source: 'user_correction',
+        transactionId: TX_ID,
+      },
+    );
   });
 
   // T6: UNKNOWN without confirmedEntity → identity NOT persisted
@@ -317,6 +337,9 @@ describe('PATCH /api/transactions/[id] — confirmedEntity KE wiring (BLOQUE3-10
 
     // learnEntityTreatment was NOT called (UNKNOWN without confirmation = skip)
     expect(mockLearnEntityTreatment).not.toHaveBeenCalled();
+
+    // No valid identity → no observation evidence may be attached
+    expect(mockRecordClassificationObservation).not.toHaveBeenCalled();
   });
 
   // T7: KNOWN → treatment updated, no duplicate identity
@@ -349,6 +372,20 @@ describe('PATCH /api/transactions/[id] — confirmedEntity KE wiring (BLOQUE3-10
       'any',
       'user_correction',
       TX_ID,
+    );
+
+    // Observation evidence recorded for the known entity (independent of treatment status)
+    expect(mockRecordClassificationObservation).toHaveBeenCalledWith(
+      expect.anything(), // adapter
+      COMPANY_ID,
+      {
+        entityId: 'entity-existing',
+        originalDescription: 'AMAZON MARKETPLACE',
+        glAccountId: GL_ACCOUNT_ID,
+        direction: 'any',
+        source: 'user_correction',
+        transactionId: TX_ID,
+      },
     );
   });
 
@@ -397,6 +434,9 @@ describe('PATCH /api/transactions/[id] — confirmedEntity KE wiring (BLOQUE3-10
     expect(mockResolveEntity).not.toHaveBeenCalled();
     expect(mockConfirmEntityIdentity).not.toHaveBeenCalled();
     expect(mockLearnEntityTreatment).not.toHaveBeenCalled();
+
+    // No observation evidence when accounting failed
+    expect(mockRecordClassificationObservation).not.toHaveBeenCalled();
   });
 
   // T2: accounting success + identity success → treatment learning attempted
@@ -471,6 +511,9 @@ describe('PATCH /api/transactions/[id] — confirmedEntity KE wiring (BLOQUE3-10
 
     // learnEntityTreatment was NOT called
     expect(mockLearnEntityTreatment).not.toHaveBeenCalled();
+
+    // ERROR must not become evidence — observation NOT attached
+    expect(mockRecordClassificationObservation).not.toHaveBeenCalled();
   });
 
   // T5b: accounting success + treatment learning failure → HTTP 200, explicit log
@@ -489,5 +532,56 @@ describe('PATCH /api/transactions/[id] — confirmedEntity KE wiring (BLOQUE3-10
 
     // learnEntityTreatment was called (and failed)
     expect(mockLearnEntityTreatment).toHaveBeenCalled();
+  });
+
+  // T10: accounting success + evidence write failure → HTTP 200, explicit log,
+  // accounting correction stands. Uses the REAL failure contract of
+  // recordClassificationObservation: { ok: false, error: string }.
+  it('T10: accounting success + recordClassificationObservation failure → HTTP 200, explicit warn, accounting result stands', async () => {
+    setupMocks({
+      entityResolution: { status: 'KNOWN', entityId: 'entity-existing' },
+    });
+    mockRecordClassificationObservation.mockResolvedValue({
+      ok: false,
+      error: 'Evidence write failed',
+    });
+
+    const req = makeRequest({
+      glAccountId: GL_ACCOUNT_ID,
+    });
+
+    const res = await PATCH(req, { params: Promise.resolve({ id: TX_ID }) });
+    expect(res.status).toBe(200);
+
+    // Accounting correction result stands in the response
+    const body = (await res.json()) as { transaction: { id: string } };
+    expect(body.transaction.id).toBe(TX_ID);
+
+    // Evidence write attempted exactly once with the real observation payload
+    expect(mockRecordClassificationObservation).toHaveBeenCalledTimes(1);
+    expect(mockRecordClassificationObservation).toHaveBeenCalledWith(
+      expect.anything(), // adapter
+      COMPANY_ID,
+      {
+        entityId: 'entity-existing',
+        originalDescription: 'AMAZON MARKETPLACE',
+        glAccountId: GL_ACCOUNT_ID,
+        direction: 'any',
+        source: 'user_correction',
+        transactionId: TX_ID,
+      },
+    );
+
+    // Failure explicitly logged — KE secondary failure only
+    expect(logger.warn).toHaveBeenCalledWith(
+      '[KE] Observation record failed — treatment stands',
+      expect.objectContaining({
+        transactionId: TX_ID,
+        companyId: COMPANY_ID,
+        entityId: 'entity-existing',
+        stage: 'observation_recording',
+        error: 'Evidence write failed',
+      }),
+    );
   });
 });

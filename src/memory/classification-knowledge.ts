@@ -356,6 +356,154 @@ export async function lookupClassification(
   return { kind: 'miss' };
 }
 
+// ─── Classification Observations (GENERALIZACIÓN-002) ─────────────
+
+export const OBSERVATION_TYPE = 'classification_observation';
+
+/**
+ * Observation content stored in MemoryItem.content JSON.
+ * Represents one confirmed classification observation for an entity.
+ */
+export interface ClassificationObservation {
+  /** Entity identity reference (CompanyKnowledge.id) */
+  entityId: string;
+  /** Original bank transaction description — preserved, not normalized */
+  originalDescription: string;
+  /** GL account confirmed for this observation */
+  glAccountId: string;
+  /** Transaction direction confirmed for this observation */
+  direction: 'debit' | 'credit' | 'any';
+  /** What produced this observation */
+  source: 'user_correction' | 'import_correction';
+  /** Original transaction ID for traceability */
+  transactionId?: string;
+}
+
+/**
+ * Result of recording a classification observation.
+ */
+export interface ObservationRecordResult {
+  ok: true;
+  observationId: string;
+}
+
+export interface ObservationRecordFailure {
+  ok: false;
+  error: string;
+}
+
+export type ObservationRecordOutput = ObservationRecordResult | ObservationRecordFailure;
+
+/**
+ * Record a classification observation independently of treatment learning.
+ *
+ * A new observation is recorded even when the treatment is UNCHANGED,
+ * because an additional observation constitutes new evidence.
+ *
+ * Identity: MemoryItem.id is unique per observation.
+ * Two transactions with identical descriptions produce two separate observations.
+ * Idempotency: same transactionId + same companyId → returns existing observation.
+ *
+ * @param adapter - MemoryAdapter for data access
+ * @param companyId - Tenant scope (mandatory)
+ * @param observation - The observation data to persist
+ * @returns ObservationRecordResult with the observation's MemoryItem ID
+ */
+export async function recordClassificationObservation(
+  adapter: MemoryAdapter,
+  companyId: string,
+  observation: ClassificationObservation,
+): Promise<ObservationRecordOutput> {
+  try {
+    if (!companyId || typeof companyId !== 'string') {
+      return { ok: false, error: 'Invalid companyId' };
+    }
+    if (!observation.entityId || typeof observation.entityId !== 'string') {
+      return { ok: false, error: 'Invalid entityId' };
+    }
+    if (!observation.originalDescription || typeof observation.originalDescription !== 'string') {
+      return { ok: false, error: 'Invalid originalDescription' };
+    }
+    if (!observation.glAccountId || typeof observation.glAccountId !== 'string') {
+      return { ok: false, error: 'Invalid glAccountId' };
+    }
+
+    const contentStr = JSON.stringify(observation);
+
+    // Idempotency: if same transactionId already recorded for this company, return existing
+    if (observation.transactionId) {
+      const existing = await adapter.getExactContent(companyId, contentStr);
+      if (existing) {
+        return { ok: true, observationId: existing.id };
+      }
+    }
+
+    // C1: record new observation
+    const item = await adapter.record({
+      content: contentStr,
+      type: OBSERVATION_TYPE,
+      companyId,
+      sourceAuthor: observation.source === 'user_correction' ? 'user' : 'system',
+      sourceName: observation.source,
+      sourceObservedAt: new Date(),
+      confidence: 'tentative',
+    });
+
+    return { ok: true, observationId: item.id };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Retrieve all classification observations for a specific entity within a tenant.
+ *
+ * Returns observations in order of creation (oldest first).
+ * Respects tenant isolation — only returns observations for the given companyId.
+ * Preserves original descriptions (not normalized).
+ *
+ * @param adapter - MemoryAdapter for data access
+ * @param companyId - Tenant scope (mandatory)
+ * @param entityId - Entity identity to retrieve observations for (mandatory)
+ * @returns Array of ClassificationObservation with metadata
+ */
+export async function getClassificationObservations(
+  adapter: MemoryAdapter,
+  companyId: string,
+  entityId: string,
+): Promise<ClassificationObservation[]> {
+  if (!companyId || typeof companyId !== 'string') {
+    return [];
+  }
+  if (!entityId || typeof entityId !== 'string') {
+    return [];
+  }
+
+  try {
+    // C2: deterministic lookup — all observation items for this company
+    const allObservations = await adapter.getByType(companyId, OBSERVATION_TYPE);
+
+    const results: ClassificationObservation[] = [];
+
+    for (const item of allObservations) {
+      if (item.status !== 'active') continue;
+
+      try {
+        const content = JSON.parse(item.content) as ClassificationObservation;
+        if (content.entityId === entityId) {
+          results.push(content);
+        }
+      } catch {
+        // Malformed content — skip
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 // ─── Treatment Lookup (Phase 2: entity→treatment) ────────────────
 
 export interface TreatmentFound {

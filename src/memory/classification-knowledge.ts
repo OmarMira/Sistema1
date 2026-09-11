@@ -1225,6 +1225,336 @@ export async function matchAuthorizedPattern(
   };
 }
 
+// ─── Conflicting Pattern Detection (KE-EVOL-001) ────────────────
+//
+// Detects and persists evidence that authorized structural knowledge
+// has been contradicted by subsequent evidence. Does NOT resolve,
+// invalidate, supersede, or modify any existing knowledge.
+//
+// Three deterministic conflict kinds:
+//   OBSERVATION_VS_AUTHORIZED  — new observation contradicts authorized pattern
+//   AUTHORIZED_VS_EXACT       — exact treatment evolved away from authorized pattern
+//   AUTHORIZED_VS_AUTHORIZED  — two authorized patterns propose different treatments
+
+export const CONFLICTING_PATTERN_TYPE = 'classification_conflicting_pattern';
+
+export type ConflictKind =
+  | 'OBSERVATION_VS_AUTHORIZED'
+  | 'AUTHORIZED_VS_EXACT'
+  | 'AUTHORIZED_VS_AUTHORIZED';
+
+/** Persisted conflict content (MemoryItem.content JSON, fixed field order). */
+export interface ConflictingPatternContent {
+  companyId: string;
+  entityId: string;
+  direction: 'debit' | 'credit' | 'any';
+  kind: ConflictKind;
+  authorizedPatternIds: string[];
+  conflictingGlAccountId: string;
+  observationIds: string[];
+  detectedAt: string;
+  sourceCandidateId?: string;
+}
+
+export type ConflictDetectionResult =
+  | { status: 'RECORDED'; conflictId: string; kind: ConflictKind }
+  | { status: 'ALREADY_RECORDED'; conflictId: string; kind: ConflictKind }
+  | { status: 'NO_CONFLICT' }
+  | { status: 'ERROR'; error: string };
+
+function isDirection(value: unknown): value is 'debit' | 'credit' | 'any' {
+  return value === 'debit' || value === 'credit' || value === 'any';
+}
+
+function isConflictKind(value: unknown): value is ConflictKind {
+  return value === 'OBSERVATION_VS_AUTHORIZED'
+    || value === 'AUTHORIZED_VS_EXACT'
+    || value === 'AUTHORIZED_VS_AUTHORIZED';
+}
+
+function isValidConflictingPatternContent(content: unknown): content is ConflictingPatternContent {
+  if (!isRecord(content)) return false;
+  if (typeof content.companyId !== 'string' || content.companyId === '') return false;
+  if (typeof content.entityId !== 'string' || content.entityId === '') return false;
+  if (!isDirection(content.direction)) return false;
+  if (!isConflictKind(content.kind)) return false;
+  if (!Array.isArray(content.authorizedPatternIds)) return false;
+  if (typeof content.conflictingGlAccountId !== 'string' || content.conflictingGlAccountId === '') return false;
+  if (!Array.isArray(content.observationIds)) return false;
+  if (typeof content.detectedAt !== 'string' || content.detectedAt === '') return false;
+  return true;
+}
+
+/**
+ * Build a deterministic identity key for idempotency comparison.
+ * Fixed field order ensures identical logical conflicts produce identical strings.
+ * Does NOT include detectedAt or sourceCandidateId — these are metadata, not identity.
+ */
+function buildConflictIdentityKey(content: ConflictingPatternContent): string {
+  return JSON.stringify({
+    companyId: content.companyId,
+    entityId: content.entityId,
+    direction: content.direction,
+    kind: content.kind,
+    authorizedPatternIds: [...content.authorizedPatternIds].sort(),
+    conflictingGlAccountId: content.conflictingGlAccountId,
+    observationIds: [...content.observationIds].sort(),
+  });
+}
+
+/**
+ * Check if an existing conflict has the same logical identity as the candidate.
+ * Identity excludes detectedAt (timestamp) and sourceCandidateId (metadata).
+ */
+function hasSameConflictIdentity(existing: ConflictingPatternContent, candidate: ConflictingPatternContent): boolean {
+  return buildConflictIdentityKey(existing) === buildConflictIdentityKey(candidate);
+}
+
+/**
+ * Structural, valid classification item for an entity (exact treatment side).
+ */
+function isValidEntityClassificationContent(content: unknown): content is ClassificationContent {
+  if (!isRecord(content)) return false;
+  const entityId = content.entityId;
+  if (typeof entityId !== 'string' || entityId === '') return false;
+  const glAccountId = content.glAccountId;
+  if (typeof glAccountId !== 'string' || glAccountId === '') return false;
+  if (!isDirection(content.direction)) return false;
+  return true;
+}
+
+/**
+ * Two structural patterns are applicable to at least one common input iff
+ * they have the same token count and no stable position demands two
+ * different fixed values. VARIABLE positions accept any token, so a
+ * stable/variable pair at the same position is always compatible.
+ * Same semantics as the matcher: shared structuralMatch rules, no new matcher.
+ */
+function structuralSegmentsOverlap(a: StructuralSegment[], b: StructuralSegment[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const sa = a[i];
+    const sb = b[i];
+    if (sa.kind === 'stable' && sb.kind === 'stable' && sa.value !== sb.value) return false;
+  }
+  return true;
+}
+
+/**
+ * Idempotency check + persistence of one conflict.
+ * Deterministic identity scan first (ALREADY_RECORDED), then C1 record.
+ */
+async function persistConflict(
+  adapter: MemoryAdapter,
+  companyId: string,
+  conflictContent: ConflictingPatternContent,
+): Promise<ConflictDetectionResult> {
+  const existingConflicts = await adapter.getByType(companyId, CONFLICTING_PATTERN_TYPE);
+  for (const item of existingConflicts) {
+    if (item.status !== 'active') continue;
+    try {
+      const parsed: unknown = JSON.parse(item.content);
+      if (isValidConflictingPatternContent(parsed) && hasSameConflictIdentity(parsed, conflictContent)) {
+        return { status: 'ALREADY_RECORDED', conflictId: item.id, kind: conflictContent.kind };
+      }
+    } catch {
+      // Malformed existing conflict — not a duplicate of ours
+    }
+  }
+
+  const created = await adapter.record({
+    content: JSON.stringify(conflictContent),
+    type: CONFLICTING_PATTERN_TYPE,
+    companyId,
+    sourceAuthor: 'system',
+    sourceName: 'conflict_detection',
+    sourceObservedAt: new Date(),
+    confidence: 'tentative',
+  });
+  return { status: 'RECORDED', conflictId: created.id, kind: conflictContent.kind };
+}
+
+/**
+ * Detect and persist conflicts between authorized structural knowledge
+ * and subsequent evidence. Deterministic, no AI, no fuzzy.
+ *
+ * Three conflict kinds:
+ *   OBSERVATION_VS_AUTHORIZED — observation GL differs from authorized pattern GL
+ *   AUTHORIZED_VS_EXACT — exact treatment GL differs from authorized pattern GL
+ *   AUTHORIZED_VS_AUTHORIZED — two authorized patterns with different GL accounts
+ *
+ * Identity: kind + companyId + entityId + direction + sorted authorizedPatternIds
+ *           + sorted observationIds + conflictingGlAccountId.
+ * Same logical evidence → ALREADY_RECORDED. New evidence → RECORDED.
+ *
+ * Does NOT modify authorized patterns, exact treatment, or create candidates.
+ */
+export async function detectConflictingPattern(
+  adapter: MemoryAdapter,
+  companyId: string,
+  entityId: string,
+  direction: 'debit' | 'credit' | 'any',
+): Promise<ConflictDetectionResult> {
+  if (!companyId || typeof companyId !== 'string') {
+    return { status: 'ERROR', error: 'Invalid companyId' };
+  }
+  if (!entityId || typeof entityId !== 'string') {
+    return { status: 'ERROR', error: 'Invalid entityId' };
+  }
+  if (direction !== 'debit' && direction !== 'credit' && direction !== 'any') {
+    return { status: 'ERROR', error: 'Invalid direction' };
+  }
+
+  try {
+    // Gather authorized patterns for this entity+direction
+    const allAuthorized = await adapter.getByType(companyId, AUTHORIZED_PATTERN_TYPE);
+    const patterns: Array<{ id: string; content: AuthorizedPatternContent }> = [];
+    for (const item of allAuthorized) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidAuthorizedPatternContent(parsed)) continue;
+        if (parsed.entityId === entityId && directionsCompatible(direction, parsed.direction)) {
+          patterns.push({ id: item.id, content: parsed });
+        }
+      } catch {
+        // Malformed — skip
+      }
+    }
+
+    if (patterns.length === 0) {
+      return { status: 'NO_CONFLICT' };
+    }
+
+    // Gather observations for this entity (validated observation content only)
+    const allObservations = await adapter.getByType(companyId, OBSERVATION_TYPE);
+    const observations: Array<{ id: string; glAccountId: string; direction: 'debit' | 'credit' | 'any'; originalDescription: string }> = [];
+    for (const item of allObservations) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidClassificationObservation(parsed)) continue;
+        if (parsed.entityId === entityId) {
+          observations.push({
+            id: item.id,
+            glAccountId: parsed.glAccountId,
+            direction: parsed.direction,
+            originalDescription: parsed.originalDescription,
+          });
+        }
+      } catch {
+        // Malformed — skip
+      }
+    }
+
+    // Gather exact treatment for this entity (validated classification content only)
+    const allClassifications = await adapter.getByType(companyId, TYPE);
+    const exactMatches: Array<{ glAccountId: string; direction: 'debit' | 'credit' | 'any' }> = [];
+    for (const item of allClassifications) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidEntityClassificationContent(parsed)) continue;
+        if (parsed.entityId === entityId) {
+          exactMatches.push({
+            glAccountId: parsed.glAccountId,
+            direction: parsed.direction,
+          });
+        }
+      } catch {
+        // Malformed — skip
+      }
+    }
+
+    // ── AUTHORIZED_VS_AUTHORIZED ──────────────────────────────────
+    // Two patterns that are BOTH applicable to a common structural input
+    // (real segment overlap, not merely same entity) propose different GL.
+    if (patterns.length >= 2) {
+      const overlapPatternIds: string[] = [];
+      let overlapConflictingGlAccountId = '';
+      for (let i = 0; i < patterns.length - 1; i++) {
+        for (let j = i + 1; j < patterns.length; j++) {
+          const a = patterns[i].content;
+          const b = patterns[j].content;
+          if (a.glAccountId === b.glAccountId) continue;
+          if (!directionsCompatible(a.direction, b.direction)) continue;
+          if (!structuralSegmentsOverlap(a.segments, b.segments)) continue;
+          overlapPatternIds.push(...[patterns[i].id, patterns[j].id].sort());
+          overlapConflictingGlAccountId = b.glAccountId;
+          i = patterns.length; // break outer loop — first real overlap wins
+          break;
+        }
+      }
+
+      if (overlapPatternIds.length === 2 && overlapConflictingGlAccountId !== '') {
+        const conflictContent: ConflictingPatternContent = {
+          companyId,
+          entityId,
+          direction,
+          kind: 'AUTHORIZED_VS_AUTHORIZED',
+          authorizedPatternIds: overlapPatternIds,
+          conflictingGlAccountId: overlapConflictingGlAccountId,
+          observationIds: [],
+          detectedAt: new Date().toISOString(),
+        };
+        return await persistConflict(adapter, companyId, conflictContent);
+      }
+    }
+
+    // ── OBSERVATION_VS_AUTHORIZED ─────────────────────────────────
+    // Observation STRUCTURALLY MATCHES the authorized pattern (same rules
+    // as the matcher: structuralMatch on the same normalization) AND its
+    // confirmed GL differs from the authorized GL.
+    for (const pattern of patterns) {
+      const conflictingObs = observations.filter(
+        (obs) => obs.glAccountId !== pattern.content.glAccountId
+          && directionsCompatible(obs.direction, pattern.content.direction)
+          && structuralMatch(normalizeTokensForStructure(obs.originalDescription), pattern.content.segments),
+      );
+
+      if (conflictingObs.length > 0) {
+        const conflictContent: ConflictingPatternContent = {
+          companyId,
+          entityId,
+          direction,
+          kind: 'OBSERVATION_VS_AUTHORIZED',
+          authorizedPatternIds: [pattern.id],
+          conflictingGlAccountId: conflictingObs[0].glAccountId,
+          observationIds: conflictingObs.map((o) => o.id).sort(),
+          detectedAt: new Date().toISOString(),
+          sourceCandidateId: pattern.content.sourceCandidateId,
+        };
+        return await persistConflict(adapter, companyId, conflictContent);
+      }
+    }
+
+    // ── AUTHORIZED_VS_EXACT ───────────────────────────────────────
+    // Exact treatment GL differs from authorized pattern GL
+    if (exactMatches.length === 1) {
+      for (const pattern of patterns) {
+        if (exactMatches[0].glAccountId !== pattern.content.glAccountId) {
+          const conflictContent: ConflictingPatternContent = {
+            companyId,
+            entityId,
+            direction,
+            kind: 'AUTHORIZED_VS_EXACT',
+            authorizedPatternIds: [pattern.id],
+            conflictingGlAccountId: exactMatches[0].glAccountId,
+            observationIds: [],
+            detectedAt: new Date().toISOString(),
+            sourceCandidateId: pattern.content.sourceCandidateId,
+          };
+          return await persistConflict(adapter, companyId, conflictContent);
+        }
+      }
+    }
+
+    return { status: 'NO_CONFLICT' };
+  } catch (error) {
+    return { status: 'ERROR', error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 // ─── Treatment Lookup (Phase 2: entity→treatment) ────────────────
 
 export interface TreatmentFound {
@@ -1332,6 +1662,58 @@ export async function lookupTreatment(
     return {
       status: 'ERROR',
       reason: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// ─── Pending Conflicts Read (KE-EVOL-001) ───────────────────────
+
+export type PendingConflictsResult =
+  | { status: 'FOUND'; conflicts: ConflictingPatternContent[] }
+  | { status: 'EMPTY' }
+  | { status: 'ERROR'; error: string };
+
+/**
+ * Retrieve pending conflict records for a company, optionally filtered by
+ * entity. Discordaminated contract: an adapter/read failure is an explicit
+ * ERROR and is NEVER converted into an empty result.
+ *
+ * @param adapter - MemoryAdapter for data access
+ * @param companyId - Tenant scope (mandatory)
+ * @param entityId - Optional entity filter
+ * @returns FOUND (1+ conflicts), EMPTY (0 conflicts), or ERROR
+ */
+export async function getPendingConflicts(
+  adapter: MemoryAdapter,
+  companyId: string,
+  entityId?: string,
+): Promise<PendingConflictsResult> {
+  if (!companyId || typeof companyId !== 'string') {
+    return { status: 'ERROR', error: 'Invalid companyId' };
+  }
+
+  try {
+    const items = await adapter.getByType(companyId, CONFLICTING_PATTERN_TYPE);
+    const results: ConflictingPatternContent[] = [];
+    for (const item of items) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidConflictingPatternContent(parsed)) continue;
+        if (entityId && parsed.entityId !== entityId) continue;
+        results.push(parsed);
+      } catch {
+        // Malformed content — skip
+      }
+    }
+    if (results.length === 0) {
+      return { status: 'EMPTY' };
+    }
+    return { status: 'FOUND', conflicts: results };
+  } catch (error) {
+    return {
+      status: 'ERROR',
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }

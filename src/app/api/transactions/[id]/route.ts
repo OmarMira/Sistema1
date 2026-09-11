@@ -6,7 +6,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
-import { createAdapter, learnEntityTreatment, recordClassificationObservation } from '@/memory/classification-knowledge';
+import { createAdapter, learnEntityTreatment, recordClassificationObservation, detectConflictingPattern } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
@@ -190,6 +190,23 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             error: obsResult.error,
           });
         }
+
+        // KE-EVOL-001: detect conflict after observation
+        const conflictResult = await detectConflictingPattern(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          confirmed.id,
+          'any',
+        );
+        if (conflictResult.status === 'ERROR') {
+          logger.warn('[KE] Conflict detection failed — observation stands', {
+            transactionId: id,
+            companyId,
+            entityId: confirmed.id,
+            stage: 'conflict_detection',
+            error: conflictResult.error,
+          });
+        }
       } else if (entityResolution.status === 'KNOWN') {
         // Entity already known — just learn treatment
         const keResult = await learnEntityTreatment(
@@ -231,6 +248,23 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             entityId: entityResolution.entityId,
             stage: 'observation_recording',
             error: obsResult.error,
+          });
+        }
+
+        // KE-EVOL-001: detect conflict after observation
+        const conflictResult = await detectConflictingPattern(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          entityResolution.entityId,
+          'any',
+        );
+        if (conflictResult.status === 'ERROR') {
+          logger.warn('[KE] Conflict detection failed — observation stands', {
+            transactionId: id,
+            companyId,
+            entityId: entityResolution.entityId,
+            stage: 'conflict_detection',
+            error: conflictResult.error,
           });
         }
       } else {
@@ -286,6 +320,23 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
             entityId: entityResolution.entityId,
             stage: 'observation_recording',
             error: obsResult.error,
+          });
+        }
+
+        // KE-EVOL-001: detect conflict after observation
+        const conflictResult = await detectConflictingPattern(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          entityResolution.entityId,
+          'any',
+        );
+        if (conflictResult.status === 'ERROR') {
+          logger.warn('[KE] Conflict detection failed — observation stands', {
+            transactionId: id,
+            companyId,
+            entityId: entityResolution.entityId,
+            stage: 'conflict_detection',
+            error: conflictResult.error,
           });
         }
       } else if (entityResolution.status === 'UNKNOWN') {

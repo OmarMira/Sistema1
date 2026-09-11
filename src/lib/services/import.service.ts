@@ -47,7 +47,8 @@ import { evaluateOperationalPolicy } from '@/lib/operational-policy/policy-servi
 import { IMPORT_OBSERVATION_CONFIG } from '@/lib/operational-policy/import-observation-config';
 import type { PolicyObservationResponse, OperationalPolicyDecision } from '@/lib/operational-policy/types';
 import { MemoryAdapter } from '@/memory/adapter';
-import { createAdapter, lookupTreatment } from '@/memory/classification-knowledge';
+import { createAdapter, lookupTreatment, matchAuthorizedPattern } from '@/memory/classification-knowledge';
+import type { AuthorizedPatternMatch } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 
 export interface ImportResult {
@@ -160,7 +161,60 @@ export async function resolveImportDecision(
     };
   }
 
-  // Step 4c: Treatment NOT_FOUND → rule engine
+  // Step 4c: Treatment NOT_FOUND → structural match of AUTHORIZED patterns
+  // (GENERALIZACIÓN-005). The exact lookup keeps precedence; the structural
+  // match is generalization OF the stored knowledge, not a replacement.
+  let structural: AuthorizedPatternMatch;
+  try {
+    structural = await matchAuthorizedPattern(keAdapter, companyId, entityResolution.entityId, description, 'any');
+  } catch (structuralError) {
+    logger.error('[KE] Structural match threw — not falling back to rule engine', {
+      companyId,
+      entityId: entityResolution.entityId,
+      error: String(structuralError),
+    });
+    return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
+  }
+
+  // Step 4d-a: structural MATCH → use the authorized learned treatment.
+  // No rule engine, no AI, no mutation of stored knowledge, no new
+  // authorization — the match executes knowledge, it does not create it.
+  if (structural.kind === 'match') {
+    logger.info('[KE] Authorized structural pattern matched — using learned treatment', {
+      companyId,
+      entityId: entityResolution.entityId,
+      authorizedPatternId: structural.authorizedPatternId,
+      matchedPatternIds: structural.matchedPatternIds,
+    });
+    return {
+      source: 'ke',
+      glAccountId: structural.glAccountId,
+      matchedRuleId: null,
+    };
+  }
+
+  // Step 4d-b: structural ERROR → ke_error (explicit, never silent NO_MATCH)
+  if (structural.kind === 'error') {
+    logger.error('[KE] Structural match error — not falling back silently', {
+      companyId,
+      entityId: entityResolution.entityId,
+      reason: structural.reason,
+    });
+    return { source: 'ke_error', glAccountId: null, matchedRuleId: null };
+  }
+
+  // Step 4d-c: structural AMBIGUOUS → no KE decision is invented; the
+  // multiple incompatible matches are logged and the existing explicit
+  // resolution mechanism downstream of KE (rule engine) keeps control.
+  if (structural.kind === 'ambiguous') {
+    logger.warn('[KE] Structural match ambiguous — no KE decision; continuing to rule engine', {
+      companyId,
+      entityId: entityResolution.entityId,
+      matchedPatternIds: structural.matchedPatternIds,
+    });
+  }
+
+  // Step 4d-d / NO_MATCH / AMBIGUOUS: legacy continuation — rule engine
   const resolution = await resolveRule();
   return {
     source: 'rule_engine',

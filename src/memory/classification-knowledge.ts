@@ -1921,22 +1921,39 @@ export async function degradeKnowledgeOnConflict(
   }
 }
 
-// ─── Pending Conflicts Read (KE-EVOL-001) ───────────────────────
+// ─── Pending Conflicts Read (KE-EVOL-001, KE-EVOL-004) ───────────
+
+/**
+ * One pending conflict as exposed by getPendingConflicts.
+ * conflictItemId is the REAL MemoryItem id of the
+ * classification_conflicting_pattern item (no derived id, no index,
+ * no substitute hash) — required for later explicit resolution.
+ */
+export interface PendingConflictEntry {
+  conflictItemId: string;
+  content: ConflictingPatternContent;
+}
 
 export type PendingConflictsResult =
-  | { status: 'FOUND'; conflicts: ConflictingPatternContent[] }
+  | { status: 'FOUND'; conflicts: PendingConflictEntry[] }
   | { status: 'EMPTY' }
   | { status: 'ERROR'; error: string };
 
 /**
- * Retrieve pending conflict records for a company, optionally filtered by
- * entity. Discordaminated contract: an adapter/read failure is an explicit
- * ERROR and is NEVER converted into an empty result.
+ * Retrieve PENDING (unresolved) conflict records for a company, optionally
+ * filtered by entity.
+ *
+ * Pending = the persisted conflict has NO recorded human resolution yet.
+ * Resolved conflicts are excluded here but remain historically observable
+ * via the persisted conflict resolution items (getConflictResolutions).
+ *
+ * Deterministic contract: an adapter/read failure is an explicit ERROR and
+ * is NEVER converted into an empty result.
  *
  * @param adapter - MemoryAdapter for data access
  * @param companyId - Tenant scope (mandatory)
  * @param entityId - Optional entity filter
- * @returns FOUND (1+ conflicts), EMPTY (0 conflicts), or ERROR
+ * @returns FOUND (1+ unresolved conflicts), EMPTY (0 unresolved conflicts), or ERROR
  */
 export async function getPendingConflicts(
   adapter: MemoryAdapter,
@@ -1948,15 +1965,36 @@ export async function getPendingConflicts(
   }
 
   try {
+    // Conflicts explicitly resolved by a human are no longer pending.
+    const resolutionItems = await adapter.getByType(companyId, CONFLICT_RESOLUTION_TYPE);
+    const resolvedConflictItemIds = new Set<string>();
+    for (const item of resolutionItems) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (
+          isRecord(parsed)
+          && typeof parsed.conflictItemId === 'string'
+          && parsed.conflictItemId !== ''
+          && parsed.companyId === companyId
+        ) {
+          resolvedConflictItemIds.add(parsed.conflictItemId);
+        }
+      } catch {
+        // Malformed resolution content — cannot prove resolution; skip
+      }
+    }
+
     const items = await adapter.getByType(companyId, CONFLICTING_PATTERN_TYPE);
-    const results: ConflictingPatternContent[] = [];
+    const results: PendingConflictEntry[] = [];
     for (const item of items) {
       if (item.status !== 'active') continue;
+      if (resolvedConflictItemIds.has(item.id)) continue;
       try {
         const parsed: unknown = JSON.parse(item.content);
         if (!isValidConflictingPatternContent(parsed)) continue;
         if (entityId && parsed.entityId !== entityId) continue;
-        results.push(parsed);
+        results.push({ conflictItemId: item.id, content: parsed });
       } catch {
         // Malformed content — skip
       }
@@ -1970,5 +2008,204 @@ export async function getPendingConflicts(
       status: 'ERROR',
       error: error instanceof Error ? error.message : String(error),
     };
+  }
+}
+
+// ─── Explicit Conflict Resolution (KE-EVOL-004) ─────────────────
+//
+// A deterministic conflict is a verdict ("this divergence was detected"),
+// NOT an accounting truth. Which treatment is correct is a HUMAN
+// decision. This layer records that human decision explicitly and
+// traceably WITHOUT:
+//   - rehabilitating, promoting, or downgrading any knowledge item
+//   - changing any confidence (pattern, exact treatment, or conflict)
+//   - selecting a winner or modifying any GL account
+//   - deleting the conflict or rewriting its original evidence
+//
+// Storage: a SEPARATE MemoryItem of type 'classification_conflict_resolution'
+// referencing the conflict by its REAL MemoryItem id. The original conflict
+// item is never mutated (append-only evidence preservation); the conflict's
+// own status field is never repurposed (read filters treat status !==
+// 'active' as excluded everywhere, so a status transition would silently
+// hide the conflict from ALL queries, not only from "pending").
+
+export const CONFLICT_RESOLUTION_TYPE = 'classification_conflict_resolution';
+
+/** Persisted resolution content (MemoryItem.content JSON, fixed field order). */
+export interface ConflictResolutionContent {
+  companyId: string;
+  /** Real MemoryItem id of the resolved classification_conflicting_pattern */
+  conflictItemId: string;
+  /** Non-empty human identity who made the resolution decision */
+  resolvedBy: string;
+  /** Non-free human record of WHY (mandatory, audited verbatim) */
+  resolutionReason: string;
+  /** ISO-8601 timestamp generated by the system at resolution time */
+  resolvedAt: string;
+}
+
+export type ConflictResolutionResult =
+  | { status: 'RESOLVED'; conflictItemId: string; resolutionId: string }
+  | { status: 'ALREADY_RESOLVED'; conflictItemId: string; resolutionId: string }
+  | { status: 'NOT_FOUND' }
+  | { status: 'ERROR'; error: string };
+
+function isValidConflictResolutionContent(content: unknown): content is ConflictResolutionContent {
+  if (!isRecord(content)) return false;
+  const nonEmptyString = (value: unknown): boolean => typeof value === 'string' && value !== '';
+  if (!nonEmptyString(content.companyId)) return false;
+  if (!nonEmptyString(content.conflictItemId)) return false;
+  if (!nonEmptyString(content.resolvedBy)) return false;
+  if (!nonEmptyString(content.resolutionReason)) return false;
+  if (!nonEmptyString(content.resolvedAt)) return false;
+  return true;
+}
+
+/**
+ * Explicitly resolve one persisted deterministic conflict (HUMAN action).
+ *
+ * Validation: conflictId must exist within the tenant (missing or foreign
+ * → NOT_FOUND, no existence leak); must be of type
+ * classification_conflicting_pattern (wrong type → NOT_FOUND); content
+ * must be well-formed and match the tenant (else ERROR); resolvedBy and
+ * resolutionReason must be non-empty human-provided strings (else ERROR,
+ * nothing persisted).
+ *
+ * Explicit human resolution: nothing in this operation derives the
+ * decision from observations, counts, time, similarity, confidence,
+ * absence of new conflicts, or any automatic signal.
+ *
+ * Idempotent: resolving the same conflict again returns ALREADY_RESOLVED
+ * with the existing resolution id — no duplicate record, no second
+ * decision event for the same conflict.
+ *
+ * Traceability: the resolution preserves conflictItemId, companyId,
+ * resolvedBy, resolutionReason, and resolvedAt. The original conflict
+ * item is NEVER modified, never deleted, and its evidence
+ * (detectedAt, observationIds, authorizedPatternIds,
+ * exactTreatmentItemIds, conflictingGlAccountId) stays untouched.
+ *
+ * Does NOT rehabilitate any knowledge item, does NOT change any
+ * confidence, does NOT choose a winner, does NOT modify GL accounts,
+ * and does NOT invoke any other engine.
+ */
+export async function resolveClassificationConflict(
+  adapter: MemoryAdapter,
+  companyId: string,
+  conflictItemId: string,
+  resolvedBy: string,
+  resolutionReason: string,
+): Promise<ConflictResolutionResult> {
+  const invalidInput = !companyId || typeof companyId !== 'string'
+    || !conflictItemId || typeof conflictItemId !== 'string'
+    || !resolvedBy || typeof resolvedBy !== 'string' || resolvedBy.trim() === ''
+    || !resolutionReason || typeof resolutionReason !== 'string' || resolutionReason.trim() === '';
+  if (invalidInput) {
+    return { status: 'ERROR', error: 'companyId, conflictItemId, resolvedBy and resolutionReason are required' };
+  }
+
+  try {
+    // Tenant-safe retrieval: returns null for missing OR other-company items
+    const item = await adapter.getById(conflictItemId, companyId);
+    if (!item || item.type !== CONFLICTING_PATTERN_TYPE) {
+      return { status: 'NOT_FOUND' };
+    }
+
+    try {
+      const parsed: unknown = JSON.parse(item.content);
+      if (!isValidConflictingPatternContent(parsed)) {
+        return { status: 'ERROR', error: 'Malformed conflict content' };
+      }
+      if (parsed.companyId !== companyId) {
+        return { status: 'ERROR', error: 'Malformed conflict content' };
+      }
+    } catch {
+      return { status: 'ERROR', error: 'Malformed conflict content' };
+    }
+
+    // Idempotency: one resolution event per conflict
+    const existingResolutions = await adapter.getByType(companyId, CONFLICT_RESOLUTION_TYPE);
+    for (const existing of existingResolutions) {
+      if (existing.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(existing.content);
+        if (
+          isRecord(parsed)
+          && typeof parsed.conflictItemId === 'string'
+          && parsed.conflictItemId === conflictItemId
+          && typeof parsed.companyId === 'string'
+          && parsed.companyId === companyId
+        ) {
+          return {
+            status: 'ALREADY_RESOLVED',
+            conflictItemId,
+            resolutionId: existing.id,
+          };
+        }
+      } catch {
+        // Malformed existing resolution — not a duplicate of ours
+      }
+    }
+
+    const resolutionContent: ConflictResolutionContent = {
+      companyId,
+      conflictItemId,
+      resolvedBy,
+      resolutionReason,
+      resolvedAt: new Date().toISOString(),
+    };
+
+    const created = await adapter.record({
+      content: JSON.stringify(resolutionContent),
+      type: CONFLICT_RESOLUTION_TYPE,
+      companyId,
+      sourceAuthor: resolvedBy,
+      sourceName: 'conflict_resolution',
+      sourceObservedAt: new Date(),
+      confidence: 'certain',
+    });
+
+    return {
+      status: 'RESOLVED',
+      conflictItemId,
+      resolutionId: created.id,
+    };
+  } catch (error) {
+    return {
+      status: 'ERROR',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Retrieve ALL persisted conflict resolutions for a company (tenant-scoped).
+ * Historical observability surface: resolutions of already-resolved
+ * conflicts stay readable here even though those conflicts no longer
+ * appear in getPendingConflicts.
+ */
+export async function getConflictResolutions(
+  adapter: MemoryAdapter,
+  companyId: string,
+): Promise<ConflictResolutionContent[]> {
+  if (!companyId || typeof companyId !== 'string') return [];
+
+  try {
+    const items = await adapter.getByType(companyId, CONFLICT_RESOLUTION_TYPE);
+    const results: ConflictResolutionContent[] = [];
+    for (const item of items) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidConflictResolutionContent(parsed)) continue;
+        if (parsed.companyId !== companyId) continue;
+        results.push(parsed);
+      } catch {
+        // Malformed content — skip
+      }
+    }
+    return results;
+  } catch {
+    return [];
   }
 }

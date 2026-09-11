@@ -330,8 +330,8 @@ describe('KE-EVOL-001 — PATCH /api/transactions/[id] conflict integration', ()
     expect(conflicts.status).toBe('FOUND');
     if (conflicts.status !== 'FOUND') return;
     expect(conflicts.conflicts.length).toBe(1);
-    expect(conflicts.conflicts[0].kind).toBe('OBSERVATION_VS_AUTHORIZED');
-    expect(conflicts.conflicts[0].conflictingGlAccountId).toBe('gl-b');
+    expect(conflicts.conflicts[0].content.kind).toBe('OBSERVATION_VS_AUTHORIZED');
+    expect(conflicts.conflicts[0].content.conflictingGlAccountId).toBe('gl-b');
   });
 
   // T17: accounting success + promotion ERROR → secondary, logged, response 200
@@ -417,7 +417,7 @@ describe('KE-EVOL-001 — PATCH /api/transactions/[id] conflict integration', ()
     expect(conflicts.status).toBe('FOUND');
     if (conflicts.status !== 'FOUND') return;
     expect(conflicts.conflicts.length).toBe(1);
-    expect(conflicts.conflicts[0].kind).toBe('OBSERVATION_VS_AUTHORIZED');
+    expect(conflicts.conflicts[0].content.kind).toBe('OBSERVATION_VS_AUTHORIZED');
   });
 
   // DET-ERR: detection ERROR keeps prior behavior (EVOL-001 contract intact)

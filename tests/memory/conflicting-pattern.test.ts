@@ -328,7 +328,7 @@ describe('KE-EVOL-001 — Conflicting Pattern Detection (memory level)', () => {
     if (!obs2.ok) throw new Error('unreachable');
     expect(conflicts.conflicts.length).toBe(2);
     const latest = conflicts.conflicts[1];
-    expect(latest.observationIds).toContain(obs2.observationId);
+    expect(latest.content.observationIds).toContain(obs2.observationId);
   });
 
   // M05: exact treatment GL-B vs authorized GL-A → AUTHORIZED_VS_EXACT
@@ -375,10 +375,10 @@ describe('KE-EVOL-001 — Conflicting Pattern Detection (memory level)', () => {
     // verify conflict ids are the pair, both patterns, sorted
     const conflicts = await getPendingConflicts(adapter, COMPANY_A, ENTITY_1);
     if (conflicts.status !== 'FOUND') throw new Error(`expected FOUND, got ${conflicts.status}`);
-    const aVSA = conflicts.conflicts.find((c) => c.kind === 'AUTHORIZED_VS_AUTHORIZED');
+    const aVSA = conflicts.conflicts.find((c) => c.content.kind === 'AUTHORIZED_VS_AUTHORIZED');
     expect(aVSA).toBeTruthy();
-    expect(aVSA!.authorizedPatternIds).toContain(setup.authId);
-    expect(aVSA!.authorizedPatternIds.length).toBe(2);
+    expect(aVSA!.content.authorizedPatternIds).toContain(setup.authId);
+    expect(aVSA!.content.authorizedPatternIds.length).toBe(2);
   });
 
   // M08: two authorized patterns, SAME GL → NO_CONFLICT
@@ -456,10 +456,10 @@ describe('KE-EVOL-001 — Conflicting Pattern Detection (memory level)', () => {
     expect(result.status).toBe('FOUND');
     if (result.status !== 'FOUND') return;
     expect(result.conflicts.length).toBe(1);
-    expect(result.conflicts[0].kind).toBe('OBSERVATION_VS_AUTHORIZED');
-    expect(result.conflicts[0].companyId).toBe(COMPANY_A);
-    expect(result.conflicts[0].entityId).toBe(ENTITY_1);
-    expect(result.conflicts[0].conflictingGlAccountId).toBe(GL_B);
+    expect(result.conflicts[0].content.kind).toBe('OBSERVATION_VS_AUTHORIZED');
+    expect(result.conflicts[0].content.companyId).toBe(COMPANY_A);
+    expect(result.conflicts[0].content.entityId).toBe(ENTITY_1);
+    expect(result.conflicts[0].content.conflictingGlAccountId).toBe(GL_B);
   });
 
   // M12: pendingConflicts scoped by company
@@ -485,7 +485,7 @@ describe('KE-EVOL-001 — Conflicting Pattern Detection (memory level)', () => {
     expect(resultA.status).toBe('FOUND');
     if (resultA.status !== 'FOUND') return;
     expect(resultA.conflicts.length).toBe(1);
-    expect(resultA.conflicts[0].companyId).toBe(COMPANY_A);
+    expect(resultA.conflicts[0].content.companyId).toBe(COMPANY_A);
 
     const resultB = await getPendingConflicts(adapter, COMPANY_B);
     expect(resultB.status).toBe('EMPTY');
@@ -559,10 +559,10 @@ describe('KE-EVOL-001 — Conflicting Pattern Detection (memory level)', () => {
     const result = await getPendingConflicts(adapter, COMPANY_A, ENTITY_1);
     if (result.status !== 'FOUND') throw new Error(`expected FOUND, got ${result.status}`);
     expect(result.conflicts.length).toBe(1);
-    expect(result.conflicts[0].authorizedPatternIds).toContain(setup.authId);
-    expect(result.conflicts[0].observationIds.length).toBeGreaterThan(0);
-    expect(result.conflicts[0].sourceCandidateId).toBe(setup.candidateId);
-    expect(result.conflicts[0].detectedAt).toBeTruthy();
+    expect(result.conflicts[0].content.authorizedPatternIds).toContain(setup.authId);
+    expect(result.conflicts[0].content.observationIds.length).toBeGreaterThan(0);
+    expect(result.conflicts[0].content.sourceCandidateId).toBe(setup.candidateId);
+    expect(result.conflicts[0].content.detectedAt).toBeTruthy();
   });
 
   // M18: authorized pattern untouched after conflict detection

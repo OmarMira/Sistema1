@@ -547,7 +547,7 @@ describe('KE-EVOL-002 — Confidence Evolution (C11 reused)', () => {
 
     // The conflict item itself was NOT degraded and NOT promoted
     const conflict = await getPendingConflictsSafe(adapter);
-    expect(conflict.kind).toBe('OBSERVATION_VS_AUTHORIZED');
+    expect(conflict.content.kind).toBe('OBSERVATION_VS_AUTHORIZED');
     const all = await adapter.getByType(COMPANY_A, CONFLICTING_PATTERN_TYPE);
     expect(all.length).toBe(1);
     expect(all[0].confidence).toBe('tentative');
@@ -835,8 +835,8 @@ describe('KE-EVOL-002 — Confidence Evolution (C11 reused)', () => {
     expect(read.status).toBe('FOUND');
     if (read.status !== 'FOUND') return;
     expect(read.conflicts.length).toBe(1);
-    expect(read.conflicts[0].exactTreatmentItemIds).toEqual([implicatedExactId]);
-    expect(read.conflicts[0].detectedAt).toBeTruthy();
+    expect(read.conflicts[0].content.exactTreatmentItemIds).toEqual([implicatedExactId]);
+    expect(read.conflicts[0].content.detectedAt).toBeTruthy();
   });
 });
 

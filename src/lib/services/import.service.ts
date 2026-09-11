@@ -677,6 +677,7 @@ export class ImportService {
                     bankAccountId,
                     deterministicResult: resolution.deterministicResult,
                     aiProposal: resolution.aiProposal,
+                    proposedEntity: resolution.aiProposal.proposedEntity ?? null,
                   },
                   requestedBy: userId,
                   status: 'pending',

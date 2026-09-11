@@ -8,6 +8,8 @@ import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { logger } from '@/lib/logger';
 import { createAdapter, learnEntityTreatment } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
+import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
+import type { EntityType } from '@/internal/company-knowledge/entity/types';
 
 // ─── PATCH /api/transactions/[id] ───────────────────────────────────────
 // Manual GL account assignment: updates the transaction and creates the
@@ -18,7 +20,13 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
   const { id } = await context.params;
 
   const body = await request.json();
-  const { glAccountId } = body;
+  const { glAccountId, confirmedEntity } = body as {
+    glAccountId: string;
+    confirmedEntity?: {
+      canonicalName: string;
+      entityType: EntityType;
+    };
+  };
 
   if (!glAccountId) {
     return NextResponse.json(
@@ -124,36 +132,113 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
   // Only after accounting persistence succeeds.
   // KE failure is logged but does NOT revert the accounting correction.
   // The caller receives no indication — the accounting result stands.
-  const entityResolution = await resolveEntity(companyId, transaction.description);
+  try {
+    if (confirmedEntity) {
+      // User explicitly confirmed entity identity → persist it and learn treatment
+      const entityResolution = await resolveEntity(companyId, transaction.description);
 
-  if (entityResolution.status === 'KNOWN') {
-    const keResult = await learnEntityTreatment(
-      createAdapter(db, (fn) => db.$transaction(fn)),
-      companyId,
-      entityResolution.entityId,
-      glAccountId,
-      'any',
-      'user_correction',
-      id,
-    );
-    if (keResult.status === 'ERROR') {
-      logger.warn('[KE] Learn failed — accounting correction stands', {
-        transactionId: id,
-        error: keResult.reason,
-      });
+      if (entityResolution.status === 'UNKNOWN') {
+        // UNKNOWN + user confirms → create CompanyKnowledge record
+        const confirmed = await confirmEntityIdentity({
+          companyId,
+          canonicalName: confirmedEntity.canonicalName,
+          observedAlias: transaction.description,
+          entityType: confirmedEntity.entityType,
+        });
+
+        // Learn treatment with the confirmed entity
+        const keResult = await learnEntityTreatment(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          confirmed.id,
+          glAccountId,
+          'any',
+          'user_correction',
+          id,
+        );
+
+        if (keResult.status === 'ERROR') {
+          logger.warn('[KE] Treatment learn failed after identity confirmation', {
+            transactionId: id,
+            companyId,
+            entityId: confirmed.id,
+            stage: 'entity_treatment_learning',
+            error: keResult.reason,
+          });
+        }
+      } else if (entityResolution.status === 'KNOWN') {
+        // Entity already known — just learn treatment
+        const keResult = await learnEntityTreatment(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          entityResolution.entityId,
+          glAccountId,
+          'any',
+          'user_correction',
+          id,
+        );
+        if (keResult.status === 'ERROR') {
+          logger.warn('[KE] Learn failed — accounting correction stands', {
+            transactionId: id,
+            companyId,
+            stage: 'entity_treatment_learning',
+            error: keResult.reason,
+          });
+        }
+      } else {
+        // ERROR — do not persist identity or treatment silently
+        logger.warn('[KE] Entity resolution error — identity confirmation skipped', {
+          transactionId: id,
+          companyId,
+          stage: 'entity_resolution',
+          reason: entityResolution.reason,
+        });
+      }
+    } else {
+      // No confirmedEntity — learn treatment if KNOWN, skip if UNKNOWN
+      const entityResolution = await resolveEntity(companyId, transaction.description);
+
+      if (entityResolution.status === 'KNOWN') {
+        const keResult = await learnEntityTreatment(
+          createAdapter(db, (fn) => db.$transaction(fn)),
+          companyId,
+          entityResolution.entityId,
+          glAccountId,
+          'any',
+          'user_correction',
+          id,
+        );
+        if (keResult.status === 'ERROR') {
+          logger.warn('[KE] Learn failed — accounting correction stands', {
+            transactionId: id,
+            companyId,
+            stage: 'entity_treatment_learning',
+            error: keResult.reason,
+          });
+        }
+      } else if (entityResolution.status === 'UNKNOWN') {
+        logger.info('[KE] Unknown entity — learning skipped', {
+          transactionId: id,
+          companyId,
+          description: transaction.description,
+        });
+      } else {
+        logger.warn('[KE] Entity resolution error — learning skipped', {
+          transactionId: id,
+          companyId,
+          stage: 'entity_resolution',
+          reason: entityResolution.reason,
+        });
+      }
     }
-  } else if (entityResolution.status === 'UNKNOWN') {
-    // Entity not identified — cannot attach treatment to unknown identity.
-    // Accounting correction stands; KE learning is skipped.
-    logger.info('[KE] Unknown entity — learning skipped', {
+  } catch (keError) {
+    // KE learning failures are explicitly logged and auditable.
+    // Accounting correction already committed — response remains successful.
+    logger.error('[KE] Post-accounting learning failed — accounting correction stands', {
       transactionId: id,
-      description: transaction.description,
-    });
-  } else {
-    // ERROR (ambiguous entity identity)
-    logger.warn('[KE] Entity resolution error — learning skipped', {
-      transactionId: id,
-      reason: entityResolution.reason,
+      companyId,
+      stage: 'entity_learning',
+      error: keError instanceof Error ? keError.message : String(keError),
     });
   }
 

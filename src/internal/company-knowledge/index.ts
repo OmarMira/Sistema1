@@ -14,6 +14,7 @@ export {
   archive,
   restore,
   merge,
+  confirmEntityIdentity,
 } from './entity/service';
 
 export type {
@@ -24,6 +25,7 @@ export type {
   ArchiveInput,
   RestoreInput,
   MergeInput,
+  ConfirmEntityIdentityInput,
 } from './entity/service';
 
 export { RelationshipValues, relationshipSchema } from './relationship/types';

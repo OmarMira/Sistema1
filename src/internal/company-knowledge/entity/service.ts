@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { ForbiddenError } from '@/lib/api-error';
+import { normalizeForResolution } from '@/memory/entity-resolution';
 import { entityMetadataByType } from './metadata-schemas';
 import type {
   EntityType,
@@ -105,6 +106,49 @@ function toPrismaEntityType(type: EntityType): 'PERSON' | 'COMPANY' | 'FINANCIAL
     asset: 'ASSET',
   };
   return map[type];
+}
+
+function fromPrismaEntityType(type: 'PERSON' | 'COMPANY' | 'FINANCIAL_PRODUCT' | 'PLATFORM' | 'ASSET'): EntityType {
+  const map: Record<string, EntityType> = {
+    PERSON: 'person',
+    COMPANY: 'company',
+    FINANCIAL_PRODUCT: 'financial_product',
+    PLATFORM: 'platform',
+    ASSET: 'asset',
+  };
+  return map[type] ?? 'person';
+}
+
+function toCompanyKnowledgeRecord(row: {
+  id: string;
+  companyId: string;
+  type: 'PERSON' | 'COMPANY' | 'FINANCIAL_PRODUCT' | 'PLATFORM' | 'ASSET';
+  canonicalName: string;
+  aliases: string[];
+  relationship: string | null;
+  metadata: unknown;
+  source: string;
+  status: string;
+  mergedIntoId: string | null;
+  version: number;
+  createdAt: Date;
+  updatedAt: Date;
+}): CompanyKnowledgeRecord {
+  return {
+    id: row.id,
+    companyId: row.companyId,
+    type: fromPrismaEntityType(row.type),
+    canonicalName: row.canonicalName,
+    aliases: row.aliases,
+    relationship: row.relationship,
+    metadata: row.metadata as Record<string, unknown>,
+    source: row.source,
+    status: row.status as 'active' | 'archived' | 'merged',
+    mergedIntoId: row.mergedIntoId,
+    version: row.version,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
 }
 
 async function assertCompanyKnowledgeExists(
@@ -575,4 +619,140 @@ export async function merge(
   });
 
   return updatedTarget as unknown as CompanyKnowledgeRecord;
+}
+
+// ───────────────────────────────────────────────
+// Confirm Entity Identity (BLOQUE3-101)
+// UNKNOWN → confirmed identity → CompanyKnowledge
+// ───────────────────────────────────────────────
+
+export interface ConfirmEntityIdentityInput {
+  companyId: string;
+  canonicalName: string;
+  observedAlias: string;
+  entityType: EntityType;
+  reason?: string;
+}
+
+/**
+ * Confirm an entity identity and persist it to CompanyKnowledge.
+ *
+ * This is the bridge between UNKNOWN and KNOWN: when a user explicitly
+ * confirms "this description belongs to entity X", this function creates
+ * (or reuses) the CompanyKnowledge record so that resolveEntity() will
+ * return KNOWN for the observed alias on subsequent calls.
+ *
+ * Contract:
+ *   - UNKNOWN before confirmation → KNOWN after
+ *   - Idempotent: same company + same canonicalName → reuses existing entity
+ *   - Tenant-isolated: Company A's confirmation invisible to Company B
+ *   - Conflict-safe: same alias on different entity → explicit error
+ *   - AI proposal alone persists NOTHING — only explicit confirmation
+ *
+ * @returns The CompanyKnowledge record (newly created or existing)
+ */
+export async function confirmEntityIdentity(
+  input: ConfirmEntityIdentityInput,
+): Promise<CompanyKnowledgeRecord> {
+  // 1. Validate inputs
+  if (!input.companyId || typeof input.companyId !== 'string') {
+    throw new Error('companyId is required');
+  }
+  if (!input.canonicalName || typeof input.canonicalName !== 'string') {
+    throw new Error('canonicalName is required');
+  }
+  if (!input.observedAlias || typeof input.observedAlias !== 'string') {
+    throw new Error('observedAlias is required');
+  }
+
+  // 2. Normalize for comparison
+  const normalizedCanonical = normalizeForResolution(input.canonicalName);
+  const normalizedAlias = normalizeForResolution(input.observedAlias);
+
+  // 3. Load all active entities for this company
+  const records = await db.companyKnowledge.findMany({
+    where: { companyId: input.companyId, status: 'active' },
+  });
+
+  // 4. Check for alias conflict: same alias already on a DIFFERENT entity
+  for (const record of records) {
+    const recordHasAlias = record.aliases.some(
+      (a) => normalizeForResolution(a) === normalizedAlias,
+    );
+    if (recordHasAlias) {
+      const recordCanonicalNorm = normalizeForResolution(record.canonicalName);
+      if (recordCanonicalNorm !== normalizedCanonical) {
+        throw new Error(
+          `Alias conflict: "${input.observedAlias}" is already assigned to entity "${record.canonicalName}" (${record.id}). ` +
+          `Cannot reassign to "${input.canonicalName}" without removing it first.`,
+        );
+      }
+    }
+  }
+
+  // 5. Check if entity with same canonicalName already exists
+  const existing = records.find(
+    (r) => normalizeForResolution(r.canonicalName) === normalizedCanonical,
+  );
+
+  if (existing) {
+    // Idempotent: alias already present → return existing
+    const alreadyHasAlias = existing.aliases.some(
+      (a) => normalizeForResolution(a) === normalizedAlias,
+    );
+    if (alreadyHasAlias) {
+      return toCompanyKnowledgeRecord(existing);
+    }
+
+    // Add alias to existing entity
+    const updated = await db.companyKnowledge.update({
+      where: { id: existing.id },
+      data: {
+        aliases: [...existing.aliases, input.observedAlias],
+      },
+    });
+
+    await appendAuditEntry({
+      knowledgeId: existing.id,
+      action: 'add_alias',
+      version: existing.version ?? 1,
+      beforeValue: { aliases: existing.aliases },
+      afterValue: { aliases: [...existing.aliases, input.observedAlias] },
+      source: 'company_knowledge',
+      reason: input.reason ?? `Alias "${input.observedAlias}" confirmed`,
+    });
+
+    return toCompanyKnowledgeRecord(updated);
+  }
+
+  // 6. Create new entity
+  const created = await db.companyKnowledge.create({
+    data: {
+      companyId: input.companyId,
+      type: toPrismaEntityType(input.entityType),
+      canonicalName: input.canonicalName,
+      aliases: [input.observedAlias],
+      metadata: {},
+      source: 'company_knowledge',
+      status: 'active',
+      version: 1,
+    },
+  });
+
+  await appendAuditEntry({
+    knowledgeId: created.id,
+    action: 'create',
+    version: 1,
+    beforeValue: null,
+    afterValue: {
+      companyId: created.companyId,
+      type: created.type,
+      canonicalName: created.canonicalName,
+      aliases: [input.observedAlias],
+    },
+    source: 'company_knowledge',
+    reason: input.reason ?? `Entity "${input.canonicalName}" confirmed from observation "${input.observedAlias}"`,
+  });
+
+  return toCompanyKnowledgeRecord(created);
 }

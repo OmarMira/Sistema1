@@ -284,6 +284,26 @@ const es = {
       'Tu estado de cuenta ha sido importado y las transacciones han sido creadas.',
     uncategorizedNote:
       'necesitan categorización manual. Configura reglas bancarias para mejorar la auto-categorización.',
+    importReview: {
+      title: 'Transacciones sin categorizar',
+      description:
+        'Asigna una cuenta contable a cada transacción. La corrección también enseña al sistema a clasificar mejor la próxima vez.',
+      loading: 'Cargando transacciones...',
+      loadError: 'No se pudieron cargar las transacciones',
+      retry: 'Reintentar',
+      empty: 'No hay transacciones pendientes de clasificación',
+      date: 'Fecha',
+      descriptionLabel: 'Descripción',
+      amount: 'Monto',
+      account: 'Cuenta bancaria',
+      classifyTitle: 'Clasificar transacción',
+      selectAccount: 'Seleccionar cuenta contable',
+      confirm: 'Confirmar clasificación',
+      submitting: 'Clasificando...',
+      classified: 'Transacción clasificada',
+      classifyFailed: 'No se pudo clasificar la transacción',
+      reviewAction: 'Revisar transacciones sin categorizar',
+    },
     editAccountDesc: 'Actualiza la información de tu cuenta bancaria',
     newAccountDesc: 'Agrega una nueva cuenta bancaria para tu empresa',
     linkedAccountHelp:

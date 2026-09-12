@@ -33,11 +33,20 @@ function logConfidenceFailure(
     entityId: string;
     error: string;
   },
+  severity: 'warn' | 'error' = 'warn',
 ): void {
-  logger.warn(`[KE] Confidence ${stage === 'confidence_promotion' ? 'promotion' : 'degradation'} failed — accounting correction stands`, {
-    ...context,
-    stage,
-  });
+  const message = `[KE] Confidence ${stage === 'confidence_promotion' ? 'promotion' : 'degradation'} failed — accounting correction stands`;
+  if (severity === 'error') {
+    logger.error(message, {
+      ...context,
+      stage,
+    });
+  } else {
+    logger.warn(message, {
+      ...context,
+      stage,
+    });
+  }
 }
 
 /** Promote the confirmed exact treatment to certain (human_confirmation). */
@@ -82,6 +91,21 @@ async function promoteConfirmedTreatment(
       entityId,
       error: result.error,
     });
+  } else if (result.status === 'NOT_FOUND') {
+    // Internal anomaly: the itemId comes from a successful learnEntityTreatment
+    // in the same request, so a missing item means knowledge-state corruption.
+    // Observable at error severity; the accounting transaction stands and the
+    // HTTP response contract is unchanged (no throw, no retry, no rollback).
+    logConfidenceFailure(
+      'confidence_promotion',
+      {
+        transactionId,
+        companyId,
+        entityId,
+        error: 'item_not_found',
+      },
+      'error',
+    );
   }
 }
 

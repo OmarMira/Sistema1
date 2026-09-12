@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Landmark, Pencil, CheckCircle2, XCircle, CircleDot } from 'lucide-react';
+import { ArrowLeft, Landmark, Pencil, CheckCircle2, XCircle, CircleDot, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -55,6 +55,7 @@ interface BankDetailViewProps {
   transactions: BankTransactionData[];
   onBack: () => void;
   onEdit: (account: BankAccountData) => void;
+  onReclassify?: (transaction: BankTransactionData) => void;
 }
 
 export function BankDetailView({
@@ -62,6 +63,7 @@ export function BankDetailView({
   transactions,
   onBack,
   onEdit,
+  onReclassify,
 }: BankDetailViewProps) {
   const t = useLanguageStore((s) => s.t);
 
@@ -135,10 +137,11 @@ export function BankDetailView({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.date')}</TableHead>
-                <TableHead>{t('common.description')}</TableHead>
-                <TableHead className="text-right">{t('common.amount')}</TableHead>
-                <TableHead className="text-center">{t('common.status')}</TableHead>
+                    <TableHead>{t('common.date')}</TableHead>
+                    <TableHead>{t('common.description')}</TableHead>
+                    <TableHead className="text-right">{t('common.amount')}</TableHead>
+                    <TableHead className="text-center">{t('common.status')}</TableHead>
+                    {onReclassify && <TableHead className="text-center" />}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -165,6 +168,20 @@ export function BankDetailView({
                       <XCircle className="size-4 text-muted-foreground/50 mx-auto" />
                     )}
                   </TableCell>
+                  {onReclassify && (
+                    <TableCell className="text-center">
+                      {tx.glAccountId && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          data-testid={`reclassify-btn-${tx.id}`}
+                          onClick={() => onReclassify(tx)}
+                        >
+                          <RefreshCcw className="size-4" />
+                        </Button>
+                      )}
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>

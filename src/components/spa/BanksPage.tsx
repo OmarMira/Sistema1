@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuthStore } from '@/store/auth-store';
 import { useLanguageStore } from '@/store/language-store';
 import { AccountSelector, type GlAccountOption } from './journal/AccountSelector';
+import { ReclassifyDialog } from '@/components/import/ReclassifyDialog';
 import { logger } from '@/lib/logger';
 import {
   BankFormDialog,
@@ -63,6 +64,22 @@ export function BanksPage() {
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedAccount, setSelectedAccount] = useState<BankAccountData | null>(null);
   const [recentTransactions, setRecentTransactions] = useState<BankTransactionData[]>([]);
+  const [reclassifyTarget, setReclassifyTarget] = useState<BankTransactionData | null>(null);
+  const [glAccounts, setGlAccounts] = useState<GlAccountOption[]>([]);
+
+  function openReclassifyDialog(tx: BankTransactionData) {
+    setReclassifyTarget(tx);
+    if (glAccounts.length === 0 && activeCompany) {
+      void fetch(`/api/journal/accounts?companyId=${activeCompany.id}`)
+        .then(async (res) => {
+          if (res.ok) {
+            const data = await res.json();
+            setGlAccounts(data.accounts ?? []);
+          }
+        })
+        .catch((err) => logger.error('Failed to fetch GL accounts:', { error: String(err) }));
+    }
+  }
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<BankAccountData | null>(null);
@@ -277,16 +294,29 @@ export function BanksPage() {
 
   if (viewMode === 'detail' && selectedAccount) {
     return (
-      <BankDetailView
-        account={selectedAccount}
-        transactions={recentTransactions}
-        onBack={() => {
-          setViewMode('grid');
-          setSelectedAccount(null);
-          setRecentTransactions([]);
-        }}
-        onEdit={openEditModal}
-      />
+      <>
+        <BankDetailView
+          account={selectedAccount}
+          transactions={recentTransactions}
+          onBack={() => {
+            setViewMode('grid');
+            setSelectedAccount(null);
+            setRecentTransactions([]);
+          }}
+          onEdit={openEditModal}
+          onReclassify={openReclassifyDialog}
+        />
+        <ReclassifyDialog
+          transaction={reclassifyTarget}
+          accounts={glAccounts}
+          onOpenChange={(open) => {
+            if (!open) setReclassifyTarget(null);
+          }}
+          onReclassified={() => {
+            if (selectedAccount) void fetchAccountDetail(selectedAccount.id);
+          }}
+        />
+      </>
     );
   }
 

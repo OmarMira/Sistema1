@@ -281,6 +281,21 @@ const en = {
       'Your bank statement has been imported and transactions have been created.',
     uncategorizedNote:
       'need manual categorization. Set up bank rules to improve auto-categorization.',
+    reclassifyTx: {
+      title: 'Reclassify transaction',
+      description:
+        'Change the GL account assigned to this transaction. The previous journal entry is voided and re-posted, and the system learns from your correction.',
+      currentAccount: 'Current account',
+      noAccount: 'No account',
+      newAccount: 'New GL account',
+      selectAccount: 'Select GL account',
+      sameAccount: 'The selected account is the same as the current one.',
+      confirm: 'Confirm reclassification',
+      submitting: 'Reclassifying...',
+      cancel: 'Cancel',
+      success: 'Transaction reclassified',
+      failed: 'Failed to reclassify transaction',
+    },
     importReview: {
       title: 'Uncategorized transactions',
       description:

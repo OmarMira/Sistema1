@@ -284,6 +284,21 @@ const es = {
       'Tu estado de cuenta ha sido importado y las transacciones han sido creadas.',
     uncategorizedNote:
       'necesitan categorización manual. Configura reglas bancarias para mejorar la auto-categorización.',
+    reclassifyTx: {
+      title: 'Reclasificar transacción',
+      description:
+        'Cambia la cuenta contable asignada a esta transacción. El asiento anterior se anula y se vuelve a registrar, y el sistema aprende de tu corrección.',
+      currentAccount: 'Cuenta actual',
+      noAccount: 'Sin cuenta',
+      newAccount: 'Nueva cuenta contable',
+      selectAccount: 'Seleccionar cuenta contable',
+      sameAccount: 'La cuenta seleccionada es la misma que la actual.',
+      confirm: 'Confirmar reclasificación',
+      submitting: 'Reclasificando...',
+      cancel: 'Cancelar',
+      success: 'Transacción reclasificada',
+      failed: 'No se pudo reclasificar la transacción',
+    },
     importReview: {
       title: 'Transacciones sin categorizar',
       description:

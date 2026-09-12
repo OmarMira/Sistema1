@@ -115,6 +115,8 @@ const mockRecordClassificationObservation = vi.fn();
 const mockDetectConflictingPattern = vi.fn();
 const mockEvolveClassificationConfidence = vi.fn();
 const mockDegradeKnowledgeOnConflict = vi.fn();
+const mockIsKnowledgeImplicatedByPendingConflict = vi.fn();
+const mockIsConflictResolved = vi.fn();
 
 vi.mock('@/memory/entity-resolution', () => ({
   resolveEntity: (...args: unknown[]) => mockResolveEntity(...args),
@@ -135,6 +137,12 @@ vi.mock('@/memory/classification-knowledge', () => ({
     mockEvolveClassificationConfidence(...args),
   degradeKnowledgeOnConflict: (...args: unknown[]) =>
     mockDegradeKnowledgeOnConflict(...args),
+  // KE-EVOL-005 read-only gating helpers (same read ops family; default:
+  // no pending conflict implicates the item, no resolved conflict present)
+  isKnowledgeImplicatedByPendingConflict: (...args: unknown[]) =>
+    mockIsKnowledgeImplicatedByPendingConflict(...args),
+  isConflictResolved: (...args: unknown[]) =>
+    mockIsConflictResolved(...args),
 }));
 
 // ─── Mock logger ──────────────────────────────────────────────────────────────
@@ -224,6 +232,8 @@ function setupMocks(overrides: {
     confidence: 'tentative',
   });
   mockDegradeKnowledgeOnConflict.mockResolvedValue({ status: 'UNCHANGED' });
+  mockIsKnowledgeImplicatedByPendingConflict.mockResolvedValue({ implicated: false });
+  mockIsConflictResolved.mockResolvedValue({ resolved: false });
 
   // $transaction executes the callback with a mock tx
   mockTransactionFn.mockImplementation(

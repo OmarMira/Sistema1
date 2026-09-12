@@ -13,6 +13,8 @@ import {
   detectConflictingPattern,
   evolveClassificationConfidence,
   degradeKnowledgeOnConflict,
+  isKnowledgeImplicatedByPendingConflict,
+  isConflictResolved,
 } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
@@ -45,6 +47,27 @@ async function promoteConfirmedTreatment(
   companyId: string,
   entityId: string,
 ): Promise<void> {
+  // KE-EVOL-005 defect fix: a correction against an exact treatment that is
+  // implicated by ANY pending conflict must NOT promote it to certain —
+  // promoting would be silently re-degraded by the unresolved conflict in
+  // the same request (promote→detect→degrade fight). The knowledge stays
+  // uncertain until ALL pending conflicts implicating it are resolved and
+  // an explicit human rehabilitation happens.
+  const implicated = await isKnowledgeImplicatedByPendingConflict(
+    createAdapter(db, (fn) => db.$transaction(fn)),
+    companyId,
+    itemId,
+  );
+  if (implicated.implicated) {
+    logger.info('[KE] Promotion skipped — exact treatment implicated by pending conflict', {
+      transactionId,
+      companyId,
+      entityId,
+      itemId,
+      stage: 'confidence_promotion',
+    });
+    return;
+  }
   const result = await evolveClassificationConfidence(
     createAdapter(db, (fn) => db.$transaction(fn)),
     companyId,
@@ -69,6 +92,33 @@ async function degradeOnPersistedConflict(
   companyId: string,
   entityId: string,
 ): Promise<void> {
+  // KE-EVOL-005 defect fix: when detection returns ALREADY_RECORDED for a
+  // conflict that has ALREADY been explicitly resolved by a human, the
+  // same-identity re-detection must NOT re-degrade the knowledge — a
+  // resolved conflict is no longer active evidence (post-resolution
+  // re-degrade fight). A GENUINELY NEW post-resolution conflict (its own
+  // new conflictItemId, no resolution record) still degrades normally.
+  let resolved = false;
+  try {
+    const resolvedCheck = await isConflictResolved(
+      createAdapter(db, (fn) => db.$transaction(fn)),
+      companyId,
+      conflictId,
+    );
+    resolved = resolvedCheck.resolved;
+  } catch (resolutionCheckError) {
+    logger.warn('[KE] Conflict resolution check failed — degradation proceeds (conflict treated as pending)', {
+      transactionId,
+      companyId,
+      entityId,
+      conflictId,
+      stage: 'conflict_resolution_check',
+      error: resolutionCheckError instanceof Error ? resolutionCheckError.message : String(resolutionCheckError),
+    });
+  }
+  if (resolved) {
+    return;
+  }
   const degrade = await degradeKnowledgeOnConflict(
     createAdapter(db, (fn) => db.$transaction(fn)),
     companyId,

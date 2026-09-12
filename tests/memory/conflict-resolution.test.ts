@@ -546,7 +546,7 @@ describe('KE-EVOL-004 — Conflict Resolution Foundation', () => {
     expect(pending.conflicts[0].conflictItemId).toBe(detect.conflictId);
   });
 
-  it('T21: CHARACTERIZATION — unresolved conflict + same conflicting human correction ends uncertain (promote→re-degrade, NOT fixed in this block)', async () => {
+  it('T21: PROMOTE→RE-DEGRADE under unresolved conflict ends uncertain (promote→re-degrade fight — eliminated in KE-EVOL-005: promotion is now GATED under pending conflicts, so the same expectations below still hold)', async () => {
     const { adapter } = createMockAdapter();
     await setupAuthorizedPattern(adapter, COMPANY_A, ENTITY_1, GL_A);
 

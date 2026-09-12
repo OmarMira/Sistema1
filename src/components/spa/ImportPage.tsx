@@ -46,6 +46,7 @@ import { EntityOnboardingModal } from '@/components/learning/EntityOnboardingMod
 import { logger } from '@/lib/logger';
 import { ImportDropZone } from '@/components/import/ImportDropZone';
 import { ImportResultDialog } from '@/components/import/ImportResultDialog';
+import { UncategorizedReviewDialog } from '@/components/import/UncategorizedReviewDialog';
 import { MismatchWarningDialog } from '@/components/import/MismatchWarningDialog';
 import {
   type BankAccountOption,
@@ -97,6 +98,7 @@ export function ImportPage() {
 
   // Result dialog
   const [resultOpen, setResultOpen] = useState(false);
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [entityOnboardingOpen, setEntityOnboardingOpen] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
 
@@ -674,6 +676,10 @@ export function ImportPage() {
           setResultOpen(false);
           setCurrentView('reconciliation');
         }}
+        onReviewUncategorized={() => {
+          setResultOpen(false);
+          setReviewDialogOpen(true);
+        }}
       />
 
       {/* ─── Entity Onboarding Modal ───────────────── */}
@@ -682,6 +688,9 @@ export function ImportPage() {
         onClose={() => setEntityOnboardingOpen(false)}
         companyId={activeCompany?.id || ''}
       />
+
+      {/* ─── Uncategorized Review Dialog ───────────────── */}
+      <UncategorizedReviewDialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen} />
 
       {/* ─── Pre-filled Bank Account Creation Dialog ───────────────── */}
       <Dialog

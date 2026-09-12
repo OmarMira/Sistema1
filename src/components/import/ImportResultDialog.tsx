@@ -7,6 +7,7 @@ import {
   AlertCircle,
   Sparkles,
   ArrowLeftRight,
+  ClipboardList,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -26,6 +27,7 @@ interface ImportResultDialogProps {
   result: ImportResult | null;
   onClassifyEntities: () => void;
   onGoToReconciliation: () => void;
+  onReviewUncategorized: () => void;
 }
 
 export function ImportResultDialog({
@@ -34,6 +36,7 @@ export function ImportResultDialog({
   result,
   onClassifyEntities,
   onGoToReconciliation,
+  onReviewUncategorized,
 }: ImportResultDialogProps) {
   const t = useLanguageStore((s) => s.t);
 
@@ -134,10 +137,22 @@ export function ImportResultDialog({
                   />
                 </div>
                 {result.autoCategorizedCount < result.transactionCount && (
-                  <p className="text-xs text-amber-600 dark:text-amber-400">
-                    {result.transactionCount - result.autoCategorizedCount}{' '}
-                    {t('banks.transactions').toLowerCase()} {t('banks.uncategorizedNote')}
-                  </p>
+                  <div className="space-y-2">
+                    <p className="text-xs text-amber-600 dark:text-amber-400">
+                      {result.transactionCount - result.autoCategorizedCount}{' '}
+                      {t('banks.transactions').toLowerCase()} {t('banks.uncategorizedNote')}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid="review-uncategorized-btn"
+                      onClick={onReviewUncategorized}
+                      className="w-full"
+                    >
+                      <ClipboardList className="size-4 mr-1 shrink-0" />
+                      <span className="truncate">{t('importReview.reviewAction')}</span>
+                    </Button>
+                  </div>
                 )}
               </div>
             )}

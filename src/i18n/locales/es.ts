@@ -579,6 +579,16 @@ const es = {
     exportSuccess: 'Reporte exportado exitosamente.',
     generating: 'Generando reporte...',
   },
+  knowledgeEngine: {
+    title: 'Motor de Conocimiento',
+    subtitle: 'Revisá y controlá lo que el sistema aprendió.',
+    conflictsTitle: 'Conflictos de clasificación',
+    conflictsDescription:
+      'Conflictos deterministas pendientes. Resolvelos y rehabilitá el conocimiento afectado explícitamente.',
+    generalizationTitle: 'Generalización estructural',
+    generalizationDescription:
+      'Descubrí patrones estructurales desde las observaciones acumuladas y autorizalos explícitamente.',
+  },
   settings: {
     title: 'Configuración',
     company: 'Empresa',
@@ -639,6 +649,7 @@ const es = {
     companyData: 'Datos de la Empresa',
     userManagement: 'Gestión de Usuarios',
     rolesPermissions: 'Roles y Permisos',
+    knowledgeEngine: 'Motor de Conocimiento',
     fiscalPeriodsTab: 'Periodos Fiscales',
     systemBackup: 'Respaldos del Sistema',
     aiRuleGenerator: 'Generador de Reglas IA',

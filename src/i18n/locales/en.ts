@@ -575,6 +575,16 @@ const en = {
     exportSuccess: 'Report exported successfully.',
     generating: 'Generating report...',
   },
+  knowledgeEngine: {
+    title: 'Knowledge Engine',
+    subtitle: 'Review and control what the system has learned.',
+    conflictsTitle: 'Classification Conflicts',
+    conflictsDescription:
+      'Pending deterministic conflicts. Resolve them and rehabilitate affected knowledge explicitly.',
+    generalizationTitle: 'Structural Generalization',
+    generalizationDescription:
+      'Discover structural patterns from accumulated observations and authorize them explicitly.',
+  },
   settings: {
     title: 'Settings',
     company: 'Company',
@@ -634,6 +644,7 @@ const en = {
     companyData: 'Company Data',
     userManagement: 'User Management',
     rolesPermissions: 'Roles & Permissions',
+    knowledgeEngine: 'Knowledge Engine',
     fiscalPeriodsTab: 'Fiscal Periods',
     systemBackup: 'System Backups',
     aiRuleGenerator: 'AI Rule Generator',

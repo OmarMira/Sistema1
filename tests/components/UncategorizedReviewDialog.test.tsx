@@ -68,8 +68,16 @@ const TX_A = {
   amount: -500,
   direction: 'debit',
   glAccountId: null,
+  isReconciled: false,
   bankAccountId: 'bank-1',
   bankAccountName: 'Bank One',
+};
+
+const TX_RECONCILED = {
+  ...TX_A,
+  id: 'tx-rec',
+  description: 'RECONCILED NO-GL TX',
+  isReconciled: true,
 };
 
 function mockQueueResponse(transactions: typeof TX_A[]) {
@@ -294,5 +302,45 @@ describe('TX-REVIEW-UI-001 — UncategorizedReviewDialog (T8–T18)', () => {
         u.includes('/api/memory'),
     );
     expect(forbidden).toEqual([]);
+  });
+
+  // ─── RECONCILED-UNCLASSIFIED-001 (T7/T8) ─────────────────────────
+
+  it('T7: a reconciled uncategorized transaction is rendered in the review queue', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('/api/transactions?classificationStatus=uncategorized')) return mockQueueResponse([TX_RECONCILED]);
+      if (url.includes('/api/journal/accounts')) return mockAccountsResponse();
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    renderDialog();
+    await waitFor(() => {
+      expect(screen.getByText('RECONCILED NO-GL TX')).toBeInTheDocument();
+    });
+  });
+
+  it('T8: the reconciled transaction shows the explicit Reconciled signal', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('/api/transactions?classificationStatus=uncategorized')) return mockQueueResponse([TX_RECONCILED]);
+      if (url.includes('/api/journal/accounts')) return mockAccountsResponse();
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    renderDialog();
+    await waitFor(() => {
+      expect(screen.getByTestId('reconciled-badge-tx-rec')).toBeInTheDocument();
+    });
+    expect(tFn).toHaveBeenCalledWith('importReview.reconciled');
+  });
+
+  it('T8b: an unreconciled queue entry shows no reconciled badge', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (url.includes('/api/transactions?classificationStatus=uncategorized')) return mockQueueResponse([TX_A]);
+      if (url.includes('/api/journal/accounts')) return mockAccountsResponse();
+      return { ok: false, status: 404, json: async () => ({}) };
+    });
+    renderDialog();
+    await waitFor(() => {
+      expect(screen.getByText('ABC 777 ENTITY-1')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('reconciled-badge-tx-a')).not.toBeInTheDocument();
   });
 });

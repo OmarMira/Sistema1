@@ -315,6 +315,7 @@ const en = {
       classified: 'Transaction classified',
       classifyFailed: 'Failed to classify transaction',
       reviewAction: 'Review uncategorized transactions',
+      reconciled: 'Reconciled',
     },
     editAccountDesc: 'Update bank account information',
     newAccountDesc: 'Add a new bank account for your company',

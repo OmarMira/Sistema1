@@ -33,6 +33,7 @@ function createMockDb() {
               description: r.description,
               amount: r.amount,
               glAccountId: r.glAccountId,
+              isReconciled: r.isReconciled,
               statement: {
                 bankAccount: {
                   id: `bank-${r.companyId}`,
@@ -162,10 +163,46 @@ describe('GET /api/transactions — uncategorized review queue (TX-REVIEW-UI-001
       amount: 100,
       direction: 'credit',
       glAccountId: null,
+      isReconciled: false,
     });
     expect(Object.keys(body.transactions[0]).sort()).toEqual(
-      ['amount', 'bankAccountId', 'bankAccountName', 'date', 'description', 'direction', 'glAccountId', 'id'].sort(),
+      ['amount', 'bankAccountId', 'bankAccountName', 'date', 'description', 'direction', 'glAccountId', 'id', 'isReconciled'].sort(),
     );
+  });
+
+  // ─── RECONCILED-UNCLASSIFIED-001 (T2b/T3b/T4b/T5b) ───────────────
+
+  it('T2b: reconciled + glAccountId=null IS included in the review queue', async () => {
+    seed({
+      id: 'tx-r', companyId: 'company-a', date: '2026-01-04', description: 'R',
+      amount: 400, glAccountId: null, isReconciled: true,
+    });
+    const res = await GET(makeRequest('?classificationStatus=uncategorized'));
+    const body = await res.json();
+    expect(body.transactions.map((t: { id: string }) => t.id)).toContain('tx-r');
+    // T6b: the response preserves the reconciled state for the UI signal.
+    expect(body.transactions.find((t: { id: string }) => t.id === 'tx-r').isReconciled).toBe(true);
+  });
+
+  it('T3b: the queue query no longer filters by isReconciled', async () => {
+    seed({
+      id: 'tx-r', companyId: 'company-a', date: '2026-01-04', description: 'R',
+      amount: 400, glAccountId: null, isReconciled: true,
+    });
+    await GET(makeRequest('?classificationStatus=uncategorized'));
+    const where = (mockDb.bankTransaction.findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+    expect(where.isReconciled).toBeUndefined();
+    expect(where.glAccountId).toBeNull();
+  });
+
+  it('T4b: reconciled + glAccountId!=null remains excluded', async () => {
+    seed({
+      id: 'tx-rc', companyId: 'company-a', date: '2026-01-05', description: 'RC',
+      amount: 500, glAccountId: 'gl-1', isReconciled: true,
+    });
+    const res = await GET(makeRequest('?classificationStatus=uncategorized'));
+    const body = await res.json();
+    expect(body.transactions.map((t: { id: string }) => t.id)).toEqual([]);
   });
 
   it('T7: client-supplied companyId cannot change tenant scoping', async () => {

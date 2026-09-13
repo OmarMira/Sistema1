@@ -24,12 +24,17 @@ export const GET = apiHandler(async (request: NextRequest) => {
   }
 
   // Tenant isolation in the query itself — no post-fetch filtering.
-  const transactions = await db.bankTransaction.findMany({
-    where: {
-      glAccountId: null,
-      isReconciled: false,
-      statement: { bankAccount: { companyId } },
-    },
+    // RECONCILED-UNCLASSIFIED-001: the review queue is defined by
+    // glAccountId = null, regardless of reconciliation state. A transaction
+    // reconciled WITHOUT a GL account never touched the books and must stay
+    // reachable for classification (P0 dead-end: it used to disappear from
+    // every corrective surface). Categorized transactions remain excluded
+    // whether reconciled or not.
+    const transactions = await db.bankTransaction.findMany({
+      where: {
+        glAccountId: null,
+        statement: { bankAccount: { companyId } },
+      },
     orderBy: { date: 'desc' },
     select: {
       id: true,
@@ -37,6 +42,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
       description: true,
       amount: true,
       glAccountId: true,
+      isReconciled: true,
       statement: {
         select: {
           bankAccount: {
@@ -55,6 +61,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
       amount: Number(t.amount),
       direction: Number(t.amount) >= 0 ? 'credit' : 'debit',
       glAccountId: t.glAccountId,
+      isReconciled: t.isReconciled,
       bankAccountId: t.statement.bankAccount.id,
       bankAccountName: t.statement.bankAccount.accountName,
     })),

@@ -33,6 +33,7 @@ interface UncategorizedTransaction {
   amount: number;
   direction: 'credit' | 'debit';
   glAccountId: string | null;
+  isReconciled: boolean;
   bankAccountId: string;
   bankAccountName: string;
 }
@@ -182,7 +183,18 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
                       <TableCell className="whitespace-nowrap">
                         {new Date(tx.date).toLocaleDateString()}
                       </TableCell>
-                      <TableCell className="max-w-[220px] truncate">{tx.description}</TableCell>
+                      <TableCell className="max-w-[220px] truncate">
+                        <span className="block truncate">{tx.description}</span>
+                        {tx.isReconciled && (
+                          <Badge
+                            variant="outline"
+                            className="mt-0.5 text-[10px]"
+                            data-testid={`reconciled-badge-${tx.id}`}
+                          >
+                            {t('importReview.reconciled')}
+                          </Badge>
+                        )}
+                      </TableCell>
                       <TableCell
                         className={`text-right font-mono ${
                           tx.direction === 'credit' ? 'text-emerald-600' : 'text-rose-600'

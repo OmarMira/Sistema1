@@ -318,6 +318,7 @@ const es = {
       classified: 'Transacción clasificada',
       classifyFailed: 'No se pudo clasificar la transacción',
       reviewAction: 'Revisar transacciones sin categorizar',
+      reconciled: 'Reconciliada',
     },
     editAccountDesc: 'Actualiza la información de tu cuenta bancaria',
     newAccountDesc: 'Agrega una nueva cuenta bancaria para tu empresa',

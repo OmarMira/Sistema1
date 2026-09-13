@@ -29,7 +29,10 @@ export default async function CompanyKnowledgePage({
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Company Knowledge</h1>
-      <a href="/company-knowledge/new" className="inline-block mb-4 px-4 py-2 bg-blue-600 text-white rounded">New Entity</a>
+      <div className="flex gap-2 mb-4">
+        <a href="/company-knowledge/new" className="inline-block px-4 py-2 bg-blue-600 text-white rounded">New Entity</a>
+        <a href="/company-knowledge/structural-candidates" className="inline-block px-4 py-2 bg-indigo-600 text-white rounded" data-testid="nav-structural-candidates">Structural Patterns</a>
+      </div>
       <table className="w-full border-collapse border">
         <thead><tr className="bg-gray-100">
           <th className="border p-2 text-left">Name</th><th className="border p-2 text-left">Type</th><th className="border p-2 text-left">Relationship</th><th className="border p-2 text-left">Status</th><th className="border p-2 text-left">Version</th><th className="border p-2">Actions</th>

@@ -168,21 +168,35 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     const mapped = mapRehabilitationResult(result);
 
     if (result.status === 'REHABILITATED' || result.status === 'ALREADY_CERTAIN') {
-      await safeAuditLog({
-        companyId,
-        userId,
-        action: 'CLASSIFICATION_KNOWLEDGE_REHABILITATED',
-        entity: 'MemoryItem',
-        entityId: knowledgeItemId,
-        details: {
+      // AUDIT-SIDE-EFFECT-001: the domain rehabilitation is already persisted.
+      // An audit failure must NOT convert the successful rehabilitation into
+      // an HTTP failure (precedent: conversational-parse try/catch pattern).
+      try {
+        await safeAuditLog({
+          companyId,
+          userId,
+          action: 'CLASSIFICATION_KNOWLEDGE_REHABILITATED',
+          entity: 'MemoryItem',
+          entityId: knowledgeItemId,
+          details: {
+            conflictItemId: id,
+            knowledgeItemId,
+            result: result.status,
+            ...(result.status === 'REHABILITATED'
+              ? { rehabilitationEventId: result.rehabilitationEventId }
+              : {}),
+          },
+        });
+      } catch (auditError) {
+        logger.error('[CLASSIFICATION_KNOWLEDGE_REHABILITATED_AUDIT_FAILED]', {
+          companyId,
+          userId,
           conflictItemId: id,
           knowledgeItemId,
           result: result.status,
-          ...(result.status === 'REHABILITATED'
-            ? { rehabilitationEventId: result.rehabilitationEventId }
-            : {}),
-        },
-      });
+          error: auditError instanceof Error ? auditError.message : String(auditError),
+        });
+      }
       return NextResponse.json(mapped.body, { status: mapped.status });
     }
 

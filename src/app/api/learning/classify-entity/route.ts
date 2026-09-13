@@ -98,23 +98,38 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     const ruleRequested = createRule === true;
     const ruleCreationWarning = classifyResult.warning ? true : false;
 
-    await safeAuditLog({
-      companyId,
-      userId,
-      action: 'ENTITY_CLASSIFIED',
-      entity: 'EntityContext',
-      details: {
+    // ENTITY-CLASSIFY-AUDIT-001: the domain classification is already
+    // persisted (EntityContext + optional active BankRule, inside the
+    // classifyEntity transaction). An audit failure must NOT convert the
+    // successful classification into an HTTP failure (pattern published in
+    // AUDIT-SIDE-EFFECT-001: resolve/rehabilitate/authorize).
+    try {
+      await safeAuditLog({
+        companyId,
+        userId,
+        action: 'ENTITY_CLASSIFIED',
+        entity: 'EntityContext',
+        details: {
+          pattern,
+          role: finalRole,
+          glAccountCode: finalGlAccountCode || null,
+          directionOverride: directionOverride || undefined,
+          intent: parsedIntent,
+          userDescription: trimmedUserDescription ?? null,
+          ruleCreated: ruleRequested && !ruleCreationWarning,
+          requiresReview: ruleRequested && ruleCreationWarning,
+          createRule: ruleRequested,
+        },
+      });
+    } catch (auditError) {
+      logger.error('[ENTITY_CLASSIFIED_AUDIT_FAILED]', {
+        companyId,
+        userId,
         pattern,
         role: finalRole,
-        glAccountCode: finalGlAccountCode || null,
-        directionOverride: directionOverride || undefined,
-        intent: parsedIntent,
-        userDescription: trimmedUserDescription ?? null,
-        ruleCreated: ruleRequested && !ruleCreationWarning,
-        requiresReview: ruleRequested && ruleCreationWarning,
-        createRule: ruleRequested,
-      },
-    });
+        error: auditError instanceof Error ? auditError.message : String(auditError),
+      });
+    }
 
     return NextResponse.json({
       success: true,

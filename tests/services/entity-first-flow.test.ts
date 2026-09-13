@@ -6,6 +6,7 @@ import {
   createTestBankAccount,
   createTestBankStatement,
   createTestBankTransaction,
+  createTestUser,
 } from '../helpers/factories';
 import { classifyEntity, getEntityCandidates, getKnownSocioPatterns } from '@/lib/services/entity-classifier';
 import { detectConflictSync } from '@/lib/services/entity-conflict-detector';
@@ -17,9 +18,12 @@ describe('Entity Classification Flow — Integration', () => {
   let companyId: string;
   let bankAccountId: string;
   let statementId: string;
+  let userId: string;
 
   beforeEach(async () => {
     await clearDatabase();
+    const user = await createTestUser('entity-flow-test@example.com');
+    userId = user.id;
     const company = await createTestCompany('Entity First Test Co');
     companyId = company.id;
     const gl = await createTestGlAccount({ companyId, code: '1000', name: 'Cash' });
@@ -249,6 +253,70 @@ describe('Entity Classification Flow — Integration', () => {
       );
       expect(result.hasMerchant).toBe(false);
       expect(result.hasSocioInIndn).toBe(false);
+    });
+  });
+
+  // ─── ENTITY-CLASSIFY-AUDIT-001 — persistence certification ──────
+  // Proves the REAL domain authority behind POST /api/learning/classify-entity:
+  // EntityContext persisted, BankRule created exactly once, identical retry
+  // idempotent — with real Prisma persistence (no domain mocks).
+  describe('classifyEntity persistence & idempotency (real DB)', () => {
+    it('createRule=true persists EntityContext and creates exactly one BankRule; identical retry stays idempotent', async () => {
+      // 1. Prerequisites: valid company + GL account.
+      const gl = await createTestGlAccount({ companyId, code: '5010', name: 'Office Expense' });
+
+      // 2. First classification with createRule=true (same path the POST route invokes).
+      await classifyEntity({
+        companyId,
+        pattern: 'acme corp',
+        role: 'PROVEEDOR',
+        roles: ['PROVEEDOR'],
+        glAccountCode: '5010',
+        source: 'user',
+        userId,
+        intent: 'OPERATING_EXPENSE',
+        createRule: true,
+      });
+
+      // 3. EntityContext persisted.
+      const ctx = await db.entityContext.findFirst({
+        where: { companyId, pattern: 'acme corp' },
+      });
+      expect(ctx).not.toBeNull();
+      expect(ctx!.role).toBe('PROVEEDOR');
+
+      // 4. Exactly one equivalent BankRule.
+      const rulesAfterFirst = await db.bankRule.findMany({
+        where: { companyId, conditionValue: { contains: 'acme corp' } },
+      });
+      expect(rulesAfterFirst).toHaveLength(1);
+      expect(rulesAfterFirst[0]!.isActive).toBe(true);
+
+      // 5. Identical retry (same classification again).
+      await classifyEntity({
+        companyId,
+        pattern: 'acme corp',
+        role: 'PROVEEDOR',
+        roles: ['PROVEEDOR'],
+        glAccountCode: '5010',
+        source: 'user',
+        userId,
+        intent: 'OPERATING_EXPENSE',
+        createRule: true,
+      });
+
+      // 6. Still exactly one logical EntityContext.
+      const ctxCount = await db.entityContext.count({
+        where: { companyId, pattern: 'acme corp' },
+      });
+      expect(ctxCount).toBe(1);
+
+      // 7. Still exactly one equivalent BankRule (no duplicate).
+      const rulesAfterRetry = await db.bankRule.findMany({
+        where: { companyId, conditionValue: { contains: 'acme corp' } },
+      });
+      expect(rulesAfterRetry).toHaveLength(1);
+      expect(rulesAfterRetry[0]!.id).toBe(rulesAfterFirst[0]!.id);
     });
   });
 });

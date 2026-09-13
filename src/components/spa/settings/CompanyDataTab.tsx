@@ -322,11 +322,11 @@ export function CompanyDataTab() {
         toast.success('Información de la empresa actualizada.');
       } else {
         const err = await res.json();
-        toast.error(err.error || 'Ocurrió un error al guardar.');
+        toast.error(err.error || t('settings.saveError'));
       }
     } catch (err) {
       logger.error(String(err));
-      toast.error('Ocurrió un error al guardar.');
+      toast.error(t('settings.saveError'));
     }
     setSavingCompany(false);
   }

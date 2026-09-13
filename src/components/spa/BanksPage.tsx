@@ -219,11 +219,11 @@ export function BanksPage() {
         }
       } else {
         const err = await res.json();
-        setFormError(err.error || 'Failed to save');
+        setFormError(err.error || t('banks.saveFailed'));
       }
     } catch (err) {
       logger.error('Save error:', { error: String(err) });
-      setFormError('An unexpected error occurred');
+      setFormError(t('banks.unexpectedError'));
     } finally {
       setSaving(false);
     }

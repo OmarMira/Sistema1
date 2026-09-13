@@ -2,59 +2,92 @@ import { useState, useEffect } from 'react';
 import { useLanguageStore } from '@/store/language-store';
 import { AI_PROVIDERS, type ProviderId } from '@/lib/constants/ai-config';
 
-const PROVIDER_INSTRUCTIONS: Record<ProviderId, { steps: string[]; link: string; linkLabel: string; keyHint: string }> = {
-  openrouter: {
-    steps: [
-      'Registrate en openrouter.ai (es gratis, lleva 1 minuto)',
-      'Hacé clic en "+ New Key" arriba a la derecha',
-      'Poné un nombre (ej. "Mi Asistente") y hacé clic en Create',
-      'Copiá la clave generada (empieza con sk-or-v1-...)',
-    ],
-    link: 'https://openrouter.ai/keys',
-    linkLabel: 'Abrir OpenRouter',
-    keyHint: 'sk-or-v1-...',
-  },
-  deepseek: {
-    steps: [
-      'Registrate en platform.deepseek.com',
-      'Andá a API Keys y hacé clic en "Create new key"',
-      'Copiá la clave generada',
-    ],
-    link: 'https://platform.deepseek.com/api_keys',
-    linkLabel: 'Abrir DeepSeek',
-    keyHint: 'sk-...',
-  },
-  anthropic: {
-    steps: [
-      'Registrate en console.anthropic.com',
-      'Andá a API Keys y hacé clic en "Create Key"',
-      'Copiá la clave generada',
-    ],
-    link: 'https://console.anthropic.com/settings/keys',
-    linkLabel: 'Abrir Anthropic',
-    keyHint: 'sk-ant-...',
-  },
-  openai: {
-    steps: [
-      'Registrate en platform.openai.com',
-      'Andá a API Keys y hacé clic en "Create new secret key"',
-      'Copiá la clave generada',
-    ],
-    link: 'https://platform.openai.com/api-keys',
-    linkLabel: 'Abrir OpenAI',
-    keyHint: 'sk-...',
-  },
-  google: {
-    steps: [
-      'Andá a aistudio.google.com',
-      'Hacé clic en "Get API key" y creá una clave',
-      'Copiá la clave generada',
-    ],
-    link: 'https://aistudio.google.com/apikey',
-    linkLabel: 'Abrir Google AI Studio',
-    keyHint: 'AIza...',
-  },
-};
+function getProviderInstructions(isEn: boolean): Record<ProviderId, { steps: string[]; link: string; linkLabel: string; keyHint: string }> {
+  return {
+    openrouter: {
+      steps: isEn
+        ? [
+            'Sign up at openrouter.ai (free, takes 1 min)',
+            'Click "+ New Key" in the top right',
+            'Name it (e.g. "My Assistant") and click Create',
+            'Copy the generated key (starts with sk-or-v1-...)',
+          ]
+        : [
+            'Registrate en openrouter.ai (es gratis, lleva 1 minuto)',
+            'Hacé clic en "+ New Key" arriba a la derecha',
+            'Poné un nombre (ej. "Mi Asistente") y hacé clic en Create',
+            'Copiá la clave generada (empieza con sk-or-v1-...)',
+          ],
+      link: 'https://openrouter.ai/keys',
+      linkLabel: isEn ? 'Open OpenRouter' : 'Abrir OpenRouter',
+      keyHint: 'sk-or-v1-...',
+    },
+    deepseek: {
+      steps: isEn
+        ? [
+            'Sign up at platform.deepseek.com',
+            'Go to API Keys and click "Create new key"',
+            'Copy the generated key',
+          ]
+        : [
+            'Registrate en platform.deepseek.com',
+            'Andá a API Keys y hacé clic en "Create new key"',
+            'Copiá la clave generada',
+          ],
+      link: 'https://platform.deepseek.com/api_keys',
+      linkLabel: isEn ? 'Open DeepSeek' : 'Abrir DeepSeek',
+      keyHint: 'sk-...',
+    },
+    anthropic: {
+      steps: isEn
+        ? [
+            'Sign up at console.anthropic.com',
+            'Go to API Keys and click "Create Key"',
+            'Copy the generated key',
+          ]
+        : [
+            'Registrate en console.anthropic.com',
+            'Andá a API Keys y hacé clic en "Create Key"',
+            'Copiá la clave generada',
+          ],
+      link: 'https://console.anthropic.com/settings/keys',
+      linkLabel: isEn ? 'Open Anthropic' : 'Abrir Anthropic',
+      keyHint: 'sk-ant-...',
+    },
+    openai: {
+      steps: isEn
+        ? [
+            'Sign up at platform.openai.com',
+            'Go to API Keys and click "Create new secret key"',
+            'Copy the generated key',
+          ]
+        : [
+            'Registrate en platform.openai.com',
+            'Andá a API Keys y hacé clic en "Create new secret key"',
+            'Copiá la clave generada',
+          ],
+      link: 'https://platform.openai.com/api-keys',
+      linkLabel: isEn ? 'Open OpenAI' : 'Abrir OpenAI',
+      keyHint: 'sk-...',
+    },
+    google: {
+      steps: isEn
+        ? [
+            'Go to aistudio.google.com',
+            'Click "Get API key" and create a key',
+            'Copy the generated key',
+          ]
+        : [
+            'Andá a aistudio.google.com',
+            'Hacé clic en "Get API key" y creá una clave',
+            'Copiá la clave generada',
+          ],
+      link: 'https://aistudio.google.com/apikey',
+      linkLabel: isEn ? 'Open Google AI Studio' : 'Abrir Google AI Studio',
+      keyHint: 'AIza...',
+    },
+  };
+}
 
 export default function AiConfigTab() {
   const language = useLanguageStore((s) => s.language) || 'es';
@@ -72,7 +105,7 @@ export default function AiConfigTab() {
   const [needsReconfiguration, setNeedsReconfiguration] = useState(false);
 
   const activeModel = model;
-  const instructions = PROVIDER_INSTRUCTIONS[provider];
+  const instructions = getProviderInstructions(isEn)[provider];
 
   useEffect(() => {
     fetch('/api/config/ai')

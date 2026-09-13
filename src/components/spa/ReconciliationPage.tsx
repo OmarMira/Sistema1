@@ -378,12 +378,12 @@ export function ReconciliationPage() {
         fetchReconciliation();
       } else {
         const err = await res.json().catch(() => ({}));
-        toast.error(err.error || err.message || 'Error al emparejar automáticamente');
+        toast.error(err.error || err.message || t('reconciliation.autoMatchError'));
         console.error('AutoMatch error:', err);
       }
     } catch (err) {
       console.error('Network error during autoMatch:', err);
-      toast.error('Error de red al emparejar');
+      toast.error(t('reconciliation.networkError'));
     } finally {
       setAutoMatching(false);
       stopProcessing();

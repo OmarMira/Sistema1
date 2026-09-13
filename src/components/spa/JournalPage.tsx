@@ -219,13 +219,13 @@ export function JournalPage() {
   const isBalanced = formLines.length >= 2 && Math.abs(totalDebits - totalCredits) < 0.005;
 
   function validateForm(): string | null {
-    if (!formDate) return 'Date is required';
-    if (!formDescription.trim()) return 'Description is required';
-    if (formLines.length < 2) return 'At least 2 lines are required';
+    if (!formDate) return t('journal.dateRequired');
+    if (!formDescription.trim()) return t('journal.descriptionRequired');
+    if (formLines.length < 2) return t('journal.atLeastTwoLines');
     for (const line of formLines) {
-      if (!line.glAccountId) return 'All lines must have an account selected';
+      if (!line.glAccountId) return t('journal.allLinesNeedAccount');
     }
-    if (!isBalanced) return 'Debits and credits must be equal';
+    if (!isBalanced) return t('journal.mustBalance');
     return null;
   }
 
@@ -238,7 +238,7 @@ export function JournalPage() {
 
     const entryDate = new Date(formDate);
     if (isPeriodLocked(entryDate, fiscalPeriods)) {
-      toast.error('No se pueden registrar asientos en períodos fiscales cerrados. Contacte a auditoría.');
+      toast.error(t('journal.cannotRegisterLockedPeriod'));
       return;
     }
 
@@ -297,7 +297,7 @@ export function JournalPage() {
     if (confirmAction === 'post') {
       const entryToPost = entries.find((e) => e.id === confirmTarget);
       if (entryToPost && isPeriodLocked(new Date(entryToPost.date), fiscalPeriods)) {
-        toast.error('No se pueden postear asientos en períodos fiscales cerrados.');
+        toast.error(t('journal.cannotPostLockedPeriod'));
         setConfirmOpen(false);
         return;
       }

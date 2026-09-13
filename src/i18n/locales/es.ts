@@ -1225,6 +1225,30 @@ const es = {
     manualSelection: 'Asignar relación manualmente',
     splitReasoning: 'No se encontró regla para el patrón "{pattern}". Intención sugerida: {intent}.',
 
+    // KE-GENERALIZATION-UI-001 — superficie de candidatos estructurales
+    structuralCandidates: {
+      title: 'Patrones estructurales',
+      runDiscovery: 'Ejecutar descubrimiento',
+      discovering: 'Descubriendo...',
+      loading: 'Cargando candidatos...',
+      empty: 'No hay candidatos estructurales pendientes. Ejecuta el descubrimiento para proponer patrones desde las observaciones acumuladas.',
+      pattern: 'Patrón propuesto',
+      treatment: 'Tratamiento',
+      evidence: 'Evidencia',
+      actions: 'Acciones',
+      observationsCount: '{count} observaciones',
+      authorize: 'Autorizar',
+      detailTitle: 'Detalle del candidato',
+      detailEntity: 'Entidad',
+      detailDirection: 'Dirección',
+      detailEvidence: 'Observaciones de soporte',
+      fetchError: 'No se pudieron cargar los candidatos estructurales',
+      discoverError: 'El descubrimiento falló',
+      discoverSuccess: 'Descubrimiento terminado: {found} candidato(s) encontrados, {recorded} nuevos.',
+      authorizeError: 'La autorización falló',
+      authorizeSuccess: 'Patrón estructural autorizado',
+    },
+
     // KE-CONFLICT-UI-001 — superficie del ciclo de vida de conflictos de clasificación
     conflicts: {
       title: 'Conflictos de clasificación',

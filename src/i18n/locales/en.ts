@@ -1210,6 +1210,30 @@ const en = {
     manualSelection: 'Assign relationship manually',
     splitReasoning: 'No rule matching pattern "{pattern}" found. Suggested intent: {intent}.',
 
+    // KE-GENERALIZATION-UI-001 — structural candidate surface
+    structuralCandidates: {
+      title: 'Structural Patterns',
+      runDiscovery: 'Run discovery',
+      discovering: 'Discovering...',
+      loading: 'Loading candidates...',
+      empty: 'No pending structural candidates. Run discovery to propose patterns from accumulated observations.',
+      pattern: 'Proposed pattern',
+      treatment: 'Treatment',
+      evidence: 'Evidence',
+      actions: 'Actions',
+      observationsCount: '{count} observations',
+      authorize: 'Authorize',
+      detailTitle: 'Candidate detail',
+      detailEntity: 'Entity',
+      detailDirection: 'Direction',
+      detailEvidence: 'Supporting observations',
+      fetchError: 'Failed to load structural candidates',
+      discoverError: 'Discovery failed',
+      discoverSuccess: 'Discovery finished: {found} candidate(s) found, {recorded} new.',
+      authorizeError: 'Authorization failed',
+      authorizeSuccess: 'Structural pattern authorized',
+    },
+
     // KE-CONFLICT-UI-001 — classification conflict lifecycle surface
     conflicts: {
       title: 'Classification Conflicts',

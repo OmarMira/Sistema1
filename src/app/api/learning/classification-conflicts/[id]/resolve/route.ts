@@ -63,17 +63,30 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     );
 
     if (result.status === 'RESOLVED' || result.status === 'ALREADY_RESOLVED') {
-      await safeAuditLog({
-        companyId,
-        userId,
-        action: 'CLASSIFICATION_CONFLICT_RESOLVED',
-        entity: 'MemoryItem',
-        entityId: result.resolutionId,
-        details: {
+      // AUDIT-SIDE-EFFECT-001: the domain resolution is already persisted.
+      // An audit failure must NOT convert the successful resolution into an
+      // HTTP failure (precedent: conversational-parse try/catch pattern).
+      try {
+        await safeAuditLog({
+          companyId,
+          userId,
+          action: 'CLASSIFICATION_CONFLICT_RESOLVED',
+          entity: 'MemoryItem',
+          entityId: result.resolutionId,
+          details: {
+            conflictItemId: result.conflictItemId,
+            result: result.status,
+          },
+        });
+      } catch (auditError) {
+        logger.error('[CLASSIFICATION_CONFLICT_RESOLVED_AUDIT_FAILED]', {
+          companyId,
+          userId,
           conflictItemId: result.conflictItemId,
           result: result.status,
-        },
-      });
+          error: auditError instanceof Error ? auditError.message : String(auditError),
+        });
+      }
       return NextResponse.json({
         success: true,
         status: result.status,

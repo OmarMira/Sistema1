@@ -11,6 +11,20 @@ permissions:
 jobs:
   build-and-secret-scan:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: accountexpress_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,6 +51,13 @@ jobs:
 
       - name: ESLint
         run: npx eslint .
+
+      - name: Full Vitest suite
+        env:
+          DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/accountexpress_test?schema=public
+          HMAC_SECRET: ci-test-hmac-secret-not-production
+          SESSION_SECRET: ci-test-session-secret-not-production
+        run: npx vitest run
 
       - name: Build
         run: npm run build

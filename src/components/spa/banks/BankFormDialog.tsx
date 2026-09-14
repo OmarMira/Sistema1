@@ -151,7 +151,7 @@ export function BankFormDialog({
               accounts={assetAccounts}
               value={formGlAccountId}
               onChange={onFormGlAccountIdChange}
-              placeholder="Select asset account"
+              placeholder={t('banks.selectAssetAccount')}
             />
             <p className="text-xs text-muted-foreground">{t('banks.linkedAccountHelp')}</p>
           </div>

@@ -182,6 +182,12 @@ const es = {
     debitTotal: 'Total Destinos',
     creditTotal: 'Total Orígenes',
     mustBalance: 'Los orígenes y destinos de dinero deben ser iguales.',
+    dateRequired: 'La fecha es obligatoria',
+    descriptionRequired: 'La descripción es obligatoria',
+    atLeastTwoLines: 'Se requieren al menos 2 líneas',
+    allLinesNeedAccount: 'Todas las líneas deben tener una cuenta seleccionada',
+    cannotRegisterLockedPeriod: 'No se pueden registrar asientos en períodos fiscales cerrados. Contacte a auditoría.',
+    cannotPostLockedPeriod: 'No se pueden postear asientos en períodos fiscales cerrados.',
     posted: 'Confirmado',
     draft: 'Borrador',
     void: 'Cancelado',
@@ -284,6 +290,9 @@ const es = {
       'Tu estado de cuenta ha sido importado y las transacciones han sido creadas.',
     uncategorizedNote:
       'necesitan categorización manual. Configura reglas bancarias para mejorar la auto-categorización.',
+    selectAssetAccount: 'Seleccionar cuenta de activo',
+    saveFailed: 'Error al guardar',
+    unexpectedError: 'Ocurrió un error inesperado',
     reclassifyTx: {
       title: 'Reclasificar transacción',
       description:
@@ -435,6 +444,8 @@ const es = {
     transactionsToReconcile: 'Transacciones por Conciliar',
     noTransactions: 'No hay transacciones por conciliar.',
     reconcileSuccess: 'Conciliación completada exitosamente.',
+    autoMatchError: 'Error al emparejar automáticamente',
+    networkError: 'Error de red al emparejar',
     mustMatch: 'Los saldos del banco y libros deben coincidir para finalizar la conciliación.',
     reconciliationSubtitle: 'Concilia transacciones bancarias con tus registros contables.',
     exportReport: 'Exportar Reporte',

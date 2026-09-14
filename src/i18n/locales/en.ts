@@ -181,6 +181,12 @@ const en = {
     debitTotal: 'Total Debits',
     creditTotal: 'Total Credits',
     mustBalance: 'Debits and credits must be equal.',
+    dateRequired: 'Date is required',
+    descriptionRequired: 'Description is required',
+    atLeastTwoLines: 'At least 2 lines are required',
+    allLinesNeedAccount: 'All lines must have an account selected',
+    cannotRegisterLockedPeriod: 'Cannot register entries in locked fiscal periods. Contact accounting.',
+    cannotPostLockedPeriod: 'Cannot post entries in locked fiscal periods.',
     posted: 'Posted',
     draft: 'Draft',
     void: 'Void',
@@ -281,6 +287,9 @@ const en = {
       'Your bank statement has been imported and transactions have been created.',
     uncategorizedNote:
       'need manual categorization. Set up bank rules to improve auto-categorization.',
+    selectAssetAccount: 'Select asset account',
+    saveFailed: 'Failed to save',
+    unexpectedError: 'An unexpected error occurred',
     reclassifyTx: {
       title: 'Reclassify transaction',
       description:
@@ -431,6 +440,8 @@ const en = {
     transactionsToReconcile: 'Transactions to Reconcile',
     noTransactions: 'No transactions to reconcile.',
     reconcileSuccess: 'Reconciliation completed successfully.',
+    autoMatchError: 'Error during auto-match',
+    networkError: 'Network error during auto-match',
     mustMatch: 'Statement and book balances must match to complete reconciliation.',
     reconciliationSubtitle: 'Match bank transactions with your general ledger records.',
     exportReport: 'Export Report',

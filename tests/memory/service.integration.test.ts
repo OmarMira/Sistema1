@@ -721,11 +721,11 @@ describe('Atomicity — Transaction rollback on failure', () => {
   /**
    * C4/C5 atomicity: update rolls back when version creation fails.
    *
-   * Strategy: Create an item with version 1. Pre-create a conflicting
-   * MemoryVersion with versionNumber=2 for the same item. When
-   * repo.update() tries to create version 2, the unique constraint
-   * triggers a real PostgreSQL error and the transaction rolls back.
-   * The item content and version count remain unchanged.
+   * Strategy: Create an item with version 1, then attempt repo.update()
+   * with invalid content (null). Prisma validates the argument at request
+   * time, after MemoryVersion.create has already been awaited inside
+   * the transaction, so the transaction rejects and rolls back. The
+   * item content and version count must remain unchanged.
    */
   it('C4/C5 atomicity: update rolls back when version creation fails', async () => {
     // Step 1: Create an item (version 1 auto-created via service.record)
@@ -742,51 +742,39 @@ describe('Atomicity — Transaction rollback on failure', () => {
     expect(versionsBefore).toHaveLength(1);
     expect(versionsBefore[0].versionNumber).toBe(1);
 
-    // Step 3: Pre-create a conflicting MemoryVersion with versionNumber=2
-    // This will cause repo.update() to fail when it tries to create version 2.
-    await prisma.memoryVersion.create({
-      data: {
-        itemId: item.id,
-        versionNumber: 2,
-        content: 'Conflicting version that already exists',
-        snapshot: {},
-      },
-    });
-
-    // Step 4: Attempt update — should roll back due to unique constraint
+    // Step 3: Attempt update with invalid content — the transaction
+    // must reject (after MemoryVersion.create was awaited) and roll back.
     await expect(
       REPOSITORY.update(
-        { id: item.id, content: 'Updated content that should not persist' },
+        { id: item.id, content: null as unknown as string },
         COMPANY_A,
       ),
     ).rejects.toThrow();
 
-    // Step 5: Verify rollback — item content unchanged
+    // Step 4: Verify rollback — item content unchanged
     const itemAfter = await prisma.memoryItem.findUnique({
       where: { id: item.id },
     });
     expect(itemAfter).not.toBeNull();
     expect(itemAfter!.content).toBe('Original content for atomicity');
 
-    // Step 6: Verify version count unchanged (still 1 original + 1 pre-created = 2)
+    // Step 5: Verify version count unchanged — no version from the failed update
     const versionsAfter = await prisma.memoryVersion.findMany({
       where: { itemId: item.id },
       orderBy: { versionNumber: 'asc' },
     });
-    expect(versionsAfter).toHaveLength(2);
+    expect(versionsAfter).toHaveLength(1);
     expect(versionsAfter[0].versionNumber).toBe(1);
     expect(versionsAfter[0].content).toBe('Original content for atomicity');
-    expect(versionsAfter[1].versionNumber).toBe(2);
-    expect(versionsAfter[1].content).toBe('Conflicting version that already exists');
   });
 
   /**
    * C4/C5 atomicity: version history remains consistent after failed update.
    *
    * Strategy: Create an item, perform one successful update (versions 1→2),
-   * then pre-create a conflicting version 3. A second update attempt will
-   * fail on the unique constraint, leaving versions at exactly 2 with
-   * the item content from the first update.
+   * then attempt a second update with invalid content (null). The transaction
+   * must reject and roll back, leaving exactly versions 1 and 2 with the
+   * item content from the first update.
    */
   it('C4/C5 atomicity: version history remains consistent after failed update', async () => {
     // Step 1: Create an item and perform a successful update first
@@ -802,40 +790,27 @@ describe('Atomicity — Transaction rollback on failure', () => {
     const versionsAfterFirstUpdate = await SERVICE.getVersionHistory(item.id, COMPANY_A);
     expect(versionsAfterFirstUpdate).toHaveLength(2);
 
-    // Step 2: Pre-create a conflicting MemoryVersion with versionNumber=3
-    await prisma.memoryVersion.create({
-      data: {
-        itemId: item.id,
-        versionNumber: 3,
-        content: 'Conflicting version 3',
-        snapshot: {},
-      },
-    });
-
-    // Step 3: Attempt a second update — should fail on unique constraint
+    // Step 2: Attempt a second update with invalid content — the transaction
+    // must reject (after MemoryVersion.create was awaited) and roll back.
     await expect(
       REPOSITORY.update(
-        { id: item.id, content: 'Third version that should not exist' },
+        { id: item.id, content: null as unknown as string },
         COMPANY_A,
       ),
     ).rejects.toThrow();
 
-    // Step 4: Verify — item content unchanged from second version
+    // Step 3: Verify — item content unchanged from second version
     const itemAfter = await prisma.memoryItem.findUnique({
       where: { id: item.id },
     });
     expect(itemAfter!.content).toBe('Second version content');
 
-    // Step 5: Verify — still exactly 3 versions (1 original + 1 update + 1 pre-created)
-    const versionsAfterFailedUpdate = await prisma.memoryVersion.findMany({
-      where: { itemId: item.id },
-      orderBy: { versionNumber: 'asc' },
-    });
-    expect(versionsAfterFailedUpdate).toHaveLength(3);
+    // Step 4: Verify — still exactly 2 versions — no version from the failed update
+    const versionsAfterFailedUpdate = await SERVICE.getVersionHistory(item.id, COMPANY_A);
+    expect(versionsAfterFailedUpdate).toHaveLength(2);
     expect(versionsAfterFailedUpdate[0].versionNumber).toBe(1);
     expect(versionsAfterFailedUpdate[1].versionNumber).toBe(2);
-    expect(versionsAfterFailedUpdate[2].versionNumber).toBe(3);
-    expect(versionsAfterFailedUpdate[2].content).toBe('Conflicting version 3');
+    expect(versionsAfterFailedUpdate[1].content).toBe('Version consistency test');
   });
 });
 

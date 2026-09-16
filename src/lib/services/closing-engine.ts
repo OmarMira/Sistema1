@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';
 import { FiscalYearConfig } from '@/lib/fiscal-period/types';
 
@@ -80,6 +81,8 @@ export async function executeYearClose(companyId: string, year: number, config: 
         lines: { create: lines },
       },
     });
+    // JH2 writer: closing entry is POSTED at creation.
+    await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
     await createAuditLogWithRetry(
       {
         companyId,

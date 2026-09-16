@@ -15,6 +15,39 @@ import {
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
+// JH2.18 (contract adopted): seeded POSTED history must be sealed with the
+// productive primitive inside one transaction — matching production writes.
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
+import type { Prisma } from '@prisma/client';
+
+async function createSealedPosted(
+  data: {
+    companyId: string;
+    date: Date;
+    description: string;
+    lines: Array<{ glAccountId: string; debit: number; credit: number }>;
+  },
+) {
+  return db.$transaction(async (tx: Prisma.TransactionClient) => {
+    const entry = await tx.journalEntry.create({
+      data: {
+        companyId: data.companyId,
+        date: data.date,
+        description: data.description,
+        status: 'posted',
+        lines: {
+          create: data.lines,
+        },
+      },
+    });
+    await appendEntryToJournalChain(tx as never, {
+      companyId: data.companyId,
+      entryId: entry.id,
+    });
+    return entry;
+  });
+}
+
 function authHeaders(token: string): Headers {
   const h = new Headers();
   h.set('Content-Type', 'application/json');
@@ -83,23 +116,17 @@ async function seedYearCloseScenario(companyId: string) {
     });
   }
 
-  await db.journalEntry.create({
-    data: {
-      companyId,
-      date: new Date('2025-06-15'),
-      description: 'Revenue entry',
-      status: 'posted',
-      lines: { create: [{ glAccountId: revenueGl.id, debit: 0, credit: 10000 }] },
-    },
+  await createSealedPosted({
+    companyId,
+    date: new Date('2025-06-15'),
+    description: 'Revenue entry',
+    lines: [{ glAccountId: revenueGl.id, debit: 0, credit: 10000 }],
   });
-  await db.journalEntry.create({
-    data: {
-      companyId,
-      date: new Date('2025-06-15'),
-      description: 'Expense entry',
-      status: 'posted',
-      lines: { create: [{ glAccountId: expenseGl.id, debit: 6000, credit: 0 }] },
-    },
+  await createSealedPosted({
+    companyId,
+    date: new Date('2025-06-15'),
+    description: 'Expense entry',
+    lines: [{ glAccountId: expenseGl.id, debit: 6000, credit: 0 }],
   });
 
   return { revenueGl, expenseGl, closingGl };

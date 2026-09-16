@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { toNum } from '@/lib/utils/decimal';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 
 /**
  * Creates journal entries from bank transactions.
@@ -56,6 +57,12 @@ export class JournalEntryService {
         },
       },
     });
+
+    // JH2 shared writer: every bank-created POSTED entry joins the chain
+    // inside the caller's transaction. Single append site covers:
+    // bank-account opening balance, missing-bank-entries, apply-all rules and
+    // transaction reclassification (all funnel through this method).
+    await appendEntryToJournalChain(prisma, { companyId, entryId: entry.id });
 
     // Link the transaction to the journal entry (skip for standalone entries like opening balance)
     if (bankTxId) {

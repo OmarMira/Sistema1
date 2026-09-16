@@ -1,6 +1,7 @@
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';
 import { CHART_OF_ACCOUNTS, seedChartOfAccounts } from '@/lib/chart-of-accounts';
 import { RUNTIME_FILES } from '@/lib/config/paths';
@@ -178,6 +179,8 @@ export async function completeOnboarding(
         },
       });
       journalEntryId = openingEntry.id;
+      // JH2 writer: onboarding opening entry is POSTED at creation.
+      await appendEntryToJournalChain(tx as any, { companyId, entryId: openingEntry.id });
       logger.info('Opening Journal Entry posted successfully', { initialCashBalance });
 
       // Crear BankAccount por defecto vinculada al efectivo

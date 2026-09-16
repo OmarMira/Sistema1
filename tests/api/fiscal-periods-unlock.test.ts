@@ -4,6 +4,38 @@ import { createTestUser, createTestCompany, createTestCompanyMember, createTestG
 import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
+
+// JH2.18 (contract adopted): seeded POSTED history must be sealed with the
+// productive primitive inside one transaction — matching production writes.
+async function createSealedPosted(
+  data: {
+    companyId: string;
+    date: Date;
+    description: string;
+    lines: Array<{ glAccountId: string; debit: number; credit: number }>;
+  },
+) {
+  return db.$transaction(async (tx: Prisma.TransactionClient) => {
+    const entry = await tx.journalEntry.create({
+      data: {
+        companyId: data.companyId,
+        date: data.date,
+        description: data.description,
+        status: 'posted',
+        lines: {
+          create: data.lines,
+        },
+      },
+    });
+    await appendEntryToJournalChain(tx as never, {
+      companyId: data.companyId,
+      entryId: entry.id,
+    });
+    return entry;
+  });
+}
 
 const closeConfig = {
   type: 'CALENDAR',
@@ -31,18 +63,17 @@ async function createCompanyWithClose(company: Awaited<ReturnType<typeof createT
     });
   }
 
-  await db.journalEntry.create({
-    data: {
-      companyId: company.id,
-      date: new Date('2025-06-15'),
-      description: 'Revenue entry',
-      status: 'posted',
-      lines: {
-        create: [
-          { glAccountId: (await db.glAccount.findFirst({ where: { companyId: company.id, code: '4010' } }))!.id, debit: 0, credit: 10000 },
-        ],
+  await createSealedPosted({
+    companyId: company.id,
+    date: new Date('2025-06-15'),
+    description: 'Revenue entry',
+    lines: [
+      {
+        glAccountId: (await db.glAccount.findFirst({ where: { companyId: company.id, code: '4010' } }))!.id,
+        debit: 0,
+        credit: 10000,
       },
-    },
+    ],
   });
 
   const { POST } = await import('../../src/app/api/fiscal-periods/close/route');

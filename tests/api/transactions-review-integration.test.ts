@@ -180,6 +180,12 @@ function createMockDb() {
 }
 
 vi.mock('@/lib/db', () => ({ db: createMockDb() }));
+// JH2: the PATCH bootstrap now appends to the journal hash chain. This
+// harness poses an in-memory db (no abstracted TableClient) and asserts
+// classification/learning wiring — NOT the chain boundary, which is fully
+// proven against real PostgreSQL by tests/forensic/jh2-*. Isolate the
+// primitive here explicitly (structural POST journal integrity unaffected).
+vi.mock('@/lib/journal-chain', () => ({ appendEntryToJournalChain: vi.fn() }));
 vi.mock('@/lib/api-handler', () => ({
   apiHandler: (handler: (request: NextRequest, context: unknown) => Promise<Response>) => handler,
 }));

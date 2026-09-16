@@ -76,6 +76,10 @@ const BASE = `http://localhost/api`;
 // ── FK-safe cleanup ──────────────────────────────────────────────────
 async function cleanCompany(cid: string) {
   await db.auditLog.deleteMany({ where: { companyId: cid } });
+  // JH2: the chain head is company state the pre-JH2 cleanups never knew
+  // about. Deleting members while keeping the head fabricates corruption
+  // (stale head ⇒ CHAIN_TAIL_NOT_FOUND on the next append).
+  await db.journalChainHead.deleteMany({ where: { companyId: cid } });
   await db.bankTransaction.deleteMany({ where: { statement: { bankAccount: { companyId: cid } } } });
   await db.bankStatement.deleteMany({ where: { bankAccount: { companyId: cid } } });
   await db.bankAccount.deleteMany({ where: { companyId: cid } });
@@ -167,6 +171,25 @@ describe('SCENARIO-2: Journal post — 20 concurrent', () => {
     console.log(`[S2] status=posted=${final!.status} 200=${statuses.filter((s) => s === 200).length} 500=${statuses.filter((s) => s === 500).length}`);
     expect(final!.status).toBe('posted');
     expect(statuses.filter((s) => s === 500).length).toBe(0);
+    // JH2 evidence: all concurrent requests succeed over EXACTLY ONE sealed
+    // member — the chain never doubles no matter how many retries race.
+    expect(statuses.every((s) => s === 200)).toBe(true);
+    const members = await db.journalEntry.count({
+      where: { companyId: CID, hash: { not: null } },
+    });
+    expect(members).toBe(1);
+    const head = await db.journalChainHead.findUnique({ where: { companyId: CID } });
+    expect(head!.lastEntryId).toBe(final!.id);
+    const sealed = await db.journalEntry.findUniqueOrThrow({
+      where: { id: entry.id },
+      select: { hash: true, hashVersion: true },
+    });
+    expect(sealed.hashVersion).toBe('v2');
+    expect(head!.lastHash).toBe(sealed.hash);
+    const { verifyJournalChain } = await import('@/lib/journal-hash');
+    const verify = await verifyJournalChain(CID);
+    expect(verify.valid).toBe(true);
+    expect(verify.totalChecked).toBe(1);
   });
 });
 

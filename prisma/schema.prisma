@@ -108,6 +108,24 @@ model Company {
   detectionConfig       DetectionConfig?
   companyKnowledge      CompanyKnowledge[]
   ruleApplyRecords      RuleApplyRecord[]
+  journalChainHead      JournalChainHead?
+}
+
+/// Serialize the per-company journal hash chain (JH2).
+/// One row per company; row-locked via INSERT ... ON CONFLICT inside each
+/// appending transaction so concurrent appends read a committed, unique tail.
+/// Refers to the TAIL member (the most recently appended chain member).
+/// Never seeded from historical data: legacy chains stay head-less.
+model JournalChainHead {
+  id          String  @id @default(cuid())
+  companyId   String  @unique
+  /// HMAC of the TAIL chain member (null = chain empty)
+  lastHash    String?
+  /// id of the TAIL member (null = chain empty)
+  lastEntryId String?
+  company     Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([lastEntryId])
 }
 
 model CompanyMember {
@@ -318,6 +336,9 @@ model JournalEntry {
   status          String            @default("draft")
   hash            String?
   previousHash    String?
+  /// Chain format of `hash`. NULL = legacy/no-hash (pre-JH2, never a v2 append).
+  /// "v2" = JH:v2| payload contract (lines included). Never back-filled.
+  hashVersion     String?
   ruleApplyRecordId String?
   idempotencyKey         String?
   idempotencyRequestHash String?

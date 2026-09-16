@@ -188,6 +188,9 @@ function createMockDb() {
 }
 
 vi.mock('@/lib/db', () => ({ db: createMockDb() }));
+// JH2: isolate the chain primitive (in-memory harness; chain boundary is
+// proven against real PostgreSQL by tests/forensic/jh2-*).
+vi.mock('@/lib/journal-chain', () => ({ appendEntryToJournalChain: vi.fn() }));
 vi.mock('@/lib/api-handler', () => ({
   apiHandler: (handler: (request: NextRequest, context: unknown) => Promise<Response>) => handler,
 }));

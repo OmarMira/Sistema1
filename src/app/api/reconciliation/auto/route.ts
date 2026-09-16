@@ -6,6 +6,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import {
   transactionMatchesRule,
   loadEntityFirstContext,
@@ -263,6 +264,10 @@ export const POST = apiHandler(async (request: NextRequest) => {
             },
           },
         });
+
+        // JH2 writer: this route creates POSTED entries directly (in its own
+        // tx) — append in the same transaction (writer matrix JH2.7A).
+        await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
 
         // Link the transaction to the created journal entry (contract 1:1).
         await tx.bankTransaction.update({

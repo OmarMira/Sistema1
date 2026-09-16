@@ -6,6 +6,7 @@ import { requireActiveTenantAccess, requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { appendEntryToJournalChain, JournalChainError } from '@/lib/journal-chain';
 
 // F-6: delegate to the canonical active-tenant gate, resource-scoped to the
 // entry's companyId. Replaces the previous manual membership checks so that
@@ -247,6 +248,31 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'Only draft entries can be posted' }, { status: 400 });
       }
 
+      // JH2 concurrency contract (s9.2 SCENARIO-2 evidence): concurrent posts
+      // of the SAME draft are retry-idempotent at the HTTP boundary. Exactly
+      // ONE request performs draft→posted + chain append; a loser that
+      // observes the SAME entry already sealed MAY respond with idempotent
+      // success ONLY after re-certifying the persisted state of that exact
+      // row. Anything else propagates (no generic CHAIN_* swallowing).
+      const sealedRaceLoserGuard = async () => {
+        const persisted = await db.journalEntry.findUnique({
+          where: { id },
+          select: { id: true, companyId: true, status: true, hash: true, hashVersion: true },
+        });
+        if (
+          persisted &&
+          persisted.id === id &&
+          persisted.companyId === entry.companyId &&
+          persisted.status === 'posted' &&
+          persisted.hash != null &&
+          persisted.hashVersion === 'v2'
+        ) {
+          return true; // another identical request completed exactly this post
+        }
+        throw new Error('Journal entry hash state inconsistent');
+      };
+
+      try {
       const updated = await db.$transaction(async (tx) => {
         await assertActiveFiscalPeriod(
           entry.companyId,
@@ -274,6 +300,10 @@ export const POST = apiHandler(
           },
         });
 
+        // JH2 writer: draft -> POSTED transition appends ONCE in the same
+        // transaction (a draft has no hash; the primitive refuses doubles).
+        await appendEntryToJournalChain(tx as any, { companyId: entry.companyId, entryId: id });
+
         await createAuditLogWithRetry(
           { companyId: entry.companyId, userId, action: 'post', entity: 'journalEntry', entityId: id },
           tx as any,
@@ -292,6 +322,40 @@ export const POST = apiHandler(
         createdAt: updated.createdAt.toISOString(),
         updatedAt: updated.updatedAt.toISOString(),
       });
+      } catch (err) {
+        // Concurrency race: the winning transaction already posted AND sealed
+        // this exact entry. Certify the persisted state before answering
+        // idempotent success — no generic exception swallowing.
+        const alreadySealed =
+          err instanceof JournalChainError && err.code === 'CHAIN_ALREADY_HASHED';
+        if (!alreadySealed || !(await sealedRaceLoserGuard())) {
+          throw err;
+        }
+        const reconciled = await db.journalEntry.findUniqueOrThrow({
+          where: { id },
+          include: {
+            lines: {
+              include: {
+                glAccount: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    accountType: true,
+                    normalBalance: true,
+                  },
+                },
+              },
+            },
+          },
+        });
+        return NextResponse.json({
+          ...reconciled,
+          date: reconciled.date.toISOString(),
+          createdAt: reconciled.createdAt.toISOString(),
+          updatedAt: reconciled.updatedAt.toISOString(),
+        });
+      }
     }
 
     if (action === 'void') {

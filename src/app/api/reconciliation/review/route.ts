@@ -5,6 +5,7 @@ import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { NotFoundError, ValidationError } from '@/lib/api-error';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
@@ -55,6 +56,10 @@ export const POST = apiHandler(async (request: NextRequest) => {
           where: { id: pendingEntry.id },
           data: { status: 'posted' },
         });
+        // JH2 writer: pending_review -> POSTED promotion appends ONCE (the
+        // entry has no hash before the promotion; the primitive refuses any
+        // double append).
+        await appendEntryToJournalChain(tx as any, { companyId, entryId: pendingEntry.id });
       }
 
       await createAuditLogWithRetry(

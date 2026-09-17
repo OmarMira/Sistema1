@@ -5,6 +5,7 @@ import { withTiming } from '@/lib/timing';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { validateSemanticDirection } from '@/lib/semantic-validator';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 
 export class ReconciliationService {
   static reconcile = withTiming(async (input: CreateReconciliationInput) => {
@@ -225,6 +226,10 @@ export class ReconciliationService {
                 lines: { create: lines },
               },
             });
+            if (entryStatus === 'posted') {
+              // JH2 writer: POSTED-only append (pending_review skips).
+              await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
+            }
             createdEntryId = entry.id;
             affectedGlAccountIds.add(bankAccount.glAccountId);
             for (const split of txn.splits) {
@@ -251,6 +256,10 @@ export class ReconciliationService {
                 },
               },
             });
+            if (entryStatus === 'posted') {
+              // JH2 writer: POSTED-only append (pending_review skips).
+              await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
+            }
             createdEntryId = entry.id;
             affectedGlAccountIds.add(debitAccountId);
             affectedGlAccountIds.add(creditAccountId);

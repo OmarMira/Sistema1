@@ -1,9 +1,42 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, clearDatabase } from '../helpers/factories';
 import { db } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { NextRequest } from 'next/server';
 import { aggregateFinancialData } from '@/lib/reports/aggregation';
 import { GET as dashboardGET } from '@/app/api/dashboard/financial/route';
+
+// JH2.18 (contract adopted): historical POSTED fixtures must be seeded the
+// same way production writes them — entry + chain append in ONE transaction
+// (no manual hash/previousHash/hashVersion, no manual chain head).
+async function createSealedPosted(
+  data: {
+    companyId: string;
+    date: Date;
+    description: string;
+    lines: Array<{ glAccountId: string; description?: string; debit: number; credit: number }>;
+  },
+) {
+  return db.$transaction(async (tx: Prisma.TransactionClient) => {
+    const entry = await tx.journalEntry.create({
+      data: {
+        companyId: data.companyId,
+        date: data.date,
+        description: data.description,
+        status: 'posted',
+        lines: {
+          create: data.lines,
+        },
+      },
+    });
+    await appendEntryToJournalChain(tx as never, {
+      companyId: data.companyId,
+      entryId: entry.id,
+    });
+    return entry;
+  });
+}
 
 const mockGetSessionUserId = vi.hoisted(() => vi.fn().mockResolvedValue('user-placeholder'));
 
@@ -43,32 +76,18 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
       });
     }
 
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-06-15'),
-        description: 'Revenue entry',
-        status: 'posted',
-        lines: {
-          create: [
-            { glAccountId: revenueGl.id, debit: 0, credit: 10000 },
-          ],
-        },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-06-15'),
+      description: 'Revenue entry',
+      lines: [{ glAccountId: revenueGl.id, debit: 0, credit: 10000 }],
     });
 
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-06-15'),
-        description: 'Expense entry',
-        status: 'posted',
-        lines: {
-          create: [
-            { glAccountId: expenseGl.id, debit: 6000, credit: 0 },
-          ],
-        },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-06-15'),
+      description: 'Expense entry',
+      lines: [{ glAccountId: expenseGl.id, debit: 6000, credit: 0 }],
     });
 
     const { POST } = await import('../../src/app/api/fiscal-periods/close/route');
@@ -148,23 +167,17 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
       });
     }
 
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-06-15'),
-        description: 'Revenue entry',
-        status: 'posted',
-        lines: { create: [{ glAccountId: revenueGl.id, debit: 0, credit: 10000 }] },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-06-15'),
+      description: 'Revenue entry',
+      lines: [{ glAccountId: revenueGl.id, debit: 0, credit: 10000 }],
     });
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-06-15'),
-        description: 'Expense entry',
-        status: 'posted',
-        lines: { create: [{ glAccountId: expenseGl.id, debit: 6000, credit: 0 }] },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-06-15'),
+      description: 'Expense entry',
+      lines: [{ glAccountId: expenseGl.id, debit: 6000, credit: 0 }],
     });
 
     const { POST } = await import('../../src/app/api/fiscal-periods/close/route');
@@ -224,23 +237,17 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
       });
     }
 
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-06-15'),
-        description: 'Revenue entry',
-        status: 'posted',
-        lines: { create: [{ glAccountId: revenueGl.id, debit: 0, credit: 10000 }] },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-06-15'),
+      description: 'Revenue entry',
+      lines: [{ glAccountId: revenueGl.id, debit: 0, credit: 10000 }],
     });
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-06-15'),
-        description: 'Expense entry',
-        status: 'posted',
-        lines: { create: [{ glAccountId: expenseGl.id, debit: 6000, credit: 0 }] },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-06-15'),
+      description: 'Expense entry',
+      lines: [{ glAccountId: expenseGl.id, debit: 6000, credit: 0 }],
     });
 
     const { POST } = await import('../../src/app/api/fiscal-periods/close/route');
@@ -322,33 +329,23 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
     }
 
     // Transacciones reales balanceadas: el cierre no introduce un desbalance contable.
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-05-10'),
-        description: 'Sale',
-        status: 'posted',
-        lines: {
-          create: [
-            { glAccountId: cashGl.id, description: 'Sale cash', debit: 10000, credit: 0 },
-            { glAccountId: revenueGl.id, description: 'Sale revenue', debit: 0, credit: 10000 },
-          ],
-        },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-05-10'),
+      description: 'Sale',
+      lines: [
+        { glAccountId: cashGl.id, description: 'Sale cash', debit: 10000, credit: 0 },
+        { glAccountId: revenueGl.id, description: 'Sale revenue', debit: 0, credit: 10000 },
+      ],
     });
-    await db.journalEntry.create({
-      data: {
-        companyId: company.id,
-        date: new Date('2025-06-15'),
-        description: 'Rent',
-        status: 'posted',
-        lines: {
-          create: [
-            { glAccountId: expenseGl.id, description: 'Rent expense', debit: 6000, credit: 0 },
-            { glAccountId: cashGl.id, description: 'Rent payment', debit: 0, credit: 6000 },
-          ],
-        },
-      },
+    await createSealedPosted({
+      companyId: company.id,
+      date: new Date('2025-06-15'),
+      description: 'Rent',
+      lines: [
+        { glAccountId: expenseGl.id, description: 'Rent expense', debit: 6000, credit: 0 },
+        { glAccountId: cashGl.id, description: 'Rent payment', debit: 0, credit: 6000 },
+      ],
     });
 
     const { POST } = await import('../../src/app/api/fiscal-periods/close/route');

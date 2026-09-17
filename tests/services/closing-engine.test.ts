@@ -20,6 +20,12 @@ vi.mock('@/lib/db', () => ({
 }));
 
 vi.mock('@/lib/audit', () => ({ createAuditLogWithRetry: vi.fn() }));
+// JH2: closing-engine now appends to the journal hash chain inside the same
+// transaction. This file is a strict unit test of the closing math with a
+// partially mocked DB — the primitive's own behaviour is NOT the property
+// under test here (it is fully covered by tests/forensic/jh2-*), so the
+// boundary is isolated explicitly.
+vi.mock('@/lib/journal-chain', () => ({ appendEntryToJournalChain: vi.fn() }));
 vi.mock('@/lib/fiscal-period/strategies', () => ({
   getPeriodStrategy: vi.fn(),
 }));

@@ -34,6 +34,10 @@ vi.mock('@/lib/db', () => ({
     reconciliationPeriod: { findMany: vi.fn(() => Promise.resolve([])) },
     companyKnowledge: { findMany: vi.fn(() => Promise.resolve([])) },
     knowledgeAudit: { findMany: vi.fn(() => Promise.resolve([])) },
+    // JH2.13C: the model did not exist when this mock was written. The unit
+    // under test is the AI-config exclusion of createBackup — not the chain
+    // head (fully covered against real PostgreSQL by tests/forensic/jh2-*).
+    journalChainHead: { findUnique: vi.fn(() => Promise.resolve(null)) },
   },
 }));
 

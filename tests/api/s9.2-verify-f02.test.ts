@@ -71,6 +71,8 @@ const RUNS = 5;
 // ── Helpers ──────────────────────────────────────────────────────────
 async function cleanBankData() {
   await db.auditLog.deleteMany({ where: { companyId: CID } });
+  // JH2: clear the chain head with the members, never leave a stale head.
+  await db.journalChainHead.deleteMany({ where: { companyId: CID } });
   await db.bankTransaction.deleteMany({ where: { statement: { bankAccount: { companyId: CID } } } });
   await db.bankStatement.deleteMany({ where: { bankAccount: { companyId: CID } } });
   await db.bankAccount.deleteMany({ where: { companyId: CID } });

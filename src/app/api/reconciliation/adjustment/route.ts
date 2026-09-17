@@ -6,6 +6,7 @@ import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 
 const adjustmentSchema = z.object({
   bankAccountId: z.string().min(1),
@@ -66,59 +67,65 @@ export const POST = apiHandler(async (request: NextRequest) => {
 
   const ref = `RECON-ADJ-${new Date().toISOString().split('T')[0]}`;
 
-  // Create journal entry
-  const entry = await db.journalEntry.create({
-    data: {
-      companyId,
-      date: new Date(date),
-      description: `[Reconciliation Adjustment] ${description}`,
-      reference: ref,
-      status: 'posted',
-      lines: {
-        create: [
-          {
-            glAccountId: debitAccountId,
-            description,
-            debit: amount,
-            credit: 0,
-          },
-          {
-            glAccountId: creditAccountId,
-            description,
-            debit: 0,
-            credit: amount,
-          },
-        ],
+  // JH2 writer #9: adjustment entry reaches POSTED at creation; entry,
+  // chain append and audit log now share one transactional boundary.
+  const adjEntry = await db.$transaction(async (tx) => {
+    const entry = await tx.journalEntry.create({
+      data: {
+        companyId,
+        date: new Date(date),
+        description: `[Reconciliation Adjustment] ${description}`,
+        reference: ref,
+        status: 'posted',
+        lines: {
+          create: [
+            {
+              glAccountId: debitAccountId,
+              description,
+              debit: amount,
+              credit: 0,
+            },
+            {
+              glAccountId: creditAccountId,
+              description,
+              debit: 0,
+              credit: amount,
+            },
+          ],
+        },
       },
-    },
-  });
+    });
 
-  // Audit log
-  await db.auditLog.create({
-    data: {
-      companyId,
-      userId,
-      action: 'reconciliation_adjustment',
-      entity: 'JournalEntry',
-      entityId: entry.id,
-      details: JSON.stringify({
-        bankAccountId,
-        journalEntryId: entry.id,
-        debitAccountId,
-        creditAccountId,
-        amount,
-        notes,
-      }),
-    },
+    await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
+
+    // Audit log
+    await tx.auditLog.create({
+      data: {
+        companyId,
+        userId,
+        action: 'reconciliation_adjustment',
+        entity: 'JournalEntry',
+        entityId: entry.id,
+        details: JSON.stringify({
+          bankAccountId,
+          journalEntryId: entry.id,
+          debitAccountId,
+          creditAccountId,
+          amount,
+          notes,
+        }),
+      },
+    });
+    return entry;
   });
 
   return NextResponse.json({
     success: true,
     journalEntry: {
-      id: entry.id,
-      date: entry.date.toISOString(),
-      reference: entry.reference,
-      description: entry.description,
+      id: adjEntry.id,
+      date: adjEntry.date.toISOString(),
+      reference: adjEntry.reference,
+      description: adjEntry.description,
       debitAmount: amount,
       creditAmount: amount,
       debitAccount: { id: debitAccount.id, code: debitAccount.code, name: debitAccount.name },

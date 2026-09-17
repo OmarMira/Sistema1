@@ -6,6 +6,9 @@ import path from 'path';
 import { RUNTIME_FILES } from '@/lib/config/paths';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
+// JH2: pure chain-verdict (no DB access) — restore certifies the chain head
+// inside its own transaction without touching the global db.
+import { buildChainVerdict, type ChainRow } from './journal-hash';
 
 /* ─── Types ───────────────────────────────────────────────────────── */
 
@@ -59,6 +62,14 @@ export interface BackupData {
     reconciliationPeriods?: Record<string, unknown>[];
     companyKnowledge?: Record<string, unknown>[];
     knowledgeAudit?: Record<string, unknown>[];
+    // JH2: authoritative per-company chain tail (optional — legacy backups
+    // predate the journal hash chain). Internal row id is intentionally NOT
+    // exported; the head is keyed by companyId and reconstructed on restore.
+    journalChainHead?: {
+      companyId: string;
+      lastHash: string | null;
+      lastEntryId: string | null;
+    } | null;
   };
 }
 
@@ -292,6 +303,13 @@ export async function createBackup(companyId: string): Promise<{
     db.knowledgeAudit.findMany({ where: { companyKnowledge: { companyId } } }),
   ]);
 
+  // JH2: the authoritative chain tail travels inside the backup. The internal
+  // row id is dropped; identity is companyId. No hashes recalculated.
+  const chainHead = await db.journalChainHead.findUnique({
+    where: { companyId },
+    select: { companyId: true, lastHash: true, lastEntryId: true },
+  });
+
   // Collect unique user IDs from company members
   const userIds = [...new Set(companyMembers.map((m) => m.userId))];
   const users =
@@ -415,6 +433,14 @@ export async function createBackup(companyId: string): Promise<{
       ),
       companyKnowledge: companyKnowledge.map((k) => JSON.parse(JSON.stringify(k))),
       knowledgeAudit: knowledgeAudit.map((a) => JSON.parse(JSON.stringify(a))),
+      // JH2: authoritative chain tail (null when the chain was never started)
+      journalChainHead: chainHead
+        ? {
+            companyId: chainHead.companyId,
+            lastHash: chainHead.lastHash,
+            lastEntryId: chainHead.lastEntryId,
+          }
+        : null,
     },
   };
 
@@ -962,6 +988,77 @@ export async function restoreBackup(
         await tx.journalLine.create({ data: clean as never });
       }
       restoredCounts.journalLines = backupData.data.journalLines.length;
+
+      // ─── JH2: restore the journal chain head with PROOF, inside this same tx ───
+      // Entries + lines exist now, so the head can be certified against the
+      // restored members before it is persisted. A wrong/corrupt chain state
+      // FAILS the restore (full rollback), never silently invents a root.
+      {
+        const memberRows = (await tx.journalEntry.findMany({
+          where: {
+            companyId,
+            OR: [{ status: 'posted' }, { status: 'void' }],
+            hash: { not: null },
+          },
+          select: {
+            id: true,
+            companyId: true,
+            date: true,
+            description: true,
+            reference: true,
+            status: true,
+            hash: true,
+            previousHash: true,
+            hashVersion: true,
+            lines: { select: { glAccountId: true, debit: true, credit: true, description: true } },
+          },
+        })) as unknown as ChainRow[];
+
+        const backupHead = backupData.data.journalChainHead ?? null;
+        if (memberRows.length === 0 && backupHead && (backupHead.lastHash != null || backupHead.lastEntryId != null)) {
+          throw new Error('JH2_CHAIN_HEAD_WITHOUT_MEMBERS');
+        }
+        if (memberRows.length === 0) {
+          // The restored dataset has an empty chain: any leftover head row for
+          // this company (non-bootstrap restore over an existing chain) would
+          // become stale state. Coherent with CHAIN_HEAD_WITHOUT_MEMBERS.
+          await tx.journalChainHead.deleteMany({ where: { companyId } });
+        }
+
+        if (memberRows.length > 0) {
+          // Derivation mode (head=undefined): validate topology + recompute,
+          // then bind the backup head against the certified TAIL below.
+          const verdict = buildChainVerdict(companyId, memberRows, undefined);
+          if (verdict.valid !== true) {
+            throw new Error(`JH2_RESTORE_CHAIN_INVALID:${verdict.reasonCode ?? 'UNKNOWN'}`);
+          }
+          const tailId = verdict.tailId as string;
+          const tailHash = verdict.tailHash as string;
+          const companyMismatch = memberRows.find((m) => m.companyId !== companyId);
+          if (companyMismatch) {
+            throw new Error('JH2_RESTORE_TENANT_CROSSING');
+          }
+          if (backupHead) {
+            // The backup carries an authoritative tail: the restored head must
+            // verify against it (not merely against a derived value).
+            if (
+              backupHead.companyId !== companyId ||
+              backupHead.lastHash !== tailHash ||
+              backupHead.lastEntryId !== tailId
+            ) {
+              throw new Error('JH2_RESTORE_CHAIN_HEAD_MISMATCH');
+            }
+          }
+
+          restoredCounts.journalChainHead = 1;
+          await tx.journalChainHead.upsert({
+            where: { companyId },
+            create: { companyId, lastHash: tailHash, lastEntryId: tailId },
+            update: { lastHash: tailHash, lastEntryId: tailId },
+          });
+        }
+        // zero members + no/nil head → nothing to restore (valid empty chain).
+      }
 
       // D10-E: Insert company knowledge. Two-pass to resolve the self-referential
       // mergedIntoId FK regardless of row order in the backup payload.

@@ -5,6 +5,7 @@ import { CreateJournalEntryInput } from '@/lib/validations/journal';
 import { withTiming } from '@/lib/timing';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 
 function canonicalizeInput(input: {
@@ -157,6 +158,9 @@ export class JournalService {
           for (const glAccountId of uniqueAccountIds) {
             await JournalEntryService.recalculateBalance(tx as any, glAccountId);
           }
+          // JH2 writer #1: entry reaches POSTED at creation → chain append
+          // inside the SAME transaction (idempotent-safe: refuses double).
+          await appendEntryToJournalChain(tx as any, { companyId, entryId: newEntry.id });
         }
 
         return newEntry;

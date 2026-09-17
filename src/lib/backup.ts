@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import bcrypt from 'bcryptjs';
+import { hashPassword } from './auth';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -666,7 +667,12 @@ export async function restoreBackup(
   companyId: string,
   backupData: BackupData,
   userId: string,
-  options?: { bootstrap?: boolean; restoringActorIsSuperAdmin?: boolean },
+  options?: {
+    bootstrap?: boolean;
+    restoringActorIsSuperAdmin?: boolean;
+    /** B3.4: password set for the first (bootstrap) user, inside the restore tx. */
+    bootstrapRecoveryPassword?: string;
+  },
 ): Promise<{ success: boolean; message: string; restoredCounts: Record<string, number> }> {
   const validation = validateBackup(backupData);
   if (!validation.valid) {
@@ -821,6 +827,20 @@ export async function restoreBackup(
         const pwHash = clean.passwordHash as string | undefined;
         if (!pwHash || !pwHash.startsWith('$2')) {
           clean.passwordHash = await bcrypt.hash(crypto.randomBytes(24).toString('base64url'), 12);
+        }
+        // B3.4: during bootstrap disaster recovery the authorized setup-token
+        // caller supplies a known recovery password for the first restored
+        // user (canonical hashPassword, product password policy). Applied
+        // inside this transaction so a failed password establishment never
+        // leaves an apparently successful restore. No plaintext is persisted
+        // or logged — only the bcrypt hash of the new credential.
+        const recoveryPassword = options?.bootstrapRecoveryPassword;
+        if (
+          user.id === userId &&
+          typeof recoveryPassword === 'string' &&
+          recoveryPassword.length > 0
+        ) {
+          clean.passwordHash = await hashPassword(recoveryPassword);
         }
         await tx.user.upsert({
           where: { id: user.id as string },

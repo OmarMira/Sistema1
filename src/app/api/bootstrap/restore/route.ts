@@ -1,9 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
 import { createSession } from '@/lib/sessions';
+
+// B3.4: recovery password follows the SAME new-password policy as the product
+// (min 8 chars — same rule as registerSchema.password and /api/settings/password).
+const recoveryPasswordSchema = z.string().min(8, 'La contraseña debe tener al menos 8 caracteres');
 
 export const POST = apiHandler(
   async (request: NextRequest) => {
@@ -35,6 +40,8 @@ export const POST = apiHandler(
     }
 
     let backupData: BackupData;
+    // B3.4: required known recovery password for the first restored user.
+    let recoveryPassword: unknown;
 
     const contentType = request.headers.get('content-type') ?? '';
 
@@ -44,6 +51,7 @@ export const POST = apiHandler(
       if (!file) {
         return NextResponse.json({ error: 'No se subió ningún archivo' }, { status: 400 });
       }
+      recoveryPassword = formData.get('recoveryPassword');
 
       const MAX_BACKUP_SIZE = 50 * 1024 * 1024;
       if (file.size > MAX_BACKUP_SIZE) {
@@ -73,6 +81,7 @@ export const POST = apiHandler(
       if (!base64Data) {
         return NextResponse.json({ error: 'Se requiere data en base64' }, { status: 400 });
       }
+      recoveryPassword = body.recoveryPassword;
       try {
         const jsonString = Buffer.from(base64Data, 'base64').toString('utf-8');
         backupData = JSON.parse(jsonString) as BackupData;
@@ -94,7 +103,25 @@ export const POST = apiHandler(
     if (!firstUser?.id) {
       return NextResponse.json({ error: 'El respaldo no contiene usuarios' }, { status: 400 });
     }
-    const result = await restoreBackup(companyId, backupData, firstUser.id as string, { bootstrap: true });
+
+    // B3.4: required known recovery password — validated AFTER the setup token
+    // and BEFORE any restore mutation. The received value is never echoed or
+    // logged; validation failure is a plain 400 like other request checks.
+    const passwordCheck = recoveryPasswordSchema.safeParse(recoveryPassword);
+    if (!passwordCheck.success) {
+      return NextResponse.json(
+        {
+          error:
+            'La contraseña de inicialización es obligatoria (mínimo 8 caracteres) y no se registra.',
+        },
+        { status: 400 },
+      );
+    }
+
+    const result = await restoreBackup(companyId, backupData, firstUser.id as string, {
+      bootstrap: true,
+      bootstrapRecoveryPassword: passwordCheck.data,
+    });
 
     if (!result.success) {
       return NextResponse.json({ error: result.message }, { status: 400 });

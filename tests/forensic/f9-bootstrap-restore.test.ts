@@ -21,13 +21,22 @@ const q4CompanyIds = new Set<string>();
 
 const isBootstrapDb = (process.env.DATABASE_URL ?? '').includes('accountexpress_bootstraptest');
 
-function buildBootstrapRequest(base64Data: string, token: string | null): NextRequest {
+// B3.4: recovery password is optional per request — success flows that reach
+// the restore must supply one; guards that reject before it stay unchanged.
+const F9_RECOVERY_PASSWORD = 'F9-Recovery-Pass1';
+function buildBootstrapRequest(
+  base64Data: string,
+  token: string | null,
+  recoveryPassword?: string,
+): NextRequest {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token !== null) headers['x-bootstrap-token'] = token;
+  const payload: Record<string, unknown> = { data: base64Data };
+  if (recoveryPassword !== undefined) payload.recoveryPassword = recoveryPassword;
   return new NextRequest('http://localhost/api/bootstrap/restore', {
     method: 'POST',
     headers,
-    body: JSON.stringify({ data: base64Data }),
+    body: JSON.stringify(payload),
   });
 }
 
@@ -213,7 +222,7 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
     const base64 = await buildForgedBackupBase64(hash);
     const before = await db.company.count();
     log('S1-SEEDED: companies =', before, '| BOOTSTRAP_SETUP_TOKEN configured =', Boolean(process.env.BOOTSTRAP_SETUP_TOKEN));
-    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET, F9_RECOVERY_PASSWORD), { params: Promise.resolve({}) });
     log('S1: empty DB, token in env ABSENT -> status =', res.status);
     expect(res.status).toBe(503);
   });
@@ -240,7 +249,7 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
     process.env.BOOTSTRAP_SETUP_TOKEN = BOOTSTRAP_SECRET;
     const hash = await hashPassword(ATTACKER_PASSWORD);
     const base64 = await buildForgedBackupBase64(hash);
-    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET, F9_RECOVERY_PASSWORD), { params: Promise.resolve({}) });
     const token = res.cookies.get('session')?.value;
     const body = await res.json();
     log('S4: correct token + valid backup -> status =', res.status, '| session =', Boolean(token), '| user =', body.user?.email);
@@ -252,7 +261,7 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
     process.env.BOOTSTRAP_SETUP_TOKEN = BOOTSTRAP_SECRET;
     const hash = await hashPassword(ATTACKER_PASSWORD);
     const base64 = await buildForgedBackupBase64(hash);
-    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET, F9_RECOVERY_PASSWORD), { params: Promise.resolve({}) });
     const body = await res.json();
     log('RC24-A: user.role =', body.user?.role, '| companies =', JSON.stringify(body.companies));
     // Backup legacy user.role='company_admin' folds to 'user' (normalizeRestoredUserRole).
@@ -269,7 +278,7 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
     process.env.BOOTSTRAP_SETUP_TOKEN = BOOTSTRAP_SECRET;
     const hash = await hashPassword(ATTACKER_PASSWORD);
     const base64 = await buildSuperAdminBackupBase64(hash);
-    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET, F9_RECOVERY_PASSWORD), { params: Promise.resolve({}) });
     const body = await res.json();
     log('RC24-B: user.role =', body.user?.role, '| companies =', JSON.stringify(body.companies));
     expect(body.user.role).toBe('super_admin');
@@ -288,7 +297,7 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
     q4CompanyIds.add(existing.id);
     const hash = await hashPassword(ATTACKER_PASSWORD);
     const base64 = await buildForgedBackupBase64(hash);
-    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET, F9_RECOVERY_PASSWORD), { params: Promise.resolve({}) });
     const body = await res.json();
     log('S5: initialized DB + correct token -> status =', res.status, '| code =', body.code);
     expect(res.status).toBe(409);
@@ -310,7 +319,7 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
     process.env.BOOTSTRAP_SETUP_TOKEN = BOOTSTRAP_SECRET;
     const hash = await hashPassword(ATTACKER_PASSWORD);
     const base64 = await buildForgedBackupBase64(hash);
-    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    const res = await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET, F9_RECOVERY_PASSWORD), { params: Promise.resolve({}) });
     const responseText = await res.text();
     const audits = await db.auditLog.findMany({ take: 50 });
     const leakedInResponse = responseText.includes(BOOTSTRAP_SECRET);
@@ -360,7 +369,7 @@ describe.skipIf(!isBootstrapDb)('F-9 — bootstrap/restore requires a server-sid
 
     const hash = await hashPassword(ATTACKER_PASSWORD);
     const base64 = await buildForgedBackupBase64(hash);
-    await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET), { params: Promise.resolve({}) });
+    await bootstrapPOST(buildBootstrapRequest(base64, BOOTSTRAP_SECRET, F9_RECOVERY_PASSWORD), { params: Promise.resolve({}) });
     await bootstrapPOST(buildBootstrapRequest(base64, 'wrong-token-value'), { params: Promise.resolve({}) });
     await bootstrapPOST(buildInvalidBodyRequest(null), { params: Promise.resolve({}) });
 

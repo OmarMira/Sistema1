@@ -108,6 +108,16 @@ export class MemoryAdapter {
     return this.service.forget(id, reason, companyId);
   }
 
+  // ─── C10b — Human Validation (Confirm / Reject) ───────────────
+
+  async confirm(id: string, companyId: string, actor: string) {
+    return this.service.confirm(id, companyId, actor);
+  }
+
+  async reject(id: string, companyId: string, actor: string, reason: string) {
+    return this.service.reject(id, companyId, actor, reason);
+  }
+
   // ─── C11 — Confidence ──────────────────────────────────────────
 
   async updateConfidence(

@@ -599,6 +599,8 @@ model KnowledgeAudit {
 
 enum MemoryStatus {
   active
+  confirmed
+  rejected
   forgotten
 }
 

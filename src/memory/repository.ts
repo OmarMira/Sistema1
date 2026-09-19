@@ -64,8 +64,14 @@ export class MemoryRepository {
 
   async findByType(companyId: string, type: string) {
     return this.prisma.memoryItem.findMany({
-      where: { companyId, type, status: 'active' },
-      orderBy: { createdAt: 'desc' },
+      where: {
+        companyId,
+        type,
+        status: 'active',
+        // P6: Exclude superseded items (supersededId in EvolutionLink)
+        evolutionLinks: { none: {} },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
   }
 
@@ -73,10 +79,12 @@ export class MemoryRepository {
     return this.prisma.memoryItem.findMany({
       where: {
         companyId,
-        status: 'active',
+        status: { in: ['active', 'confirmed'] },
         content: { contains: query, mode: 'insensitive' },
+        // P6: Exclude superseded items (supersededId in EvolutionLink)
+        evolutionLinks: { none: {} },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
     });
   }
 
@@ -90,11 +98,14 @@ export class MemoryRepository {
       Array<{ id: string; rank: number }>
     >`
       SELECT id, similarity(content, ${query}) AS rank
-      FROM "MemoryItem"
-      WHERE "companyId" = ${companyId}
-        AND status = 'active'
-        AND content ILIKE ${'%' + query + '%'}
-      ORDER BY rank DESC
+      FROM "MemoryItem" m
+      WHERE m."companyId" = ${companyId}
+        AND m.status IN ('active', 'confirmed')
+        AND m.content ILIKE ${'%' + query + '%'}
+        AND NOT EXISTS (
+          SELECT 1 FROM "EvolutionLink" e WHERE e."supersededId" = m.id
+        )
+      ORDER BY rank DESC, m.id ASC
       LIMIT ${limit}
     `;
 
@@ -117,6 +128,7 @@ export class MemoryRepository {
   async findByExactContent(companyId: string, content: string) {
     return this.prisma.memoryItem.findFirst({
       where: { companyId, content, status: 'active' },
+      orderBy: { id: 'asc' },
     });
   }
 

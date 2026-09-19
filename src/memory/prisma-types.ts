@@ -67,10 +67,10 @@ export interface MemoryPrismaClient {
 
   memoryItem: {
     create(args: { data: Prisma.MemoryItemUncheckedCreateInput }): Promise<MemoryItem>;
-    findFirst(args: { where: Prisma.MemoryItemWhereInput }): Promise<MemoryItem | null>;
+    findFirst(args: { where: Prisma.MemoryItemWhereInput; orderBy?: Prisma.MemoryItemOrderByWithRelationInput | Prisma.MemoryItemOrderByWithRelationInput[] }): Promise<MemoryItem | null>;
     findMany(args: {
       where: Prisma.MemoryItemWhereInput;
-      orderBy?: Prisma.MemoryItemOrderByWithRelationInput;
+      orderBy?: Prisma.MemoryItemOrderByWithRelationInput | Prisma.MemoryItemOrderByWithRelationInput[];
       select?: Prisma.MemoryItemSelect;
     }): Promise<MemoryItem[]>;
     update(args: {

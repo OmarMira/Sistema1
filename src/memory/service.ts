@@ -116,15 +116,22 @@ export class MemoryService {
 
   async update(id: string, newContent: string, companyId: string) {
     assertCompanyId(companyId);
+    // Read current content BEFORE update for traceability
+    const current = await this.repo.findById(id, companyId);
+    if (!current) {
+      throw new MemoryError(`MemoryItem not found: ${id}`, 'NOT_FOUND');
+    }
+    const oldContent = current.content;
+
     // Repository validates companyId before update
     const updated = await this.repo.update({ id, content: newContent }, companyId);
 
-    // C8: traceability
+    // C8: traceability — previousContent is the OLD content (before update)
     await this.repo.addTraceabilityLog({
       itemId: id,
       action: 'updated',
       actor: 'system',
-      details: { previousContent: (updated as { content: string }).content },
+      details: { previousContent: oldContent },
     });
 
     return updated;
@@ -241,6 +248,13 @@ export class MemoryService {
 
   async forget(id: string, reason: string, companyId: string) {
     assertCompanyId(companyId);
+    // Read current status BEFORE change for traceability
+    const current = await this.repo.findById(id, companyId);
+    if (!current) {
+      throw new MemoryError(`MemoryItem not found: ${id}`, 'NOT_FOUND');
+    }
+    const previousStatus = current.status;
+
     // Repository validates companyId before setting status
     const updated = await this.repo.setStatus(id, 'forgotten', companyId, reason);
     if (!updated) {
@@ -252,9 +266,59 @@ export class MemoryService {
       itemId: id,
       action: 'forgotten',
       actor: 'system',
-      details: { reason },
+      details: { previousStatus, newStatus: 'forgotten', reason },
     });
 
+    return updated;
+  }
+
+  // ─── C10b — Confirm / Reject (P5 Human Validation) ───────────
+
+  async confirm(id: string, companyId: string, actor: string) {
+    assertCompanyId(companyId);
+    // Read current status BEFORE change for traceability
+    const current = await this.repo.findById(id, companyId);
+    if (!current) {
+      throw new MemoryError(`MemoryItem not found: ${id}`, 'NOT_FOUND');
+    }
+    const previousStatus = current.status;
+
+    const updated = await this.repo.setStatus(id, 'confirmed', companyId);
+    if (!updated) {
+      throw new MemoryError(`MemoryItem not found: ${id}`, 'NOT_FOUND');
+    }
+    await this.repo.addTraceabilityLog({
+      itemId: id,
+      action: 'confirmed',
+      actor: actor,
+      details: { previousStatus, newStatus: 'confirmed' },
+    });
+    return updated;
+  }
+
+  async reject(id: string, companyId: string, actor: string, reason: string) {
+    assertCompanyId(companyId);
+    const trimmed = reason?.trim();
+    if (!trimmed) {
+      throw new MemoryError('Reject reason is required', 'BAD_REQUEST');
+    }
+    // Read current status BEFORE change for traceability
+    const current = await this.repo.findById(id, companyId);
+    if (!current) {
+      throw new MemoryError(`MemoryItem not found: ${id}`, 'NOT_FOUND');
+    }
+    const previousStatus = current.status;
+
+    const updated = await this.repo.setStatus(id, 'rejected', companyId, trimmed);
+    if (!updated) {
+      throw new MemoryError(`MemoryItem not found: ${id}`, 'NOT_FOUND');
+    }
+    await this.repo.addTraceabilityLog({
+      itemId: id,
+      action: 'rejected',
+      actor: actor,
+      details: { previousStatus, newStatus: 'rejected', reason: trimmed },
+    });
     return updated;
   }
 

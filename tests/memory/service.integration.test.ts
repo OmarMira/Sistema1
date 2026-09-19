@@ -318,7 +318,7 @@ describe('C4/C5 — Update + Version History', () => {
     createdItemIds.push(item.id);
 
     await expect(SERVICE.update(item.id, 'Hacked', COMPANY_B)).rejects.toThrow(
-      /not found or not accessible/,
+      /MemoryItem not found/,
     );
   });
 });

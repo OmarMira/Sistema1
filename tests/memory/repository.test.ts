@@ -160,8 +160,13 @@ describe('MemoryRepository', () => {
 
       expect(result).toEqual(expected);
       expect(mock.memoryItem.findMany).toHaveBeenCalledWith({
-        where: { companyId: 'company-1', type: 'fact', status: 'active' },
-        orderBy: { createdAt: 'desc' },
+        where: {
+          companyId: 'company-1',
+          type: 'fact',
+          status: 'active',
+          evolutionLinks: { none: {} },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'asc' }],
       });
     });
   });

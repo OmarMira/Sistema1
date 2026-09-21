@@ -1,0 +1,41 @@
+schema: spec-driven
+
+context: |
+  Project: Sistema1 — Accounting Knowledge Engine
+  Stack: Next.js 16, TypeScript 5, React 19, shadcn/ui, Prisma 6, PostgreSQL, Zustand
+  Testing: Vitest 4, @testing-library/react, jsdom, PostgreSQL test DB
+  Linting: ESLint 9 (next/core-web-vitals + typescript), custom server-only import rule
+  Type checking: TypeScript strict mode (tsc --noEmit)
+  Architecture: Full-stack Next.js App Router, multi-tenant accounting with rule engine, entity detection, reconciliation, and knowledge engine (C1-C11 capabilities)
+  Language: Project docs in Spanish (Rioplatense voseo), technical artifacts in English
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Reference 00_ENGINEERING_CONSTITUTION.md principles
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Reference knowledge-engine-principles.md for Knowledge Engine specs
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - Follow hexagonal/clean architecture patterns already in src/
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+  apply:
+    guidelines:
+      - Follow existing code patterns in src/
+      - Maintain multi-tenant isolation (companyId scoping)
+      - Preserve audit trail (AuditLog, KnowledgeAudit)
+      - Never bypass PendingApproval gate for knowledge mutations
+    tdd: false
+    test_command: "npx vitest run"
+  verify:
+    test_command: "npx vitest run"
+    build_command: "npx next build"
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Verify audit trail completeness before archiving

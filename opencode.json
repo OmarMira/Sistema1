@@ -4,7 +4,8 @@
     "engram": {
       "type": "stdio",
       "command": "engram",
-      "args": ["mcp", "--tools=agent"]
+      "args": ["mcp", "--tools=agent"],
+      "enabled": true
     }
   },
   "permission": {

@@ -40,6 +40,16 @@ export interface BackupManifest {
     reconciliationPeriods?: number;
     companyKnowledge?: number;
     knowledgeAudit?: number;
+    // H-DR-1C: Memory Core counts (optional for legacy backups; required for
+    // format >= 1.1.0). POLICY_A = MEMORY_FOLLOWS_BACKUP.
+    systemMemories?: number;
+    memoryItems?: number;
+    memoryVersions?: number;
+    relationships?: number;
+    contradictions?: number;
+    evolutionLinks?: number;
+    traceabilityLogs?: number;
+    confidenceLogs?: number;
   };
 }
 
@@ -63,6 +73,17 @@ export interface BackupData {
     reconciliationPeriods?: Record<string, unknown>[];
     companyKnowledge?: Record<string, unknown>[];
     knowledgeAudit?: Record<string, unknown>[];
+    // H-DR-1C: Memory Core data (optional for legacy backups; required for
+    // format >= 1.1.0). POLICY_A = MEMORY_FOLLOWS_BACKUP — a restore must leave
+    // the destination memory exactly as captured in this snapshot.
+    systemMemories?: Record<string, unknown>[];
+    memoryItems?: Record<string, unknown>[];
+    memoryVersions?: Record<string, unknown>[];
+    relationships?: Record<string, unknown>[];
+    contradictions?: Record<string, unknown>[];
+    evolutionLinks?: Record<string, unknown>[];
+    traceabilityLogs?: Record<string, unknown>[];
+    confidenceLogs?: Record<string, unknown>[];
     // JH2: authoritative per-company chain tail (optional — legacy backups
     // predate the journal hash chain). Internal row id is intentionally NOT
     // exported; the head is keyed by companyId and reconstructed on restore.
@@ -102,7 +123,31 @@ interface ManifestFile {
 
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
-const BACKUP_VERSION = '1.0.0';
+const BACKUP_VERSION = '1.1.0';
+
+/**
+ * H-DR-1C: true when the backup manifest version carries Memory Core
+ * ("memory follows backup" format, >= 1.1.0). Older valid backups are legacy:
+ * they legitimately have no memory data, and a restore must leave the
+ * destination Memory Core EMPTY instead of preserving unrelated memory.
+ */
+const MEMORY_CORE_FORMAT_VERSION = '1.1.0';
+
+function backupVersionAtLeast(version: string, target: string): boolean {
+  const parse = (v: string) =>
+    v.split('.').map((part) => {
+      const n = Number.parseInt(part, 10);
+      return Number.isNaN(n) ? 0 : n;
+    });
+  const a = parse(version);
+  const b = parse(target);
+  for (let i = 0; i < 3; i++) {
+    const av = a[i] ?? 0;
+    const bv = b[i] ?? 0;
+    if (av !== bv) return av > bv;
+  }
+  return true;
+}
 
 /* ─── Helpers ─────────────────────────────────────────────────────── */
 
@@ -261,6 +306,15 @@ export async function createBackup(companyId: string): Promise<{
     reconciliationPeriods,
     companyKnowledge,
     knowledgeAudit,
+    // H-DR-1C: Memory Core (POLICY_A — memory follows the backup snapshot)
+    systemMemories,
+    memoryItems,
+    memoryVersions,
+    relationshipsSourceFetched,
+    contradictionsAFetched,
+    evolutionLinksSourceFetched,
+    traceabilityLogs,
+    confidenceLogs,
   ] = await Promise.all([
     db.glAccount.findMany({ where: { companyId } }),
     db.bankAccount.findMany({ where: { companyId } }),
@@ -302,7 +356,68 @@ export async function createBackup(companyId: string): Promise<{
     db.reconciliationPeriod.findMany({ where: { companyId } }),
     db.companyKnowledge.findMany({ where: { companyId } }),
     db.knowledgeAudit.findMany({ where: { companyKnowledge: { companyId } } }),
+    // H-DR-1C: Memory Core — tenant-scoped export
+    db.systemMemory.findMany({ where: { companyId } }),
+    db.memoryItem.findMany({ where: { companyId } }),
+    db.memoryVersion.findMany({ where: { item: { companyId } } }),
+    db.relationship.findMany({ where: { source: { companyId } } }),
+    db.contradiction.findMany({ where: { itemA: { companyId } } }),
+    db.evolutionLink.findMany({ where: { superseded: { companyId } } }),
+    db.traceabilityLog.findMany({ where: { item: { companyId } } }),
+    db.confidenceLog.findMany({ where: { item: { companyId } } }),
   ]);
+
+  // H-DR-1C: Memory Core graph edges have no direct companyId (they reference
+  // two MemoryItems). Export only edges whose BOTH endpoints belong to this
+  // tenant. A cross-tenant edge (one endpoint inside, one outside) is never
+  // silently exported, repaired or deleted — the backup fails safely.
+  const tenantItemIds = new Set(memoryItems.map((m) => m.id));
+  function partitionMemoryEdges<F extends { sourceId: string; targetId: string }>(
+    rows: F[],
+  ): F[] {
+    const inTenant: Array<F> = [];
+    for (const edge of rows) {
+      const srcIn = tenantItemIds.has(edge.sourceId);
+      const tgtIn = tenantItemIds.has(edge.targetId);
+      if (srcIn && tgtIn) {
+        inTenant.push(edge);
+      } else if (srcIn || tgtIn) {
+        throw new Error(
+          `Backup integrity error: cross-tenant ${'memory edge'} ${String(
+            (edge as unknown as { id: string }).id,
+          )} (source=${edge.sourceId}, target=${edge.targetId}) crosses tenant ${companyId}. Backup aborted.`,
+        );
+      }
+    }
+    return inTenant;
+  }
+  const relationships = partitionMemoryEdges(
+    relationshipsSourceFetched as unknown as Array<{ id: string; sourceId: string; targetId: string }>,
+  ) as unknown as Array<Record<string, unknown>>;
+  const contradictions = (
+    contradictionsAFetched as unknown as Array<Record<string, unknown>>
+  ).filter((c) => {
+    const both = tenantItemIds.has(c.itemAId as string) && tenantItemIds.has(c.itemBId as string);
+    const either = tenantItemIds.has(c.itemAId as string) || tenantItemIds.has(c.itemBId as string);
+    if (either && !both) {
+      throw new Error(
+        `Backup integrity error: cross-tenant Contradiction ${String(c.id)} detected. Backup aborted.`,
+      );
+    }
+    return both;
+  });
+  const evolutionLinks = (evolutionLinksSourceFetched as unknown as Array<Record<string, unknown>>).filter(
+    (l) => {
+      const both = tenantItemIds.has(l.supersededId as string) && tenantItemIds.has(l.supersededById as string);
+      const either = tenantItemIds.has(l.supersededId as string) || tenantItemIds.has(l.supersededById as string);
+      if (either && !both) {
+        throw new Error(
+          `Backup integrity error: cross-tenant EvolutionLink ${String(l.id)} detected. Backup aborted.`,
+        );
+      }
+      return both;
+    },
+  );
 
   // JH2: the authoritative chain tail travels inside the backup. The internal
   // row id is dropped; identity is companyId. No hashes recalculated.
@@ -388,6 +503,15 @@ export async function createBackup(companyId: string): Promise<{
     reconciliationPeriods: reconciliationPeriods.length,
     companyKnowledge: companyKnowledge.length,
     knowledgeAudit: knowledgeAudit.length,
+    // H-DR-1C: Memory Core counts (POLICY_A — memory follows the backup)
+    systemMemories: systemMemories.length,
+    memoryItems: memoryItems.length,
+    memoryVersions: memoryVersions.length,
+    relationships: relationships.length,
+    contradictions: contradictions.length,
+    evolutionLinks: evolutionLinks.length,
+    traceabilityLogs: traceabilityLogs.length,
+    confidenceLogs: confidenceLogs.length,
   };
 
   const backupData: BackupData = {
@@ -434,6 +558,15 @@ export async function createBackup(companyId: string): Promise<{
       ),
       companyKnowledge: companyKnowledge.map((k) => JSON.parse(JSON.stringify(k))),
       knowledgeAudit: knowledgeAudit.map((a) => JSON.parse(JSON.stringify(a))),
+      // H-DR-1C: Memory Core data (verbatim rows, POLICY_A)
+      systemMemories: systemMemories.map((m) => JSON.parse(JSON.stringify(m))),
+      memoryItems: memoryItems.map((m) => JSON.parse(JSON.stringify(m))),
+      memoryVersions: memoryVersions.map((m) => JSON.parse(JSON.stringify(m))),
+      relationships: relationships.map((r) => JSON.parse(JSON.stringify(r))),
+      contradictions: contradictions.map((c) => JSON.parse(JSON.stringify(c))),
+      evolutionLinks: evolutionLinks.map((l) => JSON.parse(JSON.stringify(l))),
+      traceabilityLogs: traceabilityLogs.map((t) => JSON.parse(JSON.stringify(t))),
+      confidenceLogs: confidenceLogs.map((c) => JSON.parse(JSON.stringify(c))),
       // JH2: authoritative chain tail (null when the chain was never started)
       journalChainHead: chainHead
         ? {
@@ -628,6 +761,31 @@ export function validateBackup(backupData: BackupData): { valid: boolean; errors
   // Optional sections — warn but don't fail
   // systemConfig is optional for backwards compatibility; missing it should not invalidate the backup
 
+  // H-DR-1C: POLICY_A — Memory Core follows the backup. Backups with format
+  // >= 1.1.0 contractually carry the memory snapshot, so a NEW-FORMAT backup
+  // missing a memory section is malformed (never silently degraded to legacy).
+  // Legacy valid backups (< 1.1.0) legitimately have no memory sections.
+  if (
+    typeof backupData.manifest.version === 'string' &&
+    backupVersionAtLeast(backupData.manifest.version, MEMORY_CORE_FORMAT_VERSION)
+  ) {
+    const memorySections = [
+      'systemMemories',
+      'memoryItems',
+      'memoryVersions',
+      'relationships',
+      'contradictions',
+      'evolutionLinks',
+      'traceabilityLogs',
+      'confidenceLogs',
+    ] as const;
+    for (const section of memorySections) {
+      if (!Array.isArray(backupData.data[section])) {
+        errors.push(`Missing or invalid memory section: ${section}`);
+      }
+    }
+  }
+
   // Check company data
   if (backupData.data.company?.length === 0) {
     errors.push('No company data found');
@@ -792,6 +950,24 @@ export async function restoreBackup(
             // @ts-expect-error Dynamic model access
             const result = await tx[op.model].deleteMany({ where: op.where });
             restoredCounts[`${op.model}Deleted`] = result.count;
+          }
+
+          // H-DR-1C (POLICY_A): Memory Core follows the backup. Remove the
+          // destination's existing memory for THIS tenant only, so the final
+          // memory state matches the snapshot exactly (legacy backups without
+          // memory data legitimately leave the memory EMPTY). MemoryItem
+          // deletion DB-cascades its six children (MemoryVersion, Relationship,
+          // Contradiction, EvolutionLink, TraceabilityLog, ConfidenceLog).
+          // Memory of OTHER tenants is never touched (exact companyId filter).
+          const memItemsDeleted = await tx.memoryItem.deleteMany({
+            where: { companyId },
+          });
+          const sysMemDeleted = await tx.systemMemory.deleteMany({
+            where: { companyId },
+          });
+          if (memItemsDeleted.count > 0 || sysMemDeleted.count > 0) {
+            restoredCounts.memoryItemsDeleted = memItemsDeleted.count;
+            restoredCounts.systemMemoriesDeleted = sysMemDeleted.count;
           }
         }
 
@@ -1110,6 +1286,100 @@ export async function restoreBackup(
         await tx.knowledgeAudit.create({ data: clean as never });
       }
       restoredCounts.knowledgeAudit = backupData.data.knowledgeAudit?.length ?? 0;
+
+      // H-DR-1C (POLICY_A): restore Memory Core exactly as captured in the
+      // snapshot — verbatim rows and ids (no relearning, no recalculation).
+      // Insert order follows FK: MemoryItem roots first, then children, then
+      // SystemMemory (Company FK already satisfied by the company upsert).
+      // Graph edges (Relationship/Contradiction/EvolutionLink) are validated
+      // BEFORE insertion: every endpoint must be part of THIS tenant's
+      // restored memory — a new-format backup whose family does not form a
+      // closed tenant graph fails closed inside the transaction.
+      const restoredMemoryItems = (backupData.data.memoryItems ?? []).map(
+        (m) => sanitizeForRestore(m as Record<string, unknown>),
+      );
+      if (restoredMemoryItems.length > 0) {
+        await tx.memoryItem.createMany({ data: restoredMemoryItems as never });
+      }
+      restoredCounts.memoryItems = restoredMemoryItems.length;
+      const restoredItemIds = new Set(restoredMemoryItems.map((m) => m.id as string));
+
+      const assertEdgeWithinTenant = (
+        label: string,
+        row: Record<string, unknown>,
+        endpoints: unknown[],
+      ): void => {
+        if (!endpoints.every((ref) => ref !== undefined && restoredItemIds.has(ref as string))) {
+          throw new Error(
+            `Backup integrity error: ${label} ${String(row.id)} references a MemoryItem outside the restored tenant snapshot. Restore aborted.`,
+          );
+        }
+      };
+
+      const restoredRelationships = (backupData.data.relationships ?? []).map(
+        (r) => sanitizeForRestore(r as Record<string, unknown>),
+      );
+      for (const row of restoredRelationships) {
+        assertEdgeWithinTenant('Relationship', row, [row.sourceId, row.targetId]);
+      }
+      if (restoredRelationships.length > 0) {
+        await tx.relationship.createMany({ data: restoredRelationships as never });
+      }
+      restoredCounts.relationships = restoredRelationships.length;
+
+      const restoredContradictions = (backupData.data.contradictions ?? []).map(
+        (c) => sanitizeForRestore(c as Record<string, unknown>),
+      );
+      for (const row of restoredContradictions) {
+        assertEdgeWithinTenant('Contradiction', row, [row.itemAId, row.itemBId]);
+      }
+      if (restoredContradictions.length > 0) {
+        await tx.contradiction.createMany({ data: restoredContradictions as never });
+      }
+      restoredCounts.contradictions = restoredContradictions.length;
+
+      const restoredEvolutionLinks = (backupData.data.evolutionLinks ?? []).map(
+        (l) => sanitizeForRestore(l as Record<string, unknown>),
+      );
+      for (const row of restoredEvolutionLinks) {
+        assertEdgeWithinTenant('EvolutionLink', row, [row.supersededId, row.supersededById]);
+      }
+      if (restoredEvolutionLinks.length > 0) {
+        await tx.evolutionLink.createMany({ data: restoredEvolutionLinks as never });
+      }
+      restoredCounts.evolutionLinks = restoredEvolutionLinks.length;
+
+      const restoredMemoryVersions = (backupData.data.memoryVersions ?? []).map(
+        (v) => sanitizeForRestore(v as Record<string, unknown>),
+      );
+      if (restoredMemoryVersions.length > 0) {
+        await tx.memoryVersion.createMany({ data: restoredMemoryVersions as never });
+      }
+      restoredCounts.memoryVersions = restoredMemoryVersions.length;
+
+      const restoredTraceabilityLogs = (backupData.data.traceabilityLogs ?? []).map(
+        (t) => sanitizeForRestore(t as Record<string, unknown>),
+      );
+      if (restoredTraceabilityLogs.length > 0) {
+        await tx.traceabilityLog.createMany({ data: restoredTraceabilityLogs as never });
+      }
+      restoredCounts.traceabilityLogs = restoredTraceabilityLogs.length;
+
+      const restoredConfidenceLogs = (backupData.data.confidenceLogs ?? []).map(
+        (c) => sanitizeForRestore(c as Record<string, unknown>),
+      );
+      if (restoredConfidenceLogs.length > 0) {
+        await tx.confidenceLog.createMany({ data: restoredConfidenceLogs as never });
+      }
+      restoredCounts.confidenceLogs = restoredConfidenceLogs.length;
+
+      const restoredSystemMemories = (backupData.data.systemMemories ?? []).map(
+        (m) => sanitizeForRestore(m as Record<string, unknown>),
+      );
+      if (restoredSystemMemories.length > 0) {
+        await tx.systemMemory.createMany({ data: restoredSystemMemories as never });
+      }
+      restoredCounts.systemMemories = restoredSystemMemories.length;
 
       // Restore SystemConfig (skip AI config keys — never overwrite active AI keys from backup)
       if (backupData.data.systemConfig && backupData.data.systemConfig.length > 0) {

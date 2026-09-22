@@ -15,6 +15,20 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   const { searchParams } = new URL(request.url);
   const type = searchParams.get('type');
 
+  // H2: validate caller-supplied dates BEFORE any Prisma condition. Invalid
+  // dates used to become Invalid Date → PrismaClientValidationError → generic
+  // 500. Trial balance (reports/trial-balance) already rejects with 400.
+  const hasInvalidDate =
+    (searchParams.get('asOfDate') !== null &&
+      Number.isNaN(new Date(searchParams.get('asOfDate') as string + 'T23:59:59.999Z').getTime())) ||
+    (searchParams.get('startDate') !== null &&
+      Number.isNaN(new Date(searchParams.get('startDate') as string + 'T00:00:00.000Z').getTime())) ||
+    (searchParams.get('endDate') !== null &&
+      Number.isNaN(new Date(searchParams.get('endDate') as string + 'T23:59:59.999Z').getTime()));
+  if (hasInvalidDate) {
+    return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
+  }
+
   // Get company name and logo for header
   const company = await db.company.findUnique({
     where: { id: companyId },

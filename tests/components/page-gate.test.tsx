@@ -225,4 +225,39 @@ describe('AppContent — RC2-4 post-restore authority (bootstrap/restore role co
     });
     expect(screen.queryByTestId('onboarding-wizard')).not.toBeInTheDocument();
   });
+
+  // ── R4 regression: admin-readiness is treated as an admin router view ──
+  it('super_admin + currentView=admin-readiness + NO activeCompany → admin view (NOT SelectCompanyPage)', async () => {
+    mockAuthState = {
+      isAuthenticated: true,
+      currentView: 'admin-readiness',
+      user: { id: 'u1', role: 'super_admin', firstName: 'Rest', lastName: 'Super' },
+      activeCompany: null,
+    };
+
+    render(<AppContent />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('admin-page')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('select-company-page')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('app-shell')).not.toBeInTheDocument();
+  });
+
+  it('super_admin + currentView=admin-readiness + activeCompany present → still admin view (NOT AppShell)', async () => {
+    mockAuthState = {
+      isAuthenticated: true,
+      currentView: 'admin-readiness',
+      user: { id: 'u1', role: 'super_admin', firstName: 'Rest', lastName: 'Super' },
+      activeCompany: { id: 'c1', role: null, isOnboardingComplete: true },
+    };
+
+    render(<AppContent />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('admin-page')).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('app-shell')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('select-company-page')).not.toBeInTheDocument();
+  });
 });

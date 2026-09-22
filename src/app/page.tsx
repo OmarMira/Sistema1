@@ -90,6 +90,7 @@ function AppContent() {
     'admin-users',
     'admin-audit-logs',
     'admin-dashboard',
+    'admin-readiness',
   ].includes(currentView);
 
   if (isAdminView) {

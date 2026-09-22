@@ -34,6 +34,15 @@ vi.mock('@/lib/db', () => ({
     reconciliationPeriod: { findMany: vi.fn(() => Promise.resolve([])) },
     companyKnowledge: { findMany: vi.fn(() => Promise.resolve([])) },
     knowledgeAudit: { findMany: vi.fn(() => Promise.resolve([])) },
+    // H-DR-1C: Memory Core fetch now participates in createBackup.
+    systemMemory: { findMany: vi.fn(() => Promise.resolve([])) },
+    memoryItem: { findMany: vi.fn(() => Promise.resolve([])) },
+    memoryVersion: { findMany: vi.fn(() => Promise.resolve([])) },
+    relationship: { findMany: vi.fn(() => Promise.resolve([])) },
+    contradiction: { findMany: vi.fn(() => Promise.resolve([])) },
+    evolutionLink: { findMany: vi.fn(() => Promise.resolve([])) },
+    traceabilityLog: { findMany: vi.fn(() => Promise.resolve([])) },
+    confidenceLog: { findMany: vi.fn(() => Promise.resolve([])) },
     // JH2.13C: the model did not exist when this mock was written. The unit
     // under test is the AI-config exclusion of createBackup — not the chain
     // head (fully covered against real PostgreSQL by tests/forensic/jh2-*).

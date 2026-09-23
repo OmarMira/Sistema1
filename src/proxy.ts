@@ -145,10 +145,11 @@ export async function proxy(request: NextRequest) {
       } catch {
         return csrfErrorResponse(response.headers);
       }
+    } else {
+      // No Origin AND no Referer — reject uniformly: every mutating /api/*
+      // request must carry at least one browser-provided header.
+      return csrfErrorResponse(response.headers);
     }
-    // No origin AND no referer — likely a non-browser client (CLI, webhook, server-to-server).
-    // Browsers always send Origin or Referer on cross-origin requests, so absence means
-    // the request is not browser-initiated and CSRF is not applicable.
   }
 
   // Cache optimization for Next.js static assets

@@ -18,7 +18,7 @@ import {
 } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
-import type { EntityType } from '@/internal/company-knowledge/entity/types';
+import { EntityTypeValues, type EntityType } from '@/internal/company-knowledge/entity/types';
 
 // ─── KE-EVOL-002 secondary confidence helpers ───────────────────
 // Confidence is a SECONDARY KE operation after accounting success.
@@ -180,6 +180,30 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
       { error: 'glAccountId is required' },
       { status: 400 },
     );
+  }
+
+  // Validate confirmedEntity BEFORE any side effect. When present it must be
+  // an object with a trim-non-empty canonicalName and an entityType member of
+  // EntityTypeValues — otherwise the request is rejected with 400 so invalid
+  // identity confirmations never reach confirmEntityIdentity.
+  if (confirmedEntity !== undefined && confirmedEntity !== null) {
+    const ce = confirmedEntity as { canonicalName?: unknown; entityType?: unknown };
+    const canonicalNameOk =
+      typeof ce === 'object' &&
+      typeof ce.canonicalName === 'string' &&
+      ce.canonicalName.trim().length > 0;
+    const entityTypeOk =
+      typeof ce.entityType === 'string' &&
+      (EntityTypeValues as readonly string[]).includes(ce.entityType);
+    if (!canonicalNameOk || !entityTypeOk) {
+      return NextResponse.json(
+        {
+          error:
+            'confirmedEntity must include a non-empty canonicalName and a valid entityType',
+        },
+        { status: 400 },
+      );
+    }
   }
 
   // Verify the transaction exists and belongs to the company
@@ -537,4 +561,45 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
   }
 
   return NextResponse.json({ transaction: result });
+});
+
+// ─── GET /api/transactions/[id] ───────────────────────────────────────────
+// Entity-status endpoint for ReclassifyDialog: reports whether the
+// transaction description already resolves to a known entity identity.
+// Read-only: no learning, no writes. On resolution failure the client
+// degrades to GL-only, so the response is 200 { entityStatus: 'ERROR' }
+// instead of a 500.
+export const GET = apiHandler(async (_request: NextRequest, context: RouteContext) => {
+  const { companyId } = requireCompanyContext();
+  await requireCompanyRole(companyId, ['company_admin', 'employee']);
+  const { id } = await context.params;
+
+  const transaction = await db.bankTransaction.findFirst({
+    where: { id, statement: { bankAccount: { companyId } } },
+    select: { id: true, description: true },
+  });
+
+  if (!transaction) {
+    return NextResponse.json({ error: 'Transaction not found' }, { status: 404 });
+  }
+
+  try {
+    const resolution = await resolveEntity(companyId, transaction.description);
+    if (resolution.status === 'KNOWN') {
+      return NextResponse.json({
+        entityStatus: 'KNOWN',
+        entityId: resolution.entityId,
+        transaction: { id: transaction.id, description: transaction.description },
+      });
+    }
+    if (resolution.status === 'UNKNOWN') {
+      return NextResponse.json({
+        entityStatus: 'UNKNOWN',
+        transaction: { id: transaction.id, description: transaction.description },
+      });
+    }
+    return NextResponse.json({ entityStatus: 'ERROR' });
+  } catch {
+    return NextResponse.json({ entityStatus: 'ERROR' });
+  }
 });

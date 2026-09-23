@@ -125,7 +125,8 @@ describe('TX-RECLASSIFY-UI-001 — ReclassifyDialog (T1–T23)', () => {
     await user.selectOptions(screen.getByTestId('reclassify-gl-select'), 'gl-a');
     expect(screen.getByTestId('confirm-reclassify-btn')).toBeDisabled();
     await user.click(screen.getByTestId('confirm-reclassify-btn'));
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Opening the dialog fires the entity-status GET; assert NO PATCH only.
+    expect(fetchMock.mock.calls.filter((c) => c[1]?.method === 'PATCH')).toHaveLength(0);
   });
 
   it('T7+T8+T9+T10+T11+T12: confirmation calls exactly PATCH /api/transactions/[id] with the real contract payload', async () => {
@@ -216,8 +217,102 @@ describe('TX-RECLASSIFY-UI-001 — ReclassifyDialog (T1–T23)', () => {
       <ReclassifyDialog transaction={TX} accounts={ACCOUNTS} onOpenChange={onOpenChange} onReclassified={vi.fn()} />,
     );
     await user.click(screen.getByRole('button', { name: tFn('reclassifyTx.cancel') }));
-    expect(fetchMock).not.toHaveBeenCalled();
+    // Opening the dialog fires the entity-status GET; assert NO PATCH only.
+    expect(fetchMock.mock.calls.filter((c) => c[1]?.method === 'PATCH')).toHaveLength(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  // ─── Entity identity confirmation (UNKNOWN → explicit confirm) ───
+
+  function mockStatusGet(entityStatus: string | Error) {
+    fetchMock.mockImplementation(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') {
+        return { ok: true, status: 200, json: async () => ({ transaction: {} }) };
+      }
+      if (entityStatus instanceof Error) throw entityStatus;
+      return { ok: true, status: 200, json: async () => ({ entityStatus }) };
+    });
+  }
+
+  it('identity section visible when status GET returns UNKNOWN', async () => {
+    mockStatusGet('UNKNOWN');
+    renderDialog();
+    await waitFor(() => {
+      expect(screen.getByTestId('identity-confirm-toggle')).toBeInTheDocument();
+    });
+  });
+
+  it('identity section hidden when status GET returns KNOWN or fails', async () => {
+    mockStatusGet('KNOWN');
+    const { unmount } = renderDialog();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId('identity-confirm-toggle')).not.toBeInTheDocument();
+    unmount();
+
+    fetchMock.mockReset();
+    fetchMock.mockRejectedValue(new Error('network down'));
+    renderDialog();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    expect(screen.queryByTestId('identity-confirm-toggle')).not.toBeInTheDocument();
+  });
+
+  it('UNKNOWN + checked toggle + name + type → PATCH body includes confirmedEntity', async () => {
+    mockStatusGet('UNKNOWN');
+    const user = userEvent.setup();
+    renderDialog();
+    await waitFor(() => {
+      expect(screen.getByTestId('identity-confirm-toggle')).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByTestId('reclassify-gl-select'), 'gl-b');
+    await user.click(screen.getByTestId('identity-confirm-toggle'));
+    await user.type(screen.getByTestId('identity-canonical-name'), '  ACME Corp  ');
+    await user.selectOptions(screen.getByTestId('identity-entity-type'), 'company');
+    await user.click(screen.getByTestId('confirm-reclassify-btn'));
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find((c) => c[1]?.method === 'PATCH');
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(patchCall![1].body as string);
+      expect(body.glAccountId).toBe('gl-b');
+      expect(body.confirmedEntity).toEqual({
+        canonicalName: 'ACME Corp',
+        entityType: 'company',
+      });
+    });
+  });
+
+  it('UNKNOWN + unchecked toggle → PATCH body keys exactly ["glAccountId"]', async () => {
+    mockStatusGet('UNKNOWN');
+    const user = userEvent.setup();
+    renderDialog();
+    await waitFor(() => {
+      expect(screen.getByTestId('identity-confirm-toggle')).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByTestId('reclassify-gl-select'), 'gl-b');
+    await user.click(screen.getByTestId('confirm-reclassify-btn'));
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find((c) => c[1]?.method === 'PATCH');
+      expect(patchCall).toBeDefined();
+      const body = JSON.parse(patchCall![1].body as string);
+      expect(Object.keys(body)).toEqual(['glAccountId']);
+    });
+  });
+
+  it('checked toggle + empty name → confirm disabled, no PATCH', async () => {
+    mockStatusGet('UNKNOWN');
+    const user = userEvent.setup();
+    renderDialog();
+    await waitFor(() => {
+      expect(screen.getByTestId('identity-confirm-toggle')).toBeInTheDocument();
+    });
+    await user.selectOptions(screen.getByTestId('reclassify-gl-select'), 'gl-b');
+    await user.click(screen.getByTestId('identity-confirm-toggle'));
+    expect(screen.getByTestId('confirm-reclassify-btn')).toBeDisabled();
+    await user.click(screen.getByTestId('confirm-reclassify-btn'));
+    expect(fetchMock.mock.calls.filter((c) => c[1]?.method === 'PATCH')).toHaveLength(0);
   });
 
   it('T1+T2+T3 (BankDetailView): categorized transaction shows the reclassify action with current GL visible', async () => {

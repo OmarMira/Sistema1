@@ -304,6 +304,20 @@ const en = {
       cancel: 'Cancel',
       success: 'Transaction reclassified',
       failed: 'Failed to reclassify transaction',
+      identityTitle: 'Confirm entity identity',
+      identityHelp:
+        'This description does not match a known entity yet. Confirming the identity lets the system reuse this entity and its GL account on the next occurrence.',
+      identityToggle: 'I confirm this transaction belongs to the entity named below',
+      canonicalNameLabel: 'Official entity name',
+      canonicalNamePlaceholder: 'For example: ACME Corp',
+      entityTypeLabel: 'Entity type',
+      entityTypes: {
+        person: 'Person',
+        company: 'Company',
+        financial_product: 'Financial product',
+        platform: 'Platform',
+        asset: 'Asset',
+      },
     },
     importReview: {
       title: 'Uncategorized transactions',

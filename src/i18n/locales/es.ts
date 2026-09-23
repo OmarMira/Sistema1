@@ -307,6 +307,20 @@ const es = {
       cancel: 'Cancelar',
       success: 'Transacción reclasificada',
       failed: 'No se pudo reclasificar la transacción',
+      identityTitle: 'Confirmar identidad de la entidad',
+      identityHelp:
+        'Esta descripción todavía no corresponde a una entidad conocida. Confirmar la identidad permite que el sistema reutilice esta entidad y su cuenta contable en la próxima aparición.',
+      identityToggle: 'Confirmo que esta transacción corresponde a la entidad indicada',
+      canonicalNameLabel: 'Nombre oficial de la entidad',
+      canonicalNamePlaceholder: 'Por ejemplo: ACME Corp',
+      entityTypeLabel: 'Tipo de entidad',
+      entityTypes: {
+        person: 'Persona',
+        company: 'Empresa',
+        financial_product: 'Producto financiero',
+        platform: 'Plataforma',
+        asset: 'Activo',
+      },
     },
     importReview: {
       title: 'Transacciones sin categorizar',

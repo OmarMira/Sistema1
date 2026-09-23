@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
@@ -39,58 +40,77 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const start = new Date(startDate);
   const end = new Date(endDate + 'T23:59:59.999Z');
 
-  const period = await db.$transaction(async (tx) => {
-    // Overlap check INSIDE transaction to prevent TOCTOU race condition
-    const existing = await tx.fiscalPeriod.findMany({ where: { companyId: companyId } });
-    const overlap = existing.some((e) => !(end < e.startDate || start > e.endDate));
-    if (overlap) {
-      throw new Error('OVERLAP');
-    }
+  const MAX_ATTEMPTS = 3;
 
-    const nameExists = existing.some((e) => e.name === name);
-    if (nameExists) {
-      throw new Error('DUPLICATE_NAME');
-    }
+  const runCreatePeriodTx = async () =>
+    db.$transaction(async (tx) => {
+      // Overlap check INSIDE transaction to prevent TOCTOU race condition
+      const existing = await tx.fiscalPeriod.findMany({ where: { companyId: companyId } });
+      const overlap = existing.some((e) => !(end < e.startDate || start > e.endDate));
+      if (overlap) {
+        throw new Error('OVERLAP');
+      }
 
-    const result = await tx.fiscalPeriod.create({
-      data: {
-        companyId: companyId,
-        name,
-        startDate: start,
-        endDate: end,
-        isLocked: false,
-      },
+      const nameExists = existing.some((e) => e.name === name);
+      if (nameExists) {
+        throw new Error('DUPLICATE_NAME');
+      }
+
+      const result = await tx.fiscalPeriod.create({
+        data: {
+          companyId: companyId,
+          name,
+          startDate: start,
+          endDate: end,
+          isLocked: false,
+        },
+      });
+
+      await tx.auditLog.create({
+        data: {
+          companyId: companyId,
+          action: 'PERIOD_CREATED',
+          entity: 'FiscalPeriod',
+          entityId: result.id,
+          details: JSON.stringify({ name, startDate, endDate }),
+        },
+      });
+
+      return result;
+    }, {
+      // C-01: Serializable guarantees the overlap/duplicate checks are
+      // transactional instead of timing-dependent under READ COMMITTED.
+      isolationLevel: 'Serializable',
     });
 
-    await tx.auditLog.create({
-      data: {
-        companyId: companyId,
-        action: 'PERIOD_CREATED',
-        entity: 'FiscalPeriod',
-        entityId: result.id,
-        details: JSON.stringify({ name, startDate, endDate }),
-      },
-    });
-
-    return result;
-  }).catch((err) => {
-    if (err instanceof Error && err.message === 'OVERLAP') {
-      return NextResponse.json(
-        { error: serverT(locale, 'apiErrors.fiscalPeriods.overlap') },
-        { status: 409 },
-      );
+  // C-01: P2034 does not imply overlap — retry re-executes the full
+  // transaction while attempts remain, so real overlap resolves to 409.
+  let period: Awaited<ReturnType<typeof runCreatePeriodTx>> | null = null;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      period = await runCreatePeriodTx();
+      break;
+    } catch (err) {
+      const isSerializationConflict =
+        err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2034';
+      if (!isSerializationConflict || attempt === MAX_ATTEMPTS) {
+        if (err instanceof Error && err.message === 'OVERLAP') {
+          return NextResponse.json(
+            { error: serverT(locale, 'apiErrors.fiscalPeriods.overlap') },
+            { status: 409 },
+          );
+        }
+        if (err instanceof Error && err.message === 'DUPLICATE_NAME') {
+          return NextResponse.json(
+            { error: serverT(locale, 'apiErrors.fiscalPeriods.duplicateName') },
+            { status: 409 },
+          );
+        }
+        throw err;
+      }
+      // P2034 with attempts remaining → full re-execution (no 409, no sleep)
     }
-    if (err instanceof Error && err.message === 'DUPLICATE_NAME') {
-      return NextResponse.json(
-        { error: serverT(locale, 'apiErrors.fiscalPeriods.duplicateName') },
-        { status: 409 },
-      );
-    }
-    throw err;
-  });
-
-  // If the transaction returned a NextResponse (error), return it directly
-  if (period instanceof NextResponse) return period;
+  }
 
   companySettingsCache.invalidate(companyId);
 

@@ -28,9 +28,13 @@ describe('proxy.ts - Session Presence', () => {
     expect(res.status).toBe(200);
   });
 
-  it('allows public API routes without session', async () => {
+  it('allows public API routes without session (R3: with valid same-origin Origin)', async () => {
     const req = makeRequest('http://localhost:3000/api/auth/login', {
       method: 'POST',
+      headers: {
+        Origin: 'http://localhost:3000',
+        Host: 'localhost:3000',
+      },
     });
     const res = await middleware(req);
     expect(res.status).toBe(200);
@@ -76,13 +80,15 @@ describe('proxy.ts - CSRF Protection', () => {
     expect(res.status).toBe(403);
   });
 
-  it('allows POST without Origin header (API clients)', async () => {
-    const req = makeRequest('http://localhost:3000/api/journal', {
-      method: 'POST',
-      cookie: 'session=abc123',
-    });
-    const res = await middleware(req);
-    expect(res.status).toBe(200);
+  it('rejects mutations without Origin and Referer (R3: POST/PUT/PATCH/DELETE → 403)', async () => {
+    for (const method of ['POST', 'PUT', 'PATCH', 'DELETE'] as const) {
+      const req = makeRequest('http://localhost:3000/api/journal', {
+        method,
+        cookie: 'session=abc123',
+      });
+      const res = await middleware(req);
+      expect(res.status, `${method} without Origin/Referer`).toBe(403);
+    }
   });
 
   it('allows POST with matching Origin header', async () => {

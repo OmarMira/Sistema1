@@ -190,13 +190,13 @@ describe('Security Layer - Unit & Integration Tests', () => {
       expect(res.headers.get('Referrer-Policy')).toBe('strict-origin-when-cross-origin');
     });
 
-    it('debe permitir mutaciones API sin Origin/Referer (API clients)', async () => {
+    it('debe rechazar mutaciones API sin Origin/Referer (R3: 403)', async () => {
       const req = new NextRequest('http://localhost:3000/api/companies', {
         method: 'POST',
         headers: { Cookie: 'session=abc123' },
       });
       const res = await proxy(req);
-      expect(res.status).toBe(200);
+      expect(res.status).toBe(403);
     });
 
     it('debe rechazar mutaciones API con Origin externo (CSRF)', async () => {
@@ -231,6 +231,8 @@ describe('Security Layer - Unit & Integration Tests', () => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            Origin: 'http://localhost:3000',
+            Host: 'localhost:3000',
           },
           body: JSON.stringify({ email: 'user@example.com', password: 'password' }),
         });

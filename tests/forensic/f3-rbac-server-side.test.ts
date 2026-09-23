@@ -743,9 +743,15 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
     createdCompanyIds.add(company.id);
 
     const token = await createSession(user.id);
+    const h = authHeaders(token);
+    // R3: the proxy now rejects headerless mutations (CSRF). This test's
+    // objective is the proxy's missing RBAC enforcement, so the request
+    // satisfies the CSRF precondition first (same-origin).
+    h.set('Origin', 'http://localhost');
+    h.set('Host', 'localhost');
     const req = new NextRequest(`http://localhost/api/journal?companyId=${company.id}`, {
       method: 'POST',
-      headers: authHeaders(token),
+      headers: h,
     });
     const proxied = await proxy(req);
     log('PROXY CHECK: POST /api/journal as viewer -> proxy status =', proxied.status);

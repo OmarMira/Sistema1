@@ -47,10 +47,12 @@ export const GET = apiHandler(async (req: NextRequest) => {
   const yearCloseEntryIds = await getYearCloseEntryIds(companyId);
 
   // H-2 fix: use GROUP BY for totals and monthly trend instead of loading all lines.
+  // R2: cada ID de year-close es un parámetro Prisma (Prisma.join) — cero
+  // concatenación textual y cero Prisma.raw en esta superficie.
   const yearCloseClause =
     yearCloseEntryIds.length > 0
-      ? `AND je.id NOT IN (${yearCloseEntryIds.map((id) => `'${id}'`).join(',')})`
-      : '';
+      ? Prisma.sql`AND je.id NOT IN (${Prisma.join(yearCloseEntryIds)})`
+      : Prisma.empty;
 
   const totalsRows = await db.$queryRaw<
     Array<{ accountType: string; normalBalance: string; totalDebit: bigint; totalCredit: bigint }>
@@ -65,7 +67,7 @@ export const GET = apiHandler(async (req: NextRequest) => {
     JOIN "GlAccount" ga ON jl."glAccountId" = ga.id
     WHERE je."companyId" = ${companyId}
       AND je."status" = 'posted'
-      ${Prisma.raw(yearCloseClause)}
+      ${yearCloseClause}
     GROUP BY ga."accountType", ga."normalBalance"
   `;
 
@@ -108,7 +110,7 @@ export const GET = apiHandler(async (req: NextRequest) => {
       AND je."date" >= ${fiscalStart}
       AND je."date" <= ${fiscalEnd}
       AND ga."accountType" IN ('revenue', 'expense')
-      ${Prisma.raw(yearCloseClause)}
+      ${yearCloseClause}
     GROUP BY TO_CHAR(je."date", 'YYYY-MM'), ga."accountType"
     ORDER BY "month" ASC
   `;

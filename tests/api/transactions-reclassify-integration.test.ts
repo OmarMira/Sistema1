@@ -23,6 +23,8 @@ function createMockDb() {
   let nextId = 1;
   const bankTransactions: Array<Record<string, unknown>> = [];
   const journalEntries: Array<Record<string, unknown>> = [];
+  const companyKnowledgeRows: Array<Record<string, unknown>> = [];
+  const memoryVersions: Array<Record<string, unknown>> = [];
 
   const memoryItem = {
     create: vi.fn(async (args: { data: { content: string; type: string; companyId: string; sourceAuthor: string; sourceName: string; confidence?: string } }) => {
@@ -160,14 +162,94 @@ function createMockDb() {
     updateMany: vi.fn(async () => ({})),
   };
 
+  // CompanyKnowledge — in-memory store for resolveEntity + confirmEntityIdentity.
+  // findMany tolerates `select` by returning full rows; create fills defaults
+  // so toCompanyKnowledgeRecord(row) always finds relationship/mergedIntoId/dates.
+  const companyKnowledge = {
+    findMany: vi.fn(async (args?: { where?: { companyId?: string; status?: string } }) => {
+      let results = companyKnowledgeRows;
+      if (args?.where?.companyId) {
+        results = results.filter((r) => r.companyId === args.where!.companyId);
+      }
+      if (args?.where?.status) {
+        results = results.filter((r) => r.status === args.where!.status);
+      }
+      return results.map((r) => ({ ...r }));
+    }),
+    create: vi.fn(async (args: { data: Record<string, unknown> }) => {
+      const now = new Date();
+      const row = {
+        id: `ck_${nextId++}`,
+        relationship: null,
+        mergedIntoId: null,
+        createdAt: now,
+        updatedAt: now,
+        ...args.data,
+      };
+      companyKnowledgeRows.push(row);
+      return { ...row };
+    }),
+    update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => {
+      const row = companyKnowledgeRows.find((r) => r.id === args.where.id);
+      if (!row) throw new Error('CompanyKnowledge not found');
+      Object.assign(row, args.data, { updatedAt: new Date() });
+      return { ...row };
+    }),
+    findUnique: vi.fn(async (args: { where: { id: string } }) => {
+      const row = companyKnowledgeRows.find((r) => r.id === args.where.id);
+      return row ? { ...row } : null;
+    }),
+    count: vi.fn(async (args?: { where?: { companyId?: string; status?: string } }) => {
+      let results = companyKnowledgeRows;
+      if (args?.where?.companyId) {
+        results = results.filter((r) => r.companyId === args.where!.companyId);
+      }
+      if (args?.where?.status) {
+        results = results.filter((r) => r.status === args.where!.status);
+      }
+      return results.length;
+    }),
+  };
+
+  const knowledgeAudit = {
+    create: vi.fn(async (args?: { data?: Record<string, unknown> }) => ({
+      id: `ka_${nextId++}`,
+      ...(args?.data ?? {}),
+    })),
+    findMany: vi.fn(async () => []),
+  };
+
+  // memoryVersion — track rows so repo.update can compute the next
+  // versionNumber (orderBy versionNumber desc) and tests can assert
+  // version increases on treatment updates.
+  const memoryVersion = {
+    create: vi.fn(async (args: { data: Record<string, unknown> }) => {
+      const row = { id: `mv_${nextId++}`, ...args.data };
+      memoryVersions.push(row);
+      return row;
+    }),
+    findFirst: vi.fn(async (args?: { where?: { itemId?: string } }) => {
+      const rows = args?.where?.itemId
+        ? memoryVersions.filter((v) => v.itemId === args.where!.itemId)
+        : memoryVersions;
+      if (rows.length === 0) return null;
+      return rows.reduce((max, r) =>
+        (r.versionNumber as number) > (max.versionNumber as number) ? r : max,
+      );
+    }),
+    findMany: vi.fn(async () => [...memoryVersions]),
+  };
+
   const self = {
     memoryItem,
-    memoryVersion: { create: vi.fn(async () => ({})), findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
+    memoryVersion,
     relationship: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
     contradiction: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
     traceabilityLog: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
     evolutionLink: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
     confidenceLog: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
+    companyKnowledge,
+    knowledgeAudit,
     bankTransaction,
     glAccount,
     journalEntry,
@@ -178,11 +260,15 @@ function createMockDb() {
       memStore.clear();
       bankTransactions.length = 0;
       journalEntries.length = 0;
+      companyKnowledgeRows.length = 0;
+      memoryVersions.length = 0;
       nextId = 1;
     },
     _store: memStore,
     _bankTransactions: bankTransactions,
     _journalEntries: journalEntries,
+    _companyKnowledge: companyKnowledgeRows,
+    _memoryVersions: memoryVersions,
   };
   return self;
 }
@@ -202,6 +288,7 @@ vi.mock('@/lib/context-storage', () => ({
     if (!harness.context) throw new Error('unauthenticated');
     return harness.context;
   }),
+  requireCurrentUserId: () => 'user-1',
 }));
 vi.mock('@/lib/rbac', () => ({ requireCompanyRole: vi.fn(async () => undefined) }));
 vi.mock('@/lib/fiscal-period-guard', () => ({ assertActiveFiscalPeriod: vi.fn() }));
@@ -220,14 +307,22 @@ vi.mock('@/memory/classification-knowledge', async (importOriginal) => {
     degradeKnowledgeOnConflict: vi.fn(actual.degradeKnowledgeOnConflict),
   };
 });
-vi.mock('@/memory/entity-resolution', () => ({
-  resolveEntity: vi.fn(),
-}));
+// Actual-passthrough: the REAL resolveEntity (alias matching) runs against the
+// in-memory companyKnowledge store. Existing tests can still mockResolvedValue
+// to force KNOWN/UNKNOWN; Vitest 4 mockReset restores vi.fn(impl) → impl, so
+// after beforeEach's mockReset the original implementation is available again.
+vi.mock('@/memory/entity-resolution', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/memory/entity-resolution')>();
+  return {
+    ...actual,
+    resolveEntity: vi.fn(actual.resolveEntity),
+  };
+});
 
 import { db } from '@/lib/db';
 import { GET as GET_QUEUE } from '@/app/api/transactions/route';
-import { PATCH } from '@/app/api/transactions/[id]/route';
-import { createAdapter, learnEntityTreatment } from '@/memory/classification-knowledge';
+import { PATCH, GET } from '@/app/api/transactions/[id]/route';
+import { createAdapter, learnEntityTreatment, lookupTreatment } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import type { MemoryPrismaClient } from '@/memory/prisma-types';
 
@@ -282,12 +377,16 @@ async function listQueue() {
   return (await res.json()) as { transactions: Array<{ id: string }> };
 }
 
-function patchRequest(id: string, glAccountId: string) {
+function patchRequest(id: string, glAccountId: string, extra: Record<string, unknown> = {}) {
   return new NextRequest(`http://localhost/api/transactions/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ glAccountId }),
+    body: JSON.stringify({ glAccountId, ...extra }),
   });
+}
+
+function getRequest(id: string) {
+  return new NextRequest(`http://localhost/api/transactions/${id}`, { method: 'GET' });
 }
 
 beforeEach(() => {
@@ -430,5 +529,232 @@ describe('TX-RECLASSIFY-UI-001 — TX-REVIEW-UI-001 queue protection (T34–T36)
     seedTransaction({ id: 'tx-cat', description: 'Categorized', amount: -100, glAccountId: GL_A });
     const body = await listQueue();
     expect(body.transactions.map((t) => t.id)).not.toContain('tx-cat');
+  });
+});
+
+// ─── S10/PASO 1A — identity confirmation closes the learning loop ──────────
+// GL-only reclassification NEVER auto-creates identity; explicit
+// confirmedEntity persists CompanyKnowledge + treatment + observation so a
+// second occurrence X' resolves KNOWN and reuses the learned GL.
+
+describe('S10/PASO 1A — explicit identity confirmation closes the learning loop', () => {
+  const DESCRIPTION = 'ACME INV 2026-001';
+
+  function confirmRequest(id: string, glAccountId: string) {
+    return patchRequest(id, glAccountId, {
+      confirmedEntity: { canonicalName: 'ACME Corp', entityType: 'company' },
+    });
+  }
+
+  it('1. GL-only negative: UNKNOWN + no confirmedEntity → no companyKnowledge, no learning', async () => {
+    // Real resolveEntity (actual-passthrough after mockReset) against the
+    // empty store → UNKNOWN → learning skipped, identity never created.
+    seedTransaction({ id: 'tx-1', description: DESCRIPTION, amount: -100, glAccountId: GL_A, withJournal: true });
+
+    const res = await PATCH(patchRequest('tx-1', GL_B), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(res.status).toBe(200);
+
+    expect(mockDb._companyKnowledge).toHaveLength(0);
+    expect(learnEntityTreatment).not.toHaveBeenCalled();
+
+    // Normal accounting success stands.
+    const body = (await res.json()) as { transaction: { glAccountId: string } };
+    expect(body.transaction.glAccountId).toBe(GL_B);
+  });
+
+  it('1b. GL-only PATCH after reset never creates companyKnowledge for a no-match description', async () => {
+    seedTransaction({ id: 'tx-1', description: 'NEVER SEEN DESCRIPTION', amount: -50, glAccountId: GL_A });
+    const res = await PATCH(patchRequest('tx-1', GL_B), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(res.status).toBe(200);
+    expect(mockDb._companyKnowledge).toHaveLength(0);
+  });
+
+  it('2. UNKNOWN + confirmedEntity → identity learned, treatment + observation persisted, NO_CONFLICT', async () => {
+    // first_appearance_unknown → identity_confirmed → company_knowledge_created
+    seedTransaction({ id: 'tx-1', description: DESCRIPTION, amount: -100, glAccountId: GL_A, withJournal: true });
+
+    const res = await PATCH(confirmRequest('tx-1', GL_B), { params: Promise.resolve({ id: 'tx-1' }) });
+    // detectConflictingPattern → NO_CONFLICT → 200 (never 409).
+    expect(res.status).toBe(200);
+
+    // companyKnowledge created under the transaction's companyId with the
+    // observed description registered as an alias.
+    expect(mockDb._companyKnowledge).toHaveLength(1);
+    const knowledge = mockDb._companyKnowledge[0];
+    expect(knowledge.companyId).toBe(COMPANY_A);
+    expect(knowledge.canonicalName).toBe('ACME Corp');
+    expect(knowledge.status).toBe('active');
+    expect(knowledge.aliases as string[]).toContain(DESCRIPTION);
+    const entityId = knowledge.id as string;
+    expect(entityId).toBeTruthy();
+
+    // Treatment learned for the new knowledge id and promoted to certain.
+    const adapter = makeAdapter();
+    const lookup = await lookupTreatment(adapter, COMPANY_A, entityId);
+    expect(lookup.status).toBe('FOUND');
+    if (lookup.status === 'FOUND') {
+      expect(lookup.glAccountId).toBe(GL_B);
+      expect(lookup.confidence).toBe('certain');
+    }
+
+    // Classification memoryItem carries entityId + glAccountId.
+    const classItems = await adapter.getByType(COMPANY_A, 'classification');
+    const learned = classItems.find((i) => {
+      try {
+        const parsed = JSON.parse(i.content) as { entityId?: string; glAccountId?: string };
+        return parsed.entityId === entityId && parsed.glAccountId === GL_B;
+      } catch {
+        return false;
+      }
+    });
+    expect(learned).toBeDefined();
+
+    // Observation recorded.
+    const observations = await adapter.getByType(COMPANY_A, 'classification_observation');
+    expect(observations.length).toBeGreaterThanOrEqual(1);
+    const obs = observations.map((o) => {
+      try {
+        return JSON.parse(o.content) as { entityId?: string; originalDescription?: string };
+      } catch {
+        return {};
+      }
+    });
+    expect(obs.some((o) => o.entityId === entityId && o.originalDescription === DESCRIPTION)).toBe(true);
+
+    // NO_CONFLICT: no conflicting-pattern artifact was persisted.
+    const conflicts = await adapter.getByType(COMPANY_A, 'classification_conflicting_pattern');
+    expect(conflicts).toHaveLength(0);
+
+    // Audit entry written by confirmEntityIdentity.
+    expect(mockDb.knowledgeAudit.create).toHaveBeenCalled();
+  });
+
+  it('3. Second-appearance loop: X\' resolves KNOWN and reuses the learned GL (first_appearance_unknown → explicit_correction_recorded → identity_confirmed → company_knowledge_created → knowledge_reused)', async () => {
+    seedTransaction({ id: 'tx-1', description: DESCRIPTION, amount: -100, glAccountId: GL_A, withJournal: true });
+    const first = await PATCH(confirmRequest('tx-1', GL_B), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(first.status).toBe(200);
+    const entityId = mockDb._companyKnowledge[0].id as string;
+
+    // knowledge_reused: real resolveEntity now returns KNOWN for X'.
+    const resolution = await resolveEntity(COMPANY_A, DESCRIPTION);
+    expect(resolution.status).toBe('KNOWN');
+    if (resolution.status === 'KNOWN') {
+      expect(resolution.entityId).toBe(entityId);
+    }
+
+    const adapter = makeAdapter();
+    const lookup = await lookupTreatment(adapter, COMPANY_A, entityId);
+    expect(lookup.status).toBe('FOUND');
+    if (lookup.status === 'FOUND') {
+      expect(lookup.glAccountId).toBe(GL_B);
+    }
+
+    // Second occurrence X' — PATCH WITHOUT confirmedEntity goes down the
+    // KNOWN learning path with the existing entityId (no human identity
+    // decision needed).
+    (learnEntityTreatment as ReturnType<typeof vi.fn>).mockClear();
+    seedTransaction({ id: 'tx-2', description: DESCRIPTION, amount: -80, glAccountId: null });
+    const second = await PATCH(patchRequest('tx-2', GL_B), { params: Promise.resolve({ id: 'tx-2' }) });
+    expect(second.status).toBe(200);
+    expect(learnEntityTreatment).toHaveBeenCalledWith(
+      expect.anything(),
+      COMPANY_A,
+      entityId,
+      GL_B,
+      'any',
+      'user_correction',
+      'tx-2',
+    );
+    // Still exactly one identity — the loop reused it, never duplicated it.
+    expect(mockDb._companyKnowledge).toHaveLength(1);
+  });
+
+  it('5. Company isolation: company A confirmation invisible to company B', async () => {
+    seedTransaction({ id: 'tx-1', description: DESCRIPTION, amount: -100, glAccountId: GL_A, withJournal: true });
+    const res = await PATCH(confirmRequest('tx-1', GL_B), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(res.status).toBe(200);
+    const entityId = mockDb._companyKnowledge[0].id as string;
+
+    // resolveEntity under company B → UNKNOWN (tenant-scoped store read).
+    const foreign = await resolveEntity(COMPANY_B, DESCRIPTION);
+    expect(foreign.status).toBe('UNKNOWN');
+
+    // Treatment lookup under company B for that entityId → NOT_FOUND.
+    const adapter = makeAdapter();
+    const lookup = await lookupTreatment(adapter, COMPANY_B, entityId);
+    expect(lookup.status).toBe('NOT_FOUND');
+
+    // Company B data untouched: no knowledge rows, no memory items.
+    expect(mockDb._companyKnowledge.filter((r) => r.companyId === COMPANY_B)).toHaveLength(0);
+    const bItems = await adapter.getByType(COMPANY_B, 'classification');
+    expect(bItems).toHaveLength(0);
+  });
+
+  it('6. Later GL correction: single active treatment, memoryVersion write, confidence intact', async () => {
+    seedTransaction({ id: 'tx-1', description: DESCRIPTION, amount: -100, glAccountId: GL_A, withJournal: true });
+    const first = await PATCH(confirmRequest('tx-1', GL_B), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(first.status).toBe(200);
+    const entityId = mockDb._companyKnowledge[0].id as string;
+
+    const adapter = makeAdapter();
+    const before = await lookupTreatment(adapter, COMPANY_A, entityId);
+    expect(before.status).toBe('FOUND');
+    const itemId = before.status === 'FOUND' ? before.memoryItemId : '';
+    const versionsBefore = mockDb._memoryVersions.filter((v) => v.itemId === itemId);
+    const maxVersionBefore = Math.max(...versionsBefore.map((v) => v.versionNumber as number));
+
+    // Same entity, now KNOWN — different GL, no confirmedEntity needed.
+    const second = await PATCH(patchRequest('tx-1', 'gl-c'), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(second.status).toBe(200);
+
+    // EXACTLY ONE active classification item for the entityId (the write path
+    // UPDATED the existing item — no parallel contradictory knowledge).
+    const classItems = await adapter.getByType(COMPANY_A, 'classification');
+    const forEntity = classItems.filter((i) => {
+      if (i.status !== 'active') return false;
+      try {
+        return (JSON.parse(i.content) as { entityId?: string }).entityId === entityId;
+      } catch {
+        return false;
+      }
+    });
+    expect(forEntity).toHaveLength(1);
+
+    // memoryVersion versioning write occurred (C4/C5 update path).
+    const versionsAfter = mockDb._memoryVersions.filter((v) => v.itemId === itemId);
+    const maxVersionAfter = Math.max(...versionsAfter.map((v) => v.versionNumber as number));
+    expect(maxVersionAfter).toBeGreaterThan(maxVersionBefore);
+    expect(mockDb.memoryVersion.create).toHaveBeenCalled();
+
+    // Confidence handling: still a single FOUND treatment with the new GL,
+    // promoted to certain by the existing human-confirmation path.
+    const after = await lookupTreatment(adapter, COMPANY_A, entityId);
+    expect(after.status).toBe('FOUND');
+    if (after.status === 'FOUND') {
+      expect(after.glAccountId).toBe('gl-c');
+      expect(after.confidence).toBe('certain');
+    }
+  });
+
+  it('7. GET status endpoint: UNKNOWN before confirmation, KNOWN after', async () => {
+    seedTransaction({ id: 'tx-1', description: DESCRIPTION, amount: -100, glAccountId: GL_A, withJournal: true });
+
+    const before = await GET(getRequest('tx-1'), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(before.status).toBe(200);
+    const beforeBody = (await before.json()) as {
+      entityStatus: string;
+      transaction: { id: string; description: string };
+    };
+    expect(beforeBody.entityStatus).toBe('UNKNOWN');
+    expect(beforeBody.transaction).toEqual({ id: 'tx-1', description: DESCRIPTION });
+
+    const patch = await PATCH(confirmRequest('tx-1', GL_B), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(patch.status).toBe(200);
+
+    const after = await GET(getRequest('tx-1'), { params: Promise.resolve({ id: 'tx-1' }) });
+    expect(after.status).toBe(200);
+    const afterBody = (await after.json()) as { entityStatus: string; entityId?: string };
+    expect(afterBody.entityStatus).toBe('KNOWN');
+    expect(afterBody.entityId).toBe(mockDb._companyKnowledge[0].id);
   });
 });

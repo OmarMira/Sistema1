@@ -105,6 +105,9 @@ async function resolveWithV2(
     matchedRuleId: null,
     glAccountId: null,
     deterministicResult: result.deterministicResult,
+    ...(result.outcome === 'pending' && result.aiProposal
+      ? { aiProposal: result.aiProposal }
+      : {}),
   };
 }
 

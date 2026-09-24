@@ -19,6 +19,9 @@ import {
   clearDatabase,
 } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
+import type { Prisma } from '@prisma/client';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
+import { resolveEntity } from '@/memory/entity-resolution';
 
 vi.mock('../../src/lib/services/transaction-reclassification.service', async (importOriginal) => {
   const actual =
@@ -32,6 +35,15 @@ vi.mock('../../src/lib/services/transaction-reclassification.service', async (im
 import * as authorityModule from '../../src/lib/services/transaction-reclassification.service';
 
 const reclassifySpy = vi.mocked(authorityModule.reclassifyTransaction);
+
+// S10 1B.2B.1: observe KE entry (resolveEntity) without changing behavior —
+// passthrough keeps the certified learning semantics intact.
+vi.mock('@/memory/entity-resolution', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/memory/entity-resolution')>();
+  return { ...actual, resolveEntity: vi.fn(actual.resolveEntity) };
+});
+
+const resolveEntitySpy = vi.mocked(resolveEntity);
 
 async function setupCompanyWithTransaction(overrides?: {
   companyEmail?: string;
@@ -232,5 +244,281 @@ describe('S10 1B.2A — authority enforces tenant semantics without HTTP', () =>
     const counterparty = await db.glAccount.findUnique({ where: { id: counterpartyGl.id } });
     expect(Number(bankGl?.balance)).toBe(100);
     expect(Number(counterparty?.balance)).toBe(100);
+  });
+});
+
+// ─── S10 1B.2B.1 — transactional authority extension ─────────────────────
+// Two modes: autonomous (db.$transaction; KE runs before return — the
+// certified 1B.2A behavior) and external-tx (accounting joins the caller's
+// open transaction; KE is deferred to runPostCommitLearning, which latches
+// so it executes exactly once and never rejects).
+
+function buildFakeCallerTx(opts: {
+  row: Record<string, unknown>;
+  companyId: string;
+  glAccountId: string;
+}) {
+  const bankTransactionFindFirst = vi.fn().mockResolvedValue(opts.row);
+  const bankTransactionUpdate = vi.fn().mockResolvedValue({
+    id: opts.row.id,
+    date: opts.row.date,
+    amount: 100,
+    description: opts.row.description,
+    glAccountId: opts.glAccountId,
+    journalEntryId: null,
+  });
+  const glAccountFindFirst = vi.fn().mockResolvedValue({
+    id: opts.glAccountId,
+    companyId: opts.companyId,
+    isActive: true,
+  });
+  const fiscalPeriodFindFirst = vi.fn().mockResolvedValue(null);
+
+  const fake = {
+    bankTransaction: { findFirst: bankTransactionFindFirst, update: bankTransactionUpdate },
+    glAccount: { findFirst: glAccountFindFirst },
+    fiscalPeriod: { findFirst: fiscalPeriodFindFirst },
+  } as unknown as Prisma.TransactionClient;
+
+  return {
+    fake,
+    bankTransactionFindFirst,
+    bankTransactionUpdate,
+    glAccountFindFirst,
+    fiscalPeriodFindFirst,
+  };
+}
+
+describe('S10 1B.2B.1 — autonomous mode (no options.tx) preserves certified behavior', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+  });
+
+  it('TEST A: commits books on the real client, runs KE before returning, hook replays are no-ops', async () => {
+    const { company, counterpartyGl, tx } = await setupCompanyWithTransaction({
+      companyEmail: 'step1b2b1-autonomous@example.com',
+      companyName: 'Step1B2B1 Autonomous Co',
+      glCode: '1700',
+    });
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+
+    expect(outcome.status).toBe('OK');
+    // KE ran inside the call (certified autonomous order: commit → learn)
+    expect(resolveEntitySpy).toHaveBeenCalledTimes(1);
+
+    const realRow = await db.bankTransaction.findUnique({
+      where: { id: tx.id },
+      select: { glAccountId: true, journalEntryId: true },
+    });
+    expect(realRow?.glAccountId).toBe(counterpartyGl.id);
+    expect(realRow?.journalEntryId).not.toBeNull();
+
+    if (outcome.status !== 'OK') return;
+    // once-guard: replaying the hook must not re-run KE
+    await outcome.runPostCommitLearning();
+    expect(resolveEntitySpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('S10 1B.2B.1 — external-tx mode (options.tx joins caller transaction)', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+  });
+
+  it('TEST B: accounting joins caller tx; real books untouched; KE not run yet', async () => {
+    const { company, counterpartyGl, tx, bankAccount } = await setupCompanyWithTransaction({
+      companyEmail: 'ext-tx-b@example.com',
+      companyName: 'External Tx B Co',
+      glCode: '1500',
+    });
+    const row = {
+      ...tx,
+      statement: { bankAccount: { id: bankAccount.id, glAccountId: null } },
+    };
+    const { fake, bankTransactionUpdate } = buildFakeCallerTx({
+      row,
+      companyId: company.id,
+      glAccountId: counterpartyGl.id,
+    });
+
+    const outcome = await reclassifyTransaction(
+      { companyId: company.id, transactionId: tx.id, glAccountId: counterpartyGl.id },
+      { tx: fake },
+    );
+
+    expect(outcome.status).toBe('OK');
+    // Accounting ran on the caller-provided tx — not on the real client
+    expect(bankTransactionUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { glAccountId: counterpartyGl.id } }),
+    );
+    const realRow = await db.bankTransaction.findUnique({
+      where: { id: tx.id },
+      select: { glAccountId: true, journalEntryId: true },
+    });
+    expect(realRow?.glAccountId).toBeNull();
+    expect(realRow?.journalEntryId).toBeNull();
+    // KE must NOT run inside the still-open caller transaction
+    expect(resolveEntitySpy).not.toHaveBeenCalled();
+  });
+
+  it('TEST C: KE deferred — runs only when caller awaits runPostCommitLearning after commit', async () => {
+    const { company, counterpartyGl, tx, bankAccount } = await setupCompanyWithTransaction({
+      companyEmail: 'ext-tx-c@example.com',
+      companyName: 'External Tx C Co',
+      glCode: '1510',
+    });
+    const row = {
+      ...tx,
+      statement: { bankAccount: { id: bankAccount.id, glAccountId: null } },
+    };
+    const { fake } = buildFakeCallerTx({
+      row,
+      companyId: company.id,
+      glAccountId: counterpartyGl.id,
+    });
+
+    const outcome = await reclassifyTransaction(
+      { companyId: company.id, transactionId: tx.id, glAccountId: counterpartyGl.id },
+      { tx: fake },
+    );
+    if (outcome.status !== 'OK') throw new Error(`expected OK, got ${outcome.status}`);
+
+    expect(resolveEntitySpy).not.toHaveBeenCalled();
+    await outcome.runPostCommitLearning();
+    expect(resolveEntitySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('TEST D: once-guard — awaiting runPostCommitLearning twice runs KE exactly once', async () => {
+    const { company, counterpartyGl, tx, bankAccount } = await setupCompanyWithTransaction({
+      companyEmail: 'ext-tx-d@example.com',
+      companyName: 'External Tx D Co',
+      glCode: '1520',
+    });
+    const row = {
+      ...tx,
+      statement: { bankAccount: { id: bankAccount.id, glAccountId: null } },
+    };
+    const { fake } = buildFakeCallerTx({
+      row,
+      companyId: company.id,
+      glAccountId: counterpartyGl.id,
+    });
+
+    const outcome = await reclassifyTransaction(
+      { companyId: company.id, transactionId: tx.id, glAccountId: counterpartyGl.id },
+      { tx: fake },
+    );
+    if (outcome.status !== 'OK') throw new Error(`expected OK, got ${outcome.status}`);
+
+    await outcome.runPostCommitLearning();
+    await outcome.runPostCommitLearning();
+    expect(resolveEntitySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('TEST E: reads, fiscal guard and journal creation all receive the caller tx', async () => {
+    const { company, counterpartyGl, tx, glAccount, bankAccount } =
+      await setupCompanyWithTransaction({
+        companyEmail: 'ext-tx-e@example.com',
+        companyName: 'External Tx E Co',
+        glCode: '1530',
+      });
+    const row = {
+      ...tx,
+      statement: { bankAccount: { id: bankAccount.id, glAccountId: glAccount.id } },
+    };
+    const parts = buildFakeCallerTx({
+      row,
+      companyId: company.id,
+      glAccountId: counterpartyGl.id,
+    });
+    const journalSpy = vi
+      .spyOn(JournalEntryService, 'createFromBankTransaction')
+      .mockResolvedValue('je-fake-entry');
+
+    try {
+      const outcome = await reclassifyTransaction(
+        { companyId: company.id, transactionId: tx.id, glAccountId: counterpartyGl.id },
+        { tx: parts.fake },
+      );
+
+      expect(outcome.status).toBe('OK');
+      if (outcome.status !== 'OK') return;
+
+      expect(outcome.transaction.journalEntryId).toBe('je-fake-entry');
+      // Tenant read, fiscal guard, GL update — all on the caller's tx
+      expect(parts.bankTransactionFindFirst).toHaveBeenCalledTimes(1);
+      expect(parts.fiscalPeriodFindFirst).toHaveBeenCalledTimes(1);
+      expect(parts.bankTransactionUpdate).toHaveBeenCalledTimes(1);
+      expect(journalSpy).toHaveBeenCalledWith(
+        parts.fake,
+        expect.objectContaining({
+          companyId: company.id,
+          bankGlAccountId: glAccount.id,
+          counterpartyGlAccountId: counterpartyGl.id,
+        }),
+      );
+
+      const realRow = await db.bankTransaction.findUnique({
+        where: { id: tx.id },
+        select: { glAccountId: true, journalEntryId: true },
+      });
+      expect(realRow?.glAccountId).toBeNull();
+      expect(realRow?.journalEntryId).toBeNull();
+      // Still deferred: KE has no business inside the open transaction
+      expect(resolveEntitySpy).not.toHaveBeenCalled();
+    } finally {
+      journalSpy.mockRestore();
+    }
+  });
+
+  it('TEST F: KE phase failure never rejects the post-commit hook (books stand)', async () => {
+    const { company, counterpartyGl, tx, bankAccount } = await setupCompanyWithTransaction({
+      companyEmail: 'ext-tx-f@example.com',
+      companyName: 'External Tx F Co',
+      glCode: '1540',
+    });
+    const row = {
+      ...tx,
+      statement: { bankAccount: { id: bankAccount.id, glAccountId: null } },
+    };
+    const { fake } = buildFakeCallerTx({
+      row,
+      companyId: company.id,
+      glAccountId: counterpartyGl.id,
+    });
+
+    resolveEntitySpy.mockRejectedValueOnce(new Error('KE phase exploded'));
+
+    const outcome = await reclassifyTransaction(
+      { companyId: company.id, transactionId: tx.id, glAccountId: counterpartyGl.id },
+      { tx: fake },
+    );
+    if (outcome.status !== 'OK') throw new Error(`expected OK, got ${outcome.status}`);
+
+    await expect(outcome.runPostCommitLearning()).resolves.toBeUndefined();
+    // Latch already consumed — replay returns the same settled promise
+    await expect(outcome.runPostCommitLearning()).resolves.toBeUndefined();
+    expect(resolveEntitySpy).toHaveBeenCalledTimes(1);
   });
 });

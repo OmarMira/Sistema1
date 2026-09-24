@@ -15,6 +15,7 @@ import {
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
+import type { Prisma } from '@prisma/client';
 
 // ─── S10 1B.2A — transaction reclassification authority ──────────
 // Single server authority for: tenant-scoped lookup → GL validation →
@@ -27,6 +28,12 @@ import type { EntityType } from '@/internal/company-knowledge/entity/types';
 // Deliberately does NOT receive Request/Response, session, or actor:
 // the certified PATCH logic never used them (userId was destructured
 // but unused).
+//
+// S10 1B.2B.1: optional `options.tx` joins an EXISTING caller-owned
+// transaction (never a nested db.$transaction). KE learning then runs
+// ONLY through the returned once-guarded post-commit hook — never
+// inside the open transaction (accounting commits first; KE failure
+// never reverts the books).
 
 export type ReclassifyTransactionInput = {
   companyId: string;
@@ -36,6 +43,17 @@ export type ReclassifyTransactionInput = {
     canonicalName: string;
     entityType: EntityType;
   };
+};
+
+export type ReclassifyTransactionOptions = {
+  /**
+   * Caller-owned, ALREADY-OPEN transaction. The accounting phase joins
+   * it (no nested db.$transaction) and Knowledge Engine learning is
+   * deferred to the returned `runPostCommitLearning` hook: the caller
+   * awaits it exactly once AFTER its own commit — never while the
+   * transaction is still open. A KE failure never rolls back the books.
+   */
+  tx?: Prisma.TransactionClient;
 };
 
 // ─── KE-EVOL-002 secondary confidence helpers ───────────────────
@@ -176,6 +194,112 @@ async function degradeOnPersistedConflict(
   }
 }
 
+// ─── S10 1B.2B.1 — accounting phase ──────────────────────────────────────
+// Runs entirely inside the provided transaction client: the caller
+// decides the commit scope (autonomous db.$transaction, or an external
+// caller-owned transaction via options.tx). Sequence is the certified
+// 1B.2A one: void/repost → GL update → journal creation.
+
+type AccountingPhaseContext = {
+  companyId: string;
+  transactionId: string;
+  glAccountId: string;
+  journalEntryId: string | null;
+  bankGlAccountId: string | null;
+};
+
+async function executeAccountingPhase(
+  tx: Prisma.TransactionClient,
+  ctx: AccountingPhaseContext,
+) {
+  const { companyId, transactionId, glAccountId, journalEntryId, bankGlAccountId } = ctx;
+
+  // If transaction already has a journal entry, void it and unlink it first,
+  // otherwise the previous posted entry keeps counting toward GL balances
+  // and the new one double-counts the same economic event.
+  if (journalEntryId) {
+    const oldEntryLines = await tx.journalLine.findMany({
+      where: { entryId: journalEntryId },
+      select: { glAccountId: true },
+    });
+    await tx.journalEntry.update({
+      where: { id: journalEntryId },
+      data: { status: 'void' },
+    });
+    const affectedGlIds = [...new Set(oldEntryLines.map((l) => l.glAccountId))];
+    for (const glId of affectedGlIds) {
+      await JournalEntryService.recalculateBalance(tx, glId);
+    }
+    await tx.bankTransaction.update({
+      where: { id: transactionId },
+      data: { journalEntryId: null },
+    });
+  }
+
+  // Update the transaction with the new GL account
+  const updated = await tx.bankTransaction.update({
+    where: { id: transactionId },
+    data: { glAccountId },
+    select: {
+      id: true,
+      date: true,
+      amount: true,
+      description: true,
+      glAccountId: true,
+      journalEntryId: true,
+    },
+  });
+
+  // Normalize amount once so BOTH modes return the same contract: the
+  // extended client already computes `number`; a caller-provided raw
+  // TransactionClient returns Prisma.Decimal.
+  const result = { ...updated, amount: Number(updated.amount) };
+
+  // Create the journal entry if the bank account has a GL account linked
+  if (bankGlAccountId) {
+    const entryId = await JournalEntryService.createFromBankTransaction(tx, {
+      bankTxId: result.id,
+      bankTxDate: result.date,
+      bankTxAmount: result.amount,
+      bankTxDescription: result.description,
+      bankGlAccountId,
+      counterpartyGlAccountId: glAccountId,
+      companyId,
+    });
+    result.journalEntryId = entryId;
+  }
+
+  return result;
+}
+
+// ─── S10 1B.2B.1 — post-commit KE hook ───────────────────────────────────
+
+type KnowledgeEnginePhaseContext = {
+  companyId: string;
+  transactionId: string;
+  glAccountId: string;
+  confirmedEntity?: ReclassifyTransactionInput['confirmedEntity'];
+  transactionDescription: string;
+};
+
+/**
+ * Once-guarded post-commit Knowledge Engine hook. The FIRST invocation
+ * latches: any later await returns the same promise, so the KE phase
+ * executes exactly once per reclassification. Never rejects — failures
+ * are logged inside the phase; the accounting result stands.
+ */
+function createPostCommitLearningRunner(
+  ctx: KnowledgeEnginePhaseContext,
+): () => Promise<void> {
+  let run: Promise<void> | null = null;
+  return () => {
+    if (!run) {
+      run = executeKnowledgeEnginePhase(ctx);
+    }
+    return run;
+  };
+}
+
 /**
  * Reclassify a bank transaction to a final GL account: accounting first
  * (tenant-scoped), Knowledge Engine learning only after accounting
@@ -185,12 +309,27 @@ async function degradeOnPersistedConflict(
  * PATCH /api/transactions/[id] before extraction — do not "improve"
  * KNOWN/UNKNOWN handling here; the route maps these domain results to
  * the original HTTP contract.
+ *
+ * Modes (S10 1B.2B.1):
+ *  - Autonomous (no `options.tx`): opens db.$transaction, commits the
+ *    books, then runs KE before returning — identical to certified 1B.2A.
+ *  - External (`options.tx`): accounting joins the caller's ALREADY-OPEN
+ *    transaction (never a nested $transaction). KE must not run inside
+ *    the open transaction, so it is deferred: the caller awaits the
+ *    returned `runPostCommitLearning()` exactly once AFTER its commit.
  */
-export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
+export async function reclassifyTransaction(
+  input: ReclassifyTransactionInput,
+  options?: ReclassifyTransactionOptions,
+) {
   const { companyId, transactionId, glAccountId, confirmedEntity } = input;
 
+  // Tenant-scoped reads ride the caller's transaction when provided so
+  // validation observes the same snapshot as the accounting phase.
+  const readClient = options?.tx ?? db;
+
   // Verify the transaction exists and belongs to the company
-  const transaction = await db.bankTransaction.findFirst({
+  const transaction = await readClient.bankTransaction.findFirst({
     where: { id: transactionId, statement: { bankAccount: { companyId } } },
     include: {
       statement: {
@@ -208,7 +347,7 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
   }
 
   // Verify the GL account exists and belongs to the company
-  const glAccount = await db.glAccount.findFirst({
+  const glAccount = await readClient.glAccount.findFirst({
     where: { id: glAccountId, companyId, isActive: true },
   });
   if (!glAccount) {
@@ -217,60 +356,26 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
 
   const bankGlAccountId = transaction.statement.bankAccount.glAccountId;
 
-  await assertActiveFiscalPeriod(companyId, transaction.date);
+  // Fiscal guard: external mode checks inside the caller's transaction
+  // (TOCTOU-safe); autonomous mode keeps the original pre-transaction call.
+  await assertActiveFiscalPeriod(companyId, transaction.date, options?.tx);
 
-  const result = await db.$transaction(async (tx) => {
-    // If transaction already has a journal entry, void it and unlink it first,
-    // otherwise the previous posted entry keeps counting toward GL balances
-    // and the new one double-counts the same economic event.
-    if (transaction.journalEntryId) {
-      const oldEntryLines = await tx.journalLine.findMany({
-        where: { entryId: transaction.journalEntryId },
-        select: { glAccountId: true },
-      });
-      await tx.journalEntry.update({
-        where: { id: transaction.journalEntryId },
-        data: { status: 'void' },
-      });
-      const affectedGlIds = [...new Set(oldEntryLines.map((l) => l.glAccountId))];
-      for (const glId of affectedGlIds) {
-        await JournalEntryService.recalculateBalance(tx as any, glId);
-      }
-      await tx.bankTransaction.update({
-        where: { id: transactionId },
-        data: { journalEntryId: null },
-      });
-    }
-    // Update the transaction with the new GL account
-    const updated = await tx.bankTransaction.update({
-      where: { id: transactionId },
-      data: { glAccountId },
-      select: {
-        id: true,
-        date: true,
-        amount: true,
-        description: true,
-        glAccountId: true,
-        journalEntryId: true,
-      },
-    });
+  const accountingCtx: AccountingPhaseContext = {
+    companyId,
+    transactionId,
+    glAccountId,
+    journalEntryId: transaction.journalEntryId,
+    bankGlAccountId,
+  };
 
-    // Create the journal entry if the bank account has a GL account linked
-    if (bankGlAccountId) {
-      const entryId = await JournalEntryService.createFromBankTransaction(tx as any, {
-        bankTxId: updated.id,
-        bankTxDate: updated.date,
-        bankTxAmount: Number(updated.amount),
-        bankTxDescription: updated.description,
-        bankGlAccountId,
-        counterpartyGlAccountId: glAccountId,
-        companyId,
-      });
-      updated.journalEntryId = entryId;
-    }
-
-    return updated;
-  });
+  // Two modes, ONE accounting sequence:
+  //  - Autonomous: our own transaction — certified 1B.2A behavior.
+  //  - External: join the caller's transaction — NEVER nest $transaction.
+  const result = options?.tx
+    ? await executeAccountingPhase(options.tx, accountingCtx)
+    : await db.$transaction((tx) =>
+        executeAccountingPhase(tx as unknown as Prisma.TransactionClient, accountingCtx),
+      );
 
   logger.info('Transaction GL account updated + journal entry created', {
     transactionId,
@@ -282,17 +387,38 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
   // Only after accounting persistence succeeds.
   // KE failure is logged but does NOT revert the accounting correction.
   // The caller receives no indication — the accounting result stands.
+  const runPostCommitLearning = createPostCommitLearningRunner({
+    companyId,
+    transactionId,
+    glAccountId,
+    confirmedEntity,
+    transactionDescription: transaction.description,
+  });
+
+  if (!options?.tx) {
+    // Autonomous: books already committed → learn now (certified order).
+    // External: caller's transaction still open → KE deferred to the hook.
+    await runPostCommitLearning();
+  }
+
+  return { status: 'OK', transaction: result, runPostCommitLearning } as const;
+}
+
+async function executeKnowledgeEnginePhase(
+  ctx: KnowledgeEnginePhaseContext,
+): Promise<void> {
+  const { companyId, transactionId, glAccountId, confirmedEntity, transactionDescription } = ctx;
   try {
     if (confirmedEntity) {
       // User explicitly confirmed entity identity → persist it and learn treatment
-      const entityResolution = await resolveEntity(companyId, transaction.description);
+      const entityResolution = await resolveEntity(companyId, transactionDescription);
 
       if (entityResolution.status === 'UNKNOWN') {
         // UNKNOWN + user confirms → create CompanyKnowledge record
         const confirmed = await confirmEntityIdentity({
           companyId,
           canonicalName: confirmedEntity.canonicalName,
-          observedAlias: transaction.description,
+          observedAlias: transactionDescription,
           entityType: confirmedEntity.entityType,
         });
 
@@ -327,7 +453,7 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
           companyId,
           {
             entityId: confirmed.id,
-            originalDescription: transaction.description,
+            originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
             source: 'user_correction',
@@ -395,7 +521,7 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
           companyId,
           {
             entityId: entityResolution.entityId,
-            originalDescription: transaction.description,
+            originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
             source: 'user_correction',
@@ -444,7 +570,7 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
       }
     } else {
       // No confirmedEntity — learn treatment if KNOWN, skip if UNKNOWN
-      const entityResolution = await resolveEntity(companyId, transaction.description);
+      const entityResolution = await resolveEntity(companyId, transactionDescription);
 
       if (entityResolution.status === 'KNOWN') {
         const keResult = await learnEntityTreatment(
@@ -475,7 +601,7 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
           companyId,
           {
             entityId: entityResolution.entityId,
-            originalDescription: transaction.description,
+            originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
             source: 'user_correction',
@@ -517,7 +643,7 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
         logger.info('[KE] Unknown entity — learning skipped', {
           transactionId,
           companyId,
-          description: transaction.description,
+          description: transactionDescription,
         });
       } else {
         logger.warn('[KE] Entity resolution error — learning skipped', {
@@ -538,6 +664,4 @@ export async function reclassifyTransaction(input: ReclassifyTransactionInput) {
       error: keError instanceof Error ? keError.message : String(keError),
     });
   }
-
-  return { status: 'OK', transaction: result } as const;
 }

@@ -177,6 +177,66 @@ describe('resolveImportRule', () => {
       const v2txnArg = mockRunV2.fn.mock.calls[0][0];
       expect(v2txnArg.reference).toBe('ref-123');
     });
+
+    it('preserves aiProposal from pending V2 result', async () => {
+      const proposal = {
+        role: 'expense',
+        glAccountCode: '6100',
+        glAccountId: null,
+        suggestSubAccount: false,
+        subAccountName: null,
+      };
+      mockRunV2.fn.mockResolvedValue({
+        outcome: 'pending',
+        deterministicResult: 'no_match',
+        aiProposal: proposal,
+      });
+
+      const result = await resolveImportRule(TX_DATA, RULES, COMPANY_ID);
+
+      expect(result).toEqual({
+        matchedRuleId: null,
+        glAccountId: null,
+        deterministicResult: 'no_match',
+        aiProposal: proposal,
+      });
+      expect(result.aiProposal).toBe(proposal);
+    });
+
+    it('pending V2 result without aiProposal omits the field', async () => {
+      mockRunV2.fn.mockResolvedValue({
+        outcome: 'pending',
+        deterministicResult: 'no_match',
+      });
+
+      const result = await resolveImportRule(TX_DATA, RULES, COMPANY_ID);
+
+      expect(result.aiProposal).toBeUndefined();
+      expect(result).toEqual({
+        matchedRuleId: null,
+        glAccountId: null,
+        deterministicResult: 'no_match',
+      });
+    });
+
+    it('matched V2 outcome does not carry aiProposal', async () => {
+      mockRunV2.fn.mockResolvedValue({
+        outcome: 'matched',
+        matchedRuleId: 'rule-1',
+        classification: { glAccountId: 'gl-001' },
+        aiProposal: {
+          role: 'expense',
+          glAccountCode: '6100',
+          glAccountId: null,
+          suggestSubAccount: false,
+          subAccountName: null,
+        },
+      });
+
+      const result = await resolveImportRule(TX_DATA, RULES, COMPANY_ID);
+
+      expect(result.aiProposal).toBeUndefined();
+    });
   });
 
   describe('legacy path (mode = legacy)', () => {

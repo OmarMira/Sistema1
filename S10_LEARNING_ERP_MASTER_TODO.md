@@ -39,7 +39,8 @@ PROVEN_GAP:
 El circuito AI proposal → decisión humana → contabilidad → aprendizaje
 no está completo: el consumidor de `PendingApproval(action=
 'ai_classification_proposal')` todavía no existe (pendiente 1B.2B+).
-1B.2A está commiteado localmente pero todavía NO push.
+1B.2A sólo resolvió la autoridad servidor reutilizable; el circuito
+completo sigue abierto.
 
 DONE_WHEN:
 Existe evidencia E2E de que una propuesta de IA pendiente recibe decisión
@@ -72,10 +73,30 @@ sin duplicar lógica ni pasar por HTTP interno.
     IN_PROGRESS
 
 [x] S10 Step 1B.2A — extracción de autoridad servidor de reclasificación
-    COMMITTED_LOCAL_NOT_PUSHED
+    CLOSED_CERTIFIED_MERGED
 
-commit:
+technical commit:
 49dd0ef96b274650b718ef020d017f7481e2ffd4
+
+TODO commit:
+990cfc5511504d357235acffda9167e3cee15444
+
+PR:
+#77
+
+merge:
+7472ed57d757f660516f7e3c0671150a5c8478e9
+
+pre-merge CI:
+36011339370
+success
+
+post-merge CI:
+36012739638
+success
+
+build-and-secret-scan:
+success
 
 Autoridad extraída:
 
@@ -97,17 +118,34 @@ Estado certificado de 1B.2A:
 - 9 test files / 99 tests PASS.
 - TypeScript PASS.
 - git diff --check PASS.
-- commit contiene exactamente 3 archivos.
-- todavía NO push.
-- todavía NO PR.
+- technical commit contiene exactamente 3 archivos.
+- PR #77 CLOSED/MERGED.
+- merge commit certificado.
+- post-merge CI success.
+- build-and-secret-scan success.
 - AI proposal consumer todavía NO implementado.
 
 NEXT_CERTIFIED_WORK_POINT:
 
-S10 Step 1B.2A está implementado, certificado y commiteado localmente
-(49dd0ef96b274650b718ef020d017f7481e2ffd4), todavía sin push.
-El próximo acto técnico NO se ejecuta por este TODO.
-Requiere orden explícita de la IA de análisis/control autorizada por Omar.
+S10 Step 1B.2A está CLOSED_CERTIFIED_MERGED.
+
+PR:
+#77
+
+merge:
+7472ed57d757f660516f7e3c0671150a5c8478e9
+
+El circuito S10 Step 1B.2 continúa IN_PROGRESS.
+
+El siguiente trabajo técnico debe partir del gap certificado:
+
+PendingApproval(action='ai_classification_proposal')
+→ decisión humana
+→ reclassifyTransaction
+→ aprendizaje
+
+El TODO NO autoriza iniciar ese trabajo.
+Requiere nueva orden explícita de la IA de análisis/control autorizada por Omar.
 
 ---
 
@@ -344,3 +382,12 @@ perder control, integridad contable ni explicabilidad.
   49dd0ef96b274650b718ef020d017f7481e2ffd4
   (refactor(learning): extract transaction reclassification authority),
   todavía sin push.
+
+2026-09-24
+- S10 Step 1B.2A CLOSED_CERTIFIED_MERGED.
+- PR #77.
+- merge 7472ed57d757f660516f7e3c0671150a5c8478e9.
+- post-merge CI 36012739638 success.
+- build-and-secret-scan success.
+- Step 1B.2 continúa IN_PROGRESS.
+- AI proposal consumer todavía NO implementado.

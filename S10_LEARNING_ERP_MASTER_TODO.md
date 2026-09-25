@@ -22,9 +22,9 @@ Estados permitidos: `[ ] NOT_STARTED` · `[~] IN_PROGRESS` ·
 
 ---
 
-## 1. [~] Cerrar el circuito de aprendizaje de punta a punta.
+## 1. [x] Cerrar el circuito de aprendizaje de punta a punta.
 
-STATUS: IN_PROGRESS
+STATUS: COMPLETED
 
 CURRENT_EVIDENCE:
 Existe infraestructura parcial ya observada: Step 1 cerró el loop E2E del
@@ -48,18 +48,26 @@ supresión de la autoridad PATCH legacy para filas con propuesta
 pendiente, identidad propuesta por IA no autoconfirmada, company
 context corregido en la cola uncategorized, tests directos y de host, y
 CI post-merge 36086058942 success.
+La certificación E2E del circuito completo existe:
+tests/services/s10-step1b2-circuit-e2e.test.ts (commit
+dc2302b2e2b0fef26b53229c621e3089472bd326, PR #83, merge
+33c1a711fa40296464873eb6eb64ad5ae53d762d, pre-merge CI 36146663478
+attempt 2 success, post-merge CI 36153359706 success).
 
 PROVEN_GAP:
-Las piezas del circuito AI proposal → decisión humana → contabilidad →
-aprendizaje están implementadas y certificadas (backend consumer
-1B.2B.2 + UI de decisión humana, PR #81), pero todavía no existe
-evidencia E2E certificada del circuito completo; sin esa evidencia el
-DONE_WHEN de este bloque no se cumple y 1B.2 permanece IN_PROGRESS.
+No queda gap abierto en este bloque: la evidencia E2E certificada del
+circuito completo (propuesta → decisión humana → contabilidad vía
+autoridad única → aprendizaje, sin duplicar lógica ni HTTP interno)
+cierra el DONE_WHEN de este bloque y de S10 Step 1B.2.
 
 DONE_WHEN:
 Existe evidencia E2E de que una propuesta de IA pendiente recibe decisión
 humana, aplica contabilidad vía la autoridad única y registra aprendizaje,
 sin duplicar lógica ni pasar por HTTP interno.
+SATISFIED — evidencia:
+tests/services/s10-step1b2-circuit-e2e.test.ts (PR #83, merge
+33c1a711fa40296464873eb6eb64ad5ae53d762d, pre-merge CI 36146663478
+attempt 2 success, post-merge CI 36153359706 success).
 
 ### Evidencia / subpasos
 
@@ -80,15 +88,47 @@ sin duplicar lógica ni pasar por HTTP interno.
     merge:
     9121e406ae925c23a1c7fdd31024b063ad320231
 
-[~] S10 Step 1B.2 — AI proposal
+[x] S10 Step 1B.2 — AI proposal
     → human decision
     → accounting
     → learning
-    IN_PROGRESS
+    CLOSED_CERTIFIED_MERGED
     subbloques cerrados: 1B.2A, 1B.2B.1, 1B.2B.2,
-    AI proposal human review UI.
-    resta: evidencia E2E certificada del circuito completo
-    (DONE_WHEN del bloque 1).
+    AI proposal human review UI, certificación E2E.
+    DONE_WHEN del bloque 1 satisfecho.
+
+E2E test:
+tests/services/s10-step1b2-circuit-e2e.test.ts
+
+E2E commit:
+dc2302b2e2b0fef26b53229c621e3089472bd326
+
+PR:
+#83
+
+merge:
+33c1a711fa40296464873eb6eb64ad5ae53d762d
+
+pre-merge CI:
+36146663478 attempt 2
+success
+
+post-merge CI:
+36153359706
+success
+
+Propiedades demostradas por el E2E:
+
+- propuesta de IA pendiente creada por el flujo real de importación;
+- decisión humana real;
+- autoridad única de reclasificación;
+- efecto contable real;
+- journal real;
+- aprendizaje real del Knowledge Engine;
+- sin escritura manual del Knowledge Engine por el test;
+- sin HTTP interno;
+- sin cambio de product code;
+- sin cambio de schema.
 
 [x] S10 Step 1B.2A — extracción de autoridad servidor de reclasificación
     CLOSED_CERTIFIED_MERGED
@@ -189,8 +229,9 @@ context corregido en la cola uncategorized, tests directos y de host.
 
 NEXT_CERTIFIED_WORK_POINT:
 
-S10 Step 1B.2A, 1B.2B.1, 1B.2B.2 y la AI proposal human review UI
-están CLOSED_CERTIFIED_MERGED (PR #77, #79, #80, #81).
+S10 Step 1B.2A, 1B.2B.1, 1B.2B.2, la AI proposal human review UI y la
+certificación E2E del circuito completo están CLOSED_CERTIFIED_MERGED
+(PR #77, #79, #80, #81, #83).
 
 El consumidor backend de AI proposals y la UI de decisión humana
 existen y están certificados:
@@ -202,12 +243,18 @@ existen y están certificados:
   autoridad PATCH legacy para filas con propuesta pendiente.
 - CI post-merge 36086058942 success.
 
-El circuito S10 Step 1B.2 continúa IN_PROGRESS: todavía no existe
-evidencia E2E certificada del circuito completo (propuesta → decisión
-humana → contabilidad vía autoridad única → aprendizaje) exigida por el
-DONE_WHEN del bloque 1.
+La certificación E2E del circuito completo existe y está mergeada en
+main: tests/services/s10-step1b2-circuit-e2e.test.ts (commit
+dc2302b2e2b0fef26b53229c621e3089472bd326, PR #83, merge
+33c1a711fa40296464873eb6eb64ad5ae53d762d, pre-merge CI 36146663478
+attempt 2 success, post-merge CI 36153359706 success). Step 1B.2 queda
+CLOSED_CERTIFIED_MERGED y el DONE_WHEN del bloque 1 queda satisfecho.
 
-El siguiente trabajo técnico debe partir de ese gap certificado.
+El siguiente trabajo técnico no está determinado por este documento:
+la revisión de roadmap decide cuál de los bloques 2–12 sigue.
+
+NEXT:
+PENDING_ROADMAP_REVIEW
 
 El TODO NO autoriza iniciar ese trabajo.
 Requiere nueva orden explícita de la IA de análisis/control autorizada por Omar.
@@ -471,3 +518,13 @@ perder control, integridad contable ni explicabilidad.
   post-merge CI 36086058942 success.
 - Step 1B.2 continúa IN_PROGRESS: falta evidencia E2E certificada del
   circuito completo (DONE_WHEN del bloque 1).
+
+2026-09-25
+- S10 Step 1B.2 CLOSED_CERTIFIED_MERGED: certificación E2E mergeada.
+  test tests/services/s10-step1b2-circuit-e2e.test.ts, commit
+  dc2302b2e2b0fef26b53229c621e3089472bd326, PR #83, merge
+  33c1a711fa40296464873eb6eb64ad5ae53d762d.
+  pre-merge CI 36146663478 attempt 2 success.
+  post-merge CI 36153359706 success.
+- DONE_WHEN del bloque 1: SATISFIED.
+- Bloque 1 cerrado; NEXT = PENDING_ROADMAP_REVIEW (revisión de roadmap).

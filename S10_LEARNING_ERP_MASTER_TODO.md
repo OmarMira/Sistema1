@@ -33,14 +33,28 @@ tratamiento reutilizable en Knowledge Engine (merge 823cf023); 1B.1
 certificó el transporte de `aiProposal` por el import resolver
 (merge 9121e406); 1B.2A extrajo y certificó la autoridad servidor única
 `reclassifyTransaction` para reclasificación contable + journal +
-Knowledge Engine.
+Knowledge Engine; 1B.2B.1 (PR #79, merge
+2b4a8d373615fdd7145a4996fdaaf9acef9b46ac) certificó el soporte de
+transacción Prisma propia del caller con postcommit learning sin
+duplicar autoridad; 1B.2B.2 (PR #80, merge
+8824a2b742f3bdd9010af87831b92910c2ae4e2c) implementó y certificó el
+backend consumer de AI proposals (GET/POST /api/import/ai-proposals,
+ACCEPT/CORRECT/REJECT, aislamiento por tenant, CAS/concurrency,
+transición contable atómica, learning postcommit); la AI proposal human
+review UI (PR #81, merge
+d3fdf3abd66ebf935be3399e75905d53d8a640b1) integró `AiProposalSection`
+en el flujo post-import con decisión humana ACCEPT/CORRECT/REJECT,
+supresión de la autoridad PATCH legacy para filas con propuesta
+pendiente, identidad propuesta por IA no autoconfirmada, company
+context corregido en la cola uncategorized, tests directos y de host, y
+CI post-merge 36086058942 success.
 
 PROVEN_GAP:
-El circuito AI proposal → decisión humana → contabilidad → aprendizaje
-no está completo: el consumidor de `PendingApproval(action=
-'ai_classification_proposal')` todavía no existe (pendiente 1B.2B+).
-1B.2A sólo resolvió la autoridad servidor reutilizable; el circuito
-completo sigue abierto.
+Las piezas del circuito AI proposal → decisión humana → contabilidad →
+aprendizaje están implementadas y certificadas (backend consumer
+1B.2B.2 + UI de decisión humana, PR #81), pero todavía no existe
+evidencia E2E certificada del circuito completo; sin esa evidencia el
+DONE_WHEN de este bloque no se cumple y 1B.2 permanece IN_PROGRESS.
 
 DONE_WHEN:
 Existe evidencia E2E de que una propuesta de IA pendiente recibe decisión
@@ -71,6 +85,10 @@ sin duplicar lógica ni pasar por HTTP interno.
     → accounting
     → learning
     IN_PROGRESS
+    subbloques cerrados: 1B.2A, 1B.2B.1, 1B.2B.2,
+    AI proposal human review UI.
+    resta: evidencia E2E certificada del circuito completo
+    (DONE_WHEN del bloque 1).
 
 [x] S10 Step 1B.2A — extracción de autoridad servidor de reclasificación
     CLOSED_CERTIFIED_MERGED
@@ -123,26 +141,73 @@ Estado certificado de 1B.2A:
 - merge commit certificado.
 - post-merge CI success.
 - build-and-secret-scan success.
-- AI proposal consumer todavía NO implementado.
+- AI proposal consumer todavía NO implementado
+  (estado dentro del alcance certificado de 1B.2A; cerrado después en
+  1B.2B.2 — PR #80).
+
+[x] S10 Step 1B.2B.1 — caller-owned Prisma transaction + postcommit
+    learning en reclassifyTransaction
+    CLOSED_CERTIFIED_MERGED
+
+PR:
+#79
+
+merge:
+2b4a8d373615fdd7145a4996fdaaf9acef9b46ac
+
+[x] S10 Step 1B.2B.2 — backend consumer de AI proposals
+    CLOSED_CERTIFIED_MERGED
+
+PR:
+#80
+
+merge:
+8824a2b742f3bdd9010af87831b92910c2ae4e2c
+
+Certificado: GET/POST /api/import/ai-proposals, acciones
+ACCEPT/CORRECT/REJECT, aislamiento por tenant, CAS/concurrency,
+transición contable atómica, learning postcommit.
+
+[x] S10 AI proposal human review UI — decisión humana
+    ACCEPT/CORRECT/REJECT en el flujo post-import
+    CLOSED_CERTIFIED_MERGED
+
+PR:
+#81
+
+merge:
+d3fdf3abd66ebf935be3399e75905d53d8a640b1
+
+post-merge CI:
+36086058942
+success
+
+Certificado: AiProposalSection montada en el flujo post-import,
+supresión de la autoridad PATCH legacy para filas con propuesta
+pendiente, identidad propuesta por IA no autoconfirmada, company
+context corregido en la cola uncategorized, tests directos y de host.
 
 NEXT_CERTIFIED_WORK_POINT:
 
-S10 Step 1B.2A está CLOSED_CERTIFIED_MERGED.
+S10 Step 1B.2A, 1B.2B.1, 1B.2B.2 y la AI proposal human review UI
+están CLOSED_CERTIFIED_MERGED (PR #77, #79, #80, #81).
 
-PR:
-#77
+El consumidor backend de AI proposals y la UI de decisión humana
+existen y están certificados:
 
-merge:
-7472ed57d757f660516f7e3c0671150a5c8478e9
+- GET/POST /api/import/ai-proposals con ACCEPT/CORRECT/REJECT.
+- Aislamiento por tenant, CAS/concurrency, transición contable atómica,
+  learning postcommit.
+- AiProposalSection en el flujo post-import, con supresión de la
+  autoridad PATCH legacy para filas con propuesta pendiente.
+- CI post-merge 36086058942 success.
 
-El circuito S10 Step 1B.2 continúa IN_PROGRESS.
+El circuito S10 Step 1B.2 continúa IN_PROGRESS: todavía no existe
+evidencia E2E certificada del circuito completo (propuesta → decisión
+humana → contabilidad vía autoridad única → aprendizaje) exigida por el
+DONE_WHEN del bloque 1.
 
-El siguiente trabajo técnico debe partir del gap certificado:
-
-PendingApproval(action='ai_classification_proposal')
-→ decisión humana
-→ reclassifyTransaction
-→ aprendizaje
+El siguiente trabajo técnico debe partir de ese gap certificado.
 
 El TODO NO autoriza iniciar ese trabajo.
 Requiere nueva orden explícita de la IA de análisis/control autorizada por Omar.
@@ -160,8 +225,11 @@ fallback (`ai-bridge`, v2) que dispara ante no_match/ambiguous.
 1B.1 preserva `aiProposal` hasta PendingApproval.
 
 PROVEN_GAP:
-No está certificada la unificación como circuito único: la propuesta de
-IA todavía no consume ni aprende de forma integrada con decisión humana.
+No está certificada la unificación como circuito único: el consumo de la
+propuesta de IA con decisión humana ya está certificado (1B.2B.2 +
+UI, PR #80/#81), pero la secuencia única KE → Rule Engine → IA →
+decisión humana → aprendizaje sin rutas paralelas aún no tiene evidencia
+E2E.
 
 DONE_WHEN:
 Existe evidencia E2E de una única secuencia KE → Rule Engine → IA →
@@ -390,4 +458,16 @@ perder control, integridad contable ni explicabilidad.
 - post-merge CI 36012739638 success.
 - build-and-secret-scan success.
 - Step 1B.2 continúa IN_PROGRESS.
-- AI proposal consumer todavía NO implementado.
+- AI proposal consumer todavía NO implementado
+  (estado a esa fecha; cerrado posteriormente — ver 1B.2B.2, PR #80).
+
+2026-09-25
+- S10 Step 1B.2B.1 CLOSED_CERTIFIED_MERGED. PR #79.
+  merge 2b4a8d373615fdd7145a4996fdaaf9acef9b46ac.
+- S10 Step 1B.2B.2 CLOSED_CERTIFIED_MERGED. PR #80.
+  merge 8824a2b742f3bdd9010af87831b92910c2ae4e2c.
+- AI proposal human review UI CLOSED_CERTIFIED_MERGED. PR #81.
+  merge d3fdf3abd66ebf935be3399e75905d53d8a640b1.
+  post-merge CI 36086058942 success.
+- Step 1B.2 continúa IN_PROGRESS: falta evidencia E2E certificada del
+  circuito completo (DONE_WHEN del bloque 1).

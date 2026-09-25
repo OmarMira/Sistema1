@@ -598,16 +598,22 @@ export class ImportService {
       return { account, newAccountCreated: false };
     }
 
-    if (bankName) {
+    // Resolution precedence: explicit bankAccountId > accountNumber > bankName.
+    // accountNumber MUST be attempted BEFORE bankName: a company may hold
+    // several accounts at the same institution, so matching by bank name
+    // first would silently attach every statement to whichever account
+    // happened to be returned first. bankName remains the fallback for
+    // statements that carry no resolvable account number.
+    if (accountNumber) {
       const existing = await db.bankAccount.findFirst({
-        where: { companyId, bankName, isActive: true },
+        where: { companyId, accountNo: accountNumber, isActive: true },
       });
       if (existing) return { account: existing, newAccountCreated: false };
     }
 
-    if (accountNumber) {
+    if (bankName) {
       const existing = await db.bankAccount.findFirst({
-        where: { companyId, accountNo: accountNumber, isActive: true },
+        where: { companyId, bankName, isActive: true },
       });
       if (existing) return { account: existing, newAccountCreated: false };
     }

@@ -28,7 +28,10 @@ import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { GET, POST } from '../../src/app/api/import/ai-proposals/route';
 import { ImportService } from '@/lib/services/import.service';
-import { resolveEntity } from '@/memory/entity-resolution';
+import {
+  normalizeForResolution,
+  resolveEntity,
+} from '@/memory/entity-resolution';
 import { createSession } from '@/lib/sessions';
 import {
   createAdapter,
@@ -407,6 +410,172 @@ describe('S10 Step 1B.2 — E2E causal circuit: import → human ACCEPT → acco
       //         handlers above; no decision/accounting/KE logic is
       //         re-implemented anywhere in this file (code fact — audit
       //         this file; no assertion needed).
+    },
+    30_000,
+  );
+
+  // ─── Block 2 certification: continuous reuse ───────────────────────────
+  // Closes the one property the certified A→H circuit stopped short of:
+  // that knowledge LEARNED in the first occurrence actually RESOLVES a
+  // second, equivalent occurrence — through the real import pipeline, with
+  // the rule engine and the AI provider never invoked.
+  //
+  // Observability boundary (FASE D): runRuleEngineV2 is the single product
+  // boundary at which BOTH the deterministic v2 engine evaluation and the AI
+  // proposal are produced (see rule-precedence-import-resolver.resolveWithV2).
+  // import.service passes it in as the `resolveRule` callback of
+  // resolveImportDecision, so a KE short-circuit must leave that boundary
+  // untouched. The counter below is therefore a real observation of both
+  // frontiers, not an absence produced by skipping the orchestrator: the real
+  // ImportService, the real resolveImportDecision and the real
+  // resolveEntity/lookupTreatment all execute.
+  it(
+    'I: a second equivalent occurrence is resolved by the learned KE treatment, with the rule engine and the AI provider never invoked',
+    async () => {
+      // Product configuration (not a stub), same switch the certified
+      // A→H circuit uses for the AI proposal chain.
+      vi.stubEnv('BANK_RULE_ENGINE', 'v2');
+
+      const s = await setupCompany('s10-e2e');
+      const adapter = createAdapter(db, (fn) => db.$transaction(fn));
+
+      const FIRST_DESCRIPTION = 'WALMART MEXICO';
+      // Textually different, semantically equivalent FOR THE KE: bank
+      // statements routinely vary in spacing and case, and the KE's own
+      // identity key is normalizeForResolution (trim + collapse runs of
+      // whitespace + uppercase). Proven below rather than asserted in prose.
+      const SECOND_DESCRIPTION = 'Walmart  Mexico';
+
+      // ─── A. First occurrence: no KE treatment exists yet ─────────────
+      expect(
+        (await lookupTreatment(adapter, s.company.id, s.entity.id)).status,
+      ).toBe('NOT_FOUND');
+
+      await ImportService.importFile({
+        companyId: s.company.id,
+        bankAccountId: s.bankAccount.id,
+        fileName: 'walmart-first.csv',
+        extension: 'csv',
+        buffer: Buffer.from(CSV),
+        content: CSV,
+        userId: s.user.id,
+      });
+
+      const approval = await db.pendingApproval.findFirst({
+        where: { action: 'ai_classification_proposal', requestedBy: s.user.id },
+      });
+      expect(approval).not.toBeNull();
+      expect(approval!.status).toBe('pending');
+
+      const firstPayload = approval!.payload as unknown as {
+        transactionId: string;
+        aiProposal: { glAccountId: string };
+      };
+      const firstTx = await db.bankTransaction.findFirst({
+        where: { importHash: firstPayload.transactionId },
+      });
+      expect(firstTx).not.toBeNull();
+      expect(firstTx!.description).toBe(FIRST_DESCRIPTION);
+      expect(firstTx!.glAccountId).toBeNull();
+
+      // ─── B. Human ACCEPT through the real handler ────────────────────
+      const postRes = await POST(
+        postReq(s, { approvalId: approval!.id, decision: 'ACCEPT' }),
+        emptyParams,
+      );
+      expect(postRes.status).toBe(200);
+      expect(
+        (await db.pendingApproval.findUnique({ where: { id: approval!.id } }))!
+          .status,
+      ).toBe('accepted');
+
+      // ─── C. KE learning persisted, read back from the real DB ────────
+      const learned = await lookupTreatment(adapter, s.company.id, s.entity.id);
+      expect(learned).toMatchObject({
+        status: 'FOUND',
+        glAccountId: s.aiGl.id,
+        direction: 'any',
+        confidence: 'certain',
+      });
+
+      // ─── D. Equivalence is a property of the KE key, proven ──────────
+      expect(SECOND_DESCRIPTION).not.toBe(FIRST_DESCRIPTION);
+      expect(normalizeForResolution(SECOND_DESCRIPTION)).toBe(
+        normalizeForResolution(FIRST_DESCRIPTION),
+      );
+      // The product's own resolver must agree both occurrences are the same
+      // entity — this runs the REAL resolveEntity, not a stub.
+      expect(await resolveEntity(s.company.id, SECOND_DESCRIPTION)).toEqual({
+        status: 'KNOWN',
+        entityId: s.entity.id,
+      });
+
+      // ─── E. Second occurrence through the REAL import pipeline ───────
+      const SECOND_CSV = `date,description,amount\n2026-02-20,${SECOND_DESCRIPTION},-310.00`;
+
+      const ruleEngineCallsBefore =
+        mockRunRuleEngineV2.fn.mock.calls.length;
+      // Load-bearing control: the boundary WAS crossed by the first
+      // occurrence (it produced that occurrence's AI proposal), so it is
+      // live and reachable in this very run. Its absence on the second
+      // occurrence is therefore informative, not vacuous — without this
+      // the unchanged-count assertion below could pass trivially.
+      expect(ruleEngineCallsBefore).toBeGreaterThan(0);
+      const approvalsBefore = await db.pendingApproval.count({
+        where: { action: 'ai_classification_proposal', requestedBy: s.user.id },
+      });
+      const txsBefore = await db.bankTransaction.count({
+        where: { statement: { companyId: s.company.id } },
+      });
+
+      await ImportService.importFile({
+        companyId: s.company.id,
+        bankAccountId: s.bankAccount.id,
+        fileName: 'walmart-second.csv',
+        extension: 'csv',
+        buffer: Buffer.from(SECOND_CSV),
+        content: SECOND_CSV,
+        userId: s.user.id,
+      });
+
+      // ─── F. Short-circuit observed at the real boundary ──────────────
+      // Neither the deterministic v2 engine nor the AI provider ran for the
+      // second occurrence. Had KE failed to resolve, the stubbed boundary
+      // would have been reached and a second AI proposal persisted.
+      expect(mockRunRuleEngineV2.fn.mock.calls.length).toBe(
+        ruleEngineCallsBefore,
+      );
+      expect(
+        await db.pendingApproval.count({
+          where: { action: 'ai_classification_proposal', requestedBy: s.user.id },
+        }),
+      ).toBe(approvalsBefore);
+
+      // ─── G. The new transaction was classified by LEARNED knowledge ──
+      const txsAfter = await db.bankTransaction.count({
+        where: { statement: { companyId: s.company.id } },
+      });
+      expect(txsAfter).toBe(txsBefore + 1);
+
+      const secondTx = await db.bankTransaction.findFirst({
+        where: {
+          statement: { companyId: s.company.id },
+          id: { not: firstTx!.id },
+        },
+      });
+      expect(secondTx).not.toBeNull();
+      expect(secondTx!.id).not.toBe(firstTx!.id);
+      expect(secondTx!.description).toBe(SECOND_DESCRIPTION);
+      // Resolved by the KE treatment learned in the first occurrence…
+      expect(secondTx!.glAccountId).toBe(s.aiGl.id);
+      // …and NOT by any rule.
+      expect(secondTx!.matchedRuleId).toBeNull();
+
+      // The first occurrence's own classification is untouched.
+      const firstAfter = await db.bankTransaction.findUnique({
+        where: { id: firstTx!.id },
+      });
+      expect(firstAfter!.glAccountId).toBe(s.aiGl.id);
     },
     30_000,
   );

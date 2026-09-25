@@ -69,10 +69,13 @@ export function AiProposalSection({
   const t = useLanguageStore((s) => s.t);
   // Callbacks live in refs so an inline (unstable) parent callback can never
   // re-trigger the GET loop via the fetchProposals dependency array.
+  // Refs are updated in an effect (never during render).
   const onPendingChangeRef = useRef(onPendingProposalsChange);
-  onPendingChangeRef.current = onPendingProposalsChange;
   const onResolvedRef = useRef(onProposalResolved);
-  onResolvedRef.current = onProposalResolved;
+  useEffect(() => {
+    onPendingChangeRef.current = onPendingProposalsChange;
+    onResolvedRef.current = onProposalResolved;
+  });
   const [fetchState, setFetchState] = useState<FetchState>('loading');
   const [items, setItems] = useState<AiProposalItem[]>([]);
   const [submittingId, setSubmittingId] = useState<string | null>(null);

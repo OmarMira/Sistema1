@@ -24,6 +24,7 @@ import { toast } from 'sonner';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { AccountSelector, type GlAccountOption } from '@/components/spa/journal/AccountSelector';
+import { AiProposalSection } from '@/components/import/AiProposalSection';
 import { logger } from '@/lib/logger';
 
 interface UncategorizedTransaction {
@@ -56,13 +57,21 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
   const [selectedTxId, setSelectedTxId] = useState<string | null>(null);
   const [selectedGlId, setSelectedGlId] = useState<string | null>(null);
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  // BankTransaction ids that currently hold a pending AI proposal — the
+  // legacy PATCH action is suppressed for these rows (S10 §10): a proposal
+  // is resolved ONLY via the certified POST /api/import/ai-proposals.
+  const [pendingProposalTxIds, setPendingProposalTxIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const fetchQueue = useCallback(async () => {
     if (!companyId) return;
     setFetchState('loading');
     try {
       const [queueRes, accountsRes] = await Promise.all([
-        fetch('/api/transactions?classificationStatus=uncategorized'),
+        fetch(
+          `/api/transactions?classificationStatus=uncategorized&companyId=${companyId}`,
+        ),
         fetch(`/api/journal/accounts?companyId=${companyId}`),
       ]);
       if (!queueRes.ok || !accountsRes.ok) {
@@ -88,9 +97,32 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
   }, [open, fetchQueue]);
 
   const handleSelectTx = (tx: UncategorizedTransaction) => {
+    // S10 §10: rows with a pending AI proposal never enter the legacy
+    // PATCH flow — that action must not be offered alongside the
+    // certified proposal decision surface.
+    if (pendingProposalTxIds.has(tx.id)) return;
     setSelectedTxId(tx.id);
     setSelectedGlId(null);
   };
+
+  const handlePendingProposalsChange = useCallback((ids: string[]) => {
+    setPendingProposalTxIds(new Set(ids));
+  }, []);
+
+  // If the currently selected row gained a pending proposal, drop the legacy
+  // selection so the PATCH panel cannot stay open beside the AI proposal.
+  useEffect(() => {
+    if (selectedTxId && pendingProposalTxIds.has(selectedTxId)) {
+      setSelectedTxId(null);
+      setSelectedGlId(null);
+    }
+  }, [pendingProposalTxIds, selectedTxId]);
+
+  const handleProposalResolved = useCallback(() => {
+    // A proposal decision re-classifies the transaction server-side, so the
+    // uncategorized queue is re-fetched to stay authoritative.
+    void fetchQueue();
+  }, [fetchQueue]);
 
   const handleConfirm = async () => {
     if (!selectedTxId || !selectedGlId || submittingId) return;
@@ -134,6 +166,15 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
           <DialogDescription>{t('importReview.description')}</DialogDescription>
         </DialogHeader>
 
+        {companyId && (
+          <AiProposalSection
+            companyId={companyId}
+            accounts={accounts}
+            onPendingProposalsChange={handlePendingProposalsChange}
+            onProposalResolved={handleProposalResolved}
+          />
+        )}
+
         {fetchState === 'loading' && (
           <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
             <Loader2 className="size-5 animate-spin" />
@@ -170,48 +211,65 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {transactions.map((tx) => (
-                    <TableRow
-                      key={tx.id}
-                      className={
-                        selectedTxId === tx.id
-                          ? 'bg-primary/5 cursor-pointer'
-                          : 'cursor-pointer'
-                      }
-                      onClick={() => handleSelectTx(tx)}
-                    >
-                      <TableCell className="whitespace-nowrap">
-                        {new Date(tx.date).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell className="max-w-[220px] truncate">
-                        <span className="block truncate">{tx.description}</span>
-                        {tx.isReconciled && (
-                          <Badge
-                            variant="outline"
-                            className="mt-0.5 text-[10px]"
-                            data-testid={`reconciled-badge-${tx.id}`}
-                          >
-                            {t('importReview.reconciled')}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell
-                        className={`text-right font-mono ${
-                          tx.direction === 'credit' ? 'text-emerald-600' : 'text-rose-600'
-                        }`}
+                  {transactions.map((tx) => {
+                    const proposalPending = pendingProposalTxIds.has(tx.id);
+                    return (
+                      <TableRow
+                        key={tx.id}
+                        data-testid={`review-row-${tx.id}`}
+                        data-proposal-pending={proposalPending ? 'true' : 'false'}
+                        aria-disabled={proposalPending}
+                        className={
+                          proposalPending
+                            ? 'opacity-60'
+                            : selectedTxId === tx.id
+                              ? 'bg-primary/5 cursor-pointer'
+                              : 'cursor-pointer'
+                        }
+                        onClick={() => handleSelectTx(tx)}
                       >
-                        {tx.amount.toFixed(2)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline">{tx.bankAccountName}</Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        <TableCell className="whitespace-nowrap">
+                          {new Date(tx.date).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="max-w-[220px] truncate">
+                          <span className="block truncate">{tx.description}</span>
+                          {proposalPending && (
+                            <Badge
+                              variant="outline"
+                              className="mt-0.5 text-[10px]"
+                              data-testid={`proposal-pending-badge-${tx.id}`}
+                            >
+                              {t('aiProposals.pendingBadge')}
+                            </Badge>
+                          )}
+                          {tx.isReconciled && (
+                            <Badge
+                              variant="outline"
+                              className="mt-0.5 text-[10px]"
+                              data-testid={`reconciled-badge-${tx.id}`}
+                            >
+                              {t('importReview.reconciled')}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell
+                          className={`text-right font-mono ${
+                            tx.direction === 'credit' ? 'text-emerald-600' : 'text-rose-600'
+                          }`}
+                        >
+                          {tx.amount.toFixed(2)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{tx.bankAccountName}</Badge>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
 
-            {selectedTx && (
+            {selectedTx && !pendingProposalTxIds.has(selectedTx.id) && (
               <div className="space-y-3 rounded-md border p-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Tag className="size-4" />

@@ -59,6 +59,7 @@ interface PdfElement {
   y: number;
   width: number;
   height: number;
+  page: number;
 }
 
 interface LineOfElements {
@@ -714,6 +715,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
         y: item.transform[5]!,
         width: item.width || 0,
         height: item.height || 0,
+        page: pageNum,
       });
     }
 
@@ -827,7 +829,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
             x: el.x,
             y: el.y,
             width: el.width,
-            page: 1,
+            page: el.page,
           })),
           firstPageSample: fullText.slice(0, 2000),
         });
@@ -870,7 +872,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
             x: el.x,
             y: el.y,
             width: el.width,
-            page: 1,
+            page: el.page,
           })),
           firstPageSample: fullText.slice(0, 2000),
         });

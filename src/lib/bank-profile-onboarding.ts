@@ -81,18 +81,196 @@ export async function findExistingProfile(
 
 const LLM_TIMEOUT_MS = 15000;
 
+type CoordinateBlock = PdfAnalysisData['blocksWithCoordinates'][number];
+
+interface SampledCoordinateBlock {
+  text: string;
+  relativeX: string;
+  y: number;
+  page: number;
+}
+
+/** Maximum number of coordinate blocks sent to the inference provider. */
+const COORDINATE_SAMPLE_BUDGET = 100;
+
+/**
+ * Evenly spaced line indices that span the vertical extent of the page: the
+ * first and last line are always included when more than one line is taken.
+ */
+function evenlySpacedLineIndices(lineCount: number, target: number): number[] {
+  if (target >= lineCount) {
+    return Array.from({ length: lineCount }, (_, index) => index);
+  }
+  if (target <= 1) {
+    return [Math.floor((lineCount - 1) / 2)];
+  }
+  return Array.from(
+    { length: target },
+    (_, j) => Math.round((j * (lineCount - 1)) / (target - 1)),
+  );
+}
+
+/**
+ * Proportional per-page quotas: every page receives floor(budget * pageShare)
+ * slots (minimum 1, capped at the page size); missing slots are then handed
+ * out by largest fractional remainder so the quotas sum to the budget.
+ */
+function proportionalPageQuotas(pageSizes: number[], budget: number): number[] {
+  const total = pageSizes.reduce((sum, size) => sum + size, 0);
+  const exact = pageSizes.map((size) => (budget * size) / total);
+  const quotas = exact.map((fraction, i) =>
+    Math.max(1, Math.min(Math.floor(fraction), pageSizes[i])),
+  );
+  let assigned = quotas.reduce((sum, quota) => sum + quota, 0);
+
+  if (assigned < budget) {
+    const byRemainder = exact
+      .map((fraction, i) => ({
+        i,
+        remainder: fraction - Math.floor(fraction),
+      }))
+      .sort((a, b) => b.remainder - a.remainder || a.i - b.i);
+    while (assigned < budget) {
+      const progressed = byRemainder.some((entry) => {
+        if (assigned >= budget) return false;
+        if (quotas[entry.i] < pageSizes[entry.i]) {
+          quotas[entry.i] += 1;
+          assigned += 1;
+          return true;
+        }
+        return false;
+      });
+      if (!progressed) break;
+    }
+  } else if (assigned > budget) {
+    while (assigned > budget) {
+      let victim = -1;
+      for (let i = 0; i < quotas.length; i++) {
+        if (quotas[i] <= 1) continue;
+        if (victim === -1 || quotas[i] > quotas[victim]) victim = i;
+      }
+      if (victim === -1) break;
+      quotas[victim] -= 1;
+      assigned -= 1;
+    }
+  }
+  return quotas;
+}
+
+/**
+ * Deterministic stratified coordinate sample (design S3).
+ *
+ * Every page receives a share of the budget proportional to its share of the
+ * raw blocks, and each page's share is spread across its vertical lines —
+ * never taken as the first N lines of a page. Lines are atomic: a line is
+ * either fully sampled or not sampled at all.
+ */
+function buildCoordinateSample(
+  blocks: CoordinateBlock[],
+  pageWidth: number,
+  budget: number = COORDINATE_SAMPLE_BUDGET,
+): SampledCoordinateBlock[] {
+  if (blocks.length === 0) return [];
+  const effectiveBudget = Math.max(1, Math.min(budget, blocks.length));
+
+  const byPage = new Map<number, CoordinateBlock[]>();
+  for (const block of blocks) {
+    const page = block.page ?? 1;
+    const bucket = byPage.get(page);
+    if (bucket) bucket.push(block);
+    else byPage.set(page, [block]);
+  }
+  const pageNumbers = Array.from(byPage.keys()).sort((a, b) => a - b);
+  const pageSizes = pageNumbers.map((page) => byPage.get(page)!.length);
+  const quotas = proportionalPageQuotas(pageSizes, effectiveBudget);
+
+  const selected: CoordinateBlock[] = [];
+  let remaining = effectiveBudget;
+
+  for (let i = 0; i < pageNumbers.length; i++) {
+    const cap = Math.min(quotas[i], remaining);
+    if (cap <= 0) continue;
+
+    const lineMap = new Map<number, CoordinateBlock[]>();
+    for (const block of byPage.get(pageNumbers[i])!) {
+      const key = Math.round(block.y * 2) / 2;
+      const line = lineMap.get(key);
+      if (line) line.push(block);
+      else lineMap.set(key, [block]);
+    }
+    const lines = Array.from(lineMap.entries())
+      .sort((a, b) => b[0] - a[0])
+      .map(([, line]) => line);
+
+    const blocksIn = (indices: number[]): CoordinateBlock[] =>
+      indices.flatMap((index) => lines[index]);
+
+    // Largest vertically spread selection of lines that still fits the cap.
+    let target = Math.max(1, Math.floor((cap * lines.length) / pageSizes[i]));
+    let pickedIndices = evenlySpacedLineIndices(lines.length, target);
+    while (pickedIndices.length > 1 && blocksIn(pickedIndices).length > cap) {
+      target -= 1;
+      pickedIndices = evenlySpacedLineIndices(lines.length, target);
+    }
+    while (target < lines.length) {
+      const next = evenlySpacedLineIndices(lines.length, target + 1);
+      if (blocksIn(next).length > cap) break;
+      target += 1;
+      pickedIndices = next;
+    }
+    let picked = blocksIn(pickedIndices);
+    if (picked.length > cap) {
+      // Even the smallest spread pick overflows: fall back to the first
+      // whole line that fits the cap.
+      const fallback = lines.findIndex((line) => line.length <= cap);
+      pickedIndices = fallback >= 0 ? [fallback] : [];
+      picked = fallback >= 0 ? lines[fallback] : [];
+    }
+
+    // Fill leftover room with whole lines, preferring the gaps closest to
+    // the spread picks so density grows without losing vertical coverage.
+    const pickedSet = new Set(pickedIndices);
+    while (picked.length < cap) {
+      let best = -1;
+      let bestDistance = Infinity;
+      for (let index = 0; index < lines.length; index++) {
+        if (pickedSet.has(index)) continue;
+        if (lines[index].length > cap - picked.length) continue;
+        let distance = Infinity;
+        for (const pickedIndex of pickedSet) {
+          distance = Math.min(distance, Math.abs(index - pickedIndex));
+        }
+        if (distance < bestDistance || (distance === bestDistance && index < best)) {
+          best = index;
+          bestDistance = distance;
+        }
+      }
+      if (best === -1) break;
+      picked.push(...lines[best]);
+      pickedSet.add(best);
+    }
+
+    selected.push(...picked);
+    remaining -= picked.length;
+  }
+
+  return selected.map((block) => ({
+    text: block.text,
+    relativeX: (block.x / pageWidth).toFixed(3),
+    y: Math.round(block.y),
+    page: block.page ?? 1,
+  }));
+}
+
 export async function createProfileFromPdf(
   analysisData: PdfAnalysisData,
 ): Promise<BankProfileTyped> {
   const zai = await ZAI.create();
 
-  // Prepare coordinate samples (first 100 blocks)
-  const coordinateSample = analysisData.blocksWithCoordinates.slice(0, 100).map((b) => ({
-    text: b.text,
-    relativeX: (b.x / analysisData.pageWidth).toFixed(3),
-    y: Math.round(b.y),
-    page: b.page,
-  }));
+  const coordinateSample = buildCoordinateSample(
+    analysisData.blocksWithCoordinates,
+    analysisData.pageWidth,
+  );
 
   const systemPrompt = `You are an expert financial system architect and bank statement parser analyst.
 Your task is to analyze the text and coordinate samples of a PDF bank statement and generate a JSON configuration that allows parsing it automatically.
@@ -113,12 +291,12 @@ You must output a single, raw JSON object matching the following structure:
     "rules": {
       "anchor": {
         "regex": string, // Regex to identify date headers starting transaction lines (e.g. "^\\\\d{2}/\\\\d{2}/\\\\d{2}$" or "^\\\\d{1,2}/\\\\d{1,2}/\\\\d{4}$")
-        "columnRange": [number, number] // Percentage boundaries in page width where anchor is found, between 0.0 and 1.0 (e.g. [0.0, 0.15])
+        "columnRange": [number, number] // Percentage boundaries in page width where anchor is found, between 0.0 and 1.0 (estimate from the observed sample)
       },
       "columns": {
         "date": [number, number], // boundaries between 0.0 and 1.0 (relativeX)
         "description": [number, number], // boundaries between 0.0 and 1.0 (relativeX)
-        "amount": [number, number], // required if layoutType is SINGLE_AMOUNT_COLUMN (e.g. [0.80, 1.00])
+        "amount": [number, number], // required if layoutType is SINGLE_AMOUNT_COLUMN (estimate from the observed sample)
         "debit": [number, number], // required if layoutType is DUAL_AMOUNT_COLUMN
         "credit": [number, number] // required if layoutType is DUAL_AMOUNT_COLUMN
       },
@@ -137,10 +315,11 @@ You must output a single, raw JSON object matching the following structure:
 
 CRITICAL RULES:
 1. COORDENADAS PORCENTUALES (relativeX):
-   Use the relativeX coordinates in the sample to map columns.
-   - For example, if transaction date is at relativeX 0.08, date range should be [0.0, 0.15].
-   - If description is between 0.16 and 0.75, description range should be [0.15, 0.80].
-   - If amount is at 0.85, amount range should be [0.80, 1.00].
+   Derive boundary estimates from the coordinateSample provided; do NOT apply fixed universal ranges.
+   - Observe actual relativeX values in the sample for date, description, amount, and anchor elements.
+   - Use wider, conservative ranges when uncertain (e.g., description spanning observed elements).
+   - Keep all ranges normalized between 0.0 and 1.0.
+   - Normalize relativeX using pageWidth from analysisData.
 2. FINGERPRINTS:
    Pick 3-5 unique strings from the statement. Do not include user name, numbers, dates or balances.
 3. METADATA REGEXES:
@@ -183,12 +362,12 @@ RESULT:
     "rules": {
       "anchor": {
         "regex": "^\\\\d{2}/\\\\d{2}/\\\\d{2}$",
-        "columnRange": [0.0, 0.15]
+        "columnRange": [0.03, 0.18]
       },
       "columns": {
-        "date": [0.0, 0.15],
-        "description": [0.15, 0.80],
-        "amount": [0.80, 1.00]
+        "date": [0.05, 0.20],
+        "description": [0.20, 0.75],
+        "amount": [0.85, 1.00]
       },
       "metadata": {
         "accountNumber": [{"regex": "Account number:\\\\s*([0-9\\\\s]+)", "captureGroup": 1}],
@@ -229,12 +408,12 @@ RESULT:
     "rules": {
       "anchor": {
         "regex": "^\\\\d{2}/\\\\d{2}/\\\\d{2}$",
-        "columnRange": [0.0, 0.15]
+        "columnRange": [0.0, 0.10]
       },
       "columns": {
-        "date": [0.0, 0.15],
-        "description": [0.15, 0.80],
-        "amount": [0.80, 1.00]
+        "date": [0.0, 0.14],
+        "description": [0.16, 0.78],
+        "amount": [0.82, 0.97]
       },
       "metadata": {
         "accountNumber": [{"regex": "Account number:\\\\s*([0-9\\\\s]+)", "captureGroup": 1}],
@@ -271,12 +450,12 @@ RESULT:
     "rules": {
       "anchor": {
         "regex": "^\\\\d{2}/\\\\d{2}/\\\\d{2}$",
-        "columnRange": [0.0, 0.15]
+        "columnRange": [0.02, 0.13]
       },
       "columns": {
-        "date": [0.0, 0.15],
-        "description": [0.15, 0.80],
-        "amount": [0.80, 1.00]
+        "date": [0.03, 0.17],
+        "description": [0.18, 0.70],
+        "amount": [0.88, 1.00]
       },
       "metadata": {
         "accountNumber": [{"regex": "Account number:\\\\s*([0-9\\\\s]+)", "captureGroup": 1}],
@@ -296,7 +475,7 @@ IMPORTANT: Return ONLY the JSON object. Do not include markdown codeblocks (like
   const userPrompt = `TEXTO DEL PDF (primeros 2000 caracteres — suficiente para identificar el layout y fingerprints):
 ${analysisData.fullText.slice(0, 2000)}
 
-MUESTRA DE COORDENADAS (primeros 100 bloques):
+MUESTRA DE COORDENADAS (hasta 100 bloques, selección estratificada por página y línea vertical):
 ${JSON.stringify(coordinateSample, null, 2)}
 
 CRITICAL: Do NOT invent or fabricate data. Only use patterns you can clearly identify in the provided text. If you are unsure about a column boundary, estimate conservatively (wider range). Never hallucinate amounts, balances, or account numbers.`;

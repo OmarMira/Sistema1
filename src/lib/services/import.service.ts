@@ -3,7 +3,15 @@ import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
-import { parseCSV } from '@/lib/csv-parser';
+import {
+  applyCsvLayout,
+  csvLayoutFingerprint,
+  discoverCsvMapping,
+  inspectCsvLayout,
+  isCsvLayoutMappingApplicable,
+  type CsvLayoutMapping,
+} from '@/lib/csv-parser';
+import { findByCompanyAndFingerprint, persistSuccessfulMapping } from '@/lib/csv-layout-profile-service';
 import { parseOFX } from '@/lib/ofx-parser';
 import { parsePDFAsync } from '@/lib/pdf-processor';
 import {
@@ -496,9 +504,59 @@ export class ImportService {
     if (extension === 'csv' || extension === 'tsv' || extension === 'txt') {
       let transactions: ParsedTransaction[];
       let bankName = '';
-
       try {
-        transactions = parseCSV(content);
+        // A/B. Structure inspection: real delimiter + ordered normalized
+        // headers. Inspection runs NO column discovery, so the reuse path
+        // can fingerprint and look up a stored mapping without discovering.
+        const structure = inspectCsvLayout(content);
+        const fingerprint = csvLayoutFingerprint(structure);
+        const headerCount = structure.orderedNormalizedHeaders.length;
+
+        // C. Tenant-scoped lookup (companyId + fingerprint).
+        const profile = await findByCompanyAndFingerprint(companyId, fingerprint);
+        const persistedMapping: CsvLayoutMapping | null = profile
+          ? {
+              delimiter: profile.delimiter,
+              dateColumnIndex: profile.dateColumnIndex,
+              descriptionColumnIndex: profile.descriptionColumnIndex,
+              amountColumnIndex: profile.amountColumnIndex,
+              referenceColumnIndex: profile.referenceColumnIndex,
+            }
+          : null;
+
+        transactions = [];
+
+        // D/E. Reuse the persisted mapping only when it is applicable to
+        // this exact header set. Application never discovers.
+        if (
+          persistedMapping &&
+          isCsvLayoutMappingApplicable(persistedMapping, headerCount)
+        ) {
+          try {
+            transactions = applyCsvLayout(content, persistedMapping);
+          } catch {
+            // Stale/invalid mapping: rejected, fall through to discovery.
+            transactions = [];
+          }
+        }
+
+        // F/G. First import OR stale mapping: discover the REAL mapping,
+        // apply it, then persist/repair with what was actually discovered.
+        if (transactions.length === 0) {
+          const discovered = discoverCsvMapping(structure.orderedNormalizedHeaders);
+          if (discovered === null) {
+            throw new Error(
+              'Could not detect column mapping. Ensure headers include columns for date, description, and amount.',
+            );
+          }
+          const discoveredMapping: CsvLayoutMapping = {
+            ...discovered,
+            delimiter: structure.delimiter,
+          };
+          transactions = applyCsvLayout(content, discoveredMapping);
+          await persistSuccessfulMapping(companyId, fingerprint, discoveredMapping);
+        }
+
         bankName = this.extractBankNameFromFilename(fileName);
       } catch (parseError) {
         throw new ValidationError(

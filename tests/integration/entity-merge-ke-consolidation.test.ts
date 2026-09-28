@@ -68,11 +68,57 @@ const adapter = new MemoryAdapter(prisma, runTx);
 
 const HUMAN = 'g8-1-merge-tester';
 
+// ─── Fixture ownership (test isolation) ─────────────────────────
+//
+// Every company this file creates is registered here and removed in
+// afterEach together with everything FK-dependent on it. This keeps the
+// file self-contained: it never relies on clearDatabase() (which only
+// cleans companies owned by @example.com test users) and never leaks
+// KnowledgeAudit rows that later suites (e.g. f10) query globally.
+
+const fixtureCompanyIds = new Set<string>();
+
+async function createFixtureCompany(name: string) {
+  const company = await createTestCompany(name);
+  fixtureCompanyIds.add(company.id);
+  return company;
+}
+
+/**
+ * Deletes, in FK order, exactly the data this file created:
+ * KnowledgeAudit → PendingApproval → CompanyKnowledge → AuditLog →
+ * Company (cascades MemoryItem, which cascades MemoryVersion,
+ * TraceabilityLog, ConfidenceLog, Relationship, Contradiction and
+ * EvolutionLink). Idempotent; runs even when a test fails.
+ */
+async function cleanupOwnFixtures(): Promise<void> {
+  if (fixtureCompanyIds.size === 0) return;
+  const companyIds = [...fixtureCompanyIds];
+
+  const knowledgeRows = await prisma.companyKnowledge.findMany({
+    where: { companyId: { in: companyIds } },
+    select: { id: true },
+  });
+  const knowledgeIds = knowledgeRows.map((row) => row.id);
+
+  if (knowledgeIds.length > 0) {
+    await prisma.knowledgeAudit.deleteMany({ where: { knowledgeId: { in: knowledgeIds } } });
+    await prisma.pendingApproval.deleteMany({ where: { knowledgeId: { in: knowledgeIds } } });
+    await prisma.companyKnowledge.deleteMany({ where: { id: { in: knowledgeIds } } });
+  }
+
+  await prisma.auditLog.deleteMany({ where: { companyId: { in: companyIds } } });
+  await prisma.company.deleteMany({ where: { id: { in: companyIds } } });
+
+  fixtureCompanyIds.clear();
+}
+
 beforeEach(async () => {
   await clearDatabase();
 });
 
 afterEach(async () => {
+  await cleanupOwnFixtures();
   await clearDatabase();
 });
 
@@ -245,7 +291,7 @@ async function degradeByConflict(companyId: string, conflictId: string): Promise
 
 describe('T1 — SOURCE treatment transfers in place to TARGET', () => {
   it('keeps itemId/gl/direction, lookup moves to TARGET, source left without treatment, history preserved', async () => {
-    const company = await createTestCompany('G8-1 T1');
+    const company = await createFixtureCompany('G8-1 T1');
     const source = await createEntity(company.id, 'Taco Bell Norte');
     const target = await createEntity(company.id, 'Taco Bell Sur');
 
@@ -307,7 +353,7 @@ describe('T1 — SOURCE treatment transfers in place to TARGET', () => {
 
 describe('T2 — identical treatments keep TARGET and historicalize SOURCE', () => {
   it('target treatment survives with intact confidence; source treatment forgotten with entity_merged reason', async () => {
-    const company = await createTestCompany('G8-1 T2');
+    const company = await createFixtureCompany('G8-1 T2');
     const source = await createEntity(company.id, 'Naranja X');
     const target = await createEntity(company.id, 'Naranja X Plus');
 
@@ -352,7 +398,7 @@ describe('T2 — identical treatments keep TARGET and historicalize SOURCE', () 
 
 describe('T3 — treatment collision requires explicit human choice', () => {
   it('without a choice: rejects with G8_1_COLLISION and zero mutation', async () => {
-    const company = await createTestCompany('G8-1 T3 reject');
+    const company = await createFixtureCompany('G8-1 T3 reject');
     const source = await createEntity(company.id, 'Previlegio Gold');
     const target = await createEntity(company.id, 'Previlegio Silver');
 
@@ -398,7 +444,7 @@ describe('T3 — treatment collision requires explicit human choice', () => {
   });
 
   it('with treatment="target": target wins, source treatment historical', async () => {
-    const company = await createTestCompany('G8-1 T3 target');
+    const company = await createFixtureCompany('G8-1 T3 target');
     const source = await createEntity(company.id, 'Mastercard Black');
     const target = await createEntity(company.id, 'Mastercard Gold');
 
@@ -431,7 +477,7 @@ describe('T3 — treatment collision requires explicit human choice', () => {
   });
 
   it('with treatment="source": source wins in place (same itemId), target treatment historical', async () => {
-    const company = await createTestCompany('G8-1 T3 source');
+    const company = await createFixtureCompany('G8-1 T3 source');
     const source = await createEntity(company.id, 'Oca Orange');
     const target = await createEntity(company.id, 'Oca Blue');
 
@@ -469,7 +515,7 @@ describe('T3 — treatment collision requires explicit human choice', () => {
 
 describe('T4 — merge never modifies confidence', () => {
   it('preserves certain confidence through an in-place transfer', async () => {
-    const company = await createTestCompany('G8-1 T4');
+    const company = await createFixtureCompany('G8-1 T4');
     const source = await createEntity(company.id, 'Galicia Visa');
     const target = await createEntity(company.id, 'Galicia Master');
 
@@ -506,7 +552,7 @@ describe('T4 — merge never modifies confidence', () => {
 
 describe('T5 — pending conflict over source treatment survives merge', () => {
   it('same itemId keeps gating active, conflict evidence not rebound, resolve + rehabilitation work', async () => {
-    const company = await createTestCompany('G8-1 T5');
+    const company = await createFixtureCompany('G8-1 T5');
     const source = await createEntity(company.id, 'YPF Shell');
     const target = await createEntity(company.id, 'YPF Shell Express');
 
@@ -568,7 +614,7 @@ describe('T5 — pending conflict over source treatment survives merge', () => {
 
 describe('T6 — descriptions previously resolving to SOURCE resolve to TARGET', () => {
   it('resolveEntity returns TARGET for source canonical name and alias; treatment correct under TARGET', async () => {
-    const company = await createTestCompany('G8-1 T6');
+    const company = await createFixtureCompany('G8-1 T6');
     const source = await createEntity(company.id, 'Delta Gas Station', ['Delta Gas']);
     const target = await createEntity(company.id, 'Delta Gas Station Norte');
 
@@ -609,7 +655,7 @@ describe('T6 — descriptions previously resolving to SOURCE resolve to TARGET',
 
 describe('T7A — direct-decision treatment keeps KE authority after merge', () => {
   it('pre/post decision source="ke", rule engine never called', async () => {
-    const company = await createTestCompany('G8-1 T7A');
+    const company = await createFixtureCompany('G8-1 T7A');
     const source = await createEntity(company.id, 'Sherwin Williams');
     const target = await createEntity(company.id, 'Sherwin Williams Depot');
 
@@ -640,7 +686,7 @@ describe('T7A — direct-decision treatment keeps KE authority after merge', () 
 
 describe('T7B — uncertain treatment keeps rule-engine fallback after merge', () => {
   it('pre/post decision falls back to rule engine; confidence stays uncertain', async () => {
-    const company = await createTestCompany('G8-1 T7B');
+    const company = await createFixtureCompany('G8-1 T7B');
     const source = await createEntity(company.id, 'Burger King Caballito');
     const target = await createEntity(company.id, 'Burger King Caballito Oeste');
 
@@ -691,7 +737,7 @@ describe('T7B — uncertain treatment keeps rule-engine fallback after merge', (
 
 describe('T7C — conflict-degraded behavior recovers after resolve + rehabilitation', () => {
   it('promotion stays gated while pending; after resolve + rehab KE decides directly again', async () => {
-    const company = await createTestCompany('G8-1 T7C');
+    const company = await createFixtureCompany('G8-1 T7C');
     const source = await createEntity(company.id, 'Mostro Pizza');
     const target = await createEntity(company.id, 'Mostro Pizza Congreso');
 
@@ -753,8 +799,8 @@ describe('T7C — conflict-degraded behavior recovers after resolve + rehabilita
 
 describe('T8 — tenant isolation', () => {
   it('cross-company merge is rejected with zero mutation; foreign company knowledge untouched', async () => {
-    const companyA = await createTestCompany('G8-1 T8 A');
-    const companyB = await createTestCompany('G8-1 T8 B');
+    const companyA = await createFixtureCompany('G8-1 T8 A');
+    const companyB = await createFixtureCompany('G8-1 T8 B');
 
     const sourceA = await createEntity(companyA.id, 'Shared Name Entity');
     const targetA = await createEntity(companyA.id, 'Shared Name Entity B');
@@ -815,7 +861,7 @@ describe('T8 — tenant isolation', () => {
 
 describe('T9 — audit, version, and traceability', () => {
   it('CK audits exist for both sides with KE consolidation trace; item history preserved', async () => {
-    const company = await createTestCompany('G8-1 T9');
+    const company = await createFixtureCompany('G8-1 T9');
     const source = await createEntity(company.id, 'Mercado Libre');
     const target = await createEntity(company.id, 'Mercado Libre Ads');
 
@@ -896,7 +942,7 @@ describe('T9 — audit, version, and traceability', () => {
 
 describe('AP1 — same GL + direction is compatible', () => {
   it('keeps both patterns active under TARGET, source pattern transferred with same itemId', async () => {
-    const company = await createTestCompany('G8-1 AP1');
+    const company = await createFixtureCompany('G8-1 AP1');
     const source = await createEntity(company.id, 'Netflix AR');
     const target = await createEntity(company.id, 'Netflix BR');
 
@@ -928,7 +974,7 @@ describe('AP1 — same GL + direction is compatible', () => {
 
 describe('AP2 — same direction, different GL is a collision', () => {
   it('without a choice: rejects with G8_1_COLLISION and zero mutation', async () => {
-    const company = await createTestCompany('G8-1 AP2 reject');
+    const company = await createFixtureCompany('G8-1 AP2 reject');
     const source = await createEntity(company.id, 'Uber Trip A');
     const target = await createEntity(company.id, 'Uber Trip B');
 
@@ -966,7 +1012,7 @@ describe('AP2 — same direction, different GL is a collision', () => {
   });
 
   it('with authorizedPatterns.any="source": source pattern wins, target pattern historical', async () => {
-    const company = await createTestCompany('G8-1 AP2 source');
+    const company = await createFixtureCompany('G8-1 AP2 source');
     const source = await createEntity(company.id, 'Cabify Ride A');
     const target = await createEntity(company.id, 'Cabify Ride B');
 
@@ -995,7 +1041,7 @@ describe('AP2 — same direction, different GL is a collision', () => {
   });
 
   it('with authorizedPatterns.any="target": target pattern stays, source pattern historical', async () => {
-    const company = await createTestCompany('G8-1 AP2 target');
+    const company = await createFixtureCompany('G8-1 AP2 target');
     const source = await createEntity(company.id, 'Pedidos Ya A');
     const target = await createEntity(company.id, 'Pedidos Ya B');
 
@@ -1028,7 +1074,7 @@ describe('AP2 — same direction, different GL is a collision', () => {
 
 describe('AP3/AP4 — different direction coexists without false conflict', () => {
   it('merges without any choice; both patterns stay active under TARGET', async () => {
-    const company = await createTestCompany('G8-1 AP3-AP4');
+    const company = await createFixtureCompany('G8-1 AP3-AP4');
     const source = await createEntity(company.id, 'Falabella Credito');
     const target = await createEntity(company.id, 'Falabella Debito');
 
@@ -1064,7 +1110,7 @@ describe('AP3/AP4 — different direction coexists without false conflict', () =
 
 describe('OBS — observation transfer with exact-content idempotency', () => {
   it('transfers observations in place, combines duplicates, never creates a logical duplicate', async () => {
-    const company = await createTestCompany('G8-1 OBS');
+    const company = await createFixtureCompany('G8-1 OBS');
     const source = await createEntity(company.id, 'Pago Servicios A');
     const target = await createEntity(company.id, 'Pago Servicios B');
 
@@ -1146,7 +1192,7 @@ describe('OBS — observation transfer with exact-content idempotency', () => {
 
 describe('CAND — structural candidate transfer without auto-authorization', () => {
   it('candidate moves to TARGET with itemId/segments/observationIds preserved and stays un-authorized', async () => {
-    const company = await createTestCompany('G8-1 CAND');
+    const company = await createFixtureCompany('G8-1 CAND');
     const source = await createEntity(company.id, 'Spotify Premium A');
     const target = await createEntity(company.id, 'Spotify Premium B');
 
@@ -1249,7 +1295,7 @@ function installKeWriteFault(failBeforeWrite: number): {
  * two real KE writes (treatment transfer, then observation transfer).
  */
 async function setupAtomicityFixture(tag: string) {
-  const company = await createTestCompany(`G8-1 ${tag}`);
+  const company = await createFixtureCompany(`G8-1 ${tag}`);
   const source = await createEntity(company.id, `${tag} Source`);
   const target = await createEntity(company.id, `${tag} Target`);
 
@@ -1387,7 +1433,7 @@ describe('AT2 — a KE write completed before the failure does not survive rollb
 
 describe('ATOMIC — CK and KE writes share one transaction', () => {
   it('an audit-stage failure rolls back CK updates and KE transfers together', async () => {
-    const company = await createTestCompany('G8-1 ATOMIC');
+    const company = await createFixtureCompany('G8-1 ATOMIC');
     const source = await createEntity(company.id, 'Atomic Source');
     const target = await createEntity(company.id, 'Atomic Target');
 

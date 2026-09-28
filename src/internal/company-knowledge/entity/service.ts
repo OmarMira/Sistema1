@@ -3,6 +3,13 @@ import { db } from '@/lib/db';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { ForbiddenError } from '@/lib/api-error';
 import { normalizeForResolution } from '@/memory/entity-resolution';
+import {
+  createAdapter,
+  snapshotEntityMergeKnowledge,
+  validateEntityMergeChoices,
+  applyEntityMergeKnowledge,
+} from '@/memory/classification-knowledge';
+import type { MemoryPrismaClient, TransactionRunner } from '@/memory/prisma-types';
 import { entityMetadataByType } from './metadata-schemas';
 import type {
   EntityType,
@@ -81,9 +88,12 @@ async function appendAuditEntry(params: {
   afterValue: Record<string, unknown> | null;
   source: string;
   reason: string;
+  /** Optional transaction client so audits commit atomically with their writes (G8-1 §13). */
+  client?: Prisma.TransactionClient | { knowledgeAudit: typeof db.knowledgeAudit };
 }): Promise<void> {
   const changedByUserId = requireCurrentUserId();
-  await db.knowledgeAudit.create({
+  const auditClient = (params.client ?? db) as typeof db;
+  await auditClient.knowledgeAudit.create({
     data: {
       knowledgeId: params.knowledgeId,
       action: params.action,
@@ -95,6 +105,26 @@ async function appendAuditEntry(params: {
       reason: params.reason,
     },
   });
+}
+
+/**
+ * Deterministic alias union (G8-1 §5): first occurrence wins, exact-string
+ * dedupe, order preserved — target aliases, then source aliases, then the
+ * source canonicalName (so descriptions that previously resolved via SOURCE
+ * still resolve to TARGET), then any explicit alias resolution.
+ */
+function unionAliases(...aliasLists: Array<string[] | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const list of aliasLists) {
+    for (const alias of list ?? []) {
+      if (typeof alias !== 'string' || alias.trim() === '') continue;
+      if (seen.has(alias)) continue;
+      seen.add(alias);
+      result.push(alias);
+    }
+  }
+  return result;
 }
 
 function toPrismaEntityType(type: EntityType): 'PERSON' | 'COMPANY' | 'FINANCIAL_PRODUCT' | 'PLATFORM' | 'ASSET' {
@@ -524,6 +554,12 @@ export async function restore(
 export async function merge(
   input: MergeInput,
 ): Promise<CompanyKnowledgeRecord> {
+  // G8-1: fieldResolutions may be absent when no conflicts were resolved.
+  const fieldResolutions: Record<string, unknown> =
+    input.fieldResolutions && typeof input.fieldResolutions === 'object'
+      ? input.fieldResolutions
+      : {};
+
   // 1. Verify both entities exist and belong to the company
   const source = await assertCompanyKnowledgeExists(
     input.sourceKnowledgeId,
@@ -555,70 +591,140 @@ export async function merge(
   // Filter fieldResolutions to known updatable fields
   const resolvableFields: Record<string, unknown> = {};
 
-  if (input.fieldResolutions.canonicalName !== undefined) {
-    resolvableFields.canonicalName = input.fieldResolutions.canonicalName;
+  if (fieldResolutions.canonicalName !== undefined) {
+    resolvableFields.canonicalName = fieldResolutions.canonicalName;
   }
 
-  if (input.fieldResolutions.aliases !== undefined) {
-    resolvableFields.aliases = input.fieldResolutions.aliases;
+  if (fieldResolutions.aliases !== undefined) {
+    resolvableFields.aliases = fieldResolutions.aliases;
   }
 
-  if (input.fieldResolutions.relationship !== undefined) {
-    resolvableFields.relationship = input.fieldResolutions.relationship;
+  if (fieldResolutions.relationship !== undefined) {
+    resolvableFields.relationship = fieldResolutions.relationship;
   }
 
-  if (input.fieldResolutions.metadata !== undefined) {
-    resolvableFields.metadata = input.fieldResolutions.metadata;
+  if (fieldResolutions.metadata !== undefined) {
+    resolvableFields.metadata = fieldResolutions.metadata;
+  }
+
+  // G8-1 §5 — server-side deterministic alias union: the union must NOT
+  // depend exclusively on MergeDialog, and no alias needed for a prior
+  // SOURCE resolution may be lost.
+  const unionedAliases = unionAliases(
+    target.aliases,
+    source.aliases,
+    [source.canonicalName],
+    Array.isArray(fieldResolutions.aliases)
+      ? (fieldResolutions.aliases as string[])
+      : undefined,
+  );
+  if (unionedAliases.length > 0 || fieldResolutions.aliases !== undefined) {
+    resolvableFields.aliases = unionedAliases;
   }
 
   resolvableFields.version = targetNewVersion;
 
-  // 4. Update target with resolved fields
-  const updatedTarget = await db.companyKnowledge.update({
-    where: { id: input.targetKnowledgeId },
-    data: resolvableFields,
-  });
+  // G8-1 §13 — one interactive transaction: TARGET CK update + SOURCE CK
+  // update + KE transfers/deactivations + audits commit together or roll
+  // back together. Never CK-merged-with-active-source-KE, never
+  // KE-transferred-without-CK-merge.
+  return db.$transaction(
+    async (tx) => {
+      const runTx: TransactionRunner = (fn) => fn(tx);
+      const adapter = createAdapter(tx as unknown as MemoryPrismaClient, runTx);
 
-  // 5. Set source as merged
-  await db.companyKnowledge.update({
-    where: { id: input.sourceKnowledgeId },
-    data: {
-      status: 'merged',
-      mergedIntoId: input.targetKnowledgeId,
-      version: sourceNewVersion,
+      // 4. G8-1 §6 — prevalidation BEFORE any mutation: active/company
+      // checks above; KE snapshot + ambiguity/collision validation here.
+      // Ambiguous state or an unresolved treatment/AP2 collision throws
+      // before a single row is written (zero partial mutation).
+      const snapshot = await snapshotEntityMergeKnowledge(
+        adapter,
+        input.companyId,
+        source.id,
+        target.id,
+      );
+      const mergeChoices = {
+        treatment: fieldResolutions.treatment,
+        authorizedPatterns: fieldResolutions.authorizedPatterns,
+      };
+      validateEntityMergeChoices(snapshot, mergeChoices);
+
+      // 5. Update target with resolved fields
+      const updatedTarget = await tx.companyKnowledge.update({
+        where: { id: input.targetKnowledgeId },
+        data: resolvableFields,
+      });
+
+      // 6. Set source as merged
+      await tx.companyKnowledge.update({
+        where: { id: input.sourceKnowledgeId },
+        data: {
+          status: 'merged',
+          mergedIntoId: input.targetKnowledgeId,
+          version: sourceNewVersion,
+        },
+      });
+
+      // 7. G8-1 §7–§12 — KE consolidation inside the same transaction:
+      // treatments, observations, candidates, authorized patterns.
+      const consolidation = await applyEntityMergeKnowledge(
+        adapter,
+        input.companyId,
+        snapshot,
+        mergeChoices,
+      );
+
+      // 8. Audit entries for both (existing shape) — extended only with
+      // the KE consolidation traceability required by G8-1 §14.
+      await appendAuditEntry({
+        client: tx,
+        knowledgeId: input.sourceKnowledgeId,
+        action: 'merge',
+        version: sourceNewVersion,
+        beforeValue: { status: source.status, mergedIntoId: null },
+        afterValue: {
+          status: 'merged',
+          mergedIntoId: input.targetKnowledgeId,
+        },
+        source: 'company_knowledge',
+        reason: input.reason ?? `Merged into ${input.targetKnowledgeId}`,
+      });
+
+      await appendAuditEntry({
+        client: tx,
+        knowledgeId: input.targetKnowledgeId,
+        action: 'merge',
+        version: targetNewVersion,
+        beforeValue: { canonicalName: target.canonicalName },
+        afterValue: {
+          canonicalName: updatedTarget.canonicalName,
+          ...(Object.keys(resolvableFields).length > 0
+            ? { resolvedFields: Object.keys(fieldResolutions) }
+            : {}),
+          knowledgeConsolidation: {
+            source: source.id,
+            target: target.id,
+            transferred: consolidation.transferred,
+            deactivated: consolidation.deactivated,
+            skipped: consolidation.skipped,
+            humanResolutions: {
+              ...(fieldResolutions.treatment !== undefined
+                ? { treatment: fieldResolutions.treatment }
+                : {}),
+              ...(fieldResolutions.authorizedPatterns !== undefined
+                ? { authorizedPatterns: fieldResolutions.authorizedPatterns }
+                : {}),
+            },
+          },
+        },
+        source: 'company_knowledge',
+        reason: input.reason ?? `Merged from ${input.sourceKnowledgeId}`,
+      });
+
+      return updatedTarget as unknown as CompanyKnowledgeRecord;
     },
-  });
-
-  // 6. Audit entries for both
-  await appendAuditEntry({
-    knowledgeId: input.sourceKnowledgeId,
-    action: 'merge',
-    version: sourceNewVersion,
-    beforeValue: { status: source.status, mergedIntoId: null },
-    afterValue: {
-      status: 'merged',
-      mergedIntoId: input.targetKnowledgeId,
-    },
-    source: 'company_knowledge',
-    reason: input.reason ?? `Merged into ${input.targetKnowledgeId}`,
-  });
-
-  await appendAuditEntry({
-    knowledgeId: input.targetKnowledgeId,
-    action: 'merge',
-    version: targetNewVersion,
-    beforeValue: { canonicalName: target.canonicalName },
-    afterValue: {
-      canonicalName: updatedTarget.canonicalName,
-      ...(Object.keys(resolvableFields).length > 0
-        ? { resolvedFields: Object.keys(input.fieldResolutions) }
-        : {}),
-    },
-    source: 'company_knowledge',
-    reason: input.reason ?? `Merged from ${input.sourceKnowledgeId}`,
-  });
-
-  return updatedTarget as unknown as CompanyKnowledgeRecord;
+    { maxWait: 5000, timeout: 15000 },
+  );
 }
 
 // ───────────────────────────────────────────────

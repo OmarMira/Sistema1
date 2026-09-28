@@ -40,6 +40,25 @@ interface MergeDialogProps {
   onComplete: () => void;
 }
 
+// G8-1 §15 — collision envelopes returned by the backend merge contract.
+// The backend refuses to auto-select: the user must choose explicitly.
+type MergeSideChoice = 'source' | 'target';
+
+interface TreatmentCollision {
+  kind: 'treatment';
+  source: { itemId: string; glAccountId: string; direction: string };
+  target: { itemId: string; glAccountId: string; direction: string };
+}
+
+interface AuthorizedPatternCollision {
+  kind: 'authorized_pattern';
+  direction: string;
+  source: { itemIds: string[]; glAccountId: string };
+  target: { itemIds: string[]; glAccountId: string };
+}
+
+type MergeCollision = TreatmentCollision | AuthorizedPatternCollision;
+
 export function MergeDialog({
   open,
   onOpenChange,
@@ -60,6 +79,12 @@ export function MergeDialog({
   const [resolvedName, setResolvedName] = useState('');
   const [resolvedAliases, setResolvedAliases] = useState('');
   const [resolvedRelationship, setResolvedRelationship] = useState('');
+
+  // G8-1 §15 — knowledge collisions (treatment / AP2) reported by the
+  // backend; each requires an explicit human choice before merge runs.
+  const [collisions, setCollisions] = useState<MergeCollision[]>([]);
+  const [treatmentChoice, setTreatmentChoice] = useState<MergeSideChoice | ''>('');
+  const [patternChoices, setPatternChoices] = useState<Record<string, MergeSideChoice | ''>>({});
 
   // Fetch active entities as potential merge targets
   const fetchTargets = useCallback(async () => {
@@ -88,6 +113,9 @@ export function MergeDialog({
       setSelectedTargetId('');
       setTargetRecord(null);
       setError('');
+      setCollisions([]);
+      setTreatmentChoice('');
+      setPatternChoices({});
       if (sourceRecord) {
         setResolvedName(sourceRecord.canonicalName);
         setResolvedAliases((sourceRecord.aliases || []).join(', '));
@@ -104,6 +132,11 @@ export function MergeDialog({
     }
     const found = targets.find((t) => t.id === selectedTargetId);
     setTargetRecord(found ?? null);
+
+    // A different target means different knowledge collisions — reset them.
+    setCollisions([]);
+    setTreatmentChoice('');
+    setPatternChoices({});
 
     if (found && sourceRecord) {
       // Pre-fill with source values by default; user can override
@@ -137,6 +170,17 @@ export function MergeDialog({
       fieldResolutions.relationship = resolvedRelationship || null;
     }
 
+    // G8-1 §15 — include the explicit collision resolutions, if any.
+    if (treatmentChoice) {
+      fieldResolutions.treatment = treatmentChoice;
+    }
+    const resolvedPatterns = Object.fromEntries(
+      Object.entries(patternChoices).filter(([, choice]) => choice !== ''),
+    ) as Record<string, MergeSideChoice>;
+    if (Object.keys(resolvedPatterns).length > 0) {
+      fieldResolutions.authorizedPatterns = resolvedPatterns;
+    }
+
     try {
       const res = await fetch(`/api/company-knowledge/${selectedTargetId}/merge`, {
         method: 'POST',
@@ -151,10 +195,34 @@ export function MergeDialog({
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Merge failed');
+        const data = await res.json().catch(() => ({}) as Record<string, unknown>);
+        const message =
+          typeof data.error === 'string' && data.error.length > 0
+            ? data.error
+            : 'Merge failed';
+
+        // G8-1: structured collision envelope → show explicit resolution UI.
+        let envelope: { code?: string; collisions?: MergeCollision[] } | null = null;
+        try {
+          envelope = JSON.parse(message) as { code?: string; collisions?: MergeCollision[] };
+        } catch {
+          envelope = null;
+        }
+        if (
+          envelope &&
+          envelope.code === 'G8_1_COLLISION' &&
+          Array.isArray(envelope.collisions)
+        ) {
+          setCollisions(envelope.collisions);
+          setError(
+            'Knowledge conflicts detected — choose how to resolve each one before merging.',
+          );
+          return;
+        }
+        throw new Error(message);
       }
 
+      setCollisions([]);
       onComplete();
       onOpenChange(false);
     } catch (err) {
@@ -163,6 +231,12 @@ export function MergeDialog({
       setSubmitting(false);
     }
   };
+
+  const collisionsResolved = collisions.every((collision) =>
+    collision.kind === 'treatment'
+      ? treatmentChoice !== ''
+      : (patternChoices[collision.direction] ?? '') !== '',
+  );
 
   const hasDifferences =
     sourceRecord &&
@@ -294,6 +368,84 @@ export function MergeDialog({
               </Table>
             </div>
           )}
+
+          {/* G8-1 §15 — explicit knowledge collision resolution */}
+          {collisions.length > 0 && (
+            <div className="space-y-3 rounded-md border border-amber-500/50 p-3">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 text-amber-500" />
+                <p className="text-sm font-medium">
+                  Knowledge conflicts — explicit resolution required
+                </p>
+              </div>
+
+              {collisions.map((collision) =>
+                collision.kind === 'treatment' ? (
+                  <div key="treatment" className="space-y-1">
+                    <Label htmlFor="treatment-resolution">
+                      Exact treatment conflict (no auto-selection allowed)
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      SOURCE uses GL {collision.source.glAccountId} ({collision.source.direction})
+                      — TARGET uses GL {collision.target.glAccountId} ({collision.target.direction}).
+                      Choose which treatment stays active under the target.
+                    </p>
+                    <Select
+                      value={treatmentChoice}
+                      onValueChange={(v) => setTreatmentChoice(v as MergeSideChoice)}
+                    >
+                      <SelectTrigger id="treatment-resolution" className="h-8 text-sm">
+                        <SelectValue placeholder="Select resolution" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="source">
+                          Keep SOURCE treatment (GL {collision.source.glAccountId})
+                        </SelectItem>
+                        <SelectItem value="target">
+                          Keep TARGET treatment (GL {collision.target.glAccountId})
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : (
+                  <div key={`pattern-${collision.direction}`} className="space-y-1">
+                    <Label htmlFor={`pattern-resolution-${collision.direction}`}>
+                      Authorized pattern conflict — direction {collision.direction}
+                    </Label>
+                    <p className="text-xs text-muted-foreground">
+                      SOURCE pattern uses GL {collision.source.glAccountId} — TARGET pattern uses
+                      GL {collision.target.glAccountId}. Choose which pattern stays active under the
+                      target.
+                    </p>
+                    <Select
+                      value={patternChoices[collision.direction] ?? ''}
+                      onValueChange={(v) =>
+                        setPatternChoices((prev) => ({
+                          ...prev,
+                          [collision.direction]: v as MergeSideChoice,
+                        }))
+                      }
+                    >
+                      <SelectTrigger
+                        id={`pattern-resolution-${collision.direction}`}
+                        className="h-8 text-sm"
+                      >
+                        <SelectValue placeholder="Select resolution" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="source">
+                          Keep SOURCE pattern (GL {collision.source.glAccountId})
+                        </SelectItem>
+                        <SelectItem value="target">
+                          Keep TARGET pattern (GL {collision.target.glAccountId})
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ),
+              )}
+            </div>
+          )}
         </div>
 
         <DialogFooter>
@@ -302,7 +454,7 @@ export function MergeDialog({
           </Button>
           <Button
             onClick={handleSubmit}
-            disabled={!selectedTargetId || submitting || !sourceRecord}
+            disabled={!selectedTargetId || submitting || !sourceRecord || !collisionsResolved}
           >
             {submitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
             Execute Merge

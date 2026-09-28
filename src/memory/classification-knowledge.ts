@@ -2575,3 +2575,488 @@ export async function rehabilitateClassificationKnowledge(
     };
   }
 }
+
+// ─── G8-1 — Merge Knowledge Coherence ─────────────────────────────
+//
+// When a CompanyKnowledge SOURCE entity is merged into TARGET, the
+// entity-bound Knowledge Engine items (treatments, observations,
+// structural candidates, authorized patterns) must follow the entity so
+// that future decisions under TARGET behave exactly as they did under
+// SOURCE (DECISION_BEHAVIOR_PRESERVATION).
+//
+// Certified contract (BLOCK8 / G8-1):
+//   - Transfer = rewrite content.entityId in place, preserving itemId,
+//     confidence, status, history, and conflict references.
+//   - Deactivate = adapter.forget (status → forgotten, history kept).
+//   - Exact-treatment collision (different glAccountId/direction) and
+//     AP2 authorized-pattern collision (same direction, different GL)
+//     require EXPLICIT human resolution; never auto-select, never use
+//     confidence as a tie-break (§7.D, §10).
+//   - Different direction (AP3/AP4) is NOT a collision by itself (§10).
+//   - Observations and structural candidates transfer with exact-content
+//     idempotency (TRANSFER_COMBINE): no logical duplicates under TARGET
+//     (§8, §9).
+//   - Conflicts are never rebound — gating works on preserved itemIds
+//     (CONFLICTS_REQUIRE_REBIND=NO, §11).
+//   - Merge never modifies confidence (§12).
+
+export type MergeSideChoice = 'source' | 'target';
+
+export interface EntityMergeTreatmentCollision {
+  kind: 'treatment';
+  source: { itemId: string; glAccountId: string; direction: 'debit' | 'credit' | 'any' };
+  target: { itemId: string; glAccountId: string; direction: 'debit' | 'credit' | 'any' };
+}
+
+export interface EntityMergePatternCollision {
+  kind: 'authorized_pattern';
+  direction: 'debit' | 'credit' | 'any';
+  source: { itemIds: string[]; glAccountId: string };
+  target: { itemIds: string[]; glAccountId: string };
+}
+
+export type EntityMergeCollision =
+  | EntityMergeTreatmentCollision
+  | EntityMergePatternCollision;
+
+export interface EntityMergeItem<TContent> {
+  itemId: string;
+  content: TContent;
+  confidence: ConfidenceLevel;
+}
+
+export interface EntityMergeKnowledgeSnapshot {
+  sourceEntityId: string;
+  targetEntityId: string;
+  /** Pre-existing or malformed state that forbids any write (§6, §7.E). */
+  ambiguous: string[];
+  sourceTreatment?: EntityMergeItem<ClassificationContent>;
+  targetTreatment?: EntityMergeItem<ClassificationContent>;
+  sourceObservations: EntityMergeItem<ClassificationObservation>[];
+  sourceCandidates: EntityMergeItem<StructuralCandidateContent>[];
+  sourcePatterns: EntityMergeItem<AuthorizedPatternContent>[];
+  targetPatterns: EntityMergeItem<AuthorizedPatternContent>[];
+  treatmentCollision?: EntityMergeTreatmentCollision;
+  patternCollisions: EntityMergePatternCollision[];
+  collisions: EntityMergeCollision[];
+}
+
+export interface EntityMergeChoices {
+  treatment?: unknown;
+  authorizedPatterns?: unknown;
+}
+
+export interface EntityMergeConsolidationSummary {
+  transferred: Array<{ itemId: string; type: string }>;
+  deactivated: Array<{ itemId: string; type: string; reason: string }>;
+  skipped: Array<{ itemId: string; type: string; reason: string }>;
+}
+
+/** Ambiguous/malformed KE state — reject before any write (§6). */
+export class EntityMergeAmbiguityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'EntityMergeAmbiguityError';
+  }
+}
+
+/**
+ * Unresolved collision requiring explicit human choice (§7.D, §10).
+ * The message is a machine-readable JSON envelope consumed by MergeDialog:
+ * { code: 'G8_1_COLLISION', collisions: EntityMergeCollision[] }.
+ */
+export class EntityMergeCollisionError extends Error {
+  readonly collisions: EntityMergeCollision[];
+
+  constructor(collisions: EntityMergeCollision[]) {
+    super(JSON.stringify({ code: 'G8_1_COLLISION', collisions }));
+    this.name = 'EntityMergeCollisionError';
+    this.collisions = collisions;
+  }
+}
+
+function isMergeSideChoice(value: unknown): value is MergeSideChoice {
+  return value === 'source' || value === 'target';
+}
+
+function isTreatmentContent(content: ClassificationContent): boolean {
+  return (
+    typeof content.glAccountId === 'string' &&
+    content.glAccountId !== '' &&
+    (content.direction === 'debit' || content.direction === 'credit' || content.direction === 'any')
+  );
+}
+
+/**
+ * Read-only pre-write snapshot of every entity-bound KE item relevant to a
+ * SOURCE → TARGET merge, including collision and ambiguity detection.
+ * Performs NO writes (§6 prevalidation).
+ */
+export async function snapshotEntityMergeKnowledge(
+  adapter: MemoryAdapter,
+  companyId: string,
+  sourceEntityId: string,
+  targetEntityId: string,
+): Promise<EntityMergeKnowledgeSnapshot> {
+  if (!companyId || typeof companyId !== 'string') {
+    throw new EntityMergeAmbiguityError('Cannot merge: invalid companyId');
+  }
+  if (!sourceEntityId || !targetEntityId || sourceEntityId === targetEntityId) {
+    throw new EntityMergeAmbiguityError('Cannot merge: invalid source/target entity ids');
+  }
+
+  const snapshot: EntityMergeKnowledgeSnapshot = {
+    sourceEntityId,
+    targetEntityId,
+    ambiguous: [],
+    sourceObservations: [],
+    sourceCandidates: [],
+    sourcePatterns: [],
+    targetPatterns: [],
+    patternCollisions: [],
+    collisions: [],
+  };
+
+  // ── Exact treatments (type 'classification' + entityId) ────────
+  const sourceTreatments: Array<EntityMergeItem<ClassificationContent>> = [];
+  const targetTreatments: Array<EntityMergeItem<ClassificationContent>> = [];
+
+  const classificationItems = await adapter.getByType(companyId, TYPE);
+  for (const item of classificationItems) {
+    if (item.status !== 'active') continue;
+    try {
+      const content = JSON.parse(item.content) as ClassificationContent;
+      // Pattern knowledge (learnFromCorrection) is not entity-bound.
+      if (!content.entityId) continue;
+      const entry: EntityMergeItem<ClassificationContent> = {
+        itemId: item.id,
+        content,
+        confidence: item.confidence,
+      };
+      if (content.entityId === sourceEntityId) {
+        sourceTreatments.push(entry);
+      } else if (content.entityId === targetEntityId) {
+        targetTreatments.push(entry);
+      }
+    } catch {
+      // Malformed content cannot participate — fail closed below.
+      snapshot.ambiguous.push('Malformed classification content for merge');
+    }
+  }
+
+  for (const entry of sourceTreatments) {
+    if (!isTreatmentContent(entry.content)) {
+      snapshot.ambiguous.push(
+        `Malformed treatment ${entry.itemId} for SOURCE entity ${sourceEntityId}`,
+      );
+    }
+  }
+  for (const entry of targetTreatments) {
+    if (!isTreatmentContent(entry.content)) {
+      snapshot.ambiguous.push(
+        `Malformed treatment ${entry.itemId} for TARGET entity ${targetEntityId}`,
+      );
+    }
+  }
+
+  // §7.E: >1 active treatment on either side rejects the merge.
+  if (sourceTreatments.length > 1) {
+    snapshot.ambiguous.push(
+      `Ambiguous active treatment for SOURCE entity ${sourceEntityId}: ${sourceTreatments.length} active treatments found`,
+    );
+  }
+  if (targetTreatments.length > 1) {
+    snapshot.ambiguous.push(
+      `Ambiguous active treatment for TARGET entity ${targetEntityId}: ${targetTreatments.length} active treatments found`,
+    );
+  }
+
+  snapshot.sourceTreatment = sourceTreatments[0];
+  snapshot.targetTreatment = targetTreatments[0];
+
+  // ── Observations (TRANSFER_COMBINE) ────────────────────────────
+  const observationItems = await adapter.getByType(companyId, OBSERVATION_TYPE);
+  for (const item of observationItems) {
+    if (item.status !== 'active') continue;
+    try {
+      const content = JSON.parse(item.content) as ClassificationObservation;
+      if (content.entityId === sourceEntityId) {
+        snapshot.sourceObservations.push({ itemId: item.id, content, confidence: item.confidence });
+      }
+    } catch {
+      snapshot.ambiguous.push(`Malformed observation ${item.id} for merge`);
+    }
+  }
+
+  // ── Structural candidates (transfer, never auto-authorize) ─────
+  const candidateItems = await adapter.getByType(companyId, STRUCTURAL_CANDIDATE_TYPE);
+  for (const item of candidateItems) {
+    if (item.status !== 'active') continue;
+    try {
+      const content = JSON.parse(item.content) as StructuralCandidateContent;
+      if (content.entityId === sourceEntityId) {
+        snapshot.sourceCandidates.push({ itemId: item.id, content, confidence: item.confidence });
+      }
+    } catch {
+      snapshot.ambiguous.push(`Malformed structural candidate ${item.id} for merge`);
+    }
+  }
+
+  // ── Authorized patterns (dimensional collision check, §10) ─────
+  const patternItems = await adapter.getByType(companyId, AUTHORIZED_PATTERN_TYPE);
+  const sourceByDirection = new Map<
+    'debit' | 'credit' | 'any',
+    { glAccountId: string; itemIds: string[] }
+  >();
+  const targetByDirection = new Map<
+    'debit' | 'credit' | 'any',
+    { glAccountId: string; itemIds: string[] }
+  >();
+
+  const groupPattern = (
+    side: 'SOURCE' | 'TARGET',
+    entityId: string,
+    byDirection: Map<'debit' | 'credit' | 'any', { glAccountId: string; itemIds: string[] }>,
+    item: { id: string; content: string; confidence: ConfidenceLevel },
+  ): void => {
+    try {
+      const content = JSON.parse(item.content) as AuthorizedPatternContent;
+      if (content.entityId !== entityId) return;
+      if (side === 'SOURCE') {
+        snapshot.sourcePatterns.push({ itemId: item.id, content, confidence: item.confidence });
+      } else {
+        snapshot.targetPatterns.push({ itemId: item.id, content, confidence: item.confidence });
+      }
+      const existing = byDirection.get(content.direction);
+      if (!existing) {
+        byDirection.set(content.direction, {
+          glAccountId: content.glAccountId,
+          itemIds: [item.id],
+        });
+      } else if (existing.glAccountId === content.glAccountId) {
+        existing.itemIds.push(item.id);
+      } else {
+        // Authorize enforces one GL per (entity, direction); >1 means
+        // malformed pre-existing state → fail closed (§6).
+        snapshot.ambiguous.push(
+          `Malformed authorized patterns for ${side} entity ${entityId}: multiple GL accounts in direction ${content.direction}`,
+        );
+      }
+    } catch {
+      snapshot.ambiguous.push(`Malformed authorized pattern ${item.id} for merge`);
+    }
+  };
+
+  for (const item of patternItems) {
+    if (item.status !== 'active') continue;
+    groupPattern('SOURCE', sourceEntityId, sourceByDirection, item);
+    groupPattern('TARGET', targetEntityId, targetByDirection, item);
+  }
+
+  // ── Collisions ─────────────────────────────────────────────────
+  // Treatment collision (§7.D): both sides present AND different
+  // glAccountId or direction. Equal treatments → KEEP TARGET (§7.C).
+  if (
+    snapshot.sourceTreatment &&
+    snapshot.targetTreatment &&
+    isTreatmentContent(snapshot.sourceTreatment.content) &&
+    isTreatmentContent(snapshot.targetTreatment.content) &&
+    (snapshot.sourceTreatment.content.glAccountId !== snapshot.targetTreatment.content.glAccountId ||
+      snapshot.sourceTreatment.content.direction !== snapshot.targetTreatment.content.direction)
+  ) {
+    snapshot.treatmentCollision = {
+      kind: 'treatment',
+      source: {
+        itemId: snapshot.sourceTreatment.itemId,
+        glAccountId: snapshot.sourceTreatment.content.glAccountId,
+        direction: snapshot.sourceTreatment.content.direction,
+      },
+      target: {
+        itemId: snapshot.targetTreatment.itemId,
+        glAccountId: snapshot.targetTreatment.content.glAccountId,
+        direction: snapshot.targetTreatment.content.direction,
+      },
+    };
+  }
+
+  // AP2 collision: same direction, different GL. AP3/AP4 (different
+  // direction) is NOT a collision. AP1 (same GL + direction) compatible.
+  for (const [direction, sourceGroup] of sourceByDirection) {
+    const targetGroup = targetByDirection.get(direction);
+    if (targetGroup && sourceGroup.glAccountId !== targetGroup.glAccountId) {
+      snapshot.patternCollisions.push({
+        kind: 'authorized_pattern',
+        direction,
+        source: { itemIds: sourceGroup.itemIds, glAccountId: sourceGroup.glAccountId },
+        target: { itemIds: targetGroup.itemIds, glAccountId: targetGroup.glAccountId },
+      });
+    }
+  }
+
+  snapshot.collisions = [
+    ...(snapshot.treatmentCollision ? [snapshot.treatmentCollision] : []),
+    ...snapshot.patternCollisions,
+  ];
+
+  return snapshot;
+}
+
+/**
+ * Validate human choices against the snapshot (§6, §7.D, §10).
+ * Throws EntityMergeAmbiguityError for ambiguous state or
+ * EntityMergeCollisionError when a collision has no explicit resolution.
+ */
+export function validateEntityMergeChoices(
+  snapshot: EntityMergeKnowledgeSnapshot,
+  choices: EntityMergeChoices,
+): void {
+  if (snapshot.ambiguous.length > 0) {
+    throw new EntityMergeAmbiguityError(`Cannot merge: ${snapshot.ambiguous.join('; ')}`);
+  }
+
+  if (snapshot.collisions.length === 0) return;
+
+  let missing = false;
+  if (snapshot.treatmentCollision && !isMergeSideChoice(choices.treatment)) {
+    missing = true;
+  }
+  const patternChoices =
+    choices.authorizedPatterns && typeof choices.authorizedPatterns === 'object'
+      ? (choices.authorizedPatterns as Record<string, unknown>)
+      : undefined;
+  for (const collision of snapshot.patternCollisions) {
+    if (!isMergeSideChoice(patternChoices?.[collision.direction])) {
+      missing = true;
+    }
+  }
+
+  if (missing) {
+    throw new EntityMergeCollisionError(snapshot.collisions);
+  }
+}
+
+/**
+ * Apply the KE consolidation of a validated snapshot: transfers,
+ * deactivations, and combine-skips (§7–§10). No confidence changes (§12),
+ * no conflict rebinds (§11), no schema/service changes.
+ * Callers must wrap this in the merge transaction (§13).
+ */
+export async function applyEntityMergeKnowledge(
+  adapter: MemoryAdapter,
+  companyId: string,
+  snapshot: EntityMergeKnowledgeSnapshot,
+  choices: EntityMergeChoices,
+): Promise<EntityMergeConsolidationSummary> {
+  // Defense in depth: re-validate before any write.
+  validateEntityMergeChoices(snapshot, choices);
+
+  const summary: EntityMergeConsolidationSummary = {
+    transferred: [],
+    deactivated: [],
+    skipped: [],
+  };
+
+  const { sourceEntityId, targetEntityId } = snapshot;
+
+  const patternChoices =
+    choices.authorizedPatterns && typeof choices.authorizedPatterns === 'object'
+      ? (choices.authorizedPatterns as Record<string, unknown>)
+      : undefined;
+
+  /** §5/§7/§8: rewrite entityId in place; itemId, confidence, history kept. */
+  const transferItem = async <TContent extends object>(
+    item: { itemId: string; content: TContent },
+    type: string,
+    guardIdempotency: boolean,
+  ): Promise<void> => {
+    // Spread overwrite keeps the original key insertion order, so the
+    // resulting content string differs from the source only in entityId.
+    const nextContent = { ...item.content, entityId: targetEntityId };
+    const nextStr = JSON.stringify(nextContent);
+    if (guardIdempotency) {
+      const existing = await adapter.getExactContent(companyId, nextStr);
+      if (existing && existing.id !== item.itemId) {
+        summary.skipped.push({
+          itemId: item.itemId,
+          type,
+          reason: 'identical_content_exists_under_target',
+        });
+        return;
+      }
+    }
+    await adapter.update(item.itemId, nextStr, companyId);
+    summary.transferred.push({ itemId: item.itemId, type });
+  };
+
+  /** Deactivate via the certified forget primitive — history preserved. */
+  const deactivateItem = async (itemId: string, type: string): Promise<void> => {
+    await adapter.forget(itemId, 'entity_merged', companyId);
+    summary.deactivated.push({ itemId, type, reason: 'entity_merged' });
+  };
+
+  // ── Exact treatments (§7) ──────────────────────────────────────
+  const sourceTreatment = snapshot.sourceTreatment;
+  const targetTreatment = snapshot.targetTreatment;
+
+  if (sourceTreatment && targetTreatment) {
+    if (!snapshot.treatmentCollision) {
+      // §7.C — same treatment: KEEP TARGET, source → historical.
+      await deactivateItem(sourceTreatment.itemId, 'treatment');
+    } else if (isMergeSideChoice(choices.treatment) && choices.treatment === 'source') {
+      // §7.D — human chose source: transfer in place, target loses.
+      await transferItem(sourceTreatment, 'treatment', false);
+      await deactivateItem(targetTreatment.itemId, 'treatment');
+    } else {
+      // §7.D — human chose target (validated): source loses.
+      await deactivateItem(sourceTreatment.itemId, 'treatment');
+    }
+  } else if (sourceTreatment) {
+    // §7.A — TARGET has none: transfer in place, same itemId.
+    await transferItem(sourceTreatment, 'treatment', false);
+  }
+  // §7.B — only TARGET has a treatment: KEEP TARGET (no-op).
+
+  // ── Observations (§8): TRANSFER_COMBINE with exact-idempotency ─
+  for (const item of snapshot.sourceObservations) {
+    await transferItem(item, 'observation', true);
+  }
+
+  // ── Structural candidates (§9): transfer, never auto-authorize ─
+  for (const item of snapshot.sourceCandidates) {
+    await transferItem(item, 'structural_candidate', true);
+  }
+
+  // ── Authorized patterns (§10) ──────────────────────────────────
+  const collisionByDirection = new Map(
+    snapshot.patternCollisions.map((collision) => [collision.direction, collision]),
+  );
+
+  for (const item of snapshot.sourcePatterns) {
+    const collision = collisionByDirection.get(item.content.direction);
+    if (collision) {
+      if (isMergeSideChoice(patternChoices?.[collision.direction]) &&
+          patternChoices?.[collision.direction] === 'source') {
+        // AP2 resolved to source: winner transfers (AP1 now applies).
+        await transferItem(item, 'authorized_pattern', true);
+      } else {
+        // AP2 resolved to target: source pattern loses.
+        await deactivateItem(item.itemId, 'authorized_pattern');
+      }
+    } else {
+      // AP1 (same GL) / AP3 / AP4 (different direction): KEEP_BOTH.
+      await transferItem(item, 'authorized_pattern', true);
+    }
+  }
+
+  for (const item of snapshot.targetPatterns) {
+    const collision = collisionByDirection.get(item.content.direction);
+    if (collision && isMergeSideChoice(patternChoices?.[collision.direction]) &&
+        patternChoices?.[collision.direction] === 'source') {
+      // AP2 resolved to source: target's colliding pattern loses.
+      await deactivateItem(item.itemId, 'authorized_pattern');
+    }
+    // Otherwise target's pattern is the winner or not involved: keep.
+  }
+
+  return summary;
+}

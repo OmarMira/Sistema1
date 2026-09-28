@@ -7,8 +7,13 @@ import { requestContext } from '@/lib/context-storage';
 // Mock Prisma — no database needed
 // ───────────────────────────────────────────────
 
-vi.mock('@/lib/db', () => ({
-  db: {
+// G8-1: entity-bound KE items inspected inside merge's transaction.
+const mocks = vi.hoisted(() => ({
+  classificationItems: [] as Array<Record<string, unknown>>,
+}));
+
+vi.mock('@/lib/db', () => {
+  const db: Record<string, unknown> = {
     pendingApproval: {
       create: vi.fn(),
       findUnique: vi.fn(),
@@ -23,8 +28,33 @@ vi.mock('@/lib/db', () => ({
     knowledgeAudit: {
       create: vi.fn(),
     },
-  },
-}));
+    // G8-1 — KE reads inside the merge transaction: only entity-bound
+    // 'classification' items are supplied per test; everything else empty.
+    memoryItem: {
+      findMany: vi.fn(async (args?: { where?: { type?: string } }) =>
+        args?.where?.type === 'classification' ? mocks.classificationItems : [],
+      ),
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(),
+      update: vi.fn(),
+    },
+    memoryVersion: {
+      create: vi.fn(),
+      findFirst: vi.fn(async () => null),
+      findMany: vi.fn(async () => []),
+    },
+    traceabilityLog: {
+      create: vi.fn(),
+    },
+    confidenceLog: {
+      create: vi.fn(),
+      findMany: vi.fn(async () => []),
+    },
+  };
+  // Interactive transaction: run the callback against the same mock client.
+  db.$transaction = vi.fn(async (fn: (client: unknown) => Promise<unknown>) => fn(db));
+  return { db };
+});
 
 // ───────────────────────────────────────────────
 // Helpers — factory functions for mock data
@@ -88,6 +118,7 @@ const entityService = await import(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.classificationItems = [];
 });
 
 // ───────────────────────────────────────────────
@@ -713,11 +744,13 @@ describe('merge', () => {
       },
     });
 
-    // Target gets resolved fields + version bump
+    // Target gets resolved fields + version bump + G8-1 §5 server-side
+    // alias union (target aliases + source aliases + source canonicalName)
     expect(db.companyKnowledge.update).toHaveBeenCalledWith({
       where: { id: 'ck-target' },
       data: {
         canonicalName: 'Resolved Name',
+        aliases: ['Source Entity'],
         version: 6,
       },
     });
@@ -749,5 +782,170 @@ describe('merge', () => {
         }),
       ),
     ).rejects.toThrow('Cannot merge');
+  });
+
+  // ─── G8-1 prevalidation guards (§6, §7.D, §7.E) ────────────────
+
+  function makeTreatmentItem(id: string, entityId: string, glAccountId: string) {
+    return {
+      id,
+      companyId: 'company-1',
+      type: 'classification',
+      status: 'active',
+      confidence: 'tentative',
+      content: JSON.stringify({
+        pattern: '',
+        glAccountId,
+        direction: 'debit',
+        source: 'user_correction',
+        entityId,
+      }),
+    };
+  }
+
+  function mockActivePair() {
+    vi.mocked(db.companyKnowledge.findUnique).mockImplementation(
+      async (args: { where: { id: string } }) => {
+        if (args.where.id === 'ck-source') return sourceRecord;
+        if (args.where.id === 'ck-target') return targetRecord;
+        return null;
+      },
+    );
+  }
+
+  it('rejects >1 active treatment for the source before any write (§7.E)', async () => {
+    mockActivePair();
+    mocks.classificationItems = [
+      makeTreatmentItem('mem-1', 'ck-source', 'gl-a'),
+      makeTreatmentItem('mem-2', 'ck-source', 'gl-b'),
+    ];
+
+    await expect(
+      requestContext.run({ userId: 'user-1', companyId: 'company-1' }, () =>
+        entityService.merge({
+          sourceKnowledgeId: 'ck-source',
+          targetKnowledgeId: 'ck-target',
+          companyId: 'company-1',
+          fieldResolutions: {},
+        }),
+      ),
+    ).rejects.toThrow(/Ambiguous active treatment for SOURCE entity ck-source/);
+
+    // Zero mutation: nothing written before the rejection.
+    expect(db.companyKnowledge.update).not.toHaveBeenCalled();
+    expect(db.knowledgeAudit.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unresolved treatment collision with the G8-1 envelope before any write (§7.D)', async () => {
+    mockActivePair();
+    mocks.classificationItems = [
+      makeTreatmentItem('mem-source-tx', 'ck-source', 'gl-source'),
+      makeTreatmentItem('mem-target-tx', 'ck-target', 'gl-target'),
+    ];
+
+    let thrown: Error | null = null;
+    try {
+      await requestContext.run({ userId: 'user-1', companyId: 'company-1' }, () =>
+        entityService.merge({
+          sourceKnowledgeId: 'ck-source',
+          targetKnowledgeId: 'ck-target',
+          companyId: 'company-1',
+          fieldResolutions: {},
+        }),
+      );
+    } catch (error) {
+      thrown = error as Error;
+    }
+
+    expect(thrown).not.toBeNull();
+    expect(thrown!.message).toContain('G8_1_COLLISION');
+    const envelope = JSON.parse(thrown!.message) as {
+      code: string;
+      collisions: Array<{ kind: string }>;
+    };
+    expect(envelope.code).toBe('G8_1_COLLISION');
+    expect(envelope.collisions).toHaveLength(1);
+    expect(envelope.collisions[0].kind).toBe('treatment');
+
+    // Zero mutation: nothing written before the rejection.
+    expect(db.companyKnowledge.update).not.toHaveBeenCalled();
+    expect(db.knowledgeAudit.create).not.toHaveBeenCalled();
+  });
+
+  it('builds the alias union server-side from target, source, canonical name, and explicit aliases (§5)', async () => {
+    const sourceWithAliases = makeCompanyKnowledge({
+      id: 'ck-source',
+      canonicalName: 'Source Entity',
+      aliases: ['Source Alias'],
+      status: 'active',
+      version: 3,
+    });
+    const targetWithAliases = makeCompanyKnowledge({
+      id: 'ck-target',
+      canonicalName: 'Target Entity',
+      aliases: ['Target Alias'],
+      status: 'active',
+      version: 5,
+    });
+
+    vi.mocked(db.companyKnowledge.findUnique).mockImplementation(
+      async (args: { where: { id: string } }) => {
+        if (args.where.id === 'ck-source') return sourceWithAliases;
+        if (args.where.id === 'ck-target') return targetWithAliases;
+        return null;
+      },
+    );
+    vi.mocked(db.companyKnowledge.update).mockImplementation(
+      async (args: { where: { id: string }; data: Record<string, unknown> }) =>
+        args.where.id === 'ck-target'
+          ? { ...targetWithAliases, ...args.data }
+          : { ...sourceWithAliases, ...args.data },
+    );
+    vi.mocked(db.knowledgeAudit.create).mockResolvedValue(makeAudit());
+
+    await requestContext.run(
+      { userId: 'user-1', companyId: 'company-1' },
+      () =>
+        entityService.merge({
+          sourceKnowledgeId: 'ck-source',
+          targetKnowledgeId: 'ck-target',
+          companyId: 'company-1',
+          fieldResolutions: { aliases: ['Explicit Alias'] },
+          reason: 'duplicate',
+        }),
+    );
+
+    expect(db.companyKnowledge.update).toHaveBeenCalledWith({
+      where: { id: 'ck-target' },
+      data: {
+        aliases: ['Target Alias', 'Source Alias', 'Source Entity', 'Explicit Alias'],
+        version: 6,
+      },
+    });
+  });
+
+  it('rejects a cross-company merge with zero mutation (§T8)', async () => {
+    vi.mocked(db.companyKnowledge.findUnique).mockImplementation(
+      async (args: { where: { id: string } }) => {
+        if (args.where.id === 'ck-source')
+          return { ...sourceRecord, companyId: 'other-company' };
+        if (args.where.id === 'ck-target') return targetRecord;
+        return null;
+      },
+    );
+
+    await expect(
+      requestContext.run({ userId: 'user-1', companyId: 'company-1' }, () =>
+        entityService.merge({
+          sourceKnowledgeId: 'ck-source',
+          targetKnowledgeId: 'ck-target',
+          companyId: 'company-1',
+          fieldResolutions: {},
+        }),
+      ),
+    ).rejects.toThrow('Company isolation violation');
+
+    expect(db.companyKnowledge.update).not.toHaveBeenCalled();
+    expect(db.knowledgeAudit.create).not.toHaveBeenCalled();
   });
 });

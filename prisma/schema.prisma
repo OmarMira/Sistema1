@@ -109,6 +109,7 @@ model Company {
   companyKnowledge      CompanyKnowledge[]
   ruleApplyRecords      RuleApplyRecord[]
   journalChainHead      JournalChainHead?
+  csvLayoutProfiles     CsvLayoutProfile[]
 }
 
 /// Serialize the per-company journal hash chain (JH2).
@@ -735,4 +736,21 @@ model ConfidenceLog {
 
   @@index([itemId])
   @@index([itemId, changedAt])
+}
+
+/// CSV reusable format knowledge — structural layout mapping persisted per company.
+model CsvLayoutProfile {
+  id                     String   @id @default(cuid())
+  companyId              String
+  fingerprint            String
+  delimiter              String
+  dateColumnIndex        Int
+  descriptionColumnIndex Int
+  amountColumnIndex      Int
+  referenceColumnIndex   Int?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, fingerprint])
 }

@@ -127,6 +127,12 @@ export const DELETE = apiHandler(
     // CompanyKnowledge is deleted explicitly (FK has no onDelete cascade).
 
     await db.$transaction(async (tx) => {
+      // G8-2 §9 (ORIGINAL §10): Company FOR UPDATE FIRST — before touching
+      // any child record. Required order: Company-first → children →
+      // Company delete. Serializes this delete against the G8-2 identity
+      // lock domain without changing DELETE semantics.
+      await tx.$queryRaw`SELECT id FROM "Company" WHERE id = ${id} FOR UPDATE`;
+
       // Reverse dependency order: leaf tables first to avoid FK violations
 
       // First delete records that reference CompanyKnowledge (no direct companyId)

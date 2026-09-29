@@ -256,6 +256,15 @@ function createMockDb() {
     journalLine,
     glAccountBalance,
     $transaction: async <T,>(fn: (tx: typeof self) => Promise<T>): Promise<T> => fn(self),
+    // G8-2 lock contract: acquireCompanyLock runs
+    // SELECT id FROM "Company" WHERE id = <companyId> FOR UPDATE through a
+    // Prisma.sql tagged template — the bound companyId travels in .values.
+    // Echo it back as the locked row (non-empty = company found).
+    $queryRaw: vi.fn(async (query: unknown) => {
+      const values = (query as { values?: unknown[] } | null)?.values;
+      const id = typeof values?.[0] === 'string' ? values[0] : 'company-a';
+      return [{ id }];
+    }),
     reset: () => {
       memStore.clear();
       bankTransactions.length = 0;

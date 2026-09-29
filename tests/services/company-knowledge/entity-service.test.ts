@@ -18,12 +18,20 @@ vi.mock('@/lib/db', () => {
       create: vi.fn(),
       findUnique: vi.fn(),
       delete: vi.fn(),
+      // G8-2 §6 — once-only CAS (id + status=pending → accepted).
+      // Default happy path: the claim succeeds (count === 1).
+      updateMany: vi.fn(async () => ({ count: 1 })),
     },
     companyKnowledge: {
       count: vi.fn(),
       create: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      // G8-2 §5/§6 — identity-disjointness precheck reads the other ACTIVE
+      // entities of the company inside the tx. Default: no collision; the
+      // fixtures above model single records, and no test in this file drives
+      // a collision through findMany.
+      findMany: vi.fn(async () => []),
     },
     knowledgeAudit: {
       create: vi.fn(),
@@ -53,6 +61,9 @@ vi.mock('@/lib/db', () => {
   };
   // Interactive transaction: run the callback against the same mock client.
   db.$transaction = vi.fn(async (fn: (client: unknown) => Promise<unknown>) => fn(db));
+  // G8-2 §5–§7 — Company FOR UPDATE lock (first statement of every identity
+  // tx): one row back = the company exists, so the lock is acquired.
+  db.$queryRaw = vi.fn(async () => [{ id: 'company-1' }]);
   return { db };
 });
 

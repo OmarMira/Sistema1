@@ -6,6 +6,8 @@
 //   TEST 3: Same confirmation twice → no duplicate (idempotent)
 //   TEST 4: Same alias Company A / Company B → tenant isolation
 //   TEST 5: Conflicting identity for same alias → explicit error
+//   TEST 5b (G8-2 §10): alias candidate colliding with another entity's
+//         canonical → explicit identity-conflict error (alias ↔ canonical)
 //   TEST 6: AI proposal without confirmation → NOTHING persisted
 //
 // Plus: PostgreSQL integration test of the full persist → resolve → KNOWN cycle.
@@ -42,12 +44,17 @@ function makeId(): string {
 
 vi.mock('@/lib/db', () => ({
   get db() {
-    return {
+    const client: Record<string, unknown> = {
       companyKnowledge: {
-        findMany: vi.fn(async (args: { where: { companyId: string; status: string }; select?: Record<string, boolean> }) => {
+        findMany: vi.fn(async (args: { where: { companyId: string; status: string; id?: { not: string } }; select?: Record<string, boolean> }) => {
           if (shouldThrow) throw new Error('Database connection failed');
           return mockRecords.filter(
-            (r) => r.companyId === args.where.companyId && r.status === args.where.status,
+            (r) =>
+              r.companyId === args.where.companyId &&
+              r.status === args.where.status &&
+              // G8-2 §8 — identity-disjointness precheck excludes the record
+              // under consideration (id: { not }) from its own comparison.
+              !(args.where.id?.not && r.id === args.where.id.not),
           );
         }),
         findUnique: vi.fn(async (args: { where: { id: string } }) => {
@@ -92,7 +99,14 @@ vi.mock('@/lib/db', () => ({
           return args.data;
         }),
       },
+      // G8-2 §8 — confirmEntityIdentity runs in ONE interactive transaction
+      // whose first statement is the Company FOR UPDATE lock.
+      $queryRaw: vi.fn(async () => [{ id: 'company-1' }]),
     };
+    client.$transaction = vi.fn(
+      async (fn: (tx: Record<string, unknown>) => Promise<unknown>) => fn(client),
+    );
+    return client;
   },
 }));
 
@@ -233,6 +247,46 @@ describe('confirmEntityIdentity', () => {
         entityType: 'company',
       }),
     ).rejects.toThrow('Alias conflict');
+  });
+
+  // TEST 5b (G8-2 §10 T8 correction): alias candidate ↔ canonical of another
+  // ACTIVE entity — the alias-to-canonical direction of the identity
+  // disjointness contract. The manual alias loop only inspects
+  // record.aliases, so this direction can only be caught by
+  // assertIdentityDisjoint on the create path, BEFORE any write.
+  it('TEST 5b: alias conflict — candidate alias colliding with another entity canonical throws explicit error', async () => {
+    // Arrange: active entity A — canonical "Uber", alias "UBER*TRIP".
+    const entityA = await confirmEntityIdentity({
+      companyId: 'company_A',
+      canonicalName: 'Uber',
+      observedAlias: 'UBER*TRIP',
+      entityType: 'company',
+    });
+    expect(mockRecords).toHaveLength(1);
+    expect(mockAuditEntries).toHaveLength(1);
+
+    // Act: attempt to create entity B whose observedAlias equals A's
+    // canonicalName — alias ↔ canonical (NOT alias ↔ alias: A has no alias
+    // "Uber", so the manual loop cannot fire; only the G8-2 identity
+    // precheck can reject this).
+    await expect(
+      confirmEntityIdentity({
+        companyId: 'company_A',
+        canonicalName: 'Uber Eats',
+        observedAlias: 'Uber',
+        entityType: 'company',
+      }),
+    ).rejects.toThrow(
+      'Identity "UBER" already belongs to an active entity of this company',
+    );
+
+    // Post-rejection: no partial effect.
+    expect(mockRecords).toHaveLength(1); // no new entity B was created
+    expect(mockRecords[0].id).toBe(entityA.id); // A intact
+    expect(mockRecords[0].canonicalName).toBe('Uber');
+    expect(mockRecords[0].aliases).toEqual(['UBER*TRIP']); // conflictive alias not added
+    expect(mockRecords[0].status).toBe('active');
+    expect(mockAuditEntries).toHaveLength(1); // no create / add_alias audit entry
   });
 
   // TEST 6: AI proposal without confirmation → NOTHING persisted

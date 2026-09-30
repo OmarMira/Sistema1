@@ -7,6 +7,7 @@
  */
 
 import { civilDateFromParts } from './accounting/civil-date';
+import { logger } from '@/lib/logger';
 
 export interface ParsedTransaction {
   date: Date;
@@ -165,9 +166,14 @@ export function applyCsvLayout(
 
 export function parseCSV(content: string): ParsedTransaction[] {
   // Legacy entry point: same inspection + discovery + application semantics
-  // as the exported pair above (single source of truth).
+  // as the exported pair above (single source of truth). Header-alias
+  // discovery keeps first priority; content-based inference is the
+  // deterministic fallback when aliases cannot resolve the layout.
   const structure = inspectCsvLayout(content);
-  const mapping = discoverCsvMapping(structure.orderedNormalizedHeaders);
+  let mapping = discoverCsvMapping(structure.orderedNormalizedHeaders);
+  if (mapping === null) {
+    mapping = inferCsvMappingFromContent(content, structure).mapping;
+  }
   if (mapping === null) {
     throw new Error(
       'Could not detect column mapping. Ensure headers include columns for date, description, and amount.',
@@ -413,4 +419,258 @@ function parseAmount(val: string): number {
 
   const num = parseFloat(cleaned);
   return isNaN(num) ? NaN : num;
+}
+
+// ─── Content-based inference for unknown headers ─────────────────────
+//
+// Deterministic fallback: runs ONLY when header-alias discovery cannot
+// resolve the layout. Classifies every column by sampling its row values
+// with the SAME canonical parsers above (parseDate / parseAmount — never a
+// second date or monetary parser), assigns date/description/amount by
+// clear majority, and fails CLOSED (null mapping) whenever the evidence is
+// insufficient or two columns are equally plausible. No bank names, no
+// fixed column indexes, no AI, no company input — only row content.
+
+export type CsvInferenceReason =
+  | 'resolved'
+  | 'insufficient_data'
+  | 'missing_date'
+  | 'missing_amount'
+  | 'missing_description'
+  | 'ambiguous_date'
+  | 'ambiguous_amount'
+  | 'ambiguous_description';
+
+export interface CsvInferenceResult {
+  mapping: DiscoveredColumnMapping | null;
+  reason: CsvInferenceReason;
+}
+
+const INFERENCE_MIN_DATA_ROWS = 2;
+const INFERENCE_MIN_SAMPLE = 2;
+const INFERENCE_MAJORITY = 0.6;
+const INFERENCE_NON_EMPTY_MAJORITY = 0.5;
+const INFERENCE_MIN_YEAR = 1900;
+const INFERENCE_MAX_YEAR = 2100;
+
+/**
+ * Canonical date eligibility: reuses parseDate, bounded to a plausible
+ * statement-year window. The raw parseDate fallback accepts bare numbers
+ * ("1001" -> year 1001), which must not qualify a column as a date
+ * candidate during inference.
+ */
+function isPlausibleDate(value: string): boolean {
+  const parsed = parseDate(value);
+  if (!parsed || isNaN(parsed.getTime())) return false;
+  const yearLocal = parsed.getFullYear();
+  const yearUtc = parsed.getUTCFullYear();
+  return (
+    (yearLocal >= INFERENCE_MIN_YEAR && yearLocal <= INFERENCE_MAX_YEAR) ||
+    (yearUtc >= INFERENCE_MIN_YEAR && yearUtc <= INFERENCE_MAX_YEAR)
+  );
+}
+
+/**
+ * Monetary form check only — parseAmount stays the single converter. The
+ * value must reduce to an optional parenthesized/signed numeric literal
+ * (US/EU separators) after stripping common currency markers.
+ */
+function monetaryShape(value: string): boolean {
+  let t = value.trim();
+  t = t.replace(/^[$€£¥]\s?/, '');
+  t = t.replace(/\s?(USD|EUR|MXN|GBP|usd|eur|mxn|gbp)$/, '');
+  t = t.replace(/\s/g, '');
+  if (!/\d/.test(t)) return false;
+  return /^\(?\s*[+\-]?[\d.,]+\s*\)?$/.test(t);
+}
+
+function isAmountLike(value: string): boolean {
+  if (isPlausibleDate(value)) return false;
+  if (!monetaryShape(value)) return false;
+  return !isNaN(parseAmount(value));
+}
+
+/** Richness: decimals, sign, parentheses or thousands grouping. */
+function monetaryRichness(value: string): boolean {
+  const t = value.trim();
+  if (/^\(.*\)$/.test(t)) return true;
+  if (/^[+\-]/.test(t)) return true;
+  if (/\.\d{1,2}$|,\d{1,2}$/.test(t)) return true;
+  if (/\d[.,]\d{3}([.,]|$)/.test(t)) return true;
+  return false;
+}
+
+function isTextLike(value: string): boolean {
+  return /[A-Za-záéíóúÁÉÍÓÚñÑ]/.test(value) && !isPlausibleDate(value);
+}
+
+function isPlainNumeric(value: string): boolean {
+  return isAmountLike(value) && !monetaryRichness(value) && !isPlausibleDate(value);
+}
+
+/** Strict unique maximum; returns null on ties or empty input. */
+function uniqueMaxIndex(values: number[]): number | null {
+  let max = -Infinity;
+  let index = -1;
+  let tied = false;
+  for (let i = 0; i < values.length; i++) {
+    if (values[i]! > max) {
+      max = values[i]!;
+      index = i;
+      tied = false;
+    } else if (values[i] === max) {
+      tied = true;
+    }
+  }
+  return index !== -1 && !tied ? index : null;
+}
+
+/**
+ * Deterministically infer the column mapping from row content for a CSV
+ * whose headers alias discovery could not resolve. Returns a resolved
+ * mapping only when date + description + amount each have a single clear
+ * winner; otherwise returns null with a diagnostic reason (logged through
+ * the existing logger — no external telemetry).
+ */
+export function inferCsvMappingFromContent(
+  content: string,
+  structure: CsvLayoutStructure,
+): CsvInferenceResult {
+  const fail = (reason: CsvInferenceReason): CsvInferenceResult => {
+    logger.warn('[CSV] content-based mapping inference unresolved', {
+      reason,
+      headerCount: structure.orderedNormalizedHeaders.length,
+    });
+    return { mapping: null, reason };
+  };
+
+  const headerCount = structure.orderedNormalizedHeaders.length;
+  if (headerCount < 3) return fail('insufficient_data');
+
+  const lines = splitIntoLines(content);
+  const rows: string[][] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const raw = lines[i]!.trim();
+    if (!raw || raw.startsWith('#') || raw.startsWith('//')) continue;
+    const cols = parseLine(raw, structure.delimiter);
+    if (cols.length < 2) continue;
+    rows.push(cols);
+  }
+  if (rows.length < INFERENCE_MIN_DATA_ROWS) return fail('insufficient_data');
+
+  // Per-column value samples (non-empty), width anchored to the header row.
+  const samples: string[][] = [];
+  for (let i = 0; i < headerCount; i++) {
+    const values = rows
+      .map((r) => (r[i] ?? '').trim())
+      .filter((v) => v !== '');
+    samples.push(values);
+  }
+
+  const dateRatios: number[] = [];
+  const amountRatios: number[] = [];
+  const amountRichness: number[] = [];
+  const textRatios: number[] = [];
+  const meanLengths: number[] = [];
+
+  for (const values of samples) {
+    if (values.length < INFERENCE_MIN_SAMPLE) {
+      dateRatios.push(0);
+      amountRatios.push(0);
+      amountRichness.push(0);
+      textRatios.push(0);
+      meanLengths.push(0);
+      continue;
+    }
+    const dateCount = values.filter(isPlausibleDate).length;
+    const amountValues = values.filter(isAmountLike);
+    const textCount = values.filter(isTextLike).length;
+    dateRatios.push(dateCount / values.length);
+    amountRatios.push(amountValues.length / values.length);
+    amountRichness.push(
+      amountValues.length > 0
+        ? amountValues.filter(monetaryRichness).length / amountValues.length
+        : 0,
+    );
+    textRatios.push(textCount / values.length);
+    meanLengths.push(
+      values.reduce((sum, v) => sum + v.length, 0) / values.length,
+    );
+  }
+
+  const eligible = (i: number) => samples[i]!.length >= INFERENCE_MIN_SAMPLE;
+
+  // 1. DATE — single clear winner by parseability majority.
+  const dateCandidates = dateRatios
+    .map((ratio, i) => ({ ratio, i }))
+    .filter((c) => eligible(c.i) && c.ratio >= INFERENCE_MAJORITY);
+  if (dateCandidates.length === 0) return fail('missing_date');
+  const datePick = uniqueMaxIndex(dateCandidates.map((c) => c.ratio));
+  if (datePick === null) return fail('ambiguous_date');
+  const dateColumnIndex = dateCandidates[datePick]!.i;
+
+  // 2. AMOUNT — majority of monetary-shaped values among remaining columns;
+  //    ties broken strictly by monetary richness, never guessed.
+  const amountPool = amountRatios
+    .map((ratio, i) => ({ ratio, i }))
+    .filter(
+      (c) => c.i !== dateColumnIndex && eligible(c.i) && c.ratio >= INFERENCE_MAJORITY,
+    );
+  if (amountPool.length === 0) return fail('missing_amount');
+  let amountColumnIndex: number;
+  if (amountPool.length === 1) {
+    amountColumnIndex = amountPool[0]!.i;
+  } else {
+    const richnessPick = uniqueMaxIndex(
+      amountPool.map((c) => amountRichness[c.i]!),
+    );
+    if (richnessPick === null) return fail('ambiguous_amount');
+    amountColumnIndex = amountPool[richnessPick]!.i;
+  }
+
+  // 3. DESCRIPTION — predominantly textual among the remaining columns;
+  //    rejected when mostly dates, amounts or empty.
+  const descPool = textRatios
+    .map((ratio, i) => ({ ratio, i }))
+    .filter(
+      (c) =>
+        c.i !== dateColumnIndex &&
+        c.i !== amountColumnIndex &&
+        eligible(c.i) &&
+        samples[c.i]!.length >= INFERENCE_NON_EMPTY_MAJORITY * rows.length &&
+        c.ratio >= INFERENCE_MAJORITY,
+    );
+  if (descPool.length === 0) return fail('missing_description');
+  let descriptionColumnIndex: number;
+  if (descPool.length === 1) {
+    descriptionColumnIndex = descPool[0]!.i;
+  } else {
+    const lengthPick = uniqueMaxIndex(descPool.map((c) => meanLengths[c.i]!));
+    if (lengthPick === null) return fail('ambiguous_description');
+    descriptionColumnIndex = descPool[lengthPick]!.i;
+  }
+
+  // 4. REFERENCE (optional) — exactly one remaining all-plain-numeric
+  //    column; otherwise null (never guessed).
+  const used = new Set([dateColumnIndex, amountColumnIndex, descriptionColumnIndex]);
+  const referenceCandidates = samples
+    .map((values, i) => ({ values, i }))
+    .filter(
+      (c) =>
+        !used.has(c.i) &&
+        c.values.length >= INFERENCE_MIN_SAMPLE &&
+        c.values.every(isPlainNumeric),
+    );
+  const referenceColumnIndex =
+    referenceCandidates.length === 1 ? referenceCandidates[0]!.i : null;
+
+  return {
+    mapping: {
+      dateColumnIndex,
+      descriptionColumnIndex,
+      amountColumnIndex,
+      referenceColumnIndex,
+    },
+    reason: 'resolved',
+  };
 }

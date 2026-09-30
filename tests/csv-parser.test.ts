@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseCSV } from '@/lib/csv-parser';
+import {
+  parseCSV,
+  inspectCsvLayout,
+  inferCsvMappingFromContent,
+} from '@/lib/csv-parser';
 
 describe('parseCSV()', () => {
   // ── Basic CSV parsing ───────────────────────────────────────────
@@ -368,5 +372,160 @@ describe('parseCSV()', () => {
     const result = parseCSV(csv);
     expect(result).toHaveLength(5);
     expect(result.reduce((sum, t) => sum + t.amount, 0)).toBeCloseTo(4135.01, 2);
+  });
+});
+
+// ─── Content-based inference for unknown headers (Gap #4) ─────────────
+
+function infer(csv: string) {
+  return inferCsvMappingFromContent(csv, inspectCsvLayout(csv));
+}
+
+describe('inferCsvMappingFromContent() — deterministic unknown-header inference', () => {
+  it('T1 — totally unknown headers with unequivocal values resolve', () => {
+    const csv = [
+      'foo,bar,baz',
+      '2026-01-01,Payment to vendor,100.00',
+      '2026-01-02,Second payment,200.00',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.reason).toBe('resolved');
+    expect(result.mapping).toEqual({
+      dateColumnIndex: 0,
+      descriptionColumnIndex: 1,
+      amountColumnIndex: 2,
+      referenceColumnIndex: null,
+    });
+  });
+
+  it('T2 — column order amount/date/description resolves without depending on position', () => {
+    const csv = [
+      'z,y,x',
+      '100.00,2026-01-01,Payment to vendor',
+      '200.00,2026-01-02,Another payment',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.reason).toBe('resolved');
+    expect(result.mapping).toEqual({
+      dateColumnIndex: 1,
+      descriptionColumnIndex: 2,
+      amountColumnIndex: 0,
+      referenceColumnIndex: null,
+    });
+  });
+
+  it('T3 — US thousands/decimal format (1,234.56) detected as amount', () => {
+    const csv = [
+      'q,w,e',
+      '2026-01-01,Payment one,"1,234.56"',
+      '2026-01-02,Payment two,"2,500.00"',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.reason).toBe('resolved');
+    expect(result.mapping!.amountColumnIndex).toBe(2);
+    expect(result.mapping!.dateColumnIndex).toBe(0);
+    expect(result.mapping!.descriptionColumnIndex).toBe(1);
+  });
+
+  it('T4 — EU decimal format (1.234,56) detected as amount', () => {
+    const csv = [
+      'q;w;e',
+      '2026-01-01;Payment one;1.234,56',
+      '2026-01-02;Payment two;2.500,00',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.reason).toBe('resolved');
+    expect(result.mapping!.amountColumnIndex).toBe(2);
+  });
+
+  it('T5 — parenthesized negatives ((123.45)) detected as amount', () => {
+    const csv = [
+      'q,w,e',
+      '2026-01-01,Payment one,(123.45)',
+      '2026-01-02,Payment two,(99.99)',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.reason).toBe('resolved');
+    expect(result.mapping!.amountColumnIndex).toBe(2);
+  });
+
+  it('T6 — alternative date format already supported (15 Jan 2026) detected reusing canonical parser', () => {
+    const csv = [
+      'q,w,e',
+      '15 Jan 2026,Payment one,100.00',
+      '16 Jan 2026,Payment two,200.00',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.reason).toBe('resolved');
+    expect(result.mapping!.dateColumnIndex).toBe(0);
+  });
+
+  it('T7 — long text column wins as description; plain numeric reference is not mistaken for amount', () => {
+    const csv = [
+      'alpha,beta,gamma,delta',
+      '2026-01-01,PAYMENT TO VENDOR INVOICE NUMBER 998877,1234.56,1001',
+      '2026-01-02,SERVICES RENDERED FOR CLIENT PROJECT ALPHA,999.99,1002',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.reason).toBe('resolved');
+    expect(result.mapping).toEqual({
+      dateColumnIndex: 0,
+      descriptionColumnIndex: 1,
+      amountColumnIndex: 2,
+      referenceColumnIndex: 3,
+    });
+  });
+
+  it('T8 — two equally plausible monetary columns: AMBIGUOUS, does not guess', () => {
+    const csv = [
+      'q;w;x;y',
+      '2026-01-01;DESC ONE;1.234,56;9.876,54',
+      '2026-01-02;DESC TWO;-400,00;-300,00',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.mapping).toBeNull();
+    expect(result.reason).toBe('ambiguous_amount');
+  });
+
+  it('T9 — two equally plausible date columns: AMBIGUOUS, does not guess', () => {
+    const csv = [
+      'p,q,r',
+      '2026-01-01,2026-02-01,DESC ONE',
+      '2026-01-02,2026-02-02,DESC TWO',
+    ].join('\n');
+
+    const result = infer(csv);
+    expect(result.mapping).toBeNull();
+    expect(result.reason).toBe('ambiguous_date');
+  });
+
+  it('T10 — insufficient data: unresolved', () => {
+    const csv = ['foo,bar,baz', '2026-01-01,DESC,100.00'].join('\n');
+
+    const result = infer(csv);
+    expect(result.mapping).toBeNull();
+    expect(result.reason).toBe('insufficient_data');
+  });
+
+  it('T11 — known headers keep priority: resolve even when content alone would be insufficient', () => {
+    const csv = ['Date,Description,Amount', '01/15/2025,Payment,100.00'].join('\n');
+
+    // Header-alias discovery resolves first, no inference needed.
+    const parsed = parseCSV(csv);
+    expect(parsed).toHaveLength(1);
+    expect(parsed[0].amount).toBe(100);
+
+    // Content alone would NOT resolve this file (single data row), which
+    // proves the successful parse above came from header priority.
+    expect(infer(csv).mapping).toBeNull();
+    expect(infer(csv).reason).toBe('insufficient_data');
   });
 });

@@ -7,6 +7,7 @@ import {
   applyCsvLayout,
   csvLayoutFingerprint,
   discoverCsvMapping,
+  inferCsvMappingFromContent,
   inspectCsvLayout,
   isCsvLayoutMappingApplicable,
   type CsvLayoutMapping,
@@ -542,8 +543,13 @@ export class ImportService {
 
         // F/G. First import OR stale mapping: discover the REAL mapping,
         // apply it, then persist/repair with what was actually discovered.
+        // Header-alias discovery keeps first priority; content-based
+        // inference is the deterministic fallback when aliases fail.
         if (transactions.length === 0) {
-          const discovered = discoverCsvMapping(structure.orderedNormalizedHeaders);
+          let discovered = discoverCsvMapping(structure.orderedNormalizedHeaders);
+          if (discovered === null) {
+            discovered = inferCsvMappingFromContent(content, structure).mapping;
+          }
           if (discovered === null) {
             throw new Error(
               'Could not detect column mapping. Ensure headers include columns for date, description, and amount.',

@@ -7,7 +7,8 @@ import { toConfidenceLabel } from '@/lib/types/reasoning';
 import { serverT } from '@/lib/server-i18n';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import { resolveEntity } from '@/memory/entity-resolution';
-import { createAdapter, lookupTreatment, matchAuthorizedPattern } from '@/memory/classification-knowledge';
+import { createAdapter, lookupTreatment, matchAuthorizedPattern, getClassificationEvidenceStats } from '@/memory/classification-knowledge';
+import type { ClassificationEvidenceStats } from '@/memory/classification-knowledge';
 import type { ExtendedPrismaClient } from '@/lib/db';
 
 // ========== TYPES ==========
@@ -48,6 +49,12 @@ export interface EnrichedCandidate extends EntityCandidate {
    * only — the human decides.
    */
   uncertaintyReasons?: string[];
+  /**
+   * GAP3-3: cumulative historical evidence (read-only, deterministic)
+   * for the exact treatment behind this suggestion. Advisory transport
+   * only — never used to classify, promote, or change confidence.
+   */
+  evidenceStats?: ClassificationEvidenceStats;
 }
 
 export interface ScanEntry {
@@ -74,6 +81,11 @@ export interface ScanPattern {
   confidenceLabel: 'high' | 'medium' | 'low';
   explanation: string;
   uncertaintyReasons?: string[];
+  /**
+   * GAP3-3: cumulative historical evidence propagated from the knowledge
+   * suggestion so the scan view can display accumulated support/conflicts.
+   */
+  evidenceStats?: ClassificationEvidenceStats;
 }
 
 // ========== T5a: RESOLVE CONTEXT ROLE ==========
@@ -135,6 +147,13 @@ export interface KnowledgeSuggestion {
   knowledgeConfidence?: ConfidenceLevel;
   knowledgeMemoryItemId?: string;
   knowledgePatternId?: string;
+  /**
+   * GAP3-3: cumulative evidence stats for the exact treatment group behind
+   * this suggestion (companyId + entityId + glAccountId + direction).
+   * Undefined when there is no knowledge match. Read-only — no writes, no
+   * policy, no confidence changes.
+   */
+  evidenceStats?: ClassificationEvidenceStats;
 }
 
 export async function resolveKnowledgeSuggestion(
@@ -173,6 +192,15 @@ export async function resolveKnowledgeSuggestion(
       resolution.knowledgeKind = 'exact';
       resolution.knowledgeConfidence = treatment.confidence;
       resolution.knowledgeMemoryItemId = treatment.memoryItemId;
+      // GAP3-3: attach cumulative evidence for the exact treatment group.
+      // Advisory only — no write, no promotion, no threshold.
+      resolution.evidenceStats = await getClassificationEvidenceStats(
+        keAdapter,
+        companyId,
+        entityResolution.entityId,
+        treatment.glAccountId,
+        treatment.direction,
+      );
     }
     return resolution;
   }
@@ -202,6 +230,15 @@ export async function resolveKnowledgeSuggestion(
       resolution.knowledgeKind = 'structural';
       resolution.knowledgeConfidence = structural.confidence;
       resolution.knowledgePatternId = structural.authorizedPatternId;
+      // GAP3-3: attach cumulative evidence for the structural match group.
+      // Advisory only — matching authority is untouched.
+      resolution.evidenceStats = await getClassificationEvidenceStats(
+        keAdapter,
+        companyId,
+        structural.entityId,
+        structural.glAccountId,
+        structural.direction,
+      );
     }
     return resolution;
   }
@@ -267,6 +304,9 @@ export function buildScanPattern(
     explanation: enriched.explanation,
     ...(enriched.uncertaintyReasons?.length
       ? { uncertaintyReasons: enriched.uncertaintyReasons }
+      : {}),
+    ...(enriched.evidenceStats
+      ? { evidenceStats: enriched.evidenceStats }
       : {}),
   };
 }
@@ -335,6 +375,23 @@ export async function enrichCandidates(
           : `Authorized structural pattern match is uncertain (pattern ${knowledge.knowledgePatternId ?? 'unknown'}) — prior knowledge is questioned; review the suggestion`,
       );
     }
+
+    // GAP3-3: advisory disclosure of accumulated historical evidence.
+    // When persisted observations contain conflicts for this exact group,
+    // surface them as an additional uncertainty reason so the human sees
+    // accumulated support vs. conflicts. Deterministic format, no policy:
+    // never classifies, never promotes, never changes numeric confidence.
+    const evidence = knowledge.evidenceStats;
+    if (
+      evidence &&
+      evidence.totalObservations > 0 &&
+      evidence.conflictingTreatmentObservations > 0
+    ) {
+      const conflictCount = evidence.conflictingTreatmentObservations;
+      knowledgeUncertaintyReasons.push(
+        `Historical evidence: ${evidence.matchingTreatmentObservations}/${evidence.totalObservations} observations support this treatment; ${conflictCount} conflict${conflictCount === 1 ? '' : 's'}.`,
+      );
+    }
     const explanation = context
       ? serverT(locale, 'reasoning.entityContextHigh')
           .replace('{role}', context.role)
@@ -368,6 +425,9 @@ export async function enrichCandidates(
       directionWarning: directionWarning?.warning ?? null,
       ...(knowledgeUncertaintyReasons.length
         ? { uncertaintyReasons: knowledgeUncertaintyReasons }
+        : {}),
+      ...(knowledge.evidenceStats
+        ? { evidenceStats: knowledge.evidenceStats }
         : {}),
     });
   }

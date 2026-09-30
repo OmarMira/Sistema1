@@ -6,6 +6,7 @@ const mockDb = vi.hoisted(() => ({
   bankStatement: { findMany: vi.fn() },
   bankTransaction: { findMany: vi.fn() },
   entityContext: { findMany: vi.fn() },
+  pendingApproval: { findMany: vi.fn() },
 }));
 
 vi.mock('@/lib/db', () => ({ db: mockDb }));
@@ -104,6 +105,7 @@ describe('S7-04C: Apply All with Shadow ON/OFF', () => {
     mockDb.bankStatement.findMany.mockResolvedValue([{ id: 'stmt-1', bankAccountId: 'ba-001' }]);
     mockDb.bankTransaction.findMany.mockResolvedValue(TRANSACTIONS);
     mockDb.entityContext.findMany.mockResolvedValue([]);
+    mockDb.pendingApproval.findMany.mockResolvedValue([]);
   });
 
   afterEach(() => {

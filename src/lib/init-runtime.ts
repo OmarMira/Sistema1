@@ -38,11 +38,9 @@ export function initRuntimeData(): void {
 
   // 1. Migrate legacy files first (they take priority over defaults)
   migrateLegacy(LEGACY_FILES.companyConfig, RUNTIME_FILES.companyConfig);
-  migrateLegacy(LEGACY_FILES.learningEvents, RUNTIME_FILES.learningEvents);
 
   // 2. Init from defaults only if no runtime file exists yet
   initFromDefault(DEFAULT_TEMPLATES.companyConfig, RUNTIME_FILES.companyConfig);
-  initFromDefault('', RUNTIME_FILES.learningEvents);
 
   logger.info('[RUNTIME] Initialization complete', { dir: RUNTIME_DIR });
 

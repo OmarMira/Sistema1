@@ -301,6 +301,9 @@ describe('Security Layer - Unit & Integration Tests', () => {
           count: vi.fn().mockResolvedValue(0),
           update: vi.fn().mockResolvedValue({}),
         },
+        // §8: the route reads pending human decisions inside the same tx
+        // (match-time exclusion) — model that read in the transaction stub.
+        pendingApproval: { findMany: vi.fn().mockResolvedValue([]) },
         reconciliationPeriod: { update: vi.fn().mockResolvedValue({}) },
       };
 

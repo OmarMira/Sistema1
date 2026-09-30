@@ -27,8 +27,32 @@ describe('H3 — POST /api/bank-rules/[id] (action=apply)', () => {
   });
 
   afterEach(async () => {
+    if (createdPendingApprovalIds.length > 0) {
+      await db.pendingApproval.deleteMany({
+        where: { id: { in: createdPendingApprovalIds } },
+      });
+      createdPendingApprovalIds.length = 0;
+    }
     await clearDatabase();
   });
+
+  const RUN = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const createdPendingApprovalIds: string[] = [];
+
+  // PendingApproval has no company FK, so clearDatabase() cannot reach it —
+  // these tests only ever delete the approval rows THEY created (§6).
+  async function createPendingAiProposal(importHash: string) {
+    const row = await db.pendingApproval.create({
+      data: {
+        action: 'ai_classification_proposal',
+        payload: { transactionId: importHash },
+        requestedBy: 'single-rule-guard-test',
+        // status defaults to 'pending'
+      },
+    });
+    createdPendingApprovalIds.push(row.id);
+    return row;
+  }
 
   async function createRule(companyId: string, glAccountId: string) {
     return db.bankRule.create({
@@ -186,5 +210,153 @@ describe('H3 — POST /api/bank-rules/[id] (action=apply)', () => {
       where: { entity: 'BankRule', entityId: rule.id },
     });
     expect(auditLogs).toHaveLength(0);
+  });
+
+  it('§6 match-time: excluye del single-rule apply la transacción con PendingApproval pending', async () => {
+    const user = await createTestUser(`h3-guard-match-${RUN}@example.com`);
+    const company = await createTestCompany(`H3 Guard Match ${RUN}`);
+    await createTestCompanyMember(user.id, company.id);
+    mockGetSessionUserId.mockResolvedValue(user.id);
+
+    const gl = await createTestGlAccount({ companyId: company.id, code: '6010', name: 'Expense' });
+    const bankAccount = await createTestBankAccount(company.id, gl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+
+    const tx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-06-15',
+      amount: 100,
+      description: 'TEST EXPENSE PENDING',
+    });
+    const importHash = `single-rule-guard-match-${RUN}`;
+    await db.bankTransaction.update({ where: { id: tx.id }, data: { importHash } });
+    await createPendingAiProposal(importHash);
+
+    const rule = await createRule(company.id, gl.id);
+    const { POST } = await import('../../src/app/api/bank-rules/[id]/route');
+
+    const res = await POST(
+      new NextRequest(`http://localhost/api/bank-rules/${rule.id}?companyId=${company.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'apply' }),
+      }),
+      { params: Promise.resolve({ id: rule.id }) },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.matched).toBe(0);
+
+    const reloadedTx = await db.bankTransaction.findUnique({ where: { id: tx.id } });
+    expect(reloadedTx?.glAccountId).toBeNull();
+    expect(reloadedTx?.matchedRuleId).toBeNull();
+    expect(reloadedTx?.ruleApplyRecordId).toBeNull();
+
+    const approval = await db.pendingApproval.findUniqueOrThrow({
+      where: { id: createdPendingApprovalIds[0]! },
+    });
+    expect(approval.status).toBe('pending');
+  });
+
+  it('§6 TOCTOU: el write-time guard bloquea IDs stale cuando la PendingApproval aparece después del matching', async () => {
+    const user = await createTestUser(`h3-guard-toctou-${RUN}@example.com`);
+    const company = await createTestCompany(`H3 Guard TOCTOU ${RUN}`);
+    await createTestCompanyMember(user.id, company.id);
+
+    const gl = await createTestGlAccount({ companyId: company.id, code: '6011', name: 'Expense' });
+    const bankAccount = await createTestBankAccount(company.id, gl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+
+    const tx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-06-15',
+      amount: 100,
+      description: 'TEST EXPENSE TOCTOU',
+    });
+    const importHash = `single-rule-guard-toctou-${RUN}`;
+    await db.bankTransaction.update({ where: { id: tx.id }, data: { importHash } });
+
+    const rule = await createRule(company.id, gl.id);
+
+    // 1: candidate set obtained while NO pending decision exists (stale IDs).
+    const staleIds = [tx.id];
+
+    // 2: PendingApproval appears BEFORE executeSingleRuleClassificationApply.
+    await createPendingAiProposal(importHash);
+
+    const { executeSingleRuleClassificationApply } = await import(
+      '@/lib/services/single-rule-apply.service'
+    );
+    const result = await db.$transaction((txClient) =>
+      executeSingleRuleClassificationApply(txClient, {
+        companyId: company.id,
+        userId: user.id,
+        rule: {
+          id: rule.id,
+          name: rule.name,
+          glAccountId: rule.glAccountId,
+          debitGlAccountId: rule.debitGlAccountId,
+          creditGlAccountId: rule.creditGlAccountId,
+        },
+        debitIds: [],
+        creditIds: staleIds,
+      }),
+    );
+
+    expect(result.actualMatched).toBe(0);
+    expect(result.acquiredIds).toEqual([]);
+    expect(result.applyRecordId).toBeUndefined();
+
+    const reloadedTx = await db.bankTransaction.findUnique({ where: { id: tx.id } });
+    expect(reloadedTx?.glAccountId).toBeNull();
+    expect(reloadedTx?.matchedRuleId).toBeNull();
+    expect(reloadedTx?.ruleApplyRecordId).toBeNull();
+
+    const approval = await db.pendingApproval.findUniqueOrThrow({
+      where: { id: createdPendingApprovalIds[0]! },
+    });
+    expect(approval.status).toBe('pending');
+  });
+
+  it('§6 positivo: sin PendingApproval pending el single-rule apply sigue clasificando (matched=1)', async () => {
+    const user = await createTestUser(`h3-guard-positive-${RUN}@example.com`);
+    const company = await createTestCompany(`H3 Guard Positive ${RUN}`);
+    await createTestCompanyMember(user.id, company.id);
+    mockGetSessionUserId.mockResolvedValue(user.id);
+
+    const gl = await createTestGlAccount({ companyId: company.id, code: '6012', name: 'Expense' });
+    const bankAccount = await createTestBankAccount(company.id, gl.id);
+    const statement = await createTestBankStatement(company.id, bankAccount.id);
+
+    const tx = await createTestBankTransaction(company.id, statement.id, {
+      date: '2025-06-15',
+      amount: 100,
+      description: 'TEST EXPENSE POSITIVE',
+    });
+    // Same shape as the blocked case: importHash set, but NO pending decision.
+    const importHash = `single-rule-guard-positive-${RUN}`;
+    await db.bankTransaction.update({ where: { id: tx.id }, data: { importHash } });
+
+    const rule = await createRule(company.id, gl.id);
+    const { POST } = await import('../../src/app/api/bank-rules/[id]/route');
+
+    const res = await POST(
+      new NextRequest(`http://localhost/api/bank-rules/${rule.id}?companyId=${company.id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'apply' }),
+      }),
+      { params: Promise.resolve({ id: rule.id }) },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+    expect(body.matched).toBe(1);
+
+    const reloadedTx = await db.bankTransaction.findUnique({ where: { id: tx.id } });
+    expect(reloadedTx?.glAccountId).toBe(gl.id);
+    expect(reloadedTx?.matchedRuleId).toBe(rule.id);
+    expect(reloadedTx?.ruleApplyRecordId).toBeTruthy();
   });
 });

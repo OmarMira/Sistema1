@@ -11,7 +11,7 @@ import { serverT } from '@/lib/server-i18n';
 import { transactionIntentSchema } from '@/lib/constants/transaction-intent';
 import { wildcardExclusionError } from '@/lib/rule-engine/wildcard';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
-import { executeSingleRuleClassificationApply } from '@/lib/services/single-rule-apply.service';
+import { executeSingleRuleClassificationApply, excludePendingHumanDecisions } from '@/lib/services/single-rule-apply.service';
 
 import {
   transactionMatchesRule,
@@ -424,10 +424,17 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   });
   const statementIds = companyStatements.map((s) => s.id);
 
+  // Match-time guard (§6): transactions governed by an ACTIVE pending human
+  // decision never enter the candidate set.
   const unmatchedTransactions = await db.bankTransaction.findMany({
-    where: eligibleForClassificationWhere({
-      statementId: { in: statementIds },
-    }),
+    where: {
+      AND: [
+        eligibleForClassificationWhere({
+          statementId: { in: statementIds },
+        }),
+        await excludePendingHumanDecisions(db),
+      ],
+    },
   });
 
   // Match transactions in memory

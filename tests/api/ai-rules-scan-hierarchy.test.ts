@@ -22,6 +22,13 @@ vi.mock('@/memory/classification-knowledge', () => ({
   lookupTreatment: vi.fn(),
   createAdapter: vi.fn(),
   matchAuthorizedPattern: vi.fn().mockResolvedValue({ kind: 'no_match' as const }),
+  // GAP3-6: contract-complete mock for the new advisory stats consumer.
+  getClassificationEvidenceStats: vi.fn().mockResolvedValue({
+    totalObservations: 0,
+    matchingTreatmentObservations: 0,
+    conflictingTreatmentObservations: 0,
+    supportRatio: 0,
+  }),
 }));
 
 import { resolveEntity } from '@/memory/entity-resolution';

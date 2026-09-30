@@ -4,27 +4,54 @@ import {
   suggestGlAccount,
   majorityDirection,
   enrichCandidates,
+  buildScanPattern,
 } from '@/lib/services/entity-enricher';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import type { EntityContextWithGlAccount } from '@/lib/types/entity-context';
 import type { EntityCandidate } from '@/lib/services/entity-detector';
-import type { EnrichmentInput, EnrichedCandidate } from '@/lib/services/entity-enricher';
+import type { EnrichmentInput, EnrichedCandidate, ScanEntry } from '@/lib/services/entity-enricher';
 
 // ─── Mocks for KE modules ──────────────────────────────────────────
 const mockResolveEntity = vi.fn();
 const mockLookupTreatment = vi.fn();
-const mockCreateAdapter = vi.fn(() => ({ getByType: vi.fn() }));
 const mockMatchAuthorizedPattern = vi.fn().mockResolvedValue({ kind: 'no_match' } as const);
+
+// GAP3-3: observation store backing the REAL getClassificationEvidenceStats.
+// The adapter contract mirrors the production repository: getByType filters
+// by companyId + type; entity/direction filtering happens inside the real
+// stats function — so isolation tests exercise the certified GAP3-2 logic.
+interface StoredObservation {
+  id: string;
+  content: string;
+  type: string;
+  status: string;
+  companyId: string;
+}
+let observationStore: StoredObservation[] = [];
+const mockAdapterCreate = vi.fn();
+const mockGetByType = vi.fn(async (companyId: string, type: string) =>
+  observationStore.filter((item) => item.companyId === companyId && item.type === type),
+);
+const mockCreateAdapter = vi.fn(() => ({
+  getByType: mockGetByType,
+  create: mockAdapterCreate,
+}));
 
 vi.mock('@/memory/entity-resolution', () => ({
   resolveEntity: (...args: unknown[]) => mockResolveEntity(...args),
 }));
 
-vi.mock('@/memory/classification-knowledge', () => ({
-  createAdapter: (...args: unknown[]) => mockCreateAdapter(...args),
-  lookupTreatment: (...args: unknown[]) => mockLookupTreatment(...args),
-  matchAuthorizedPattern: (...args: unknown[]) => mockMatchAuthorizedPattern(...args),
-}));
+vi.mock('@/memory/classification-knowledge', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/memory/classification-knowledge')>();
+  return {
+    createAdapter: (...args: unknown[]) => mockCreateAdapter(...args),
+    lookupTreatment: (...args: unknown[]) => mockLookupTreatment(...args),
+    matchAuthorizedPattern: (...args: unknown[]) => mockMatchAuthorizedPattern(...args),
+    // GAP3-3: stats run the REAL certified implementation (GAP3-2), never a stub,
+    // so accumulation/isolation properties are proven end-to-end here.
+    getClassificationEvidenceStats: actual.getClassificationEvidenceStats,
+  };
+});
 
 // ─── Shared test data ─────────────────────────────────────────────
 
@@ -538,5 +565,309 @@ describe('enrichCandidates — uncertaintyReasons channel (KE-EVOL-003)', () => 
 
     expect(input.prismaClient.$transaction).not.toHaveBeenCalled();
     expect(result[0]!.suggestedAccountId).toBe('gla_1');
+  });
+});
+
+// ─── GAP3-3: accumulated evidence stats as advisory consumer ─────────
+// Uses the REAL getClassificationEvidenceStats (importOriginal above) over a
+// contract-faithful adapter mock — accumulation/isolation are not stubbed.
+
+describe('GAP3-3 — accumulated evidence stats advisory consumer', () => {
+  let input: EnrichmentInput;
+
+  function seedObservation(
+    companyId: string,
+    entityId: string,
+    glAccountId: string,
+    direction: 'debit' | 'credit' | 'any',
+    count: number,
+  ) {
+    for (let i = 0; i < count; i++) {
+      observationStore.push({
+        id: `obs_${observationStore.length + 1}`,
+        type: 'classification_observation',
+        status: 'active',
+        companyId,
+        content: JSON.stringify({
+          entityId,
+          originalDescription: `OBSERVATION ${i} FOR ${entityId}`,
+          glAccountId,
+          direction,
+          source: 'user_correction',
+          transactionId: `tx_${observationStore.length + 1}`,
+        }),
+      });
+    }
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    observationStore = [];
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
+    mockMatchAuthorizedPattern.mockResolvedValue({ kind: 'no_match' });
+    input = {
+      companyId: 'comp_1',
+      prismaClient: { $transaction: vi.fn() } as { $transaction: typeof vi.fn; [key: string]: unknown } & Record<string, unknown>,
+      contexts: [mockContextProveedor],
+      glAccounts: mockGlAccounts,
+      rolePriorities: { PROVEEDOR: 1 },
+    };
+  });
+
+  function candidate() {
+    return makeCandidate({ canonicalName: 'ACME CORP' });
+  }
+
+  function descriptions() {
+    return new Map([['acme corp', 'Zelle payment to ACME CORP']]);
+  }
+
+  function foundExactTreatment() {
+    mockLookupTreatment.mockResolvedValue({
+      status: 'FOUND', glAccountId: 'gla_1', direction: 'any', confidence: 'certain', memoryItemId: 'mem_1',
+    });
+  }
+
+  // T1: exact treatment + 3/3 compatible observations → 3/3/0/1, no historical reason
+  it('T1: exact treatment 3/3 compatible → evidenceStats 3/3/0/1, no historical uncertaintyReason', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 3);
+    foundExactTreatment();
+
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result).toHaveLength(1);
+    const enriched = result[0]!;
+    expect(enriched.evidenceStats).toEqual({
+      totalObservations: 3,
+      matchingTreatmentObservations: 3,
+      conflictingTreatmentObservations: 0,
+      supportRatio: 1,
+    });
+    // conflicting = 0 → no historical evidence reason
+    expect(enriched.uncertaintyReasons).toBeUndefined();
+  });
+
+  // T2: 2 compatible + 1 contradictory → 3/2/1/2÷3 + exact reason string
+  it('T2: 2 compatible + 1 conflict → 3/2/1/2÷3 and exact historical reason', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 2);
+    seedObservation('comp_1', 'ent_1', 'gla_2', 'any', 1);
+    foundExactTreatment();
+
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    const enriched = result[0]!;
+    expect(enriched.evidenceStats).toEqual({
+      totalObservations: 3,
+      matchingTreatmentObservations: 2,
+      conflictingTreatmentObservations: 1,
+      supportRatio: 2 / 3,
+    });
+    expect(enriched.uncertaintyReasons).toContain(
+      'Historical evidence: 2/3 observations support this treatment; 1 conflict.',
+    );
+    expect(enriched.uncertaintyReasons).toHaveLength(1);
+  });
+
+  // T3: 1 compatible + 2 contradictory → 1/3 and plural format
+  it('T3: 1 compatible + 2 conflicts → 1/3 and reason with "2 conflicts"', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 1);
+    seedObservation('comp_1', 'ent_1', 'gla_2', 'any', 2);
+    foundExactTreatment();
+
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    const enriched = result[0]!;
+    expect(enriched.evidenceStats).toEqual({
+      totalObservations: 3,
+      matchingTreatmentObservations: 1,
+      conflictingTreatmentObservations: 2,
+      supportRatio: 1 / 3,
+    });
+    expect(enriched.uncertaintyReasons).toContain(
+      'Historical evidence: 1/3 observations support this treatment; 2 conflicts.',
+    );
+  });
+
+  // T4: observations of another companyId do not participate
+  it('T4: observations of another companyId do not participate', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 1);
+    seedObservation('comp_2', 'ent_1', 'gla_2', 'any', 3);
+    foundExactTreatment();
+
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result[0]!.evidenceStats).toEqual({
+      totalObservations: 1,
+      matchingTreatmentObservations: 1,
+      conflictingTreatmentObservations: 0,
+      supportRatio: 1,
+    });
+    expect(result[0]!.uncertaintyReasons).toBeUndefined();
+  });
+
+  // T5: observations of another entityId do not participate
+  it('T5: observations of another entityId do not participate', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 1);
+    seedObservation('comp_1', 'ent_2', 'gla_2', 'any', 5);
+    foundExactTreatment();
+
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result[0]!.evidenceStats).toEqual({
+      totalObservations: 1,
+      matchingTreatmentObservations: 1,
+      conflictingTreatmentObservations: 0,
+      supportRatio: 1,
+    });
+  });
+
+  // T6: another direction counts as conflict (per getClassificationEvidenceStats)
+  it('T6: another direction counts as conflict', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'debit', 1);
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'credit', 2);
+    mockLookupTreatment.mockResolvedValue({
+      status: 'FOUND', glAccountId: 'gla_1', direction: 'debit', confidence: 'certain', memoryItemId: 'mem_1',
+    });
+
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result[0]!.evidenceStats).toEqual({
+      totalObservations: 3,
+      matchingTreatmentObservations: 1,
+      conflictingTreatmentObservations: 2,
+      supportRatio: 1 / 3,
+    });
+    expect(result[0]!.uncertaintyReasons).toContain(
+      'Historical evidence: 1/3 observations support this treatment; 2 conflicts.',
+    );
+  });
+
+  // T7: structural match propagates stats via structural.entityId/glAccountId/direction
+  it('T7: structural match propagates evidenceStats', async () => {
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
+    mockMatchAuthorizedPattern.mockResolvedValue({
+      kind: 'match', authorizedPatternId: 'apt_1', matchedPatternIds: ['apt_1'],
+      entityId: 'ent_1', glAccountId: 'gla_1', direction: 'any',
+      sourceCandidateId: 'can_1', observationIds: ['o1'], confidence: 'certain',
+    });
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 2);
+    seedObservation('comp_1', 'ent_1', 'gla_2', 'any', 1);
+
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    const enriched = result[0]!;
+    expect(enriched.suggestedAccountId).toBe('gla_1');
+    expect(enriched.evidenceStats).toEqual({
+      totalObservations: 3,
+      matchingTreatmentObservations: 2,
+      conflictingTreatmentObservations: 1,
+      supportRatio: 2 / 3,
+    });
+    expect(enriched.uncertaintyReasons).toContain(
+      'Historical evidence: 2/3 observations support this treatment; 1 conflict.',
+    );
+  });
+
+  // T8: without knowledge match → evidenceStats stays undefined
+  it('T8: no knowledge match → evidenceStats undefined (UNKNOWN / no_match / ambiguous)', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 3);
+
+    // (a) entity UNKNOWN
+    mockResolveEntity.mockResolvedValue({ status: 'UNKNOWN' });
+    let result = await enrichCandidates([candidate()], descriptions(), input);
+    expect(result[0]!.evidenceStats).toBeUndefined();
+
+    // (b) treatment NOT_FOUND + structural no_match
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    mockLookupTreatment.mockResolvedValue({ status: 'NOT_FOUND' });
+    mockMatchAuthorizedPattern.mockResolvedValue({ kind: 'no_match' });
+    result = await enrichCandidates([candidate()], descriptions(), input);
+    expect(result[0]!.evidenceStats).toBeUndefined();
+
+    // (c) structural ambiguous
+    mockMatchAuthorizedPattern.mockResolvedValue({ kind: 'ambiguous', matchedPatternIds: ['a', 'b'] });
+    result = await enrichCandidates([candidate()], descriptions(), input);
+    expect(result[0]!.evidenceStats).toBeUndefined();
+  });
+
+  // T9: buildScanPattern preserves evidenceStats
+  it('T9: buildScanPattern preserves evidenceStats', () => {
+    const evidenceStats = {
+      totalObservations: 3,
+      matchingTreatmentObservations: 2,
+      conflictingTreatmentObservations: 1,
+      supportRatio: 2 / 3,
+    };
+    const enriched: EnrichedCandidate = {
+      ...makeCandidate(),
+      hasContext: true,
+      contextRole: 'PROVEEDOR',
+      suggestedAccountName: 'Costo de Ventas',
+      suggestedAccountCode: '6070',
+      suggestedAccountId: 'gla_1',
+      confidence: 0.85,
+      confidenceLabel: 'high',
+      explanation: 'entity context',
+      directionWarning: null,
+      evidenceStats,
+    };
+    const entry: ScanEntry = {
+      count: 2,
+      sample: 'Zelle payment to ACME CORP',
+      totalAmount: 100,
+      debitCount: 2,
+      creditCount: 0,
+    };
+
+    const scan = buildScanPattern(enriched, 'acme corp', entry);
+    expect(scan.evidenceStats).toEqual(evidenceStats);
+    expect(scan.evidenceStats).toBe(evidenceStats);
+  });
+
+  // T10: numeric confidence does NOT change because of evidenceStats
+  it('T10: numeric confidence unchanged by evidenceStats (same inputs, history differs)', async () => {
+    // Run A: no historical observations
+    mockResolveEntity.mockResolvedValue({ status: 'KNOWN', entityId: 'ent_1' });
+    foundExactTreatment();
+    const runA = await enrichCandidates([candidate()], descriptions(), input);
+
+    // Run B: same candidate/context/inputs, history with conflicts
+    observationStore = [];
+    seedObservation('comp_1', 'ent_1', 'gla_2', 'any', 3);
+    const runB = await enrichCandidates([candidate()], descriptions(), input);
+
+    // Numeric confidence and label are identical (context/direction/occurrence driven only)
+    expect(runA[0]!.confidence).toBe(runB[0]!.confidence);
+    expect(runA[0]!.confidence).toBe(0.85);
+    expect(runA[0]!.confidenceLabel).toBe(runB[0]!.confidenceLabel);
+    expect(runA[0]!.confidenceLabel).toBe('high');
+
+    // History is still visible through the advisory channels
+    expect(runA[0]!.evidenceStats!.totalObservations).toBe(0);
+    expect(runB[0]!.evidenceStats!.totalObservations).toBe(3);
+    expect(runB[0]!.evidenceStats!.conflictingTreatmentObservations).toBe(3);
+    expect(runB[0]!.uncertaintyReasons).toContain(
+      'Historical evidence: 0/3 observations support this treatment; 3 conflicts.',
+    );
+    expect(runA[0]!.uncertaintyReasons).toBeUndefined();
+  });
+
+  // T11: consulting stats from entity-enricher writes nothing
+  it('T11: querying stats from the enricher writes nothing', async () => {
+    seedObservation('comp_1', 'ent_1', 'gla_1', 'any', 2);
+    seedObservation('comp_1', 'ent_1', 'gla_2', 'any', 1);
+    foundExactTreatment();
+
+    const storeSizeBefore = observationStore.length;
+    const result = await enrichCandidates([candidate()], descriptions(), input);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]!.evidenceStats!.totalObservations).toBe(3);
+    // No adapter write path was touched and no DB transaction ran
+    expect(mockAdapterCreate).not.toHaveBeenCalled();
+    expect(mockGetByType).toHaveBeenCalled();
+    expect(input.prismaClient.$transaction).not.toHaveBeenCalled();
+    expect(observationStore.length).toBe(storeSizeBefore);
   });
 });

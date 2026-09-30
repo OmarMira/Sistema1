@@ -58,6 +58,14 @@ vi.mock('@/memory/classification-knowledge', () => ({
     return treatmentMap[entityId] ?? { status: 'NOT_FOUND' };
   }),
   matchAuthorizedPattern: vi.fn().mockResolvedValue({ kind: 'no_match' as const }),
+  // GAP3-6: contract-complete mock for the new advisory stats consumer.
+  // Zero stats = no historical conflicts, so the scan shape is unchanged.
+  getClassificationEvidenceStats: vi.fn().mockResolvedValue({
+    totalObservations: 0,
+    matchingTreatmentObservations: 0,
+    conflictingTreatmentObservations: 0,
+    supportRatio: 0,
+  }),
 }));
 
 // ─── Imports after mocks ──────────────────────────────────────────────

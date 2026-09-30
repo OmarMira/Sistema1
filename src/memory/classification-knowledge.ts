@@ -504,6 +504,86 @@ export async function getClassificationObservations(
   }
 }
 
+// ─── Cumulative Evidence Stats (GAP3-2) ─────────────────────────
+//
+// Canonical, deterministic, tenant-scoped statistics derived from the
+// already-persisted classification_observation collection.
+//
+// READ-ONLY: this function never writes any MemoryItem, MemoryVersion,
+// ConfidenceLog, or TraceabilityLog. It stores no counters — the source
+// of truth remains the persisted observation collection, so every new
+// observation alters a subsequent result automatically.
+//
+// NO POLICY: it does not classify, authorize, promote confidence,
+// create rules, or call any AI. It only returns accumulated evidence.
+// Compatible repetition NEVER changes MemoryItem.confidence by itself.
+
+/** Cumulative evidence statistics for one exact observation group. */
+export interface ClassificationEvidenceStats {
+  /** All active observations for entityId within companyId. */
+  totalObservations: number;
+  /** Observations whose glAccountId AND direction exactly match the request. */
+  matchingTreatmentObservations: number;
+  /** totalObservations - matchingTreatmentObservations. */
+  conflictingTreatmentObservations: number;
+  /** matchingTreatmentObservations / totalObservations; 0 when total is 0. Never rounded. */
+  supportRatio: number;
+}
+
+/**
+ * Compute cumulative evidence statistics over persisted classification
+ * observations.
+ *
+ * Group identity is an exact tuple: companyId + entityId + glAccountId +
+ * direction. No fuzzy matching, no equivalences, no inference.
+ *
+ * Tenant isolation: observations of another company never participate.
+ * Entity isolation: observations of another entityId never participate.
+ * Active-only: superseded observations are excluded (existing MemoryAdapter
+ * getByType semantics).
+ *
+ * @param adapter   Memory adapter (real or test adapter).
+ * @param companyId Owning company.
+ * @param entityId  Entity whose evidence is measured.
+ * @param glAccountId  Requested treatment GL account (exact match).
+ * @param direction Requested treatment direction (exact match: 'debit' | 'credit' | 'any').
+ */
+export async function getClassificationEvidenceStats(
+  adapter: MemoryAdapter,
+  companyId: string,
+  entityId: string,
+  glAccountId: string,
+  direction: 'debit' | 'credit' | 'any'
+): Promise<ClassificationEvidenceStats> {
+  const empty: ClassificationEvidenceStats = {
+    totalObservations: 0,
+    matchingTreatmentObservations: 0,
+    conflictingTreatmentObservations: 0,
+    supportRatio: 0,
+  };
+
+  if (!companyId || !entityId || !glAccountId) return empty;
+  if (direction !== 'debit' && direction !== 'credit' && direction !== 'any') return empty;
+
+  // Tenant + entity scoped, active-only (existing read path).
+  const observations = await getClassificationObservations(adapter, companyId, entityId);
+
+  let matching = 0;
+  for (const observation of observations) {
+    if (observation.glAccountId === glAccountId && observation.direction === direction) {
+      matching += 1;
+    }
+  }
+
+  const total = observations.length;
+  return {
+    totalObservations: total,
+    matchingTreatmentObservations: matching,
+    conflictingTreatmentObservations: total - matching,
+    supportRatio: total > 0 ? matching / total : 0,
+  };
+}
+
 // ─── Structural Candidates (GENERALIZACIÓN-003) ──────────────────
 //
 // Engine logic, NOT business knowledge. The algorithm below discovers

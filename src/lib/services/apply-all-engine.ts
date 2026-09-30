@@ -62,6 +62,52 @@ function toRuleRecord(rule: {
 // ─── Constants ──────────────────────────────────────────────
 export const MAX_PER_BATCH = 200;
 
+// ─── Pending human-decision guard (E2E Decision-Learning Loop §2) ──────
+//
+// A BankTransaction governed by an ACTIVE human decision must never be
+// classified by Apply-All. The governing decision is a PendingApproval row
+// with action='ai_classification_proposal' and status='pending'; it
+// references the transaction through payload.transactionId, whose real
+// value is BankTransaction.importHash (documented in
+// ai-proposal-approval.service: "payload.transactionId interpreted as
+// BankTransaction.importHash"). Resolved approvals (accepted/corrected/
+// rejected/...) never exclude — only the still-pending decision does.
+
+const PENDING_HUMAN_DECISION_ACTION = 'ai_classification_proposal';
+const PENDING_HUMAN_DECISION_STATUS = 'pending';
+
+async function loadPendingHumanDecisionImportHashes(
+  executor: Pick<typeof db, 'pendingApproval'>,
+): Promise<string[]> {
+  const rows = await executor.pendingApproval.findMany({
+    where: {
+      action: PENDING_HUMAN_DECISION_ACTION,
+      status: PENDING_HUMAN_DECISION_STATUS,
+    },
+    select: { payload: true },
+  });
+
+  const hashes: string[] = [];
+  for (const row of rows) {
+    const txId = (row.payload as { transactionId?: unknown } | null)?.transactionId;
+    if (typeof txId === 'string' && txId.length > 0) {
+      hashes.push(txId);
+    }
+  }
+  return hashes;
+}
+
+function withoutPendingHumanDecision(
+  pendingImportHashes: string[],
+): Prisma.BankTransactionWhereInput {
+  if (pendingImportHashes.length === 0) return {};
+  // importHash is nullable (NULL for non-imported rows) — those rows keep
+  // flowing, so the NULL case is matched explicitly alongside notIn.
+  return {
+    OR: [{ importHash: null }, { importHash: { notIn: pendingImportHashes } }],
+  };
+}
+
 // ─── Types ──────────────────────────────────────────────────
 
 export interface AmbiguousTxEntry {
@@ -175,10 +221,20 @@ async function executeMatching(
     companyStatements.map((s) => [s.id, s.bankAccountId]),
   );
 
+  // MATCH-TIME GUARD: rows governed by a still-pending human decision are
+  // never proposed as candidates.
+  const pendingHumanDecisionHashes =
+    await loadPendingHumanDecisionImportHashes(db);
+
   let unmatchedTransactions = await db.bankTransaction.findMany({
-    where: eligibleForClassificationWhere({
-      statementId: { in: statementIds },
-    }),
+    where: {
+      AND: [
+        eligibleForClassificationWhere({
+          statementId: { in: statementIds },
+        }),
+        withoutPendingHumanDecision(pendingHumanDecisionHashes),
+      ],
+    },
   });
 
   const totalUnmatched = unmatchedTransactions.length;
@@ -384,10 +440,22 @@ export async function executeApplyAll(
   }
 
   const allTxIds = matchResult.matchedRules.flatMap((r) => r.txIds);
+
+  // WRITE-TIME GUARD: a PendingApproval pending can appear between
+  // matchTransactions() and executeApplyAll() (TOCTOU). Re-read the
+  // governing decisions inside the apply transaction so a stale MatchResult
+  // can never classify a row that now awaits a human decision.
+  const pendingHumanDecisionHashes =
+    await loadPendingHumanDecisionImportHashes(tx);
+  const writeGuard = (base: Prisma.BankTransactionWhereInput): Prisma.BankTransactionWhereInput =>
+    pendingHumanDecisionHashes.length === 0
+      ? base
+      : { AND: [base, withoutPendingHumanDecision(pendingHumanDecisionHashes)] };
+
   const stillUnmatched = await tx.bankTransaction.findMany({
-    where: eligibleForClassificationWhere({
+    where: writeGuard(eligibleForClassificationWhere({
       id: { in: allTxIds },
-    }),
+    })),
     select: { id: true },
   });
   const unmatchedSet = new Set(stillUnmatched.map((t: any) => t.id));
@@ -427,7 +495,7 @@ export async function executeApplyAll(
 
     if (debitIds.length > 0) {
       const updatedRows = await tx.bankTransaction.updateManyAndReturn({
-        where: eligibleForClassificationWhere({ id: { in: debitIds } }),
+        where: writeGuard(eligibleForClassificationWhere({ id: { in: debitIds } })),
         data: { glAccountId: debitGlAccountId, matchedRuleId: rule.id },
         select: { id: true },
       });
@@ -437,7 +505,7 @@ export async function executeApplyAll(
 
     if (creditIds.length > 0) {
       const updatedRows = await tx.bankTransaction.updateManyAndReturn({
-        where: eligibleForClassificationWhere({ id: { in: creditIds } }),
+        where: writeGuard(eligibleForClassificationWhere({ id: { in: creditIds } })),
         data: { glAccountId: creditGlAccountId, matchedRuleId: rule.id },
         select: { id: true },
       });

@@ -1,6 +1,67 @@
 import crypto from 'crypto';
+import type { Prisma } from '@prisma/client';
+import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
+
+// ─── Pending human-decision guard (E2E Decision-Learning Loop §6) ──────
+//
+// Same contract as the Apply-All guard (§2): a BankTransaction governed by an
+// ACTIVE human decision must never be classified by single-rule apply. The
+// governing decision is a PendingApproval row with
+// action='ai_classification_proposal' and status='pending'; it references the
+// transaction through payload.transactionId, whose real value is
+// BankTransaction.importHash (documented in ai-proposal-approval.service).
+// Resolved approvals (accepted/corrected/rejected/...) never exclude — only
+// the still-pending decision does.
+
+const PENDING_HUMAN_DECISION_ACTION = 'ai_classification_proposal';
+const PENDING_HUMAN_DECISION_STATUS = 'pending';
+
+async function loadPendingHumanDecisionImportHashes(
+  executor: Pick<typeof db, 'pendingApproval'>,
+): Promise<string[]> {
+  const rows = await executor.pendingApproval.findMany({
+    where: {
+      action: PENDING_HUMAN_DECISION_ACTION,
+      status: PENDING_HUMAN_DECISION_STATUS,
+    },
+    select: { payload: true },
+  });
+
+  const hashes: string[] = [];
+  for (const row of rows) {
+    const txId = (row.payload as { transactionId?: unknown } | null)?.transactionId;
+    if (typeof txId === 'string' && txId.length > 0) {
+      hashes.push(txId);
+    }
+  }
+  return hashes;
+}
+
+function withoutPendingHumanDecision(
+  pendingImportHashes: string[],
+): Prisma.BankTransactionWhereInput {
+  if (pendingImportHashes.length === 0) return {};
+  // importHash is nullable (NULL for non-imported rows) — those rows keep
+  // flowing, so the NULL case is matched explicitly alongside notIn.
+  return {
+    OR: [{ importHash: null }, { importHash: { notIn: pendingImportHashes } }],
+  };
+}
+
+/**
+ * Match-time exclusion for the POST /api/bank-rules/[id] action=apply load:
+ * a WhereInput fragment that keeps only transactions NOT governed by an
+ * ACTIVE pending human decision (or by no decision at all).
+ */
+export async function excludePendingHumanDecisions(
+  executor: Pick<typeof db, 'pendingApproval'>,
+): Promise<Prisma.BankTransactionWhereInput> {
+  return withoutPendingHumanDecision(
+    await loadPendingHumanDecisionImportHashes(executor),
+  );
+}
 
 export interface SingleRuleApplyInput {
   companyId: string;
@@ -39,10 +100,22 @@ export async function executeSingleRuleClassificationApply(
   let actualMatched = 0;
   const acquiredIds: string[] = [];
 
+  // Write-time guard (§6): re-read ACTIVE human decisions inside THIS same
+  // transaction before any write — a PendingApproval may have appeared after
+  // the route's match-time load, so the candidate IDs can be stale.
+  const pendingHumanDecision = withoutPendingHumanDecision(
+    await loadPendingHumanDecisionImportHashes(tx),
+  );
+
   if (debitIds.length > 0) {
     const debitAccountId = rule.debitGlAccountId || rule.glAccountId;
     const updatedRows = await tx.bankTransaction.updateManyAndReturn({
-      where: eligibleForClassificationWhere({ id: { in: debitIds } }),
+      where: {
+        AND: [
+          eligibleForClassificationWhere({ id: { in: debitIds } }),
+          pendingHumanDecision,
+        ],
+      },
       data: { glAccountId: debitAccountId, matchedRuleId: rule.id },
       select: { id: true },
     });
@@ -53,7 +126,12 @@ export async function executeSingleRuleClassificationApply(
   if (creditIds.length > 0) {
     const creditAccountId = rule.creditGlAccountId || rule.glAccountId;
     const updatedRows = await tx.bankTransaction.updateManyAndReturn({
-      where: eligibleForClassificationWhere({ id: { in: creditIds } }),
+      where: {
+        AND: [
+          eligibleForClassificationWhere({ id: { in: creditIds } }),
+          pendingHumanDecision,
+        ],
+      },
       data: { glAccountId: creditAccountId, matchedRuleId: rule.id },
       select: { id: true },
     });

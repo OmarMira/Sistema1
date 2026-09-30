@@ -6,6 +6,7 @@ const mockDb = vi.hoisted(() => ({
   bankStatement: { findMany: vi.fn() },
   bankTransaction: { findMany: vi.fn() },
   entityContext: { findMany: vi.fn() },
+  pendingApproval: { findMany: vi.fn() },
 }));
 
 vi.mock('@/lib/db', () => ({ db: mockDb }));
@@ -121,6 +122,7 @@ describe('Apply All legacy baseline — matchTransactions', () => {
     mockDb.bankStatement.findMany.mockResolvedValue([{ id: 'stmt-1', bankAccountId: 'ba-001' }]);
     mockDb.bankTransaction.findMany.mockResolvedValue(TRANSACTIONS);
     mockDb.entityContext.findMany.mockResolvedValue([]);
+    mockDb.pendingApproval.findMany.mockResolvedValue([]);
   });
 
   it('baseline: debit transaction matches correct rule', async () => {

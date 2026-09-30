@@ -6,6 +6,7 @@ const mockDb = vi.hoisted(() => ({
   bankStatement: { findMany: vi.fn() },
   bankTransaction: { findMany: vi.fn() },
   entityContext: { findMany: vi.fn() },
+  pendingApproval: { findMany: vi.fn() },
 }));
 
 const mockEvaluate = vi.hoisted(() => ({ fn: vi.fn() }));
@@ -134,6 +135,7 @@ describe('matchTransactions with adapter flag ON', () => {
     ]);
     mockDb.bankTransaction.findMany.mockResolvedValue(TRANSACTIONS);
     mockDb.entityContext.findMany.mockResolvedValue([]);
+    mockDb.pendingApproval.findMany.mockResolvedValue([]);
   });
 
   it('calls the canonical adapter path with a real bankAccountId', async () => {

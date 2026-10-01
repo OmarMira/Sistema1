@@ -1,6 +1,8 @@
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { logger } from '@/lib/logger';
+import { createAdapter, recordEntityRoleKnowledge } from '@/memory/classification-knowledge';
 import type { PaginatedResult, UpdateEntityInput, BulkDeleteInput, EntityContextWithGlAccount } from '@/lib/types/entity-context';
 
 export async function listEntityContexts(
@@ -53,6 +55,7 @@ export async function updateEntityContext(
   companyId: string,
   id: string,
   input: UpdateEntityInput,
+  actor?: string,
 ): Promise<EntityContextWithGlAccount | null> {
   // Verify entity exists and belongs to company
   const existing = await db.entityContext.findFirst({
@@ -77,6 +80,48 @@ export async function updateEntityContext(
       transactionDirection: input.transactionDirection === null ? null : input.transactionDirection,
     },
   });
+
+  // §GAP8-2C MINIMAL ROLE MEMORY BRIDGE: every human role confirmation is
+  // written to BOTH the operational projection (above) and the KE memory
+  // lifecycle (below). The projection is already committed here — the bridge
+  // is best-effort and must never fail the PATCH (PASO 8 authority split:
+  // EntityContext stays the reader-facing projection; memory holds
+  // provenance/confidence/conflict/history).
+  if (input.role !== undefined || input.roles !== undefined) {
+    const roleChanged =
+      input.role !== undefined && input.role.toUpperCase() !== existing.role.toUpperCase();
+    try {
+      const bridge = await recordEntityRoleKnowledge(
+        createAdapter(db, (fn) => db.$transaction(fn)),
+        companyId,
+        {
+          entityContextId: updated.id,
+          pattern: updated.pattern,
+          entityId: null,
+          role: updated.role,
+          roles: updated.roles ? (JSON.parse(updated.roles) as string[]) : null,
+          source: roleChanged ? 'correction' : 'user_confirmed',
+          actor,
+          ...(roleChanged
+            ? { reason: `role change: ${existing.role} -> ${updated.role}` }
+            : {}),
+        },
+      );
+      if (bridge.status === 'ERROR') {
+        logger.info('[ROLE MEMORY BRIDGE FAILED]', {
+          companyId,
+          id,
+          error: bridge.error,
+        });
+      }
+    } catch (error) {
+      logger.info('[ROLE MEMORY BRIDGE FAILED]', {
+        companyId,
+        id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 
   return updated as EntityContextWithGlAccount;
 }

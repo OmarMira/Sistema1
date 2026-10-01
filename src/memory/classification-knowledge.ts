@@ -6,6 +6,7 @@
 import type { ConfidenceLevel } from '@prisma/client';
 import { MemoryAdapter } from './adapter';
 import type { MemoryPrismaClient, TransactionRunner } from './prisma-types';
+import { EXPECTED_DIRECTION } from '@/lib/constants/entity-roles';
 
 // ─── Content format ─────────────────────────────────────────────
 
@@ -632,11 +633,573 @@ export async function getRuleExecutionEvidence(
   }
 }
 
+// ─── §GAP8-2C: Entity Role <-> Treatment Memory Bridge ─────────────
+//
+// ROLE <-> treatment unification under the SHARED memory policy: human role
+// confirmations flow into the SAME KE MemoryItem lifecycle used by
+// treatments (provenance, C11 confidence, contradiction, reuse) while
+// EntityContext remains the operational projection.
+//
+// PASO 8 authority split (SPLIT_WITH_DEFINED_AUTHORITY):
+//   - MemoryItem  = lifecycle authority (provenance/confidence/conflict/history)
+//   - EntityContext = reader-facing projection (enrichment/rules/UI), unchanged
+// Every human confirmation writes BOTH (projection first, bridge after).
+//
+// C11 is UNCHANGED: confidence moves only via human_confirmation |
+// deterministic_conflict | human_rehabilitation. Repetition never promotes.
+
+export const ROLE_KNOWLEDGE_TYPE = 'entity_role_knowledge';
+
+/** Provenance of what produced a role claim. */
+export type EntityRoleKnowledgeSource = 'user_confirmed' | 'correction' | 'system_suggested';
+
+/** Persisted claim content (MemoryItem.content JSON). */
+export interface EntityRoleKnowledgeContent {
+  companyId: string;
+  /** EntityContext.id the claim is anchored to (projection row may later be deleted). */
+  entityContextId: string;
+  pattern: string;
+  /** CompanyKnowledge.id when known (advisory reference, never required). */
+  entityId: string | null;
+  role: string;
+  roles: string[] | null;
+  source: EntityRoleKnowledgeSource;
+  actor?: string;
+  reason?: string;
+  transactionId?: string;
+  detectedAt: string;
+}
+
+export interface EntityRoleKnowledgeRecord {
+  itemId: string;
+  content: EntityRoleKnowledgeContent;
+  confidence: ConfidenceLevel;
+  status: string;
+  sourceObservedAt: Date | null;
+}
+
+export interface RecordRoleKnowledgeInput {
+  entityContextId: string;
+  pattern: string;
+  entityId?: string | null;
+  role: string;
+  roles?: string[] | null;
+  source: EntityRoleKnowledgeSource;
+  actor?: string;
+  reason?: string;
+  transactionId?: string;
+}
+
+export type RecordRoleKnowledgeResult =
+  | {
+      status: 'CREATED' | 'PROMOTED' | 'UNCHANGED';
+      claimId: string;
+      confidence: ConfidenceLevel;
+      conflictId?: string;
+      conflictResolved: boolean;
+    }
+  | { status: 'ERROR'; error: string };
+
+export const ROLE_CONFLICT_TYPE = 'entity_role_conflict';
+
+/** Persisted role conflict evidence (MemoryItem.content JSON). */
+export interface EntityRoleConflictContent {
+  companyId: string;
+  kind: 'ROLE_DIRECTION_CONFLICT';
+  entityContextId: string;
+  pattern: string;
+  priorClaimId: string;
+  priorRole: string;
+  priorDirection: 'credit' | 'debit' | 'mixed' | null;
+  newClaimId: string;
+  newRole: string;
+  newDirection: 'credit' | 'debit' | 'mixed' | null;
+  source: EntityRoleKnowledgeSource;
+  actor?: string;
+  reason?: string;
+  detectedAt: string;
+}
+
+export interface RoleConflictRecord {
+  itemId: string;
+  content: EntityRoleConflictContent;
+}
+
+/** Deterministic domain direction for a role (null for custom/unknown roles). */
+function roleExpectedDirection(role: string): 'credit' | 'debit' | 'mixed' | null {
+  const map = EXPECTED_DIRECTION as Record<
+    string,
+    'credit' | 'debit' | 'mixed' | null | undefined
+  >;
+  return map[role.toUpperCase()] ?? null;
+}
+
+/**
+ * PASO 10 contradiction semantics (deterministic, domain-map based):
+ * two roles conflict only when BOTH map to concrete, DIFFERENT directions
+ * ('credit' vs 'debit'). 'mixed' (SOCIO), null (OTRO/IGNORADA/custom) and
+ * coexisting roles never conflict.
+ */
+function rolesConflict(roleA: string, roleB: string): boolean {
+  const dirA = roleExpectedDirection(roleA);
+  const dirB = roleExpectedDirection(roleB);
+  if (!dirA || !dirB) return false;
+  if (dirA === 'mixed' || dirB === 'mixed') return false;
+  return dirA !== dirB;
+}
+
+function isValidEntityRoleKnowledgeContent(
+  content: unknown,
+): content is EntityRoleKnowledgeContent {
+  if (!isRecord(content)) return false;
+  return (
+    typeof content.companyId === 'string' &&
+    content.companyId !== '' &&
+    typeof content.entityContextId === 'string' &&
+    content.entityContextId !== '' &&
+    typeof content.pattern === 'string' &&
+    content.pattern !== '' &&
+    (content.entityId === null || typeof content.entityId === 'string') &&
+    typeof content.role === 'string' &&
+    content.role !== '' &&
+    (content.roles === null || Array.isArray(content.roles)) &&
+    (content.source === 'user_confirmed' ||
+      content.source === 'correction' ||
+      content.source === 'system_suggested') &&
+    typeof content.detectedAt === 'string'
+  );
+}
+
+function isValidEntityRoleConflictContent(
+  content: unknown,
+): content is EntityRoleConflictContent {
+  if (!isRecord(content)) return false;
+  return (
+    content.kind === 'ROLE_DIRECTION_CONFLICT' &&
+    typeof content.companyId === 'string' &&
+    content.companyId !== '' &&
+    typeof content.entityContextId === 'string' &&
+    content.entityContextId !== '' &&
+    typeof content.pattern === 'string' &&
+    content.pattern !== '' &&
+    typeof content.priorClaimId === 'string' &&
+    content.priorClaimId !== '' &&
+    typeof content.priorRole === 'string' &&
+    content.priorRole !== '' &&
+    typeof content.newClaimId === 'string' &&
+    content.newClaimId !== '' &&
+    typeof content.newRole === 'string' &&
+    content.newRole !== '' &&
+    typeof content.source === 'string' &&
+    typeof content.detectedAt === 'string'
+  );
+}
+
+/**
+ * Record (or transition) an entity role claim through the shared KE memory
+ * lifecycle. Called by the MINIMAL_ROLE_MEMORY_BRIDGE (human projection
+ * writes) — never throws; failures return { status: 'ERROR' } so the
+ * already-committed EntityContext projection is never blocked.
+ *
+ * Policy:
+ *   - human source  → claim recorded at 'tentative' then evolved to
+ *     'certain' via human_confirmation (C11), EXCEPT when a conflicting
+ *     transition cannot be resolved in this call (missing actor).
+ *   - system source → claim stays 'tentative'; repetition NEVER promotes.
+ *   - transition    → prior claim preserved: on deterministic direction
+ *     conflict it is degraded (uncertain/deterministic_conflict, with C11
+ *     logs) first; for human transitions it is then forgotten with reason
+ *     `superseded_by_role_change:<NEW_ROLE>` (row + content intact).
+ *   - conflict      → recorded as ROLE_CONFLICT_TYPE evidence; human
+ *     confirmations also record a CONFLICT_RESOLUTION_TYPE item in the
+ *     SAME call (human authority), system conflicts stay pending.
+ */
+export async function recordEntityRoleKnowledge(
+  adapter: MemoryAdapter,
+  companyId: string,
+  input: RecordRoleKnowledgeInput,
+): Promise<RecordRoleKnowledgeResult> {
+  try {
+    if (!companyId || typeof companyId !== 'string') {
+      return { status: 'ERROR', error: 'Invalid companyId' };
+    }
+    if (!input || typeof input !== 'object') {
+      return { status: 'ERROR', error: 'Invalid input' };
+    }
+    if (!input.entityContextId || typeof input.entityContextId !== 'string') {
+      return { status: 'ERROR', error: 'Invalid entityContextId' };
+    }
+    if (!input.pattern || typeof input.pattern !== 'string') {
+      return { status: 'ERROR', error: 'Invalid pattern' };
+    }
+    if (!input.role || typeof input.role !== 'string') {
+      return { status: 'ERROR', error: 'Invalid role' };
+    }
+    if (
+      input.source !== 'user_confirmed' &&
+      input.source !== 'correction' &&
+      input.source !== 'system_suggested'
+    ) {
+      return { status: 'ERROR', error: 'Invalid source' };
+    }
+
+    const human = input.source !== 'system_suggested';
+    const role = input.role.toUpperCase();
+    const roles = Array.isArray(input.roles)
+      ? input.roles.map((r) => String(r).toUpperCase())
+      : null;
+    const detectedAt = new Date().toISOString();
+
+    // Tenant-scoped active claims anchored to this EntityContext row.
+    // Selection prefers human-authored claims, then newest (getByType rows
+    // are not assumed ordered).
+    const items = await adapter.getByType(companyId, ROLE_KNOWLEDGE_TYPE);
+    let priorId: string | null = null;
+    let priorContent: EntityRoleKnowledgeContent | null = null;
+    let priorConfidence: ConfidenceLevel = 'tentative';
+    let best: { human: boolean; at: number } | null = null;
+
+    for (const item of items) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidEntityRoleKnowledgeContent(parsed)) continue;
+        if (parsed.companyId !== companyId) continue;
+        if (parsed.entityContextId !== input.entityContextId) continue;
+        const at = item.sourceObservedAt
+          ? new Date(item.sourceObservedAt).getTime()
+          : 0;
+        const rank = { human: parsed.source !== 'system_suggested', at };
+        if (
+          !best ||
+          (rank.human && !best.human) ||
+          (rank.human === best.human && rank.at >= best.at)
+        ) {
+          best = rank;
+          priorId = item.id;
+          priorContent = parsed;
+          priorConfidence = item.confidence;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    const buildContent = (
+      source: EntityRoleKnowledgeSource,
+    ): EntityRoleKnowledgeContent => ({
+      companyId,
+      entityContextId: input.entityContextId,
+      pattern: input.pattern,
+      entityId: input.entityId ?? null,
+      role,
+      roles,
+      source,
+      ...(input.actor ? { actor: input.actor } : {}),
+      ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.transactionId ? { transactionId: input.transactionId } : {}),
+      detectedAt,
+    });
+
+    // No prior claim → record; human claims are promoted via C11.
+    if (!priorId || !priorContent) {
+      const created = await adapter.record({
+        content: JSON.stringify(buildContent(input.source)),
+        type: ROLE_KNOWLEDGE_TYPE,
+        companyId,
+        sourceAuthor: input.actor ?? (human ? 'human' : 'system'),
+        sourceName: input.source,
+        sourceObservedAt: new Date(),
+        confidence: 'tentative',
+      });
+      if (human) {
+        const promoted = await evolveClassificationConfidence(
+          adapter,
+          companyId,
+          created.id,
+          'certain',
+          'human_confirmation',
+        );
+        if (promoted.status === 'ERROR') {
+          return { status: 'ERROR', error: promoted.error };
+        }
+      }
+      const after = await adapter.getById(created.id, companyId);
+      return {
+        status: 'CREATED',
+        claimId: created.id,
+        confidence: after?.confidence ?? 'tentative',
+        conflictResolved: false,
+      };
+    }
+
+    // Same primary role → no transition (repetition never promotes).
+    if (priorContent.role === role) {
+      if (!human || priorConfidence === 'certain') {
+        return {
+          status: 'UNCHANGED',
+          claimId: priorId,
+          confidence: priorConfidence,
+          conflictResolved: false,
+        };
+      }
+      // KE-EVOL-005 mirror: a claim implicated by a pending role conflict
+      // must NOT be promoted while the conflict is unresolved.
+      const pending = await getPendingRoleConflicts(adapter, companyId);
+      const implicated = pending.some(
+        (c) => c.content.priorClaimId === priorId || c.content.newClaimId === priorId,
+      );
+      if (implicated) {
+        return {
+          status: 'UNCHANGED',
+          claimId: priorId,
+          confidence: priorConfidence,
+          conflictResolved: false,
+        };
+      }
+      const promoted = await evolveClassificationConfidence(
+        adapter,
+        companyId,
+        priorId,
+        'certain',
+        'human_confirmation',
+      );
+      if (promoted.status === 'ERROR') {
+        return { status: 'ERROR', error: promoted.error };
+      }
+      return {
+        status: 'PROMOTED',
+        claimId: priorId,
+        confidence: 'certain',
+        conflictResolved: false,
+      };
+    }
+
+    // Role transition.
+    const conflict = rolesConflict(priorContent.role, role);
+    // A human write that changes a prior claim is recorded as a correction
+    // (provenance accuracy; computed here because the prior claim is only
+    // visible inside this function).
+    const effectiveSource: EntityRoleKnowledgeSource =
+      human && input.source === 'user_confirmed' ? 'correction' : input.source;
+
+    // Preserve the prior claim: degrade first (C11 logs), then forget.
+    // System writes never degrade/forget human claims.
+    if (human) {
+      if (conflict) {
+        const degraded = await evolveClassificationConfidence(
+          adapter,
+          companyId,
+          priorId,
+          'uncertain',
+          'deterministic_conflict',
+        );
+        if (degraded.status === 'ERROR') {
+          return { status: 'ERROR', error: degraded.error };
+        }
+      }
+      // forget() throws MemoryError when the item is missing/foreign —
+      // caught by the outer best-effort handler as { status: 'ERROR' }.
+      await adapter.forget(priorId, `superseded_by_role_change:${role}`, companyId);
+    }
+
+    const created = await adapter.record({
+      content: JSON.stringify(buildContent(effectiveSource)),
+      type: ROLE_KNOWLEDGE_TYPE,
+      companyId,
+      sourceAuthor: input.actor ?? (human ? 'human' : 'system'),
+      sourceName: effectiveSource,
+      sourceObservedAt: new Date(),
+      confidence: 'tentative',
+    });
+
+    let conflictId: string | undefined;
+    let conflictResolved = false;
+
+    if (conflict) {
+      const conflictContent: EntityRoleConflictContent = {
+        companyId,
+        kind: 'ROLE_DIRECTION_CONFLICT',
+        entityContextId: input.entityContextId,
+        pattern: input.pattern,
+        priorClaimId: priorId,
+        priorRole: priorContent.role,
+        priorDirection: roleExpectedDirection(priorContent.role),
+        newClaimId: created.id,
+        newRole: role,
+        newDirection: roleExpectedDirection(role),
+        source: effectiveSource,
+        ...(input.actor ? { actor: input.actor } : {}),
+        ...(input.reason ? { reason: input.reason } : {}),
+        detectedAt,
+      };
+      const conflictItem = await adapter.record({
+        content: JSON.stringify(conflictContent),
+        type: ROLE_CONFLICT_TYPE,
+        companyId,
+        sourceAuthor: input.actor ?? (human ? 'human' : 'system'),
+        sourceName: 'role_conflict_detection',
+        sourceObservedAt: new Date(),
+        confidence: 'certain',
+      });
+      conflictId = conflictItem.id;
+
+      // Human authority resolves the conflict in the same confirmation;
+      // system-suggested conflicts stay pending by design.
+      if (human) {
+        const resolvedBy = input.actor ?? 'human';
+        const resolutionContent: ConflictResolutionContent = {
+          companyId,
+          conflictItemId: conflictItem.id,
+          resolvedBy,
+          resolutionReason:
+            input.reason && input.reason.trim() !== ''
+              ? input.reason
+              : `human role confirmation: ${priorContent.role} -> ${role}`,
+          resolvedAt: new Date().toISOString(),
+        };
+        await adapter.record({
+          content: JSON.stringify(resolutionContent),
+          type: CONFLICT_RESOLUTION_TYPE,
+          companyId,
+          sourceAuthor: resolvedBy,
+          sourceName: 'conflict_resolution',
+          sourceObservedAt: new Date(),
+          confidence: 'certain',
+        });
+        conflictResolved = true;
+      }
+    }
+
+    if (human && (!conflict || conflictResolved)) {
+      const promoted = await evolveClassificationConfidence(
+        adapter,
+        companyId,
+        created.id,
+        'certain',
+        'human_confirmation',
+      );
+      if (promoted.status === 'ERROR') {
+        return { status: 'ERROR', error: promoted.error };
+      }
+    }
+
+    const after = await adapter.getById(created.id, companyId);
+    return {
+      status: 'CREATED',
+      claimId: created.id,
+      confidence: after?.confidence ?? 'tentative',
+      ...(conflictId ? { conflictId } : {}),
+      conflictResolved,
+    };
+  } catch (error) {
+    return {
+      status: 'ERROR',
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
+ * Retrieve ACTIVE role claims for a tenant (optionally filtered by
+ * EntityContext anchor or exact pattern). Tenant-scoped; malformed content
+ * is skipped; newest first.
+ */
+export async function getEntityRoleKnowledge(
+  adapter: MemoryAdapter,
+  companyId: string,
+  filter?: { entityContextId?: string; pattern?: string },
+): Promise<EntityRoleKnowledgeRecord[]> {
+  if (!companyId || typeof companyId !== 'string') return [];
+  try {
+    const items = await adapter.getByType(companyId, ROLE_KNOWLEDGE_TYPE);
+    const results: EntityRoleKnowledgeRecord[] = [];
+    for (const item of items) {
+      if (item.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidEntityRoleKnowledgeContent(parsed)) continue;
+        if (parsed.companyId !== companyId) continue;
+        if (filter?.entityContextId && parsed.entityContextId !== filter.entityContextId) {
+          continue;
+        }
+        if (filter?.pattern && parsed.pattern !== filter.pattern) continue;
+        results.push({
+          itemId: item.id,
+          content: parsed,
+          confidence: item.confidence,
+          status: item.status,
+          sourceObservedAt: item.sourceObservedAt ?? null,
+        });
+      } catch {
+        continue;
+      }
+    }
+    results.sort(
+      (a, b) => (b.sourceObservedAt?.getTime() ?? 0) - (a.sourceObservedAt?.getTime() ?? 0),
+    );
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Role conflicts that are recorded but NOT yet resolved: active
+ * ROLE_CONFLICT_TYPE items with no active CONFLICT_RESOLUTION_TYPE item
+ * referencing them (same resolution primitive as classification conflicts).
+ */
+export async function getPendingRoleConflicts(
+  adapter: MemoryAdapter,
+  companyId: string,
+): Promise<RoleConflictRecord[]> {
+  if (!companyId || typeof companyId !== 'string') return [];
+  try {
+    const conflicts = await adapter.getByType(companyId, ROLE_CONFLICT_TYPE);
+    const resolutions = await adapter.getByType(companyId, CONFLICT_RESOLUTION_TYPE);
+
+    const resolvedIds = new Set<string>();
+    for (const resolution of resolutions) {
+      if (resolution.status !== 'active') continue;
+      try {
+        const parsed: unknown = JSON.parse(resolution.content);
+        if (
+          isRecord(parsed) &&
+          typeof parsed.conflictItemId === 'string' &&
+          typeof parsed.companyId === 'string' &&
+          parsed.companyId === companyId
+        ) {
+          resolvedIds.add(parsed.conflictItemId);
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    const results: RoleConflictRecord[] = [];
+    for (const item of conflicts) {
+      if (item.status !== 'active') continue;
+      if (resolvedIds.has(item.id)) continue;
+      try {
+        const parsed: unknown = JSON.parse(item.content);
+        if (!isValidEntityRoleConflictContent(parsed)) continue;
+        if (parsed.companyId !== companyId) continue;
+        results.push({ itemId: item.id, content: parsed });
+      } catch {
+        continue;
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Retrieve all classification observations for a specific entity within a tenant.
  *
  * Returns observations in order of creation (oldest first).
- * Respects tenant isolation — only returns observations for the given companyId.
+ * Respects tenant isolation - only returns observations for the given companyId.
  * Preserves original descriptions (not normalized).
  *
  * @param adapter - MemoryAdapter for data access

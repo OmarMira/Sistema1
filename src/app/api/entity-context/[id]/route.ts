@@ -11,7 +11,7 @@ import { logger } from '@/lib/logger';
 // ─── PATCH /api/entity-context/[id] ───────────────────────────────────
 // Update entity context (role, glAccountId, roles)
 export const PATCH = apiHandler(async (request: NextRequest, context: RouteContext) => {
-  const { companyId } = requireCompanyContext();
+  const { companyId, userId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
   const params = await context.params;
   const id = params.id as string;
@@ -32,7 +32,7 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
       );
     }
 
-    const updated = await updateEntityContext(companyId, id, { role, roles, transactionDirection });
+    const updated = await updateEntityContext(companyId, id, { role, roles, transactionDirection }, userId);
 
     if (!updated) {
       return NextResponse.json({ error: 'Entity not found' }, { status: 404 });

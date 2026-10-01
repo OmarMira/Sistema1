@@ -18,6 +18,10 @@ import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
 import type { Prisma } from '@prisma/client';
+import {
+  recordFinalDecisionTrace,
+  type DecisionSource,
+} from '@/lib/final-decision-trace';
 
 // ─── S10 1B.2A — transaction reclassification authority ──────────
 // Single server authority for: tenant-scoped lookup → GL validation →
@@ -52,6 +56,14 @@ export type ReclassifyTransactionInput = {
    * value alters gates, confidence, tenant scope, or commit ordering.
    */
   source?: CorrectionSource;
+  /**
+   * §GAP8-2E — final decision source for the AuditLog lifecycle trace.
+   * AI approval consumer passes 'AI_HUMAN_APPROVED' + approvalId; when
+   * omitted it is derived from `source` (user_correction → USER_CORRECTION,
+   * import_correction → IMPORT_CORRECTION).
+   */
+  decisionSource?: 'AI_HUMAN_APPROVED';
+  approvalId?: string;
 };
 
 export type ReclassifyTransactionOptions = {
@@ -215,6 +227,9 @@ type AccountingPhaseContext = {
   glAccountId: string;
   journalEntryId: string | null;
   bankGlAccountId: string | null;
+  // §GAP8-2E — final decision source trace (written in the same tx).
+  finalDecisionSource: DecisionSource;
+  approvalId?: string;
 };
 
 async function executeAccountingPhase(
@@ -258,6 +273,18 @@ async function executeAccountingPhase(
       journalEntryId: true,
     },
   });
+
+  // §GAP8-2E — final decision source trace (same tx = atomic with the GL
+  // update). USER_CORRECTION / IMPORT_CORRECTION / AI_HUMAN_APPROVED.
+  await recordFinalDecisionTrace(
+    {
+      companyId,
+      transactionId,
+      source: ctx.finalDecisionSource,
+      approvalId: ctx.approvalId,
+    },
+    tx,
+  );
 
   // Normalize amount once so BOTH modes return the same contract: the
   // extended client already computes `number`; a caller-provided raw
@@ -381,6 +408,11 @@ export async function reclassifyTransaction(
     glAccountId,
     journalEntryId: transaction.journalEntryId,
     bankGlAccountId,
+    // §GAP8-2E — derive final decision source for the lifecycle trace.
+    finalDecisionSource:
+      input.decisionSource ??
+      (source === 'import_correction' ? 'IMPORT_CORRECTION' : 'USER_CORRECTION'),
+    approvalId: input.approvalId,
   };
 
   // Two modes, ONE accounting sequence:

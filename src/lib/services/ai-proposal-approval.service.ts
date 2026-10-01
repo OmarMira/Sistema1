@@ -388,6 +388,10 @@ export async function decideAiProposal(
           glAccountId: targetGlAccountId,
           confirmedEntity:
             typedDecision === 'CORRECT' ? parsedConfirmedEntity : undefined,
+          // §GAP8-2E — final decision source: AI ACCEPT/CORRECT are human
+          // approvals of an AI proposal → AI_HUMAN_APPROVED + approvalId.
+          decisionSource: 'AI_HUMAN_APPROVED',
+          approvalId,
         },
         // Typed boundary cast — the SAME certified one used inside
         // reclassifyTransaction (1B.2B.1): the extended client's tx must

@@ -59,6 +59,10 @@ import { MemoryAdapter } from '@/memory/adapter';
 import { createAdapter, lookupTreatment, matchAuthorizedPattern, recordRuleExecutionEvidence } from '@/memory/classification-knowledge';
 import type { AuthorizedPatternMatch } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
+import {
+  recordFinalDecisionTrace,
+  type DecisionSource,
+} from '@/lib/final-decision-trace';
 
 export interface ImportResult {
   statementId: string;
@@ -803,6 +807,12 @@ export class ImportService {
 
       let autoCategorizedCount = 0;
       const transactionsToInsert: Prisma.BankTransactionCreateManyInput[] = [];
+      // §GAP8-2E — final decision source per importHash (only rows with a
+      // final GL get an entry; pending/no-final rows get NO trace).
+      const finalDecisionByHash = new Map<
+        string,
+        { source: DecisionSource; matchedRuleId: string | null }
+      >();
 
       if (shadowEnabled) {
         shadowSummary = createEmptyShadowImportSummary();
@@ -894,6 +904,15 @@ export class ImportService {
 
         if (matchedRuleId) autoCategorizedCount++;
 
+        // §GAP8-2E — final decision source: KE final → KNOWLEDGE,
+        // rule final → RULE, pending/no final GL → NO trace.
+        if (glAccountId) {
+          finalDecisionByHash.set(uniqueHashes[idx]!, {
+            source: decision.source === 'ke' ? 'KNOWLEDGE' : 'RULE',
+            matchedRuleId,
+          });
+        }
+
         if (shadowEnabled && shadowSummary) {
           const execResult = runShadowComparison(
             {
@@ -953,6 +972,33 @@ export class ImportService {
       await tx.bankTransaction.createMany({
         data: transactionsToInsert,
       });
+
+      // §GAP8-2E — persist FINAL_DECISION_SOURCE traces (same tx = atomic
+      // with the insert). Only rows with a final GL decision are traced.
+      if (finalDecisionByHash.size > 0) {
+        const traceTxns = await tx.bankTransaction.findMany({
+          where: {
+            statementId: statement.id,
+            importHash: { in: [...finalDecisionByHash.keys()] },
+            glAccountId: { not: null },
+          },
+          select: { id: true, importHash: true },
+        });
+        for (const traceTx of traceTxns) {
+          const decision = finalDecisionByHash.get(traceTx.importHash ?? '');
+          if (!decision) continue;
+          await recordFinalDecisionTrace(
+            {
+              companyId,
+              transactionId: traceTx.id,
+              source: decision.source,
+              userId,
+              matchedRuleId: decision.matchedRuleId,
+            },
+            tx as unknown as Prisma.TransactionClient,
+          );
+        }
+      }
 
       // Create journal entries for transactions with auto-assigned GL accounts
       const createdTxs = await tx.bankTransaction.findMany({

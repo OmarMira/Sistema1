@@ -304,6 +304,11 @@ function buildFakeCallerTx(opts: {
     bankTransaction: { findFirst: bankTransactionFindFirst, update: bankTransactionUpdate },
     glAccount: { findFirst: glAccountFindFirst },
     fiscalPeriod: { findFirst: fiscalPeriodFindFirst },
+    // §GAP8-2E — the accounting phase writes the FINAL_DECISION_SOURCE
+    // trace through the caller's tx; the fake must expose auditLog.
+    auditLog: {
+      create: vi.fn().mockResolvedValue({ id: 'audit-fake' }),
+    },
   } as unknown as Prisma.TransactionClient;
 
   return {

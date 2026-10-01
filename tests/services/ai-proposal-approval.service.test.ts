@@ -270,6 +270,8 @@ describe('S10 1B.2B.2 — AI proposal approval consumer', () => {
         transactionId: a.tx.id,
         glAccountId: a.aiGl.id,
         confirmedEntity: undefined,
+        decisionSource: 'AI_HUMAN_APPROVED',
+        approvalId: proposal.id,
       },
       { tx: expect.anything() },
     );
@@ -399,6 +401,8 @@ describe('S10 1B.2B.2 — AI proposal approval consumer', () => {
         transactionId: a.tx.id,
         glAccountId: a.humanGl.id,
         confirmedEntity: { canonicalName: 'ACME SRL', entityType: 'company' },
+        decisionSource: 'AI_HUMAN_APPROVED',
+        approvalId: proposal.id,
       },
       { tx: expect.anything() },
     );

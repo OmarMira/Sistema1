@@ -11,6 +11,7 @@ import {
   degradeKnowledgeOnConflict,
   isKnowledgeImplicatedByPendingConflict,
   isConflictResolved,
+  type CorrectionSource,
 } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
@@ -43,6 +44,13 @@ export type ReclassifyTransactionInput = {
     canonicalName: string;
     entityType: EntityType;
   };
+  /**
+   * §GAP8-2A — provenance of the correction. The UI/API only propagate
+   * this context; learning stays in this authority. Defaults to
+   * 'user_correction' so every existing caller is unchanged. Neither
+   * value alters gates, confidence, tenant scope, or commit ordering.
+   */
+  source?: CorrectionSource;
 };
 
 export type ReclassifyTransactionOptions = {
@@ -280,6 +288,7 @@ type KnowledgeEnginePhaseContext = {
   glAccountId: string;
   confirmedEntity?: ReclassifyTransactionInput['confirmedEntity'];
   transactionDescription: string;
+  source: CorrectionSource;
 };
 
 /**
@@ -322,7 +331,8 @@ export async function reclassifyTransaction(
   input: ReclassifyTransactionInput,
   options?: ReclassifyTransactionOptions,
 ) {
-  const { companyId, transactionId, glAccountId, confirmedEntity } = input;
+  const { companyId, transactionId, glAccountId, confirmedEntity, source = 'user_correction' } =
+    input;
 
   // Tenant-scoped reads ride the caller's transaction when provided so
   // validation observes the same snapshot as the accounting phase.
@@ -393,6 +403,7 @@ export async function reclassifyTransaction(
     glAccountId,
     confirmedEntity,
     transactionDescription: transaction.description,
+    source,
   });
 
   if (!options?.tx) {
@@ -407,7 +418,8 @@ export async function reclassifyTransaction(
 async function executeKnowledgeEnginePhase(
   ctx: KnowledgeEnginePhaseContext,
 ): Promise<void> {
-  const { companyId, transactionId, glAccountId, confirmedEntity, transactionDescription } = ctx;
+  const { companyId, transactionId, glAccountId, confirmedEntity, transactionDescription, source } =
+    ctx;
   try {
     if (confirmedEntity) {
       // User explicitly confirmed entity identity → persist it and learn treatment
@@ -429,7 +441,7 @@ async function executeKnowledgeEnginePhase(
           confirmed.id,
           glAccountId,
           'any',
-          'user_correction',
+          source,
           transactionId,
         );
 
@@ -456,7 +468,7 @@ async function executeKnowledgeEnginePhase(
             originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
-            source: 'user_correction',
+            source,
             transactionId,
           },
         );
@@ -499,7 +511,7 @@ async function executeKnowledgeEnginePhase(
           entityResolution.entityId,
           glAccountId,
           'any',
-          'user_correction',
+          source,
           transactionId,
         );
         if (keResult.status === 'ERROR') {
@@ -524,7 +536,7 @@ async function executeKnowledgeEnginePhase(
             originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
-            source: 'user_correction',
+            source,
             transactionId,
           },
         );
@@ -579,7 +591,7 @@ async function executeKnowledgeEnginePhase(
           entityResolution.entityId,
           glAccountId,
           'any',
-          'user_correction',
+          source,
           transactionId,
         );
         if (keResult.status === 'ERROR') {
@@ -604,7 +616,7 @@ async function executeKnowledgeEnginePhase(
             originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
-            source: 'user_correction',
+            source,
             transactionId,
           },
         );

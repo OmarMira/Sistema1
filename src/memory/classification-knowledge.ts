@@ -9,6 +9,13 @@ import type { MemoryPrismaClient, TransactionRunner } from './prisma-types';
 
 // ─── Content format ─────────────────────────────────────────────
 
+/**
+ * Provenance of the human correction that produced this knowledge.
+ * §GAP8-2A: single named union for every correction-originated write —
+ * the UI/API only propagate it; the learning authority never invents it.
+ */
+export type CorrectionSource = 'user_correction' | 'import_correction';
+
 export interface ClassificationContent {
   /** Normalized bank description pattern */
   pattern: string;
@@ -17,7 +24,7 @@ export interface ClassificationContent {
   /** Transaction direction hint */
   direction: 'debit' | 'credit' | 'any';
   /** What produced this knowledge */
-  source: 'user_correction' | 'import_correction';
+  source: CorrectionSource;
   /** Original transaction ID for traceability */
   transactionId?: string;
   /** Entity identity reference (CompanyKnowledge.id) — Phase 2: entity→treatment */
@@ -209,7 +216,7 @@ export async function learnEntityTreatment(
   entityId: string,
   glAccountId: string,
   direction: 'debit' | 'credit' | 'any',
-  source: 'user_correction' | 'import_correction',
+  source: CorrectionSource,
   transactionId?: string,
 ): Promise<EntityLearnResult> {
   if (!companyId || typeof companyId !== 'string') {
@@ -374,7 +381,7 @@ export interface ClassificationObservation {
   /** Transaction direction confirmed for this observation */
   direction: 'debit' | 'credit' | 'any';
   /** What produced this observation */
-  source: 'user_correction' | 'import_correction';
+  source: CorrectionSource;
   /** Original transaction ID for traceability */
   transactionId?: string;
 }

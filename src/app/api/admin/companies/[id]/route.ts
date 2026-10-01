@@ -139,8 +139,10 @@ export const DELETE = apiHandler(
       await tx.knowledgeAudit.deleteMany({
         where: { companyKnowledge: { companyId: id } },
       });
+      // §GAP8-2D: direct tenant scope covers ALL pending approvals of this
+      // company, including proposals with knowledgeId NULL (create / AI).
       await tx.pendingApproval.deleteMany({
-        where: { companyKnowledge: { companyId: id } },
+        where: { companyId: id },
       });
 
       // Then delete CompanyKnowledge itself

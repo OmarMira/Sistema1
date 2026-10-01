@@ -293,9 +293,10 @@ export async function proposeCreate(
     throw new Error('Active entity limit reached (max 1000)');
   }
 
-  // 3. Create PendingApproval
+  // 3. Create PendingApproval (§GAP8-2D: explicit tenant identity)
   const pending = await db.pendingApproval.create({
     data: {
+      companyId: input.companyId,
       action: 'create',
       payload: {
         companyId: input.companyId,
@@ -327,9 +328,10 @@ export async function confirmCreate(
       input.companyId,
     );
 
-    // 2. Read + validate PendingApproval.
-    const pending = await tx.pendingApproval.findUnique({
-      where: { id: input.pendingApprovalId },
+    // 2. Read + validate PendingApproval (§GAP8-2D: id + companyId — a
+    //    foreign approvalId is indistinguishable from a missing one).
+    const pending = await tx.pendingApproval.findFirst({
+      where: { id: input.pendingApprovalId, companyId: input.companyId },
     });
 
     if (!pending) {
@@ -348,10 +350,8 @@ export async function confirmCreate(
 
     const payload = pending.payload as Record<string, unknown>;
 
-    // Tenant isolation: the confirming user must belong to the company that
-    // owns the proposal. pendingApprovalId is not a trust anchor — the
-    // payload's companyId is fixed when the proposal is created, so compare
-    // against the authenticated context BEFORE creating anything.
+    // Defense in depth: the column was fixed at creation from the same
+    // authenticated context, so this only catches corrupted rows.
     if (payload.companyId !== input.companyId) {
       throw new ForbiddenError(
         'Forbidden: cannot confirm a proposal from another company',
@@ -365,10 +365,14 @@ export async function confirmCreate(
       aliases: (payload.aliases as string[]) ?? [],
     });
 
-    // 4-5. CAS once-only (G8-2 §6): id + status=pending. Count !== 1 means
-    // the approval was consumed elsewhere — stop before any functional write.
+    // 4-5. CAS once-only (G8-2 §6): id + status=pending + tenant. Count !== 1
+    // means the approval was consumed elsewhere — stop before any write.
     const cas = await tx.pendingApproval.updateMany({
-      where: { id: input.pendingApprovalId, status: 'pending' },
+      where: {
+        id: input.pendingApprovalId,
+        companyId: input.companyId,
+        status: 'pending',
+      },
       data: { status: 'accepted' },
     });
     if (cas.count !== 1) {
@@ -406,9 +410,10 @@ export async function confirmCreate(
       client: tx,
     });
 
-    // 8. Finalize PendingApproval — existing semantics: delete (in-tx).
+    // 8. Finalize PendingApproval — existing semantics: delete (in-tx),
+    //    scoped to this tenant (§GAP8-2D).
     await tx.pendingApproval.delete({
-      where: { id: input.pendingApprovalId },
+      where: { id: input.pendingApprovalId, companyId: input.companyId },
     });
 
     return record as unknown as CompanyKnowledgeRecord;
@@ -455,9 +460,10 @@ export async function proposeUpdate(
     version: existing.version + 1,
   };
 
-  // 4. Create PendingApproval
+  // 4. Create PendingApproval (§GAP8-2D: explicit tenant identity)
   const pending = await db.pendingApproval.create({
     data: {
+      companyId: input.companyId,
       action: 'update',
       knowledgeId: input.knowledgeId,
       payload: {
@@ -488,9 +494,9 @@ export async function confirmUpdate(
       input.companyId,
     );
 
-    // 2. Read + validate PendingApproval.
-    const pending = await tx.pendingApproval.findUnique({
-      where: { id: input.pendingApprovalId },
+    // 2. Read + validate PendingApproval (§GAP8-2D: id + companyId).
+    const pending = await tx.pendingApproval.findFirst({
+      where: { id: input.pendingApprovalId, companyId: input.companyId },
     });
 
     if (!pending) {
@@ -584,9 +590,10 @@ export async function confirmUpdate(
       client: tx,
     });
 
-    // 9. Delete PendingApproval — existing semantics: delete (in-tx).
+    // 9. Delete PendingApproval — existing semantics: delete (in-tx),
+    //    scoped to this tenant (§GAP8-2D).
     await tx.pendingApproval.delete({
-      where: { id: input.pendingApprovalId },
+      where: { id: input.pendingApprovalId, companyId: input.companyId },
     });
 
     return record as unknown as CompanyKnowledgeRecord;

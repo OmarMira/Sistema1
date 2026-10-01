@@ -63,6 +63,7 @@ export interface CompanyKnowledgeRecord {
 
 export interface PendingApprovalRecord {
   id: string;
+  companyId: string;
   knowledgeId: string | null;
   action: 'create' | 'update' | 'archive' | 'restore' | 'merge';
   payload: Record<string, unknown>;

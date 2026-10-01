@@ -562,8 +562,13 @@ model CompanyKnowledge {
 }
 
 /// Approval gate — every mutation creates a record before applying.
+/// §GAP8-2D: explicit tenant identity. Every PendingApproval operation
+/// (create/read/approve/reject/list/resolve) requires companyId in its
+/// query — payload JSON is never the tenant authority. No FK to Company:
+/// legacy payload.companyId may reference deleted companies.
 model PendingApproval {
   id          String   @id @default(cuid())
+  companyId   String
   knowledgeId String?
   action      String
   payload     Json
@@ -573,6 +578,7 @@ model PendingApproval {
 
   companyKnowledge CompanyKnowledge? @relation(fields: [knowledgeId], references: [id])
 
+  @@index([companyId])
   @@index([knowledgeId])
   @@index([status])
 }

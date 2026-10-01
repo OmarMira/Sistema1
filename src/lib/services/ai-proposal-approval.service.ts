@@ -15,10 +15,10 @@ import type { Prisma } from '@prisma/client';
 //  - KE runs exclusively through the returned once-guarded
 //    `runPostCommitLearning()` hook, awaited AFTER db.$transaction resolves.
 //
-// Tenant chain (PendingApproval has NO companyId column):
+// Tenant chain (§GAP8-2D: PendingApproval.companyId is explicit):
 //  session companyId
-//  → approval pending + action='ai_classification_proposal'
-//  → payload.companyId === session companyId
+//  → PendingApproval WHERE id + companyId + action='ai_classification_proposal'
+//  → payload.companyId === session companyId (defense in depth)
 //  → payload.transactionId interpreted as BankTransaction.importHash
 //  → BankTransaction resolved by importHash inside session tenant
 //  → reclassifyTransaction re-validates ownership with the same companyId.
@@ -170,16 +170,20 @@ function parseConfirmedEntity(value: unknown): ConfirmedEntity | undefined | nul
 /**
  * List pending AI classification proposals for the active company.
  *
- * Tenant safety: a row is returned ONLY when payload.companyId matches AND
- * the payload's importHash resolves to a BankTransaction that demonstrably
- * belongs to the session tenant. Payload JSON alone is never treated as
- * authority.
+ * Tenant safety: the query itself is scoped by companyId (§GAP8-2D); a row
+ * additionally returns only when payload.companyId matches AND the payload's
+ * importHash resolves to a BankTransaction that demonstrably belongs to the
+ * session tenant. Payload JSON alone is never treated as authority.
  */
 export async function listPendingAiProposals(
   companyId: string,
 ): Promise<PendingAiProposalItem[]> {
   const rows = await db.pendingApproval.findMany({
-    where: { action: AI_PROPOSAL_ACTION, status: 'pending' },
+    where: {
+      companyId,
+      action: AI_PROPOSAL_ACTION,
+      status: 'pending',
+    },
     orderBy: { requestedAt: 'desc' },
   });
 
@@ -302,9 +306,11 @@ export async function decideAiProposal(
 
   try {
     outcome = (await db.$transaction(async (tx) => {
-      // 1. Approval still exists, right action, still pending.
-      const approval = await tx.pendingApproval.findUnique({
-        where: { id: approvalId },
+      // 1. Approval still exists, right tenant, right action, still pending
+      //    (§GAP8-2D: id + companyId — a foreign approvalId reads as
+      //    APPROVAL_NOT_FOUND, indistinguishable from a missing proposal).
+      const approval = await tx.pendingApproval.findFirst({
+        where: { id: approvalId, companyId },
       });
       if (!approval) {
         return { status: 'APPROVAL_NOT_FOUND' } as const;
@@ -337,9 +343,9 @@ export async function decideAiProposal(
       }
 
       if (typedDecision === 'REJECT') {
-        // 4. CAS: pending → rejected. Nothing else happens.
+        // 4. CAS: pending → rejected, tenant-scoped. Nothing else happens.
         const cas = await tx.pendingApproval.updateMany({
-          where: { id: approvalId, status: 'pending' },
+          where: { id: approvalId, companyId, status: 'pending' },
           data: { status: 'rejected' },
         });
         if (cas.count !== 1) {
@@ -362,10 +368,10 @@ export async function decideAiProposal(
         return { status: 'INVALID_GL_ACCOUNT' } as const;
       }
 
-      // 4. CAS — the once-only consumption arbiter. A lost race means
-      //    count 0: no accounting, no journal, no KE.
+      // 4. CAS — the once-only consumption arbiter (tenant-scoped). A lost
+      //    race means count 0: no accounting, no journal, no KE.
       const cas = await tx.pendingApproval.updateMany({
-        where: { id: approvalId, status: 'pending' },
+        where: { id: approvalId, companyId, status: 'pending' },
         data: { status: typedDecision === 'ACCEPT' ? 'accepted' : 'corrected' },
       });
       if (cas.count !== 1) {

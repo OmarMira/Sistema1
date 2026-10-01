@@ -36,13 +36,14 @@ vi.mock('@/lib/services/single-rule-apply.service', async (importOriginal) => {
     ...mod,
     excludePendingHumanDecisions: async (
       executor: Parameters<typeof mod.excludePendingHumanDecisions>[0],
+      companyId: Parameters<typeof mod.excludePendingHumanDecisions>[1],
     ) => {
       mockExcludeMode.calls += 1;
       if (mockExcludeMode.mode === 'blind-once') {
         mockExcludeMode.mode = 'real';
         return {};
       }
-      return mod.excludePendingHumanDecisions(executor);
+      return mod.excludePendingHumanDecisions(executor, companyId);
     },
   };
 });
@@ -89,9 +90,10 @@ describe('H4 — POST /api/reconciliation/auto', () => {
     positive: { cash: '1093', target: '4093' },
   } as const;
 
-  async function createPendingClassificationApproval(payloadTransactionId: string, requestedBy: string) {
+  async function createPendingClassificationApproval(companyId: string, payloadTransactionId: string, requestedBy: string) {
     const row = await db.pendingApproval.create({
       data: {
+        companyId,
         action: 'ai_classification_proposal',
         payload: { transactionId: payloadTransactionId },
         requestedBy,
@@ -526,7 +528,7 @@ describe('H4 — POST /api/reconciliation/auto', () => {
     mockGetSessionUserId.mockResolvedValue(user.id);
 
     const s = await seedGuardScenario(company.id, 'match');
-    const pending = await createPendingClassificationApproval(s.importHash, user.id);
+    const pending = await createPendingClassificationApproval(company.id, s.importHash, user.id);
 
     const res = await postAutoReconcile(company.id, s.bankAccount.id);
 
@@ -558,14 +560,14 @@ describe('H4 — POST /api/reconciliation/auto', () => {
     // candidate list would be built: with the first exclusion made blind, the
     // row enters the match as a stale candidate and only the write-time
     // revalidation can stop it.
-    const pending = await createPendingClassificationApproval(s.importHash, user.id);
+    const pending = await createPendingClassificationApproval(company.id, s.importHash, user.id);
 
     const { revalidateAutoMatchCandidate } = await import(
       '../../src/app/api/reconciliation/auto/route'
     );
 
     // Write-scope primitive: with the pending decision present, revalidation fails.
-    expect(await revalidateAutoMatchCandidate(db, s.bankTx.id)).toBe(false);
+    expect(await revalidateAutoMatchCandidate(db, s.bankTx.id, company.id)).toBe(false);
 
     // Blind the FIRST exclusion only (match-time load); write-time revalidation
     // (every subsequent call) reads the real pending decision.

@@ -860,6 +860,7 @@ export class ImportService {
             if (resolution.aiProposal) {
               await tx.pendingApproval.create({
                 data: {
+                  companyId,
                   action: 'ai_classification_proposal',
                   payload: {
                     companyId,

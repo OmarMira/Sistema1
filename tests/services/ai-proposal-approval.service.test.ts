@@ -120,6 +120,7 @@ async function createProposal(
 ) {
   return db.pendingApproval.create({
     data: {
+      companyId: s.company.id,
       action: overrides.action ?? 'ai_classification_proposal',
       payload: basePayload(s, overrides.payload ?? {}),
       requestedBy: s.user.id,
@@ -276,6 +277,7 @@ describe('S10 1B.2B.2 — AI proposal approval consumer', () => {
     // A payload whose importHash matches no transaction: tenant chain fails.
     const ghost = await db.pendingApproval.create({
       data: {
+        companyId: a.company.id,
         action: 'ai_classification_proposal',
         payload: basePayload(a, { transactionId: 'ghost-hash-no-such-row' }),
         requestedBy: a.user.id,

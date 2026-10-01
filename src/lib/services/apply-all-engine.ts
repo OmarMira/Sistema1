@@ -78,9 +78,11 @@ const PENDING_HUMAN_DECISION_STATUS = 'pending';
 
 async function loadPendingHumanDecisionImportHashes(
   executor: Pick<typeof db, 'pendingApproval'>,
+  companyId: string,
 ): Promise<string[]> {
   const rows = await executor.pendingApproval.findMany({
     where: {
+      companyId,
       action: PENDING_HUMAN_DECISION_ACTION,
       status: PENDING_HUMAN_DECISION_STATUS,
     },
@@ -224,7 +226,7 @@ async function executeMatching(
   // MATCH-TIME GUARD: rows governed by a still-pending human decision are
   // never proposed as candidates.
   const pendingHumanDecisionHashes =
-    await loadPendingHumanDecisionImportHashes(db);
+    await loadPendingHumanDecisionImportHashes(db, companyId);
 
   let unmatchedTransactions = await db.bankTransaction.findMany({
     where: {
@@ -446,7 +448,7 @@ export async function executeApplyAll(
   // governing decisions inside the apply transaction so a stale MatchResult
   // can never classify a row that now awaits a human decision.
   const pendingHumanDecisionHashes =
-    await loadPendingHumanDecisionImportHashes(tx);
+    await loadPendingHumanDecisionImportHashes(tx, companyId);
   const writeGuard = (base: Prisma.BankTransactionWhereInput): Prisma.BankTransactionWhereInput =>
     pendingHumanDecisionHashes.length === 0
       ? base

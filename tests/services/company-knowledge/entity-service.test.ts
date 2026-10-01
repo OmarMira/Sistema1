@@ -17,8 +17,10 @@ vi.mock('@/lib/db', () => {
     pendingApproval: {
       create: vi.fn(),
       findUnique: vi.fn(),
+      // §GAP8-2D - tenant-scoped read (id + companyId).
+      findFirst: vi.fn(),
       delete: vi.fn(),
-      // G8-2 §6 — once-only CAS (id + status=pending → accepted).
+      // G8-2 6 - once-only CAS (id + companyId + status=pending  accepted).
       // Default happy path: the claim succeeds (count === 1).
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
@@ -74,6 +76,7 @@ vi.mock('@/lib/db', () => {
 function makePendingApproval(overrides: Record<string, unknown> = {}) {
   return {
     id: 'pa-1',
+    companyId: 'company-1',
     knowledgeId: null,
     action: 'create',
     payload: {},
@@ -171,6 +174,7 @@ describe('proposeCreate', () => {
 
     expect(db.pendingApproval.create).toHaveBeenCalledWith({
       data: {
+        companyId: 'company-1',
         action: 'create',
         payload: {
           companyId: 'company-1',
@@ -212,6 +216,7 @@ describe('proposeCreate', () => {
 
     expect(db.pendingApproval.create).toHaveBeenCalledWith({
       data: {
+        companyId: 'company-1',
         action: 'create',
         payload: {
           companyId: 'company-1',
@@ -298,7 +303,7 @@ describe('confirmCreate', () => {
       version: 1,
     });
 
-    vi.mocked(db.pendingApproval.findUnique).mockResolvedValue(pending);
+    vi.mocked(db.pendingApproval.findFirst).mockResolvedValue(pending);
     vi.mocked(db.companyKnowledge.create).mockResolvedValue(createdRecord);
     vi.mocked(db.knowledgeAudit.create).mockResolvedValue(makeAudit());
     vi.mocked(db.pendingApproval.delete).mockResolvedValue(pending);
@@ -343,7 +348,7 @@ describe('confirmCreate', () => {
 
     // Deletes the PendingApproval
     expect(db.pendingApproval.delete).toHaveBeenCalledWith({
-      where: { id: 'pa-1' },
+      where: { id: 'pa-1', companyId: 'company-1' },
     });
 
     expect(result.version).toBe(1);
@@ -351,7 +356,7 @@ describe('confirmCreate', () => {
   });
 
   it('throws if PendingApproval is not found', async () => {
-    vi.mocked(db.pendingApproval.findUnique).mockResolvedValue(null);
+    vi.mocked(db.pendingApproval.findFirst).mockResolvedValue(null);
 
     await expect(
       requestContext.run({ userId: 'approver-1', companyId: 'company-1' }, () =>
@@ -361,7 +366,7 @@ describe('confirmCreate', () => {
   });
 
   it('throws if PendingApproval is not pending', async () => {
-    vi.mocked(db.pendingApproval.findUnique).mockResolvedValue(
+    vi.mocked(db.pendingApproval.findFirst).mockResolvedValue(
       makePendingApproval({ status: 'approved' }),
     );
 
@@ -373,7 +378,7 @@ describe('confirmCreate', () => {
   });
 
   it('throws if PendingApproval action is not "create"', async () => {
-    vi.mocked(db.pendingApproval.findUnique).mockResolvedValue(
+    vi.mocked(db.pendingApproval.findFirst).mockResolvedValue(
       makePendingApproval({ action: 'update' }),
     );
 
@@ -419,6 +424,7 @@ describe('proposeUpdate', () => {
 
     expect(db.pendingApproval.create).toHaveBeenCalledWith({
       data: {
+        companyId: 'company-1',
         action: 'update',
         knowledgeId: 'ck-1',
         payload: {
@@ -519,7 +525,7 @@ describe('confirmUpdate', () => {
       version: 2,
     });
 
-    vi.mocked(db.pendingApproval.findUnique).mockResolvedValue(pending);
+    vi.mocked(db.pendingApproval.findFirst).mockResolvedValue(pending);
     vi.mocked(db.companyKnowledge.findUnique).mockResolvedValue(
       existingRecord,
     );

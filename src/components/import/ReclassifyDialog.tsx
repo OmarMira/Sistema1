@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Loader2, RefreshCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useLanguageStore } from '@/store/language-store';
-import { useAuthStore } from '@/store/auth-store';
 import { AccountSelector, type GlAccountOption } from '@/components/spa/journal/AccountSelector';
 import { logger } from '@/lib/logger';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
@@ -49,7 +48,6 @@ export function ReclassifyDialog({
   onReclassified,
 }: ReclassifyDialogProps) {
   const t = useLanguageStore((s) => s.t);
-  const activeCompany = useAuthStore((s) => s.activeCompany);
   const [selectedGlId, setSelectedGlId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   // Identity confirmation is opt-in: the section only appears when the
@@ -58,15 +56,19 @@ export function ReclassifyDialog({
   const [identityConfirmed, setIdentityConfirmed] = useState(false);
   const [canonicalName, setCanonicalName] = useState('');
   const [entityType, setEntityType] = useState<EntityType>('company');
+  const [decisionExplanation, setDecisionExplanation] = useState<{
+    source: string;
+    label: string;
+    ruleName?: string;
+  } | null>(null);
 
   useEffect(() => {
-    // Reset selection and identity state each time the dialog opens for a
-    // (new) transaction — identity decisions never leak across transactions.
     setSelectedGlId(null);
     setEntityStatus(null);
     setIdentityConfirmed(false);
     setCanonicalName('');
     setEntityType('company');
+    setDecisionExplanation(null);
 
     if (!transaction) return;
     let cancelled = false;
@@ -85,6 +87,20 @@ export function ReclassifyDialog({
         }
       } catch {
         // Network failure → stay GL-only; nothing to show.
+      }
+    })();
+
+    // §GAP9 — fetch sanitized explanation for this transaction
+    (async () => {
+      try {
+        const expRes = await fetch(`/api/transactions/${transaction.id}/explanation`);
+        if (cancelled || !expRes.ok) return;
+        const expData = (await expRes.json().catch(() => null)) as { explanation?: { source: string; label: string; ruleName?: string } } | null;
+        if (!cancelled && expData?.explanation) {
+          setDecisionExplanation(expData.explanation);
+        }
+      } catch {
+        // Graceful: no trace → null; nothing to show.
       }
     })();
 
@@ -156,6 +172,11 @@ export function ReclassifyDialog({
                 {new Date(transaction.date).toLocaleDateString()} ·{' '}
                 {transaction.amount.toFixed(2)}
               </p>
+              {decisionExplanation && (
+                <p className="text-xs text-teal-600 dark:text-teal-400 font-medium mt-1">
+                  Clasificado por: {decisionExplanation.label}
+                </p>
+              )}
               <p className="text-xs text-muted-foreground">
                 {t('reclassifyTx.currentAccount')}:{' '}
                 <span data-testid="current-gl-label">

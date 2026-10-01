@@ -462,6 +462,176 @@ export async function recordClassificationObservation(
   }
 }
 
+// ─── §GAP8-2B — Rule execution evidence (advisory / statistical) ─────────
+/**
+ * Statistical evidence produced by REAL rule executions, reusing the
+ * MemoryItem infrastructure (C6 free-form type label — no schema change).
+ *
+ * Advisory contract (§GAP8-2B):
+ *  - Evidence can be aggregated and consulted as future decision context.
+ *  - It NEVER auto-promotes confidence (always recorded as `tentative`).
+ *  - It NEVER changes glAccountId, NEVER creates CompanyKnowledge, NEVER
+ *    turns a rule into permanent business truth.
+ *  - Human corrections keep flowing through reclassifyTransaction and the
+ *    normal C11 authority; this channel only observes.
+ */
+
+/** MemoryItem type label for rule execution evidence. */
+export const RULE_EVIDENCE_TYPE = 'rule_execution_evidence';
+
+/** Evidence kinds the rule engine can honestly attest. */
+export type RuleFeedbackKind = 'RULE_MATCHED' | 'RULE_NOT_MATCHED' | 'RULE_OVERRIDDEN';
+
+/**
+ * One rule execution event. `transactionId` is the import hash or bank
+ * transaction id (traceability anchor); `ruleId` anchors rule identity.
+ */
+export interface RuleExecutionEvidence {
+  kind: RuleFeedbackKind;
+  /** Winning rule identity — required for MATCHED and OVERRIDDEN. */
+  ruleId?: string;
+  /** GL account the rule proposed (MATCHED) or the human target (OVERRIDDEN). */
+  glAccountId?: string | null;
+  /** Prior GL account — OVERRIDDEN only. */
+  previousGlAccountId?: string | null;
+  /** Original bank description — preserved, not normalized. */
+  originalDescription: string;
+  direction: 'debit' | 'credit' | 'any';
+  /** Import hash / bank transaction id for traceability. */
+  transactionId?: string;
+}
+
+export interface RuleEvidenceRecord {
+  /** MemoryItem id of the evidence (provenance anchor) */
+  itemId: string;
+  evidence: RuleExecutionEvidence;
+}
+
+function isValidRuleExecutionEvidence(content: unknown): content is RuleExecutionEvidence {
+  if (!isRecord(content)) return false;
+  if (content.kind !== 'RULE_MATCHED' && content.kind !== 'RULE_NOT_MATCHED' && content.kind !== 'RULE_OVERRIDDEN') return false;
+  if (typeof content.originalDescription !== 'string' || content.originalDescription === '') return false;
+  if (content.direction !== 'debit' && content.direction !== 'credit' && content.direction !== 'any') return false;
+  if (content.ruleId !== undefined && content.ruleId !== null && typeof content.ruleId !== 'string') return false;
+  if (content.glAccountId !== undefined && content.glAccountId !== null && typeof content.glAccountId !== 'string') return false;
+  if (content.previousGlAccountId !== undefined && content.previousGlAccountId !== null && typeof content.previousGlAccountId !== 'string') return false;
+  if (content.transactionId !== undefined && content.transactionId !== null && typeof content.transactionId !== 'string') return false;
+  return true;
+}
+
+/** Semantic preconditions per kind — no insufficient-context records. */
+function validateRuleEvidence(e: RuleExecutionEvidence): string | null {
+  if (e.kind === 'RULE_MATCHED') {
+    if (!e.ruleId) return 'RULE_MATCHED requires ruleId';
+    if (!e.glAccountId) return 'RULE_MATCHED requires glAccountId';
+  }
+  if (e.kind === 'RULE_OVERRIDDEN') {
+    if (!e.ruleId) return 'RULE_OVERRIDDEN requires ruleId';
+    if (!e.previousGlAccountId) return 'RULE_OVERRIDDEN requires previousGlAccountId';
+    if (!e.glAccountId) return 'RULE_OVERRIDDEN requires glAccountId';
+    if (e.previousGlAccountId === e.glAccountId) return 'RULE_OVERRIDDEN requires an actual GL change';
+  }
+  return null;
+}
+
+/**
+ * Persist one rule execution event as statistical evidence (tenant-scoped).
+ *
+ * Best-effort: never throws — evidence loss never blocks accounting or the
+ * import pipeline (mirrors persistRuleExecutionAudit). Recorded with
+ * confidence `tentative`; no ConfidenceLog, no treatment, no observation.
+ *
+ * @param adapter - MemoryAdapter for data access
+ * @param companyId - Tenant scope (mandatory)
+ * @param evidence - The rule execution event to persist
+ */
+export async function recordRuleExecutionEvidence(
+  adapter: MemoryAdapter,
+  companyId: string,
+  evidence: RuleExecutionEvidence,
+): Promise<ObservationRecordOutput> {
+  try {
+    if (!companyId || typeof companyId !== 'string') {
+      return { ok: false, error: 'Invalid companyId' };
+    }
+    if (!evidence || typeof evidence !== 'object') {
+      return { ok: false, error: 'Invalid evidence' };
+    }
+    const semanticError = validateRuleEvidence(evidence);
+    if (semanticError) {
+      return { ok: false, error: semanticError };
+    }
+
+    const contentStr = JSON.stringify(evidence);
+
+    // Idempotency: same anchored event (transactionId present) is recorded once.
+    if (evidence.transactionId) {
+      const existing = await adapter.getExactContent(companyId, contentStr);
+      if (existing) {
+        return { ok: true, observationId: existing.id };
+      }
+    }
+
+    const item = await adapter.record({
+      content: contentStr,
+      type: RULE_EVIDENCE_TYPE,
+      companyId,
+      sourceAuthor: 'system',
+      sourceName: 'rule_execution_feedback',
+      sourceObservedAt: new Date(),
+      confidence: 'tentative',
+    });
+
+    return { ok: true, observationId: item.id };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/**
+ * Retrieve rule execution evidence for a tenant (future decision context).
+ * Tenant-isolated: companyId is mandatory and enforced by the adapter.
+ * Optional filters narrow by rule identity and/or evidence kind.
+ */
+export async function getRuleExecutionEvidence(
+  adapter: MemoryAdapter,
+  companyId: string,
+  filter?: { ruleId?: string; kind?: RuleFeedbackKind },
+): Promise<RuleEvidenceRecord[]> {
+  if (!companyId || typeof companyId !== 'string') return [];
+
+  try {
+    const items = await adapter.getByType(companyId, RULE_EVIDENCE_TYPE);
+    const results: RuleEvidenceRecord[] = [];
+
+    for (const item of items) {
+      if (item.status !== 'active') continue;
+      if (filter?.ruleId) {
+        // Isolation: an evidence row only ever matches its own company scope.
+        try {
+          const probe = JSON.parse(item.content) as RuleExecutionEvidence;
+          if (probe.ruleId !== filter.ruleId) continue;
+        } catch {
+          continue;
+        }
+      }
+
+      try {
+        const content = JSON.parse(item.content);
+        if (!isValidRuleExecutionEvidence(content)) continue;
+        if (filter?.kind && content.kind !== filter.kind) continue;
+        results.push({ itemId: item.id, evidence: content });
+      } catch {
+        continue;
+      }
+    }
+
+    return results;
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Retrieve all classification observations for a specific entity within a tenant.
  *

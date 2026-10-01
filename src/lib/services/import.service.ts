@@ -56,7 +56,7 @@ import { evaluateOperationalPolicy } from '@/lib/operational-policy/policy-servi
 import { IMPORT_OBSERVATION_CONFIG } from '@/lib/operational-policy/import-observation-config';
 import type { PolicyObservationResponse, OperationalPolicyDecision } from '@/lib/operational-policy/types';
 import { MemoryAdapter } from '@/memory/adapter';
-import { createAdapter, lookupTreatment, matchAuthorizedPattern } from '@/memory/classification-knowledge';
+import { createAdapter, lookupTreatment, matchAuthorizedPattern, recordRuleExecutionEvidence } from '@/memory/classification-knowledge';
 import type { AuthorizedPatternMatch } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 
@@ -832,6 +832,29 @@ export class ImportService {
               bankRules,
               companyId,
             );
+
+            // ─── §GAP8-2B — rule outcome feeds statistical memory ────
+            // Advisory evidence only: recorded when the engine produced a
+            // usable outcome (winning rule + action, or a genuine no-match).
+            // Never authority: no confidence promotion, no permanent
+            // knowledge, no classification change.
+            if (resolution.matchedRuleId && resolution.glAccountId) {
+              await recordRuleExecutionEvidence(keAdapter, companyId, {
+                kind: 'RULE_MATCHED',
+                ruleId: resolution.matchedRuleId,
+                glAccountId: resolution.glAccountId,
+                originalDescription: txn.description,
+                direction: txn.amount < 0 ? 'debit' : 'credit',
+                transactionId: uniqueHashes[idx],
+              });
+            } else if (!resolution.matchedRuleId) {
+              await recordRuleExecutionEvidence(keAdapter, companyId, {
+                kind: 'RULE_NOT_MATCHED',
+                originalDescription: txn.description,
+                direction: txn.amount < 0 ? 'debit' : 'credit',
+                transactionId: uniqueHashes[idx],
+              });
+            }
 
             // Persist AI proposal from adapter (if present)
             if (resolution.aiProposal) {

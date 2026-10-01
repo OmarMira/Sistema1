@@ -6,6 +6,7 @@ import {
   createAdapter,
   learnEntityTreatment,
   recordClassificationObservation,
+  recordRuleExecutionEvidence,
   detectConflictingPattern,
   evolveClassificationConfidence,
   degradeKnowledgeOnConflict,
@@ -289,6 +290,10 @@ type KnowledgeEnginePhaseContext = {
   confirmedEntity?: ReclassifyTransactionInput['confirmedEntity'];
   transactionDescription: string;
   source: CorrectionSource;
+  /** §GAP8-2B — prior rule attribution of the transaction being corrected. */
+  priorMatchedRuleId?: string | null;
+  /** §GAP8-2B — prior GL account before this human correction. */
+  priorGlAccountId?: string | null;
 };
 
 /**
@@ -404,6 +409,11 @@ export async function reclassifyTransaction(
     confirmedEntity,
     transactionDescription: transaction.description,
     source,
+    // §GAP8-2B — snapshot of the pre-correction classification, so the KE
+    // phase can record advisory override evidence when a rule attribution
+    // (matchedRuleId) is being replaced by this human decision.
+    priorMatchedRuleId: transaction.matchedRuleId,
+    priorGlAccountId: transaction.glAccountId,
   });
 
   if (!options?.tx) {
@@ -420,6 +430,47 @@ async function executeKnowledgeEnginePhase(
 ): Promise<void> {
   const { companyId, transactionId, glAccountId, confirmedEntity, transactionDescription, source } =
     ctx;
+
+  // ─── §GAP8-2B — rule override evidence (advisory, post-commit) ───────
+  // The correction flowing through this phase remains the human authority
+  // (C11); this block only records that a rule-attributed classification
+  // was overridden. Prior RuleExecutionAudit rows are never touched, and
+  // the evidence itself never promotes confidence or creates knowledge.
+  // Advisory channel: any failure here is logged and NEVER breaks the KE
+  // phase (the accounting correction already stands at this point).
+  if (ctx.priorMatchedRuleId && ctx.priorGlAccountId && ctx.glAccountId !== ctx.priorGlAccountId) {
+    try {
+      const evidenceResult = await recordRuleExecutionEvidence(
+        createAdapter(db, (fn) => db.$transaction(fn)),
+        companyId,
+        {
+          kind: 'RULE_OVERRIDDEN',
+          ruleId: ctx.priorMatchedRuleId,
+          previousGlAccountId: ctx.priorGlAccountId,
+          glAccountId: ctx.glAccountId,
+          originalDescription: transactionDescription,
+          direction: 'any',
+          transactionId,
+        },
+      );
+      if (!evidenceResult.ok) {
+        logger.warn('[KE] Rule override evidence not recorded', {
+          transactionId,
+          companyId,
+          ruleId: ctx.priorMatchedRuleId,
+          error: evidenceResult.error,
+        });
+      }
+    } catch (error) {
+      logger.warn('[KE] Rule override evidence threw — advisory only', {
+        transactionId,
+        companyId,
+        ruleId: ctx.priorMatchedRuleId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   try {
     if (confirmedEntity) {
       // User explicitly confirmed entity identity → persist it and learn treatment

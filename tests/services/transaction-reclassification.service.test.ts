@@ -62,6 +62,9 @@ import {
   learnEntityTreatment,
   recordClassificationObservation,
   evolveClassificationConfidence,
+  getRuleExecutionEvidence,
+  createAdapter,
+  RULE_EVIDENCE_TYPE,
 } from '@/memory/classification-knowledge';
 
 const learnSpy = vi.mocked(learnEntityTreatment);
@@ -756,5 +759,155 @@ describe('§GAP8-2A — correction provenance reaches the KE circuit', () => {
     const badRes = await PATCH(badReq, { params: Promise.resolve({ id: tx.id }) });
     expect(badRes.status).toBe(400);
     expect(reclassifySpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── §GAP8-2B — human override of a rule-attributed classification ───────
+// Rule history stays as evidence; the human correction goes through the
+// normal reclassify authority and wins. The override itself is recorded
+// as advisory statistical evidence (never as authority, never promoted).
+describe('§GAP8-2B — rule override feeds statistical memory', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+    learnSpy.mockClear();
+    observationSpy.mockClear();
+    evolveSpy.mockClear();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+  });
+
+  async function setupRuleAttributedTransaction(tag: string) {
+    const { company, counterpartyGl, tx } = await setupCompanyWithTransaction({
+      companyEmail: `gap82b-${tag}@example.com`,
+      companyName: `Gap82B ${tag} Co`,
+      glCode: '2500',
+    });
+    const priorGl = await db.glAccount.create({
+      data: {
+        companyId: company.id,
+        code: '7300',
+        name: `Rule Prior ${tag}`,
+        accountType: 'expense',
+        normalBalance: 'debit',
+        isActive: true,
+      },
+    });
+    const rule = await db.bankRule.create({
+      data: {
+        companyId: company.id,
+        name: `${tag} rule`,
+        conditionType: 'contains',
+        conditionValue: 'AUTHORITY EXTRACTION',
+        transactionDirection: 'any',
+        glAccountId: priorGl.id,
+        priority: 10,
+        isActive: true,
+      },
+    });
+    // The transaction carries the prior rule attribution (rule-classified).
+    await db.bankTransaction.update({
+      where: { id: tx.id },
+      data: { glAccountId: priorGl.id, matchedRuleId: rule.id },
+    });
+    return { company, counterpartyGl, tx, priorGl, rule };
+  }
+
+  it('T5: a human override reaches the normal correction authority and records override evidence', async () => {
+    const { company, counterpartyGl, tx, priorGl, rule } =
+      await setupRuleAttributedTransaction('override');
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+    expect(outcome.status).toBe('OK');
+
+    // Normal correction authority applied: accounting posted the human target.
+    const updated = await db.bankTransaction.findUnique({ where: { id: tx.id } });
+    expect(updated?.glAccountId).toBe(counterpartyGl.id);
+    expect(updated?.journalEntryId).toBeTruthy();
+
+    // The override is represented as advisory evidence with full provenance.
+    const a = createAdapter(db, (fn) => db.$transaction(fn));
+    const evidence = await getRuleExecutionEvidence(a, company.id, { kind: 'RULE_OVERRIDDEN' });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.evidence).toMatchObject({
+      kind: 'RULE_OVERRIDDEN',
+      ruleId: rule.id,
+      previousGlAccountId: priorGl.id,
+      glAccountId: counterpartyGl.id,
+      transactionId: tx.id,
+      direction: 'any',
+    });
+
+    // Advisory: evidence itself stays tentative — no confidence evolution.
+    const item = await db.memoryItem.findUnique({ where: { id: evidence[0]!.itemId } });
+    expect(item?.confidence).toBe('tentative');
+    const logs = await db.confidenceLog.count({ where: { itemId: evidence[0]!.itemId } });
+    expect(logs).toBe(0);
+  });
+
+  it('T6: the prior rule execution audit survives — evidence coexists, nothing is erased', async () => {
+    const { company, counterpartyGl, tx, rule } = await setupRuleAttributedTransaction('audit');
+
+    // Prior rule execution history for this exact decision.
+    await db.ruleExecutionAudit.create({
+      data: {
+        engineVersion: 'test-engine-v1',
+        transactionId: tx.id,
+        companyId: company.id,
+        result: 'MATCHED',
+        winnerRuleId: rule.id,
+        candidateCount: 1,
+        candidateList: '[]',
+        trace: '{}',
+      },
+    });
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+    expect(outcome.status).toBe('OK');
+
+    // RULE_OVERRIDE_DOES_NOT_ERASE_PRIOR_AUDIT — the audit row still stands.
+    expect(
+      await db.ruleExecutionAudit.count({ where: { companyId: company.id, winnerRuleId: rule.id } }),
+    ).toBe(1);
+
+    // Both records coexist: prior audit + new override evidence.
+    const a = createAdapter(db, (fn) => db.$transaction(fn));
+    const evidence = await getRuleExecutionEvidence(a, company.id, { ruleId: rule.id });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.evidence.kind).toBe('RULE_OVERRIDDEN');
+  });
+
+  it('T7b: evidence never leaks across tenants on override', async () => {
+    const { company, counterpartyGl, tx } = await setupRuleAttributedTransaction('tenant');
+    const otherCompany = await createTestCompany('Gap82B Other Co');
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+    expect(outcome.status).toBe('OK');
+
+    const a = createAdapter(db, (fn) => db.$transaction(fn));
+    const seenByOther = await getRuleExecutionEvidence(a, otherCompany.id, {
+      kind: 'RULE_OVERRIDDEN',
+    });
+    expect(seenByOther).toHaveLength(0);
+
+    const scoped = await db.memoryItem.findMany({
+      where: { type: RULE_EVIDENCE_TYPE, companyId: otherCompany.id },
+    });
+    expect(scoped).toHaveLength(0);
   });
 });

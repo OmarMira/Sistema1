@@ -45,6 +45,32 @@ vi.mock('@/memory/entity-resolution', async (importOriginal) => {
 
 const resolveEntitySpy = vi.mocked(resolveEntity);
 
+// §GAP8-2A: observe the learning writes (source propagation) without
+// changing behavior — passthrough keeps the certified KE semantics intact.
+vi.mock('@/memory/classification-knowledge', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@/memory/classification-knowledge')>();
+  return {
+    ...actual,
+    learnEntityTreatment: vi.fn(actual.learnEntityTreatment),
+    recordClassificationObservation: vi.fn(actual.recordClassificationObservation),
+    evolveClassificationConfidence: vi.fn(actual.evolveClassificationConfidence),
+  };
+});
+
+import {
+  learnEntityTreatment,
+  recordClassificationObservation,
+  evolveClassificationConfidence,
+  getRuleExecutionEvidence,
+  createAdapter,
+  RULE_EVIDENCE_TYPE,
+} from '@/memory/classification-knowledge';
+
+const learnSpy = vi.mocked(learnEntityTreatment);
+const observationSpy = vi.mocked(recordClassificationObservation);
+const evolveSpy = vi.mocked(evolveClassificationConfidence);
+
 async function setupCompanyWithTransaction(overrides?: {
   companyEmail?: string;
   companyName?: string;
@@ -278,6 +304,11 @@ function buildFakeCallerTx(opts: {
     bankTransaction: { findFirst: bankTransactionFindFirst, update: bankTransactionUpdate },
     glAccount: { findFirst: glAccountFindFirst },
     fiscalPeriod: { findFirst: fiscalPeriodFindFirst },
+    // §GAP8-2E — the accounting phase writes the FINAL_DECISION_SOURCE
+    // trace through the caller's tx; the fake must expose auditLog.
+    auditLog: {
+      create: vi.fn().mockResolvedValue({ id: 'audit-fake' }),
+    },
   } as unknown as Prisma.TransactionClient;
 
   return {
@@ -520,5 +551,368 @@ describe('S10 1B.2B.1 — external-tx mode (options.tx joins caller transaction)
     // Latch already consumed — replay returns the same settled promise
     await expect(outcome.runPostCommitLearning()).resolves.toBeUndefined();
     expect(resolveEntitySpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ─── §GAP8-2A — correction provenance in the KE circuit ───────────────────
+// A correction's `source` is pure provenance: it must reach
+// learnEntityTreatment + recordClassificationObservation unchanged, keep
+// post-commit ordering, stay company-scoped, and never introduce a
+// repetition-driven confidence change (C11 policy untouched).
+
+describe('§GAP8-2A — correction provenance reaches the KE circuit', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+    learnSpy.mockClear();
+    observationSpy.mockClear();
+    evolveSpy.mockClear();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+    learnSpy.mockClear();
+    observationSpy.mockClear();
+    evolveSpy.mockClear();
+  });
+
+  // Seed an active identity whose canonicalName normalizes to the factory
+  // transaction description ('Authority extraction test') so resolveEntity
+  // returns KNOWN and the KE phase learns without any session-dependent
+  // identity confirmation.
+  async function seedKnownEntity(companyId: string) {
+    return db.companyKnowledge.create({
+      data: {
+        companyId,
+        type: 'COMPANY',
+        canonicalName: 'Authority Extraction Test',
+        aliases: [],
+        metadata: {},
+        source: 'company_knowledge',
+        status: 'active',
+      },
+    });
+  }
+
+  it('T1: a normal correction records user_correction by default', async () => {
+    const { company, counterpartyGl, tx } = await setupCompanyWithTransaction({
+      companyEmail: 'gap82a-default-source@example.com',
+      companyName: 'Gap82A Default Source Co',
+      glCode: '2100',
+    });
+    await seedKnownEntity(company.id);
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+    expect(outcome.status).toBe('OK');
+
+    // learnEntityTreatment(adapter, companyId, entityId, glAccountId, direction, source, …)
+    expect(learnSpy).toHaveBeenCalledTimes(1);
+    expect(learnSpy.mock.calls[0][5]).toBe('user_correction');
+    // recordClassificationObservation(adapter, companyId, { …source… })
+    expect(observationSpy).toHaveBeenCalledTimes(1);
+    expect(observationSpy.mock.calls[0][2].source).toBe('user_correction');
+  });
+
+  it('T3+T4: source import_correction reaches learnEntityTreatment and the observation', async () => {
+    const { company, counterpartyGl, tx } = await setupCompanyWithTransaction({
+      companyEmail: 'gap82a-import-source@example.com',
+      companyName: 'Gap82A Import Source Co',
+      glCode: '2200',
+    });
+    await seedKnownEntity(company.id);
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+      source: 'import_correction',
+    });
+    expect(outcome.status).toBe('OK');
+
+    expect(learnSpy).toHaveBeenCalledTimes(1);
+    expect(learnSpy.mock.calls[0][5]).toBe('import_correction');
+    expect(observationSpy).toHaveBeenCalledTimes(1);
+    expect(observationSpy.mock.calls[0][2].source).toBe('import_correction');
+    // T6: both writes stay scoped to the caller's company
+    expect(learnSpy.mock.calls[0][1]).toBe(company.id);
+    expect(observationSpy.mock.calls[0][1]).toBe(company.id);
+  });
+
+  it('T5: import_correction learning still runs post-commit (external mode defers KE)', async () => {
+    const { company, counterpartyGl, tx, bankAccount } = await setupCompanyWithTransaction({
+      companyEmail: 'gap82a-post-commit@example.com',
+      companyName: 'Gap82A Post Commit Co',
+      glCode: '2300',
+    });
+    await seedKnownEntity(company.id);
+    const row = {
+      ...tx,
+      statement: { bankAccount: { id: bankAccount.id, glAccountId: null } },
+    };
+    const { fake } = buildFakeCallerTx({
+      row,
+      companyId: company.id,
+      glAccountId: counterpartyGl.id,
+    });
+
+    const outcome = await reclassifyTransaction(
+      {
+        companyId: company.id,
+        transactionId: tx.id,
+        glAccountId: counterpartyGl.id,
+        source: 'import_correction',
+      },
+      { tx: fake },
+    );
+    if (outcome.status !== 'OK') throw new Error(`expected OK, got ${outcome.status}`);
+
+    // KE (and its import_correction writes) must not run inside the open tx
+    expect(learnSpy).not.toHaveBeenCalled();
+    expect(observationSpy).not.toHaveBeenCalled();
+
+    await outcome.runPostCommitLearning();
+    expect(learnSpy).toHaveBeenCalledTimes(1);
+    expect(learnSpy.mock.calls[0][5]).toBe('import_correction');
+    expect(observationSpy.mock.calls[0][2].source).toBe('import_correction');
+  });
+
+  it('T7: repetition never changes confidence — only human_confirmation evolves it', async () => {
+    const { company, counterpartyGl, tx } = await setupCompanyWithTransaction({
+      companyEmail: 'gap82a-no-repetition@example.com',
+      companyName: 'Gap82A No Repetition Co',
+      glCode: '2400',
+    });
+    await seedKnownEntity(company.id);
+    const input = {
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+      source: 'import_correction' as const,
+    };
+
+    const first = await reclassifyTransaction(input);
+    expect(first.status).toBe('OK');
+    const second = await reclassifyTransaction(input);
+    expect(second.status).toBe('OK');
+
+    // Observations accumulated on both runs, yet confidence evolved ONLY
+    // through the explicit human-confirmation path — no repetition reason.
+    expect(observationSpy).toHaveBeenCalledTimes(2);
+    expect(evolveSpy.mock.calls.length).toBeGreaterThan(0);
+    for (const call of evolveSpy.mock.calls) {
+      expect(call[3]).toBe('certain');
+      expect(call[4]).toBe('human_confirmation');
+    }
+  });
+
+  it('T2(server): PATCH forwards a typed source and rejects unknown values', async () => {
+    const { company, token, counterpartyGl, tx } = await setupCompanyWithTransaction({
+      companyEmail: 'gap82a-route-source@example.com',
+      companyName: 'Gap82A Route Source Co',
+      glCode: '2500',
+    });
+
+    // Valid propagation → authority receives the typed source unchanged
+    const okReq = new NextRequest(
+      `http://localhost/api/transactions/${tx.id}?companyId=${company.id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          glAccountId: counterpartyGl.id,
+          source: 'import_correction',
+        }),
+      },
+    );
+    const okRes = await PATCH(okReq, { params: Promise.resolve({ id: tx.id }) });
+    expect(okRes.status).toBe(200);
+    expect(reclassifySpy).toHaveBeenCalledTimes(1);
+    expect(reclassifySpy).toHaveBeenCalledWith({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+      confirmedEntity: undefined,
+      source: 'import_correction',
+    });
+
+    // Unknown provenance → 400, authority never invoked
+    reclassifySpy.mockClear();
+    const badReq = new NextRequest(
+      `http://localhost/api/transactions/${tx.id}?companyId=${company.id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          glAccountId: counterpartyGl.id,
+          source: 'banana',
+        }),
+      },
+    );
+    const badRes = await PATCH(badReq, { params: Promise.resolve({ id: tx.id }) });
+    expect(badRes.status).toBe(400);
+    expect(reclassifySpy).not.toHaveBeenCalled();
+  });
+});
+
+// ─── §GAP8-2B — human override of a rule-attributed classification ───────
+// Rule history stays as evidence; the human correction goes through the
+// normal reclassify authority and wins. The override itself is recorded
+// as advisory statistical evidence (never as authority, never promoted).
+describe('§GAP8-2B — rule override feeds statistical memory', () => {
+  beforeEach(async () => {
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
+    learnSpy.mockClear();
+    observationSpy.mockClear();
+    evolveSpy.mockClear();
+    reclassifySpy.mockClear();
+    resolveEntitySpy.mockClear();
+  });
+
+  async function setupRuleAttributedTransaction(tag: string) {
+    const { company, counterpartyGl, tx } = await setupCompanyWithTransaction({
+      companyEmail: `gap82b-${tag}@example.com`,
+      companyName: `Gap82B ${tag} Co`,
+      glCode: '2500',
+    });
+    const priorGl = await db.glAccount.create({
+      data: {
+        companyId: company.id,
+        code: '7300',
+        name: `Rule Prior ${tag}`,
+        accountType: 'expense',
+        normalBalance: 'debit',
+        isActive: true,
+      },
+    });
+    const rule = await db.bankRule.create({
+      data: {
+        companyId: company.id,
+        name: `${tag} rule`,
+        conditionType: 'contains',
+        conditionValue: 'AUTHORITY EXTRACTION',
+        transactionDirection: 'any',
+        glAccountId: priorGl.id,
+        priority: 10,
+        isActive: true,
+      },
+    });
+    // The transaction carries the prior rule attribution (rule-classified).
+    await db.bankTransaction.update({
+      where: { id: tx.id },
+      data: { glAccountId: priorGl.id, matchedRuleId: rule.id },
+    });
+    return { company, counterpartyGl, tx, priorGl, rule };
+  }
+
+  it('T5: a human override reaches the normal correction authority and records override evidence', async () => {
+    const { company, counterpartyGl, tx, priorGl, rule } =
+      await setupRuleAttributedTransaction('override');
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+    expect(outcome.status).toBe('OK');
+
+    // Normal correction authority applied: accounting posted the human target.
+    const updated = await db.bankTransaction.findUnique({ where: { id: tx.id } });
+    expect(updated?.glAccountId).toBe(counterpartyGl.id);
+    expect(updated?.journalEntryId).toBeTruthy();
+
+    // The override is represented as advisory evidence with full provenance.
+    const a = createAdapter(db, (fn) => db.$transaction(fn));
+    const evidence = await getRuleExecutionEvidence(a, company.id, { kind: 'RULE_OVERRIDDEN' });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.evidence).toMatchObject({
+      kind: 'RULE_OVERRIDDEN',
+      ruleId: rule.id,
+      previousGlAccountId: priorGl.id,
+      glAccountId: counterpartyGl.id,
+      transactionId: tx.id,
+      direction: 'any',
+    });
+
+    // Advisory: evidence itself stays tentative — no confidence evolution.
+    const item = await db.memoryItem.findUnique({ where: { id: evidence[0]!.itemId } });
+    expect(item?.confidence).toBe('tentative');
+    const logs = await db.confidenceLog.count({ where: { itemId: evidence[0]!.itemId } });
+    expect(logs).toBe(0);
+  });
+
+  it('T6: the prior rule execution audit survives — evidence coexists, nothing is erased', async () => {
+    const { company, counterpartyGl, tx, rule } = await setupRuleAttributedTransaction('audit');
+
+    // Prior rule execution history for this exact decision.
+    await db.ruleExecutionAudit.create({
+      data: {
+        engineVersion: 'test-engine-v1',
+        transactionId: tx.id,
+        companyId: company.id,
+        result: 'MATCHED',
+        winnerRuleId: rule.id,
+        candidateCount: 1,
+        candidateList: '[]',
+        trace: '{}',
+      },
+    });
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+    expect(outcome.status).toBe('OK');
+
+    // RULE_OVERRIDE_DOES_NOT_ERASE_PRIOR_AUDIT — the audit row still stands.
+    expect(
+      await db.ruleExecutionAudit.count({ where: { companyId: company.id, winnerRuleId: rule.id } }),
+    ).toBe(1);
+
+    // Both records coexist: prior audit + new override evidence.
+    const a = createAdapter(db, (fn) => db.$transaction(fn));
+    const evidence = await getRuleExecutionEvidence(a, company.id, { ruleId: rule.id });
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]!.evidence.kind).toBe('RULE_OVERRIDDEN');
+  });
+
+  it('T7b: evidence never leaks across tenants on override', async () => {
+    const { company, counterpartyGl, tx } = await setupRuleAttributedTransaction('tenant');
+    const otherCompany = await createTestCompany('Gap82B Other Co');
+
+    const outcome = await reclassifyTransaction({
+      companyId: company.id,
+      transactionId: tx.id,
+      glAccountId: counterpartyGl.id,
+    });
+    expect(outcome.status).toBe('OK');
+
+    const a = createAdapter(db, (fn) => db.$transaction(fn));
+    const seenByOther = await getRuleExecutionEvidence(a, otherCompany.id, {
+      kind: 'RULE_OVERRIDDEN',
+    });
+    expect(seenByOther).toHaveLength(0);
+
+    const scoped = await db.memoryItem.findMany({
+      where: { type: RULE_EVIDENCE_TYPE, companyId: otherCompany.id },
+    });
+    expect(scoped).toHaveLength(0);
   });
 });

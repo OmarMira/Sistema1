@@ -10,6 +10,7 @@ import type { TransactionIntent } from '@/lib/constants/transaction-intent';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { eligibleForClassificationWhere } from '@/lib/services/transaction-invariants';
 import { ValidationError, ConflictError } from '@/lib/api-error';
+import { createAdapter, recordEntityRoleKnowledge } from '@/memory/classification-knowledge';
 
 type TxClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
 
@@ -189,7 +190,7 @@ export async function classifyEntity(
     throw new ValidationError(`GL account not found: ${glAccountCode}`);
   }
 
-  return db.$transaction(async (tx) => {
+  const txResult = await db.$transaction(async (tx) => {
     const context = await saveContext({
       companyId,
       pattern,
@@ -219,6 +220,46 @@ export async function classifyEntity(
 
     return { context, warning };
   });
+
+  // §GAP8-2C MINIMAL ROLE MEMORY BRIDGE (human classify flow): projection
+  // already committed inside the transaction above; the memory claim is a
+  // best-effort follow-up write that must never fail the classification.
+  // C11: human source → certain via human_confirmation; source 'ai' →
+  // tentative (repetition never promotes).
+  if (txResult.context) {
+    try {
+      const bridge = await recordEntityRoleKnowledge(
+        createAdapter(db, (fn) => db.$transaction(fn)),
+        companyId,
+        {
+          entityContextId: txResult.context.id,
+          pattern: txResult.context.pattern,
+          entityId: null,
+          role: txResult.context.role,
+          roles: txResult.context.roles
+            ? (JSON.parse(txResult.context.roles) as string[])
+            : null,
+          source: source === 'ai' ? 'system_suggested' : 'user_confirmed',
+          actor: userId,
+        },
+      );
+      if (bridge.status === 'ERROR') {
+        logger.info('[ROLE MEMORY BRIDGE FAILED]', {
+          companyId,
+          pattern,
+          error: bridge.error,
+        });
+      }
+    } catch (error) {
+      logger.info('[ROLE MEMORY BRIDGE FAILED]', {
+        companyId,
+        pattern,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return txResult;
 }
 
 export async function getEntityCandidates(companyId: string): Promise<EntityCandidate[]> {

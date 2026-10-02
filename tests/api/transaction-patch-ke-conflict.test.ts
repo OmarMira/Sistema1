@@ -105,6 +105,13 @@ function createMockDb() {
     confidenceLog: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
     bankTransaction,
     glAccount,
+    auditLog: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'audit-test-id',
+        ...data,
+        createdAt: new Date(),
+      })),
+    },
     $transaction: async <T>(fn: (tx: typeof self) => Promise<T>): Promise<T> => fn(self),
     setBlockBankTransactionUpdate: (value: boolean) => {
       blockBankTransactionUpdate = value;

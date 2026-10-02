@@ -432,7 +432,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         eligibleForClassificationWhere({
           statementId: { in: statementIds },
         }),
-        await excludePendingHumanDecisions(db),
+        await excludePendingHumanDecisions(db, companyId),
       ],
     },
   });

@@ -6,16 +6,22 @@ import {
   createAdapter,
   learnEntityTreatment,
   recordClassificationObservation,
+  recordRuleExecutionEvidence,
   detectConflictingPattern,
   evolveClassificationConfidence,
   degradeKnowledgeOnConflict,
   isKnowledgeImplicatedByPendingConflict,
   isConflictResolved,
+  type CorrectionSource,
 } from '@/memory/classification-knowledge';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { confirmEntityIdentity } from '@/internal/company-knowledge/entity/service';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
 import type { Prisma } from '@prisma/client';
+import {
+  recordFinalDecisionTrace,
+  type DecisionSource,
+} from '@/lib/final-decision-trace';
 
 // ─── S10 1B.2A — transaction reclassification authority ──────────
 // Single server authority for: tenant-scoped lookup → GL validation →
@@ -43,6 +49,21 @@ export type ReclassifyTransactionInput = {
     canonicalName: string;
     entityType: EntityType;
   };
+  /**
+   * §GAP8-2A — provenance of the correction. The UI/API only propagate
+   * this context; learning stays in this authority. Defaults to
+   * 'user_correction' so every existing caller is unchanged. Neither
+   * value alters gates, confidence, tenant scope, or commit ordering.
+   */
+  source?: CorrectionSource;
+  /**
+   * §GAP8-2E — final decision source for the AuditLog lifecycle trace.
+   * AI approval consumer passes 'AI_HUMAN_APPROVED' + approvalId; when
+   * omitted it is derived from `source` (user_correction → USER_CORRECTION,
+   * import_correction → IMPORT_CORRECTION).
+   */
+  decisionSource?: 'AI_HUMAN_APPROVED';
+  approvalId?: string;
 };
 
 export type ReclassifyTransactionOptions = {
@@ -206,6 +227,9 @@ type AccountingPhaseContext = {
   glAccountId: string;
   journalEntryId: string | null;
   bankGlAccountId: string | null;
+  // §GAP8-2E — final decision source trace (written in the same tx).
+  finalDecisionSource: DecisionSource;
+  approvalId?: string;
 };
 
 async function executeAccountingPhase(
@@ -250,6 +274,18 @@ async function executeAccountingPhase(
     },
   });
 
+  // §GAP8-2E — final decision source trace (same tx = atomic with the GL
+  // update). USER_CORRECTION / IMPORT_CORRECTION / AI_HUMAN_APPROVED.
+  await recordFinalDecisionTrace(
+    {
+      companyId,
+      transactionId,
+      source: ctx.finalDecisionSource,
+      approvalId: ctx.approvalId,
+    },
+    tx,
+  );
+
   // Normalize amount once so BOTH modes return the same contract: the
   // extended client already computes `number`; a caller-provided raw
   // TransactionClient returns Prisma.Decimal.
@@ -280,6 +316,11 @@ type KnowledgeEnginePhaseContext = {
   glAccountId: string;
   confirmedEntity?: ReclassifyTransactionInput['confirmedEntity'];
   transactionDescription: string;
+  source: CorrectionSource;
+  /** §GAP8-2B — prior rule attribution of the transaction being corrected. */
+  priorMatchedRuleId?: string | null;
+  /** §GAP8-2B — prior GL account before this human correction. */
+  priorGlAccountId?: string | null;
 };
 
 /**
@@ -322,7 +363,8 @@ export async function reclassifyTransaction(
   input: ReclassifyTransactionInput,
   options?: ReclassifyTransactionOptions,
 ) {
-  const { companyId, transactionId, glAccountId, confirmedEntity } = input;
+  const { companyId, transactionId, glAccountId, confirmedEntity, source = 'user_correction' } =
+    input;
 
   // Tenant-scoped reads ride the caller's transaction when provided so
   // validation observes the same snapshot as the accounting phase.
@@ -366,6 +408,11 @@ export async function reclassifyTransaction(
     glAccountId,
     journalEntryId: transaction.journalEntryId,
     bankGlAccountId,
+    // §GAP8-2E — derive final decision source for the lifecycle trace.
+    finalDecisionSource:
+      input.decisionSource ??
+      (source === 'import_correction' ? 'IMPORT_CORRECTION' : 'USER_CORRECTION'),
+    approvalId: input.approvalId,
   };
 
   // Two modes, ONE accounting sequence:
@@ -393,6 +440,12 @@ export async function reclassifyTransaction(
     glAccountId,
     confirmedEntity,
     transactionDescription: transaction.description,
+    source,
+    // §GAP8-2B — snapshot of the pre-correction classification, so the KE
+    // phase can record advisory override evidence when a rule attribution
+    // (matchedRuleId) is being replaced by this human decision.
+    priorMatchedRuleId: transaction.matchedRuleId,
+    priorGlAccountId: transaction.glAccountId,
   });
 
   if (!options?.tx) {
@@ -407,7 +460,49 @@ export async function reclassifyTransaction(
 async function executeKnowledgeEnginePhase(
   ctx: KnowledgeEnginePhaseContext,
 ): Promise<void> {
-  const { companyId, transactionId, glAccountId, confirmedEntity, transactionDescription } = ctx;
+  const { companyId, transactionId, glAccountId, confirmedEntity, transactionDescription, source } =
+    ctx;
+
+  // ─── §GAP8-2B — rule override evidence (advisory, post-commit) ───────
+  // The correction flowing through this phase remains the human authority
+  // (C11); this block only records that a rule-attributed classification
+  // was overridden. Prior RuleExecutionAudit rows are never touched, and
+  // the evidence itself never promotes confidence or creates knowledge.
+  // Advisory channel: any failure here is logged and NEVER breaks the KE
+  // phase (the accounting correction already stands at this point).
+  if (ctx.priorMatchedRuleId && ctx.priorGlAccountId && ctx.glAccountId !== ctx.priorGlAccountId) {
+    try {
+      const evidenceResult = await recordRuleExecutionEvidence(
+        createAdapter(db, (fn) => db.$transaction(fn)),
+        companyId,
+        {
+          kind: 'RULE_OVERRIDDEN',
+          ruleId: ctx.priorMatchedRuleId,
+          previousGlAccountId: ctx.priorGlAccountId,
+          glAccountId: ctx.glAccountId,
+          originalDescription: transactionDescription,
+          direction: 'any',
+          transactionId,
+        },
+      );
+      if (!evidenceResult.ok) {
+        logger.warn('[KE] Rule override evidence not recorded', {
+          transactionId,
+          companyId,
+          ruleId: ctx.priorMatchedRuleId,
+          error: evidenceResult.error,
+        });
+      }
+    } catch (error) {
+      logger.warn('[KE] Rule override evidence threw — advisory only', {
+        transactionId,
+        companyId,
+        ruleId: ctx.priorMatchedRuleId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   try {
     if (confirmedEntity) {
       // User explicitly confirmed entity identity → persist it and learn treatment
@@ -429,7 +524,7 @@ async function executeKnowledgeEnginePhase(
           confirmed.id,
           glAccountId,
           'any',
-          'user_correction',
+          source,
           transactionId,
         );
 
@@ -456,7 +551,7 @@ async function executeKnowledgeEnginePhase(
             originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
-            source: 'user_correction',
+            source,
             transactionId,
           },
         );
@@ -499,7 +594,7 @@ async function executeKnowledgeEnginePhase(
           entityResolution.entityId,
           glAccountId,
           'any',
-          'user_correction',
+          source,
           transactionId,
         );
         if (keResult.status === 'ERROR') {
@@ -524,7 +619,7 @@ async function executeKnowledgeEnginePhase(
             originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
-            source: 'user_correction',
+            source,
             transactionId,
           },
         );
@@ -579,7 +674,7 @@ async function executeKnowledgeEnginePhase(
           entityResolution.entityId,
           glAccountId,
           'any',
-          'user_correction',
+          source,
           transactionId,
         );
         if (keResult.status === 'ERROR') {
@@ -604,7 +699,7 @@ async function executeKnowledgeEnginePhase(
             originalDescription: transactionDescription,
             glAccountId,
             direction: 'any',
-            source: 'user_correction',
+            source,
             transactionId,
           },
         );

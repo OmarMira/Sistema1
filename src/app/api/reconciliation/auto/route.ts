@@ -34,8 +34,9 @@ import {
 export async function revalidateAutoMatchCandidate(
   executor: Pick<typeof db, 'pendingApproval' | 'bankTransaction'>,
   txId: string,
+  companyId: string,
 ): Promise<boolean> {
-  const exclusion = await excludePendingHumanDecisions(executor);
+  const exclusion = await excludePendingHumanDecisions(executor, companyId);
   const row = await executor.bankTransaction.findFirst({
     where: { id: txId, AND: [exclusion] },
     select: { id: true },
@@ -94,7 +95,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
       where: {
         statementId: { in: statementIds },
         isReconciled: false,
-        AND: [await excludePendingHumanDecisions(tx)],
+        AND: [await excludePendingHumanDecisions(tx, companyId)],
       },
     });
 
@@ -247,7 +248,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
       // Write-time guard (§8): the match-time candidate may have gone stale —
       // if a pending human decision appeared, skip ALL writes (classification,
       // reconciliation flags, journal entry, links) for this transaction.
-      if (!(await revalidateAutoMatchCandidate(tx, txId))) continue;
+      if (!(await revalidateAutoMatchCandidate(tx, txId, companyId))) continue;
 
       // Verify that the transaction date is in an active fiscal period
        

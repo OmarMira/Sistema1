@@ -190,6 +190,7 @@ describe('F-10 — KnowledgeAudit identity must come from the session (RED)', ()
     await createTestCompanyMember(actor.id, company.id);
     const pending = await db.pendingApproval.create({
       data: {
+        companyId: company.id,
         action: 'create',
         payload: {
           companyId: company.id,

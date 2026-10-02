@@ -64,6 +64,7 @@ describe('D11-A: Company deletion atomicity', () => {
     await db.pendingApproval.create({
       data: {
         knowledgeId: knowledge.id,
+        companyId: company.id,
         action: 'test_action',
         payload: { test: 'payload' },
         requestedBy: user.id,
@@ -207,6 +208,7 @@ describe('D11-A: Company deletion atomicity', () => {
     await db.pendingApproval.create({
       data: {
         knowledgeId: knowledgeB.id,
+        companyId: companyB.id,
         action: 'test_action',
         payload: { test: 'payload' },
         requestedBy: user.id,

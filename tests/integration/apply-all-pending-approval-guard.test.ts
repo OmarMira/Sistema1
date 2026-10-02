@@ -84,9 +84,10 @@ async function seedApplyScene(userEmail: string, companyName: string, importHash
   return { user, company, expenseGl, transaction, rule, bankAccount, statement };
 }
 
-async function createPendingAiProposal(transactionImportHash: string, requestedBy: string) {
+async function createPendingAiProposal(companyId: string, transactionImportHash: string, requestedBy: string) {
   const row = await db.pendingApproval.create({
     data: {
+      companyId,
       action: 'ai_classification_proposal',
       payload: {
         transactionId: transactionImportHash,
@@ -138,7 +139,7 @@ describe('E2E Decision-Learning Loop §2 — Apply-All pending human-decision gu
       'Pending Guard Causal',
       `pending-guard-causal-${RUN}`,
     );
-    await createPendingAiProposal(`pending-guard-causal-${RUN}`, user.id);
+    await createPendingAiProposal(company.id, `pending-guard-causal-${RUN}`, user.id);
 
     // D: Apply-All runs.
     const matchResult = await matchTransactions(company.id);
@@ -181,7 +182,7 @@ describe('E2E Decision-Learning Loop §2 — Apply-All pending human-decision gu
     expect(staleMatchResult.matchedRules[0].txIds).toContain(transaction.id);
 
     // 2: human decision appears BEFORE executeApplyAll.
-    await createPendingAiProposal(`pending-guard-toctou-${RUN}`, user.id);
+    await createPendingAiProposal(company.id, `pending-guard-toctou-${RUN}`, user.id);
 
     // 3: executeApplyAll receives the OLD MatchResult.
     const applied = await db.$transaction((tx) =>

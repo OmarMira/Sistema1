@@ -195,9 +195,12 @@ describe('TX-REVIEW-UI-001 — UncategorizedReviewDialog (T8–T18)', () => {
       );
       expect(patchCall).toBeDefined();
       const body = JSON.parse(patchCall![1].body as string);
-      // Contract: ONLY { glAccountId } — no companyId/userId/learning fields.
-      expect(Object.keys(body)).toEqual(['glAccountId']);
+      // Contract: ONLY { glAccountId, source } — no companyId/userId/learning
+      // fields. §GAP8-2A (T2): the post-import review propagates its
+      // provenance as 'import_correction'; nothing else is added.
+      expect(Object.keys(body).sort()).toEqual(['glAccountId', 'source']);
       expect(body.glAccountId).toBe('gl-a');
+      expect(body.source).toBe('import_correction');
     });
   });
 
@@ -448,7 +451,12 @@ describe('TX-REVIEW-UI-001 — UncategorizedReviewDialog (T8–T18)', () => {
         (c) => c[0] === '/api/transactions/tx-a' && c[1]?.method === 'PATCH',
       );
       expect(patchCall).toBeDefined();
-      expect(JSON.parse(patchCall![1].body as string)).toEqual({ glAccountId: 'gl-a' });
+      // §GAP8-2A: same legacy PATCH flow and endpoint; the only delta is
+      // the typed provenance the post-import review propagates.
+      expect(JSON.parse(patchCall![1].body as string)).toEqual({
+        glAccountId: 'gl-a',
+        source: 'import_correction',
+      });
     });
   });
 

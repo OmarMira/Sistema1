@@ -20,9 +20,11 @@ const PENDING_HUMAN_DECISION_STATUS = 'pending';
 
 async function loadPendingHumanDecisionImportHashes(
   executor: Pick<typeof db, 'pendingApproval'>,
+  companyId: string,
 ): Promise<string[]> {
   const rows = await executor.pendingApproval.findMany({
     where: {
+      companyId,
       action: PENDING_HUMAN_DECISION_ACTION,
       status: PENDING_HUMAN_DECISION_STATUS,
     },
@@ -53,13 +55,15 @@ function withoutPendingHumanDecision(
 /**
  * Match-time exclusion for the POST /api/bank-rules/[id] action=apply load:
  * a WhereInput fragment that keeps only transactions NOT governed by an
- * ACTIVE pending human decision (or by no decision at all).
+ * ACTIVE pending human decision (or by no decision at all). The pending
+ * decision lookup itself is tenant-scoped (§GAP8-2D).
  */
 export async function excludePendingHumanDecisions(
   executor: Pick<typeof db, 'pendingApproval'>,
+  companyId: string,
 ): Promise<Prisma.BankTransactionWhereInput> {
   return withoutPendingHumanDecision(
-    await loadPendingHumanDecisionImportHashes(executor),
+    await loadPendingHumanDecisionImportHashes(executor, companyId),
   );
 }
 
@@ -104,7 +108,7 @@ export async function executeSingleRuleClassificationApply(
   // transaction before any write — a PendingApproval may have appeared after
   // the route's match-time load, so the candidate IDs can be stale.
   const pendingHumanDecision = withoutPendingHumanDecision(
-    await loadPendingHumanDecisionImportHashes(tx),
+    await loadPendingHumanDecisionImportHashes(tx, companyId),
   );
 
   if (debitIds.length > 0) {

@@ -7,8 +7,8 @@ import { toConfidenceLabel } from '@/lib/types/reasoning';
 import { serverT } from '@/lib/server-i18n';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import { resolveEntity } from '@/memory/entity-resolution';
-import { createAdapter, lookupTreatment, matchAuthorizedPattern, getClassificationEvidenceStats } from '@/memory/classification-knowledge';
-import type { ClassificationEvidenceStats } from '@/memory/classification-knowledge';
+import { createAdapter, lookupTreatment, matchAuthorizedPattern, getClassificationEvidenceStats, getEntityRoleKnowledge } from '@/memory/classification-knowledge';
+import type { ClassificationEvidenceStats, EntityRoleKnowledgeRecord } from '@/memory/classification-knowledge';
 import type { ExtendedPrismaClient } from '@/lib/db';
 
 // ========== TYPES ==========
@@ -325,12 +325,33 @@ export async function enrichCandidates(
 ): Promise<EnrichedCandidate[]> {
   const result: EnrichedCandidate[] = [];
 
+  // §GAP8-2C role-memory reuse (PASO 9): the SAME claim recorded by a human
+  // role confirmation feeds future enrichment when no EntityContext row
+  // exists (e.g. projection deleted). Read-only + advisory: hasContext and
+  // the confidence boost stay EntityContext-only; SOCIO/merchant
+  // arbitration remains projection-side. Failures degrade to "no claims".
+  let roleMemoryClaims: EntityRoleKnowledgeRecord[] = [];
+  if (input.companyId) {
+    try {
+      roleMemoryClaims = await getEntityRoleKnowledge(
+        createAdapter(input.prismaClient, (fn) => input.prismaClient.$transaction(fn)),
+        input.companyId,
+      );
+    } catch {
+      roleMemoryClaims = [];
+    }
+  }
+
   for (const candidate of candidates) {
     const entityKey = candidate.canonicalName.toLowerCase();
     const description = descriptions.get(entityKey) ?? candidate.sampleDescriptions[0] ?? '';
 
-    // Step 1: resolve context role
+    // Step 1: resolve context role (EntityContext projection wins when present)
     const context = resolveContextRole(candidate, description, input);
+    const roleMemoryClaim = context
+      ? null
+      : matchRoleMemoryClaim(roleMemoryClaims, description, candidate, input);
+    const effectiveRole = context?.role ?? roleMemoryClaim?.content.role ?? '';
 
     // Step 2: smartFrequency — adjust minOccurrences threshold
     let effectiveMinOccurrences = options?.minOccurrences ?? 1;
@@ -352,8 +373,8 @@ export async function enrichCandidates(
     const suggested = knowledge.account;
 
     // Step 4: compute confidence — multi-factor instead of binary 0.0/0.95
-    const directionMatch = direction && context
-      ? roleIsValidForDirection(context.role, candidate.directionProfile).valid
+    const directionMatch = direction && effectiveRole
+      ? roleIsValidForDirection(effectiveRole, candidate.directionProfile).valid
       : false;
     const occurrenceBoost = candidate.occurrences > 1 ? 0.05 : 0;
     const directionBoost = directionMatch ? 0.1 : 0;
@@ -392,9 +413,9 @@ export async function enrichCandidates(
         `Historical evidence: ${evidence.matchingTreatmentObservations}/${evidence.totalObservations} observations support this treatment; ${conflictCount} conflict${conflictCount === 1 ? '' : 's'}.`,
       );
     }
-    const explanation = context
+    const explanation = effectiveRole
       ? serverT(locale, 'reasoning.entityContextHigh')
-          .replace('{role}', context.role)
+          .replace('{role}', effectiveRole)
           .replace('{confidence}', String(Math.round(confidence * 100)))
       : serverT(locale, 'reasoning.sinClasificar')
           .replace('{reasons}', serverT(locale, 'reasoning.uncertaintyNoContext'));
@@ -403,7 +424,7 @@ export async function enrichCandidates(
     if (hasExistingRule(candidate, description, input.existingRules)) continue;
 
     // Step 6: check role ↔ direction mismatch via canonical validator
-    const roleToCheck = context?.role ?? '';
+    const roleToCheck = effectiveRole;
     const directionWarning = roleToCheck
       ? (() => {
           const result = roleIsValidForDirection(roleToCheck, candidate.directionProfile);
@@ -415,7 +436,7 @@ export async function enrichCandidates(
     result.push({
       ...candidate,
       hasContext: context !== null,
-      contextRole: context?.role ?? '',
+      contextRole: effectiveRole,
       suggestedAccountName: suggested?.name ?? '',
       suggestedAccountCode: suggested?.code ?? '',
       suggestedAccountId: suggested?.id ?? '',
@@ -433,6 +454,48 @@ export async function enrichCandidates(
   }
 
   return result;
+}
+
+/**
+ * §GAP8-2C: match ACTIVE role-memory claims to a candidate using the same
+ * 3-way containment rule as resolveContextRole. Human-confirmed claims win
+ * over system-suggested ones (claims arrive newest-first). SOCIO memory
+ * claims respect projection-side merchant/SOCIO arbitration.
+ */
+function matchRoleMemoryClaim(
+  claims: EntityRoleKnowledgeRecord[],
+  description: string,
+  candidate: EntityCandidate,
+  input: EnrichmentInput,
+): EntityRoleKnowledgeRecord | null {
+  if (!claims.length) return null;
+
+  const normalizedDesc = normalizePattern(description);
+  const candidateNameLower = candidate.canonicalName.toLowerCase();
+
+  const matches = claims.filter((claim) => {
+    const patternLower = claim.content.pattern.toLowerCase();
+    return (
+      normalizedDesc.includes(patternLower) ||
+      candidateNameLower.includes(patternLower) ||
+      (candidateNameLower.length >= 3 && patternLower.includes(candidateNameLower))
+    );
+  });
+  if (matches.length === 0) return null;
+
+  const usable = matches.filter((claim) => {
+    if (claim.content.role.toUpperCase() !== 'SOCIO') return true;
+    if (!input.knownSocioPatterns?.length) return true;
+    const sync = detectConflictSync(
+      description,
+      input.knownSocioPatterns,
+      input.entityFirstMode ?? false,
+    );
+    return !sync.conflict || sync.socioWins;
+  });
+  if (usable.length === 0) return null;
+
+  return usable.find((claim) => claim.content.source !== 'system_suggested') ?? usable[0];
 }
 
 /**

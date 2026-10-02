@@ -21,9 +21,15 @@ async function createKnowledge(companyId: string, canonicalName: string) {
   });
 }
 
-async function createPendingUpdateApproval(knowledgeId: string, userId: string, canonicalName: string) {
+async function createPendingUpdateApproval(
+  companyId: string,
+  knowledgeId: string,
+  userId: string,
+  canonicalName: string,
+) {
   return db.pendingApproval.create({
     data: {
+      companyId,
       knowledgeId,
       action: 'update',
       payload: {
@@ -41,6 +47,7 @@ async function createPendingUpdateApproval(knowledgeId: string, userId: string, 
 async function createPendingCreateApproval(companyId: string, userId: string) {
   return db.pendingApproval.create({
     data: {
+      companyId,
       knowledgeId: null,
       action: 'create',
       payload: {
@@ -75,13 +82,14 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
     const companyIds = memberships.map((m) => m.companyId);
     if (companyIds.length > 0) {
       await db.knowledgeAudit.deleteMany({ where: { companyKnowledge: { companyId: { in: companyIds } } } }).catch(() => {});
-      await db.pendingApproval.deleteMany({ where: { companyKnowledge: { companyId: { in: companyIds } } } }).catch(() => {});
+      // §GAP8-2D: direct tenant scope also removes create/AI rows without knowledgeId.
+      await db.pendingApproval.deleteMany({ where: { companyId: { in: companyIds } } }).catch(() => {});
       await db.companyKnowledge.deleteMany({ where: { companyId: { in: companyIds } } }).catch(() => {});
     }
     await clearDatabase();
   });
 
-  it('rechaza que el usuario de A confirme un update de conocimiento de la empresa B (403, dato de B intacto)', async () => {
+  it('rechaza que el usuario de A confirme un update de conocimiento de la empresa B (400 not-found por tenant scope, dato de B intacto)', async () => {
     const userA = await createTestUser('p13-a@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
@@ -90,7 +98,7 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
     const companyB = await createTestCompany('Company B');
     const userB = await createTestUser('p13-b@example.com');
     const knowledgeB = await createKnowledge(companyB.id, 'John Doe B');
-    const pendingB = await createPendingUpdateApproval(knowledgeB.id, userB.id, 'John Doe B');
+    const pendingB = await createPendingUpdateApproval(companyB.id, knowledgeB.id, userB.id, 'John Doe B');
 
     const res = await confirmUpdateRoute(
       new NextRequest(`http://localhost/api/company-knowledge/${knowledgeB.id}/confirm-update?companyId=${companyA.id}`, {
@@ -101,7 +109,7 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
       { params: Promise.resolve({ id: knowledgeB.id }) },
     );
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
 
     const afterB = await db.companyKnowledge.findUnique({ where: { id: knowledgeB.id } });
     expect(afterB?.canonicalName).toBe('John Doe B');
@@ -114,7 +122,7 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
     const tokenA = await createSession(userA.id);
 
     const knowledgeA = await createKnowledge(companyA.id, 'John Doe A');
-    const pendingA = await createPendingUpdateApproval(knowledgeA.id, userA.id, 'John Doe A');
+    const pendingA = await createPendingUpdateApproval(companyA.id, knowledgeA.id, userA.id, 'John Doe A');
 
     const res = await confirmUpdateRoute(
       new NextRequest(`http://localhost/api/company-knowledge/${knowledgeA.id}/confirm-update?companyId=${companyA.id}`, {
@@ -131,7 +139,7 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
     expect(afterA?.canonicalName).toBe('HACKED-BY-TENANT-A');
   });
 
-  it('rechaza que el usuario de A confirme un create de conocimiento para la empresa B (403, no se crea en B)', async () => {
+  it('rechaza que el usuario de A confirme un create de conocimiento para la empresa B (400 not-found por tenant scope, no se crea en B)', async () => {
     const userA = await createTestUser('p13-d@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
@@ -150,7 +158,7 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
       { params: Promise.resolve({}) },
     );
 
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(400);
 
     const intruder = await db.companyKnowledge.findFirst({
       where: { companyId: companyB.id, canonicalName: 'INTRUDER-CO' },

@@ -120,6 +120,7 @@ async function createProposal(
 ) {
   return db.pendingApproval.create({
     data: {
+      companyId: s.company.id,
       action: overrides.action ?? 'ai_classification_proposal',
       payload: basePayload(s, overrides.payload ?? {}),
       requestedBy: s.user.id,
@@ -269,6 +270,8 @@ describe('S10 1B.2B.2 — AI proposal approval consumer', () => {
         transactionId: a.tx.id,
         glAccountId: a.aiGl.id,
         confirmedEntity: undefined,
+        decisionSource: 'AI_HUMAN_APPROVED',
+        approvalId: proposal.id,
       },
       { tx: expect.anything() },
     );
@@ -276,6 +279,7 @@ describe('S10 1B.2B.2 — AI proposal approval consumer', () => {
     // A payload whose importHash matches no transaction: tenant chain fails.
     const ghost = await db.pendingApproval.create({
       data: {
+        companyId: a.company.id,
         action: 'ai_classification_proposal',
         payload: basePayload(a, { transactionId: 'ghost-hash-no-such-row' }),
         requestedBy: a.user.id,
@@ -397,6 +401,8 @@ describe('S10 1B.2B.2 — AI proposal approval consumer', () => {
         transactionId: a.tx.id,
         glAccountId: a.humanGl.id,
         confirmedEntity: { canonicalName: 'ACME SRL', entityType: 'company' },
+        decisionSource: 'AI_HUMAN_APPROVED',
+        approvalId: proposal.id,
       },
       { tx: expect.anything() },
     );

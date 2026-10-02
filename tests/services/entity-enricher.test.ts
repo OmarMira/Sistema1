@@ -50,6 +50,9 @@ vi.mock('@/memory/classification-knowledge', async (importOriginal) => {
     // GAP3-3: stats run the REAL certified implementation (GAP3-2), never a stub,
     // so accumulation/isolation properties are proven end-to-end here.
     getClassificationEvidenceStats: actual.getClassificationEvidenceStats,
+    // §GAP8-2C: role-memory reuse runs the REAL reader (typed contract),
+    // backed by the mocked adapter's getByType store below.
+    getEntityRoleKnowledge: actual.getEntityRoleKnowledge,
   };
 });
 
@@ -443,6 +446,48 @@ describe('enrichCandidates', () => {
     expect(result).toHaveLength(1);
     expect(result[0].occurrences).toBe(5);
     expect(result[0].directionProfile.debitPct).toBe(0.8);
+  });
+
+  // §GAP8-2C T2: role knowledge recorded by a human confirmation feeds a
+  // FUTURE enrichment when no EntityContext row exists (PASO 9 reuse).
+  it('reuses role knowledge from memory when no EntityContext exists (T2)', async () => {
+    mockResolveEntity.mockResolvedValue({ status: 'UNKNOWN' });
+    observationStore.push({
+      id: 'role_mem_1',
+      type: 'entity_role_knowledge',
+      status: 'active',
+      companyId: 'comp_1',
+      content: JSON.stringify({
+        companyId: 'comp_1',
+        entityContextId: 'ctx_gone',
+        pattern: 'globel telco',
+        entityId: null,
+        role: 'PROVEEDOR',
+        roles: null,
+        source: 'user_confirmed',
+        actor: 'admin_1',
+        detectedAt: new Date().toISOString(),
+      }),
+    });
+
+    try {
+      const candidate = makeCandidate({
+        canonicalName: 'GLOBEL TELCO',
+        occurrences: 4,
+        directionProfile: { creditPct: 0.1, debitPct: 0.9 },
+        sampleDescriptions: ['GLOBEL TELCO MONTHLY'],
+      });
+      const descs = new Map([['globel telco', 'GLOBEL TELCO MONTHLY']]);
+      const result = await enrichCandidates([candidate], descs, input);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].hasContext).toBe(false); // no EntityContext row
+      expect(result[0].contextRole).toBe('PROVEEDOR'); // role from memory
+      expect(result[0].directionWarning).toBeNull(); // debit matches PROVEEDOR
+      expect(result[0].explanation).toContain('PROVEEDOR');
+    } finally {
+      observationStore = observationStore.filter((s) => s.id !== 'role_mem_1');
+    }
   });
 });
 // ─── KE-EVOL-003: enricher confidence semantics (advisory, human-gated) ──

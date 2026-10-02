@@ -6,6 +6,15 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { resolveEntity } from '@/memory/entity-resolution';
 import { EntityTypeValues, type EntityType } from '@/internal/company-knowledge/entity/types';
 import { reclassifyTransaction } from '@/lib/services/transaction-reclassification.service';
+import {
+  type CorrectionSource,
+} from '@/memory/classification-knowledge';
+
+// §GAP8-2A — accepted correction provenance values (existing domain union).
+const CORRECTION_SOURCES: readonly CorrectionSource[] = [
+  'user_correction',
+  'import_correction',
+];
 
 // ─── PATCH /api/transactions/[id] ───────────────────────────────────────
 // Manual GL account assignment: updates the transaction and creates the
@@ -24,17 +33,29 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
   const { id } = await context.params;
 
   const body = await request.json();
-  const { glAccountId, confirmedEntity } = body as {
+  const { glAccountId, confirmedEntity, source } = body as {
     glAccountId: string;
     confirmedEntity?: {
       canonicalName: string;
       entityType: EntityType;
     };
+    source?: CorrectionSource;
   };
 
   if (!glAccountId) {
     return NextResponse.json(
       { error: 'glAccountId is required' },
+      { status: 400 },
+    );
+  }
+
+  // §GAP8-2A — correction provenance is a typed, optional propagation
+  // only: when present it must belong to the existing domain union;
+  // when absent the authority defaults to 'user_correction'. Rejecting
+  // any other value keeps the learning record truthful.
+  if (source !== undefined && !CORRECTION_SOURCES.includes(source)) {
+    return NextResponse.json(
+      { error: `source must be one of: ${CORRECTION_SOURCES.join(', ')}` },
       { status: 400 },
     );
   }
@@ -70,6 +91,8 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
     transactionId: id,
     glAccountId,
     confirmedEntity,
+    // Absent → omitted here so the authority's own default applies.
+    ...(source !== undefined ? { source } : {}),
   });
 
   if (outcome.status === 'TRANSACTION_NOT_FOUND') {

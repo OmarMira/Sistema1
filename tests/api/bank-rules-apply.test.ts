@@ -41,9 +41,10 @@ describe('H3 — POST /api/bank-rules/[id] (action=apply)', () => {
 
   // PendingApproval has no company FK, so clearDatabase() cannot reach it —
   // these tests only ever delete the approval rows THEY created (§6).
-  async function createPendingAiProposal(importHash: string) {
+  async function createPendingAiProposal(companyId: string, importHash: string) {
     const row = await db.pendingApproval.create({
       data: {
+        companyId,
         action: 'ai_classification_proposal',
         payload: { transactionId: importHash },
         requestedBy: 'single-rule-guard-test',
@@ -229,7 +230,7 @@ describe('H3 — POST /api/bank-rules/[id] (action=apply)', () => {
     });
     const importHash = `single-rule-guard-match-${RUN}`;
     await db.bankTransaction.update({ where: { id: tx.id }, data: { importHash } });
-    await createPendingAiProposal(importHash);
+    await createPendingAiProposal(company.id, importHash);
 
     const rule = await createRule(company.id, gl.id);
     const { POST } = await import('../../src/app/api/bank-rules/[id]/route');
@@ -282,7 +283,7 @@ describe('H3 — POST /api/bank-rules/[id] (action=apply)', () => {
     const staleIds = [tx.id];
 
     // 2: PendingApproval appears BEFORE executeSingleRuleClassificationApply.
-    await createPendingAiProposal(importHash);
+    await createPendingAiProposal(company.id, importHash);
 
     const { executeSingleRuleClassificationApply } = await import(
       '@/lib/services/single-rule-apply.service'

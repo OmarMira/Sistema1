@@ -130,10 +130,16 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
     try {
       // Single authority: the existing PATCH /api/transactions/[id].
       // It performs accounting + journal + learning + confidence + conflicts.
+      // §GAP8-2A: this dialog is the post-import review flow (only consumer:
+      // ImportPage), so it propagates the correction provenance as
+      // 'import_correction' — the authority records it, nothing else changes.
       const res = await fetch(`/api/transactions/${selectedTxId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ glAccountId: selectedGlId }),
+        body: JSON.stringify({
+          glAccountId: selectedGlId,
+          source: 'import_correction',
+        }),
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);

@@ -255,6 +255,13 @@ function createMockDb() {
     journalEntry,
     journalLine,
     glAccountBalance,
+    auditLog: {
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'audit-test-id',
+        ...data,
+        createdAt: new Date(),
+      })),
+    },
     $transaction: async <T,>(fn: (tx: typeof self) => Promise<T>): Promise<T> => fn(self),
     // G8-2 lock contract: acquireCompanyLock runs
     // SELECT id FROM "Company" WHERE id = <companyId> FOR UPDATE through a

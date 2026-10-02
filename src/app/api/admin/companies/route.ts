@@ -6,6 +6,7 @@ import { saveLogo } from '@/lib/uploads/logo-service';
 import { createAdminCompanySchema } from '@/lib/validations/admin';
 import { seedChartOfAccounts } from '@/lib/chart-of-accounts';
 import { parseAdminBody } from '@/lib/parse-admin-body';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 export const GET = apiHandler(
   async () => {
@@ -65,6 +66,9 @@ export const POST = apiHandler(
 
        
       await seedChartOfAccounts(tx as any, newCompany.id);
+
+      // Seed default module entitlements
+      await initializeDefaultCompanyModuleEntitlements(tx, newCompany.id);
 
       await tx.auditLog.create({
         data: {

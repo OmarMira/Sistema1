@@ -35,6 +35,35 @@ describe('AuthService', () => {
     expect(accountsCount).toBeGreaterThan(10);
   });
 
+  it('registers a company with exactly 5 default module entitlements', async () => {
+    const result = await AuthService.register({
+      email: 'default-entitlements@example.com',
+      password: 'password123',
+      firstName: 'Jane',
+      lastName: 'Doe',
+      companyName: 'Default Entitlements LLC',
+      taxId: '77-123456',
+      entityType: 'BUSINESS',
+    });
+
+    const rows = await db.companyModuleEntitlement.findMany({
+      where: { companyId: result.company.id },
+    });
+    expect(rows).toHaveLength(5);
+
+    const byKey = new Map(rows.map((row) => [row.moduleKey, row]));
+    expect(byKey.get('accounting')?.enabled).toBe(true);
+    expect(byKey.get('banking')?.enabled).toBe(true);
+    expect(byKey.get('purchases')?.enabled).toBe(false);
+    expect(byKey.get('sales')?.enabled).toBe(false);
+    expect(byKey.get('inventory')?.enabled).toBe(false);
+
+    expect(byKey.get('accounting')?.activatedAt).not.toBeNull();
+    expect(byKey.get('accounting')?.deactivatedAt).toBeNull();
+    expect(byKey.get('purchases')?.activatedAt).toBeNull();
+    expect(byKey.get('purchases')?.deactivatedAt).toBeNull();
+  });
+
   it('debe iniciar sesión con credenciales correctas', async () => {
     const passwordHash = await bcrypt.hash('password123', 10);
     const user = await db.user.create({

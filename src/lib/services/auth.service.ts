@@ -4,6 +4,7 @@ import { AuthError, ValidationError } from '@/lib/api-error';
 import { LoginInput, RegisterInput } from '@/lib/validations/auth';
 import { withTiming } from '@/lib/timing';
 import { seedChartOfAccounts } from '@/lib/chart-of-accounts';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 export class AuthService {
   static login = withTiming(async (input: LoginInput) => {
@@ -106,6 +107,9 @@ export class AuthService {
       // Seed chart of accounts
        
       await seedChartOfAccounts(tx as any, company.id);
+
+      // Seed default module entitlements
+      await initializeDefaultCompanyModuleEntitlements(tx, company.id);
 
       return { user, company };
     });

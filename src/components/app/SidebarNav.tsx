@@ -14,6 +14,8 @@ import {
 import { navItems, settingsItem } from '@/lib/constants/app-navigation';
 import { useAuthStore, type ViewName } from '@/store/auth-store';
 import { useLanguageStore } from '@/store/language-store';
+import { useNavEntitlements } from '@/hooks/use-nav-entitlements';
+import { resolveNavRenderDecision } from '@/lib/nav-entitlements';
 
 export function SidebarNav({
   onNavigate,
@@ -27,6 +29,8 @@ export function SidebarNav({
   const pathname = usePathname();
   const currentView = useAuthStore((s) => s.currentView);
   const setCurrentView = useAuthStore((s) => s.setCurrentView);
+  const activeCompany = useAuthStore((s) => s.activeCompany);
+  const { rows, isLoading, error } = useNavEntitlements(activeCompany?.id);
 
   function handleNav(view: ViewName) {
     if (view === 'accounts') {
@@ -69,6 +73,9 @@ export function SidebarNav({
         <ScrollArea className="flex-1 py-2">
           <nav className="space-y-1 px-3">
             {navItems.map((item) => {
+              const decision = resolveNavRenderDecision(item.view, rows, { isLoading, error });
+              if (decision === 'HIDE') return null;
+              const itemDisabled = decision === 'RENDER_DISABLED';
               const isActive =
                 item.view === 'accounts'
                   ? pathname === '/accounts'
@@ -77,7 +84,9 @@ export function SidebarNav({
                 <Tooltip key={item.view}>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => handleNav(item.view)}
+                      onClick={itemDisabled ? undefined : () => handleNav(item.view)}
+                      disabled={itemDisabled}
+                      aria-disabled={itemDisabled}
                       className={cn(
                         'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                         isActive

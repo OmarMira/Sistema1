@@ -251,6 +251,13 @@ function setupMocks(overrides: {
         },
         journalLine: { findMany: mockJournalLineFindMany },
         journalEntry: { update: mockJournalEntryUpdate },
+        auditLog: {
+          create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+            id: 'audit-test-id',
+            ...data,
+            createdAt: new Date(),
+          })),
+        },
       };
       return fn(tx);
     },

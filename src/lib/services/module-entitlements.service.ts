@@ -1,5 +1,5 @@
 import { db } from '@/lib/db';
-import { isModuleKey, type ModuleKey } from '@/lib/constants/module-catalog';
+import { isModuleKey, MODULE_CATALOG, type ModuleKey } from '@/lib/constants/module-catalog';
 import { ValidationError } from '@/lib/api-error';
 
 /**
@@ -7,9 +7,12 @@ import { ValidationError } from '@/lib/api-error';
  *
  * Deliberately NOT here (separate concerns, later steps):
  * - authorization / RBAC
- * - availability policy (AVAILABLE / PARTIAL / UNAVAILABLE)
  * - dependency resolution
  * - audit logging
+ *
+ * Availability policy is enforced only at enable-time: enableCompanyModule
+ * rejects modules whose catalog implementationStatus is UNAVAILABLE
+ * (PARTIAL and AVAILABLE remain allowed).
  *
  * Every read and write is scoped by companyId: there is no code path that can
  * read or mutate a row without supplying the owning tenant.
@@ -33,6 +36,12 @@ export function getCompanyModuleEntitlement(companyId: string, moduleKey: string
 
 export function enableCompanyModule(companyId: string, moduleKey: string) {
   const key = assertModuleKey(moduleKey);
+  const catalogEntry = MODULE_CATALOG.find((entry) => entry.key === key);
+  if (catalogEntry?.implementationStatus === 'UNAVAILABLE') {
+    throw new ValidationError('Module cannot be enabled: implementation status is UNAVAILABLE', {
+      moduleKey: key,
+    });
+  }
   return db.companyModuleEntitlement.upsert({
     where: { companyId_moduleKey: { companyId, moduleKey: key } },
     create: {

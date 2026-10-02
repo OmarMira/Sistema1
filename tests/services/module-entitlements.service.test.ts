@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { ValidationError } from '@/lib/api-error';
 
 interface EntitlementRow {
   id: string;
@@ -133,8 +134,8 @@ describe('module-entitlements.service', () => {
 
   // E5
   it('the same moduleKey can exist in two different companies', async () => {
-    await enableCompanyModule(COMPANY_A, 'inventory');
-    await enableCompanyModule(COMPANY_B, 'inventory');
+    await enableCompanyModule(COMPANY_A, 'sales');
+    await enableCompanyModule(COMPANY_B, 'sales');
     expect(store).toHaveLength(2);
     expect(new Set(store.map((row) => row.companyId)).size).toBe(2);
   });
@@ -196,5 +197,23 @@ describe('module-entitlements.service', () => {
     expect(rowsA.every((row) => row.companyId === COMPANY_A)).toBe(true);
     expect(rowsB).toHaveLength(1);
     expect(rowsB.every((row) => row.companyId === COMPANY_B)).toBe(true);
+  });
+
+  // E11
+  it('enable rejects a module whose implementation status is UNAVAILABLE', () => {
+    expect(() => enableCompanyModule(COMPANY_A, 'inventory')).toThrow(ValidationError);
+    expect(() => enableCompanyModule(COMPANY_A, 'inventory')).toThrow(
+      'Module cannot be enabled: implementation status is UNAVAILABLE',
+    );
+    expect(store).toHaveLength(0);
+  });
+
+  // E12
+  it('enable allows a PARTIAL module', async () => {
+    const row = await enableCompanyModule(COMPANY_A, 'purchases');
+    expect(row.enabled).toBe(true);
+    expect(store).toHaveLength(1);
+    expect(store[0].moduleKey).toBe('purchases');
+    expect(store[0].enabled).toBe(true);
   });
 });

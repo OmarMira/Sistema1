@@ -239,3 +239,97 @@ describe('F-3: POST /api/onboarding/complete — JSON config desync on TX failur
     expect(m.writeFileSync).toHaveBeenCalled();
   });
 });
+
+// ═══════════════════════════════════════════════════════════════════
+// Gap #11B: POST /api/admin/companies — default module entitlements
+// ═══════════════════════════════════════════════════════════════════
+describe('GAP11B: POST /api/admin/companies — default module entitlements seeded in TX', () => {
+  it('company creation initializes exactly 5 default CompanyModuleEntitlement rows', async () => {
+    dbMocks.userFindUnique.mockResolvedValue({ platformRole: 'super_admin' });
+    m.saveLogo.mockResolvedValue('/uploads/logos/gap11b-company.png');
+
+    interface EntitlementRow {
+      id: string;
+      companyId: string;
+      moduleKey: string;
+      enabled: boolean;
+      activatedAt: Date | null;
+      deactivatedAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    }
+    const entitlementStore: EntitlementRow[] = [];
+    let rowId = 0;
+
+    dbMocks.dbTransaction.mockImplementation(
+      async (cb: (tx: Record<string, unknown>) => Promise<unknown>) => {
+        const mockTx = {
+          company: {
+            create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+              id: 'company-gap11b',
+              ...data,
+            })),
+          },
+          companyMember: { create: vi.fn(async () => ({ id: 'member-gap11b' })) },
+          companyModuleEntitlement: {
+            upsert: vi.fn(
+              async ({
+                where,
+                create,
+                update,
+              }: {
+                where: { companyId_moduleKey: { companyId: string; moduleKey: string } };
+                create: Omit<EntitlementRow, 'id' | 'createdAt' | 'updatedAt'>;
+                update: Partial<Omit<EntitlementRow, 'id' | 'createdAt' | 'updatedAt'>>;
+              }) => {
+                const target = where.companyId_moduleKey;
+                const existing = entitlementStore.find(
+                  (row) => row.companyId === target.companyId && row.moduleKey === target.moduleKey,
+                );
+                if (existing) {
+                  Object.assign(existing, update);
+                  return existing;
+                }
+                const now = new Date();
+                const row: EntitlementRow = {
+                  id: `row-${++rowId}`,
+                  createdAt: now,
+                  updatedAt: now,
+                  ...create,
+                };
+                entitlementStore.push(row);
+                return row;
+              },
+            ),
+          },
+          auditLog: { create: vi.fn(async () => ({ id: 'audit-gap11b' })) },
+        };
+        return cb(mockTx);
+      },
+    );
+
+    const { POST } = await import('@/app/api/admin/companies/route');
+    const req = new NextRequest('http://localhost/api/admin/companies', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ legalName: 'Gap11B Company', taxId: '11-222222' }),
+    });
+
+    const res = await POST(req, { params: Promise.resolve({}) });
+
+    expect(res.status).toBe(201);
+    expect(entitlementStore).toHaveLength(5);
+    expect(entitlementStore.every((row) => row.companyId === 'company-gap11b')).toBe(true);
+
+    const byKey = new Map(entitlementStore.map((row) => [row.moduleKey, row]));
+    expect(byKey.get('accounting')?.enabled).toBe(true);
+    expect(byKey.get('banking')?.enabled).toBe(true);
+    expect(byKey.get('purchases')?.enabled).toBe(false);
+    expect(byKey.get('sales')?.enabled).toBe(false);
+    expect(byKey.get('inventory')?.enabled).toBe(false);
+    expect(byKey.get('accounting')?.activatedAt).not.toBeNull();
+    expect(byKey.get('accounting')?.deactivatedAt).toBeNull();
+    expect(byKey.get('purchases')?.activatedAt).toBeNull();
+    expect(byKey.get('purchases')?.deactivatedAt).toBeNull();
+  });
+});

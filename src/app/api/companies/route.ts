@@ -6,6 +6,7 @@ import { validateRequest } from '@/lib/validate-request';
 import { createAdminCompanySchema } from '@/lib/validations/admin';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { seedChartOfAccounts } from '@/lib/chart-of-accounts';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
@@ -41,6 +42,9 @@ export const POST = apiHandler(
       // 3. Seed accounts
        
       await seedChartOfAccounts(tx as any, newCompany.id);
+
+      // 4. Seed default module entitlements
+      await initializeDefaultCompanyModuleEntitlements(tx, newCompany.id);
 
       // 5. Create audit log
       await createAuditLogWithRetry(

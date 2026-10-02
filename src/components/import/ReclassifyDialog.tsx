@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { useLanguageStore } from '@/store/language-store';
+import { useAuthStore } from '@/store/auth-store';
 import { AccountSelector, type GlAccountOption } from '@/components/spa/journal/AccountSelector';
 import { logger } from '@/lib/logger';
 import type { EntityType } from '@/internal/company-knowledge/entity/types';
@@ -48,8 +49,13 @@ export function ReclassifyDialog({
   onReclassified,
 }: ReclassifyDialogProps) {
   const t = useLanguageStore((s) => s.t);
+  const activeCompany = useAuthStore((s) => s.activeCompany);
   const [selectedGlId, setSelectedGlId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // §GAP10 Block C — explicit human rollback: reason typed by the user,
+  // executed only on button click (never automatically on open or by AI).
+  const [rollbackReason, setRollbackReason] = useState('');
+  const [rollbackSubmitting, setRollbackSubmitting] = useState(false);
   // Identity confirmation is opt-in: the section only appears when the
   // status GET reports entityStatus === 'UNKNOWN'.
   const [entityStatus, setEntityStatus] = useState<'UNKNOWN' | null>(null);
@@ -69,6 +75,7 @@ export function ReclassifyDialog({
     setCanonicalName('');
     setEntityType('company');
     setDecisionExplanation(null);
+    setRollbackReason('');
 
     if (!transaction) return;
     let cancelled = false;
@@ -150,6 +157,42 @@ export function ReclassifyDialog({
       toast.error(t('reclassifyTx.failed'));
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  // §GAP10 Block C — explicit human rollback action. Calls the certified
+  // boundary POST /api/transactions/[id]/rollback with ONLY functional data
+  // (reason + optional correctedGlAccountId); identity and tenant come from
+  // the authenticated session server-side.
+  const trimmedRollbackReason = rollbackReason.trim();
+  const handleRollback = async () => {
+    if (!transaction || !activeCompany || !trimmedRollbackReason || rollbackSubmitting) return;
+    setRollbackSubmitting(true);
+    try {
+      const res = await fetch(
+        `/api/transactions/${transaction.id}/rollback?companyId=${activeCompany.id}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reason: trimmedRollbackReason,
+            ...(selectedGlId ? { correctedGlAccountId: selectedGlId } : {}),
+          }),
+        },
+      );
+      if (!res.ok) {
+        const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
+        toast.error(errBody?.error ?? 'Rollback failed');
+        return;
+      }
+      toast.success('Rollback executed');
+      onReclassified(transaction.id, selectedGlId ?? transaction.glAccountId ?? '');
+      onOpenChange(false);
+    } catch (error) {
+      logger.error('Failed to rollback automated decision', { error: String(error) });
+      toast.error('Rollback failed');
+    } finally {
+      setRollbackSubmitting(false);
     }
   };
 
@@ -254,6 +297,44 @@ export function ReclassifyDialog({
                 )}
               </div>
             )}
+
+            {/* §GAP10 Block C — rollback de decisión automatizada: acción
+                humana explícita; nunca se ejecuta solo al abrir el modal. */}
+            <div className="space-y-2 rounded-md border p-3">
+              <p className="text-sm font-medium">Rollback de decisión automatizada</p>
+              <p className="text-xs text-muted-foreground">
+                Revoca la autoridad automática anterior. Requiere un motivo explícito.
+              </p>
+              <div className="space-y-1">
+                <label className="text-sm font-medium" htmlFor="rollback-reason">
+                  Motivo
+                </label>
+                <input
+                  id="rollback-reason"
+                  data-testid="rollback-reason-input"
+                  type="text"
+                  value={rollbackReason}
+                  onChange={(e) => setRollbackReason(e.target.value)}
+                  placeholder="¿Por qué se revoca esta decisión?"
+                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
+              </div>
+              <Button
+                data-testid="rollback-confirm-btn"
+                variant="outline"
+                onClick={() => void handleRollback()}
+                disabled={!trimmedRollbackReason || rollbackSubmitting || !activeCompany}
+              >
+                {rollbackSubmitting ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    Ejecutando rollback…
+                  </>
+                ) : (
+                  'Ejecutar rollback'
+                )}
+              </Button>
+            </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>

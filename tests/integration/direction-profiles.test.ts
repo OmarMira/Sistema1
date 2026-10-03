@@ -4,6 +4,8 @@ import { createTestUser, createTestCompany, createTestCompanyMember, createTestG
 import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { parseConversationalContext } from '@/lib/services/conversational-service';
+import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 // Mock the conversational context service
 vi.mock('@/lib/services/conversational-service', async (importOriginal) => {
@@ -24,6 +26,7 @@ describe('Direction Profiles Integration Exception Flag', () => {
     user = await createTestUser('test-direction@example.com');
     company = await createTestCompany('Direction Test Corp');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     token = await createSession(user.id);
 
     // Create the GL accounts referenced by mock parseConversationalContext results

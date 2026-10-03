@@ -13,6 +13,7 @@ import {
 import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 describe('P15 — POST /api/learning/rules (aislamiento cross-tenant de cuentas GL)', () => {
   beforeEach(async () => {
@@ -38,6 +39,7 @@ describe('P15 — POST /api/learning/rules (aislamiento cross-tenant de cuentas 
     const userA = await createTestUser('p15-a@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     const tokenA = await createSession(userA.id);
 
     const companyB = await createTestCompany('Company B');
@@ -71,6 +73,7 @@ describe('P15 — POST /api/learning/rules (aislamiento cross-tenant de cuentas 
     const userA = await createTestUser('p15-c@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     const tokenA = await createSession(userA.id);
 
     const companyB = await createTestCompany('Company B');
@@ -96,6 +99,7 @@ describe('P15 — POST /api/learning/rules (aislamiento cross-tenant de cuentas 
     const userA = await createTestUser('p15-ok@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     const tokenA = await createSession(userA.id);
 
     const glA = await createTestGlAccount({ companyId: companyA.id, code: '6000', name: 'Office Expenses' });
@@ -123,6 +127,7 @@ describe('P15 — POST /api/learning/rules (aislamiento cross-tenant de cuentas 
     const userA = await createTestUser('p15-ec@example.com');
     const companyA = await createTestCompany('Company EC');
     await createTestCompanyMember(userA.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     const tokenA = await createSession(userA.id);
 
     const glA = await createTestGlAccount({ companyId: companyA.id, code: '6100', name: 'Travel Expenses' });
@@ -153,6 +158,7 @@ describe('P15 — POST /api/learning/rules (aislamiento cross-tenant de cuentas 
     const userA = await createTestUser('p15-apply@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     const tokenA = await createSession(userA.id);
 
     const companyB = await createTestCompany('Company B');

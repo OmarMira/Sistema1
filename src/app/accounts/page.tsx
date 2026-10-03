@@ -3,6 +3,7 @@ import { AccountsClient } from '@/components/spa/AccountsClient';
 import { AppShell } from '@/components/spa/AppShell';
 import { cookies } from 'next/headers';
 import { requireSsrCompanyContext } from '@/lib/ssr-context';
+import { assertCompanyModuleEntitlement } from '@/lib/module-entitlement-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,15 +17,30 @@ export default async function AccountsServerPage() {
 
   let initialAccounts: GlAccount[] = [];
   if (ctx.ok) {
-    initialAccounts = await db.glAccount.findMany({
-      where: { companyId: ctx.companyId },
-      include: {
-        _count: {
-          select: { children: true, journalLines: true },
+    // Commercial precondition (11D-D): chart of accounts belongs to the
+    // accounting module. Checked with the already-validated ctx.companyId,
+    // never with a request-controlled value. Fail closed with the neutral
+    // empty state: Server Components have no 403 contract in this project
+    // (no error.tsx), mirroring the SsrCompanyContext policy.
+    let entitled = false;
+    try {
+      await assertCompanyModuleEntitlement(ctx.companyId, 'accounting');
+      entitled = true;
+    } catch {
+      entitled = false;
+    }
+
+    if (entitled) {
+      initialAccounts = await db.glAccount.findMany({
+        where: { companyId: ctx.companyId },
+        include: {
+          _count: {
+            select: { children: true, journalLines: true },
+          },
         },
-      },
-      orderBy: { code: 'asc' },
-    });
+        orderBy: { code: 'asc' },
+      });
+    }
   }
 
   return (

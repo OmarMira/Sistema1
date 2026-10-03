@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { parseConversationalContext } from '@/lib/services/conversational-service';
 import { safeAuditLog } from '@/lib/services/audit-service';
@@ -12,6 +13,9 @@ import { serverT } from '@/lib/server-i18n';
 // ── POST /api/learning/conversational-parse ──────────────────────
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  // Cross-module policy (11D-D): REQUIRE_ALL — both modules must be effective.
+  await requireModuleEntitlement('accounting');
+  await requireModuleEntitlement('banking');
   const locale = request.headers.get('x-locale') ?? 'es';
 
   try {

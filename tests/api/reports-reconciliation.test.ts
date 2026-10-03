@@ -11,6 +11,7 @@ import {
 import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 describe('P10 — GET /api/reports/reconciliation (aislamiento de tenant)', () => {
   beforeEach(async () => {
@@ -55,6 +56,7 @@ describe('P10 — GET /api/reports/reconciliation (aislamiento de tenant)', () =
     const userA = await createTestUser('p10-a@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     const tokenA = await createSession(userA.id);
 
     const companyB = await createTestCompany('Company B');
@@ -79,6 +81,7 @@ describe('P10 — GET /api/reports/reconciliation (aislamiento de tenant)', () =
     const userA = await createTestUser('p10-b@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     const tokenA = await createSession(userA.id);
 
     const { bank: bankA } = await seedBankWithTransaction(companyA.id);

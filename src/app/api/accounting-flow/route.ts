@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { ValidationError } from '@/lib/api-error';
 import { aggregateAccountingFlow } from '@/lib/accounting/flow-aggregator';
 import { serverT } from '@/lib/server-i18n';
@@ -20,6 +21,7 @@ import { serverT } from '@/lib/server-i18n';
 export const GET = apiHandler(async (request: NextRequest) => {
   const locale = request.headers.get('x-locale') || 'es';
   const { companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
 
   const { searchParams } = new URL(request.url);
   const startDateStr = searchParams.get('startDate');

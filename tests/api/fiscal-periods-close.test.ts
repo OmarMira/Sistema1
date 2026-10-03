@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, clearDatabase } from '../helpers/factories';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import type { Prisma } from '@prisma/client';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { NextRequest } from 'next/server';
@@ -57,6 +58,7 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
     const user = await createTestUser('h5-close@example.com');
     const company = await createTestCompany('H5 Close');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     mockGetSessionUserId.mockResolvedValue(user.id);
 
     const revenueGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Revenue', accountType: 'revenue', normalBalance: 'credit' });
@@ -148,6 +150,7 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
     const user = await createTestUser('p18-pl@example.com');
     const company = await createTestCompany('P18 P&L');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     mockGetSessionUserId.mockResolvedValue(user.id);
 
     const revenueGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Revenue', accountType: 'revenue', normalBalance: 'credit' });
@@ -218,6 +221,7 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
     const user = await createTestUser('p18-dash@example.com');
     const company = await createTestCompany('P18 Dashboard');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     mockGetSessionUserId.mockResolvedValue(user.id);
 
     const revenueGl = await createTestGlAccount({ companyId: company.id, code: '4010', name: 'Revenue', accountType: 'revenue', normalBalance: 'credit' });
@@ -308,6 +312,7 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
     const user = await createTestUser('p18-dash-eq@example.com');
     const company = await createTestCompany('P18 Dashboard Eq');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     mockGetSessionUserId.mockResolvedValue(user.id);
 
     const cashGl = await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', accountType: 'asset', normalBalance: 'debit' });
@@ -404,6 +409,7 @@ describe('H5 — POST /api/fiscal-periods/close', () => {
     const user = await createTestUser('h5-not-locked@example.com');
     const company = await createTestCompany('H5 Not Locked');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     mockGetSessionUserId.mockResolvedValue(user.id);
 
     await createTestGlAccount({ companyId: company.id, code: '3090', name: 'Retained Earnings', accountType: 'equity', normalBalance: 'credit' });

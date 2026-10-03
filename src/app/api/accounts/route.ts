@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 import { journalAccountsCache } from '@/lib/cache';
@@ -13,6 +14,7 @@ import { createAuditLogWithRetry } from '@/lib/audit';
 export const GET = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const { userId, companyId } = requireCompanyContext();
+    await requireModuleEntitlement('accounting');
 
     const { searchParams } = new URL(request.url);
     const accountType = searchParams.get('accountType');
@@ -109,6 +111,7 @@ export const POST = apiHandler(
     const { userId, companyId } = requireCompanyContext();
 
     await requireCompanyRole(companyId, ['company_admin']);
+    await requireModuleEntitlement('accounting');
 
     const body = await validateRequest(request, createAccountSchema);
     if (body instanceof NextResponse) return body;

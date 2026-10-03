@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyRole } from '@/lib/rbac';
 import { db } from '@/lib/db';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';
@@ -11,6 +12,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const locale = req.headers.get('x-locale') || 'es';
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('accounting');
   const { year, config } = await req.json();
   const validated = fiscalConfigSchema.parse(config);
   const strategy = getPeriodStrategy(validated.type);

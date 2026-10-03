@@ -5,6 +5,7 @@ const mockDb = vi.hoisted(() => ({
   user: { findUnique: vi.fn() },
   companyMember: { findUnique: vi.fn() },
   company: { findUnique: vi.fn() },
+  companyModuleEntitlement: { findFirst: vi.fn() },
   bankAccount: { findMany: vi.fn() },
   journalLine: { findMany: vi.fn() },
   bankTransaction: { findMany: vi.fn(), count: vi.fn() },
@@ -57,6 +58,16 @@ describe('GET /api/dashboard — dedup by journalEntryId', () => {
     mockDb.fiscalPeriod.findFirst.mockResolvedValue(null);
     mockDb.fiscalPeriod.findMany.mockResolvedValue([]);
     mockDb.journalEntry.count.mockResolvedValue(0);
+    mockDb.companyModuleEntitlement.findFirst.mockResolvedValue({
+      id: 'entitlement-1',
+      companyId: 'c1',
+      moduleKey: 'accounting',
+      enabled: true,
+      activatedAt: new Date(),
+      deactivatedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
   });
 
   it('skips a reconciled tx WITH journalEntryId even when the JE description differs', async () => {

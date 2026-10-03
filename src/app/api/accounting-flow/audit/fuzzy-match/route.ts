@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { ValidationError } from '@/lib/api-error';
 import { fetchFuzzyCandidates } from '@/lib/accounting/fuzzy-pre-filter';
 import { runFuzzyMatch } from '@/lib/accounting/fuzzy-matcher';
@@ -24,6 +25,7 @@ import { logger } from '@/lib/logger';
  */
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
 
   const body = await request.json();
   const { targetDescription, date, amount, minScore = 65, windowDays = 7 } = body;

@@ -8,6 +8,7 @@ import {
   createTestCompanyMember,
   clearDatabase,
 } from './helpers/factories';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 async function seedTestData() {
   const user = await db.user.create({
@@ -21,6 +22,7 @@ async function seedTestData() {
   });
 
   const company = await createTestCompany('Review Co');
+  await initializeDefaultCompanyModuleEntitlements(db, company.id);
   await createTestCompanyMember(user.id, company.id);
 
   const session = await createSession(user.id);
@@ -130,6 +132,7 @@ async function seedTwoDuplicatePending() {
   });
 
   const company = await createTestCompany('Review Dupe Co');
+  await initializeDefaultCompanyModuleEntitlements(db, company.id);
   await createTestCompanyMember(user.id, company.id);
 
   const session = await createSession(user.id);

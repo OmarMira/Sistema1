@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import {
@@ -13,6 +14,7 @@ import { logger } from '@/lib/logger';
 export const PATCH = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId, userId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
   const params = await context.params;
   const id = params.id as string;
 
@@ -51,6 +53,7 @@ export const PATCH = apiHandler(async (request: NextRequest, context: RouteConte
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
   const params = await context.params;
   const id = params.id as string;
 

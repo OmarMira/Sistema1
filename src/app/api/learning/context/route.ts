@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { findContext, saveContext } from '@/lib/services/entity-context-service';
@@ -11,6 +12,7 @@ import { handleRouteError } from '@/lib/route-error-handler';
 // Retrieve the entity context for a description.
 export const GET = apiHandler(async (request: NextRequest, _routeCtx: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
 
   const { searchParams } = new URL(request.url);
   const description = searchParams.get('description') || searchParams.get('pattern');
@@ -32,6 +34,7 @@ export const GET = apiHandler(async (request: NextRequest, _routeCtx: RouteConte
 export const POST = apiHandler(async (request: NextRequest, _routeCtx: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
 
   try {
     const body = await request.json();

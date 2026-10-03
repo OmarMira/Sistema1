@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { validateRequest } from '@/lib/validate-request';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { createReconciliationSchema } from '@/lib/validations/reconciliation';
@@ -14,6 +15,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 // Get reconciliation data for a bank account with filters.
 export const GET = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
 
   const { searchParams } = new URL(request.url);
   const bankAccountId = searchParams.get('bankAccountId');
@@ -286,6 +288,7 @@ export const GET = apiHandler(async (request: NextRequest) => {
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
 
   const body = await validateRequest(request, createReconciliationSchema);
   if (body instanceof NextResponse) return body;

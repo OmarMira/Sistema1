@@ -15,6 +15,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import { AsyncLocalStorage } from 'async_hooks';
 
 // ── Mocks ────────────────────────────────────────────────────────────
@@ -101,6 +102,8 @@ beforeAll(async () => {
     where: { id: CID }, update: {},
     create: { id: CID, legalName: 'Verify F02 Co', entityType: 'BUSINESS', isActive: true },
   });
+  // Commercial precondition: default profile (accounting + banking enabled).
+  await initializeDefaultCompanyModuleEntitlements(db, CID);
 });
 
 afterAll(async () => {

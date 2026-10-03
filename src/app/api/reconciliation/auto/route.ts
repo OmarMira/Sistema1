@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
@@ -50,6 +51,7 @@ export async function revalidateAutoMatchCandidate(
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
 
   const body = await request.json();
   const { bankAccountId, createJournalEntries = false, periodId, matchByAmount = true } = body;

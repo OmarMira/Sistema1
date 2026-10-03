@@ -4,6 +4,7 @@ import { createTestUser, createTestCompany, createTestCompanyMember, clearDataba
 import { createSession } from '@/lib/sessions';
 import { createTestGlAccount } from '../helpers/factories';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 // ─── Route handlers under test ──────────────────────────────────
 import { POST as postContext } from '@/app/api/learning/context/route';
@@ -43,6 +44,7 @@ describe('Role validation — any role string is now accepted', () => {
     userId = user.id;
     const company = await createTestCompany('Role Validation Co');
     companyId = company.id;
+    await initializeDefaultCompanyModuleEntitlements(db, companyId);
     await createTestCompanyMember(userId, companyId);
     token = await createSession(user.id);
 

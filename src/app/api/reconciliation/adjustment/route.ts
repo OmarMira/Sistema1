@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
@@ -24,6 +25,7 @@ const adjustmentSchema = z.object({
 export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
 
   const body = await validateRequest(request, adjustmentSchema);
   if (body instanceof NextResponse) return body;

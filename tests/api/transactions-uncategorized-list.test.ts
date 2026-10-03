@@ -10,6 +10,20 @@ const rows: Array<Record<string, unknown>> = [];
 
 function createMockDb() {
   return {
+    companyModuleEntitlement: {
+      findFirst: vi.fn(async ({ where }: { where: { companyId: string; moduleKey: string } }) =>
+        where.moduleKey === 'banking' || where.moduleKey === 'accounting'
+          ? {
+              id: `ent-${where.moduleKey}`,
+              companyId: where.companyId,
+              moduleKey: where.moduleKey,
+              enabled: true,
+              activatedAt: new Date(),
+              deactivatedAt: null,
+            }
+          : null,
+      ),
+    },
     bankTransaction: {
       findMany: vi.fn(async (args: {
         where?: {

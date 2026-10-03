@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { simulateApply } from '@/lib/services/rule-simulation.service';
 import { MAX_PER_BATCH } from '@/lib/services/apply-all-engine';
@@ -35,6 +36,7 @@ export function parseSimulateLimit(raw: unknown): ParseSimulateLimitResult {
 
 export const POST = apiHandler(async (request: NextRequest) => {
   const { companyId } = await requireCompanyContext();
+  await requireModuleEntitlement('banking');
 
   let body: Record<string, unknown> = {};
   try {

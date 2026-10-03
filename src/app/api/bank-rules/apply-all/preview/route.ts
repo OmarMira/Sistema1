@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { matchTransactions } from '@/lib/services/apply-all-engine';
 
@@ -8,6 +9,7 @@ import { matchTransactions } from '@/lib/services/apply-all-engine';
 // READ-ONLY — no mutations performed.
 export const GET = apiHandler(async (request, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
 
   const result = await matchTransactions(companyId, { limit: 200 });
 

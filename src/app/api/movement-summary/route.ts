@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -9,6 +10,7 @@ import { readJsonConfig } from '@/lib/config-loader';
 export const GET = apiHandler(async (request: NextRequest) => {
   try {
     const { companyId } = requireCompanyContext();
+    await requireModuleEntitlement('banking');
     const { searchParams } = new URL(request.url);
     const fromDate = searchParams.get('fromDate');
     const toDate = searchParams.get('toDate');

@@ -6,6 +6,20 @@ const mockDb = vi.hoisted(() => ({
   user: { findUnique: vi.fn() },
   companyMember: { findUnique: vi.fn() },
   company: { findUnique: vi.fn() },
+  companyModuleEntitlement: {
+    findFirst: vi.fn(async ({ where }: { where: { companyId: string; moduleKey: string } }) =>
+      where.moduleKey === 'banking' || where.moduleKey === 'accounting'
+        ? {
+            id: `ent-${where.moduleKey}`,
+            companyId: where.companyId,
+            moduleKey: where.moduleKey,
+            enabled: true,
+            activatedAt: new Date(),
+            deactivatedAt: null,
+          }
+        : null,
+    ),
+  },
   bankAccount: { findFirst: vi.fn() },
   bankStatement: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
   bankTransaction: { findMany: vi.fn(), count: vi.fn() },

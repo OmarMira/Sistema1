@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { resolveDecisionExplanation } from '@/lib/get-decision-explanation';
@@ -9,6 +10,7 @@ import { resolveDecisionExplanation } from '@/lib/get-decision-explanation';
 export const GET = apiHandler(async (_request: Request, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin', 'employee']);
+  await requireModuleEntitlement('banking');
   const { id: transactionId } = await context.params;
 
   if (!transactionId || typeof transactionId !== 'string') {

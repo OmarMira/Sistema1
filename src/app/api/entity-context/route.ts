@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import {
@@ -12,6 +13,7 @@ import { logger } from '@/lib/logger';
 // Paginated list of entity contexts scoped to the user's company
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
 
   const { searchParams } = new URL(request.url);
   const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
@@ -48,6 +50,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
 
   try {
     const body = await request.json();

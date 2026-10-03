@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { loadConfig, clusterByBehavior } from '@/lib/services/entity-detector';
 import { logger } from '@/lib/logger';
@@ -16,6 +17,7 @@ function normalizeForComparison(s: string): string {
 // Does NOT replace classify-entity — this is additive for the wizard only.
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
 
   try {
     // Fetch unclassified, unreconciled bank transactions for this company

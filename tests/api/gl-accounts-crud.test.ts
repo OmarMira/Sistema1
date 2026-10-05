@@ -5,6 +5,7 @@ import { createTestUser, createTestCompany, createTestCompanyMember, createTestG
 import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import { journalAccountsCache } from '@/lib/cache';
 
 const mockCreateAuditLog = vi.hoisted(() => vi.fn());
@@ -34,6 +35,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-crud@example.com');
     const company = await createTestCompany('GL CRUD Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     // CREATE
@@ -116,6 +118,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-dup@example.com');
     const company = await createTestCompany('GL Dup Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const body = {
@@ -146,6 +149,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-404@example.com');
     const company = await createTestCompany('GL 404 Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const req = new NextRequest(`http://localhost/api/accounts/non-existent-id?companyId=${company.id}`, {
@@ -161,7 +165,9 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const companyA = await createTestCompany('Company A');
     const companyB = await createTestCompany('Company B');
     await createTestCompanyMember(user.id, companyA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyA.id);
     await createTestCompanyMember(user.id, companyB.id);
+    await initializeDefaultCompanyModuleEntitlements(db, companyB.id);
     const token = await createSession(user.id);
 
     // Create account in company A
@@ -200,6 +206,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h7-children@example.com');
     const company = await createTestCompany('D2-H7 Children Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const parent = await createTestGlAccount({ companyId: company.id, code: 'P100', name: 'Parent' });
@@ -232,6 +239,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h7-bt@example.com');
     const company = await createTestCompany('D2-H7 BT Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const targetGlAccount = await createTestGlAccount({ companyId: company.id, code: 'B100', name: 'Target to delete' });
@@ -267,6 +275,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h7-jl@example.com');
     const company = await createTestCompany('D2-H7 JL Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'J100', name: 'With Journal' });
@@ -297,6 +306,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h7-hier@example.com');
     const company = await createTestCompany('D2-H7 Hier Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const parent = await createTestGlAccount({ companyId: company.id, code: 'H100', name: 'Parent' });
@@ -335,6 +345,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h7-ba@example.com');
     const company = await createTestCompany('D2-H7 BA Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'BA100', name: 'With Bank' });
@@ -358,6 +369,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h7-cache@example.com');
     const company = await createTestCompany('D2-H7 Cache Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'CA100', name: 'Cache Test' });
@@ -379,6 +391,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h7-nocache@example.com');
     const company = await createTestCompany('D2-H7 NoCache Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'NC100', name: 'No Cache' });
@@ -410,6 +423,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-post-audit@example.com');
     const company = await createTestCompany('D2-H6 Post Audit Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const createReq = new NextRequest(`http://localhost/api/accounts?companyId=${company.id}`, {
@@ -450,6 +464,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-post-rollback@example.com');
     const company = await createTestCompany('D2-H6 Post Rollback Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     mockCreateAuditLog.mockRejectedValueOnce(new Error('Simulated audit failure'));
@@ -485,6 +500,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-put-audit@example.com');
     const company = await createTestCompany('D2-H6 Put Audit Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'U100', name: 'Original Name' });
@@ -516,6 +532,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-put-rollback@example.com');
     const company = await createTestCompany('D2-H6 Put Rollback Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'R100', name: 'Keep Original' });
@@ -546,6 +563,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-delete-audit@example.com');
     const company = await createTestCompany('D2-H6 Delete Audit Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'D100', name: 'To Delete' });
@@ -576,6 +594,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-delete-d2h7@example.com');
     const company = await createTestCompany('D2-H6 Delete D2H7 Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const parent = await createTestGlAccount({ companyId: company.id, code: 'DP10', name: 'Parent' });
@@ -624,6 +643,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-delete-rollback@example.com');
     const company = await createTestCompany('D2-H6 Delete Rollback Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const parent = await createTestGlAccount({ companyId: company.id, code: 'RP10', name: 'Rollback Parent' });
@@ -674,6 +694,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-delete-cache@example.com');
     const company = await createTestCompany('D2-H6 Delete Cache Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'CC10', name: 'Cache Check' });
@@ -696,6 +717,7 @@ describe('GL Accounts CRUD /api/accounts', () => {
     const user = await createTestUser('gl-d2h6-get-no-audit@example.com');
     const company = await createTestCompany('D2-H6 Get No Audit Co');
     await createTestCompanyMember(user.id, company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
 
     const glAccount = await createTestGlAccount({ companyId: company.id, code: 'GA10', name: 'No Audit' });

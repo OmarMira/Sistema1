@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { serverT } from '@/lib/server-i18n';
@@ -23,6 +24,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   const { userId, companyId } = requireCompanyContext();
 
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
 
   const locale = request.headers.get('x-locale') || 'es';
 

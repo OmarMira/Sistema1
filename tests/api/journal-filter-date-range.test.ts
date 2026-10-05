@@ -8,6 +8,7 @@ const mockDbCompanyFindUnique = vi.hoisted(() => vi.fn());
 const mockDbCompanyMemberFindUnique = vi.hoisted(() => vi.fn());
 const mockDbJournalFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockDbJournalCount = vi.hoisted(() => vi.fn().mockResolvedValue(0));
+const mockDbEntitlementFindFirst = vi.hoisted(() => vi.fn());
 
 vi.mock('@/lib/sessions', () => ({ getSessionUserId: mockGetSessionUserId }));
 vi.mock('@/lib/security/rate-limiter', () => ({ checkRateLimit: mockCheckRateLimit }));
@@ -16,6 +17,7 @@ vi.mock('@/lib/db', () => ({
     user: { findUnique: mockDbUserFindUnique },
     company: { findUnique: mockDbCompanyFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },
+    companyModuleEntitlement: { findFirst: mockDbEntitlementFindFirst },
     journalEntry: {
       findMany: mockDbJournalFindMany,
       count: mockDbJournalCount,
@@ -48,6 +50,16 @@ describe('GET /api/journal — date range filter boundary (D5)', () => {
     mockCheckRateLimit.mockReturnValue({ allowed: true, limit: 100, remaining: 99, resetAt: Math.ceil(Date.now() / 1000) + 60 });
     mockDbJournalFindMany.mockResolvedValue([]);
     mockDbJournalCount.mockResolvedValue(0);
+    mockDbEntitlementFindFirst.mockResolvedValue({
+      id: 'entitlement-1',
+      companyId: 'c1',
+      moduleKey: 'accounting',
+      enabled: true,
+      activatedAt: new Date(),
+      deactivatedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
   });
 
   it('start of the range is included (gte = lower bound midnight)', async () => {

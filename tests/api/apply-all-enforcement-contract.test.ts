@@ -25,6 +25,7 @@ vi.mock('@/lib/db', () => ({
     user: { findUnique: mockDbUserFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },
     company: { findUnique: mockDbCompanyFindUnique },
+    companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
   },
 }));
 

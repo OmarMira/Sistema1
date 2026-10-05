@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import {
@@ -70,6 +71,7 @@ function mapDecisionResult(result: DecideAiProposalResult): NextResponse {
 export const GET = apiHandler(async () => {
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin', 'employee']);
+  await requireModuleEntitlement('banking');
 
   const proposals = await listPendingAiProposals(companyId);
   return NextResponse.json({ proposals });
@@ -80,6 +82,7 @@ export const GET = apiHandler(async () => {
 export const POST = apiHandler(async (request: NextRequest) => {
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin', 'employee']);
+  await requireModuleEntitlement('banking');
 
   const body: unknown = await request.json();
   if (typeof body !== 'object' || body === null) {

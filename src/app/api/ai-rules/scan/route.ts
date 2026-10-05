@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import type { RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { loadConfig, clusterCandidates } from '@/lib/services/entity-detector';
@@ -18,6 +19,7 @@ import { loadRolePriorities } from '@/lib/services/rule-matching-engine';
  */
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
   const config = loadConfig();
 
   // ── 1. Get all bank accounts for the company ───────────────────

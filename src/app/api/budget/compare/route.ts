@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
 import { getVarianceReport } from '@/lib/budget/engine';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { db } from '@/lib/db';
 
 export const GET = apiHandler(async (req: NextRequest) => {
   const { companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
 
   const { searchParams } = new URL(req.url);
   const year = parseInt(searchParams.get('year') || new Date().getFullYear().toString(), 10);

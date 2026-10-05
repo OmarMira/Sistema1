@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { createSession } from '@/lib/sessions';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import {
   createTestUser,
   createTestCompany,
@@ -63,6 +64,7 @@ describe('B4B1 — RC5: Accounts SSR never queries glAccount without an authoriz
     tenantA = await createTestCompany('B4B1 SSR Tenant A');
     tenantB = await createTestCompany('B4B1 SSR Tenant B');
     await createTestCompanyMember(attacker.id, tenantA.id);
+    await initializeDefaultCompanyModuleEntitlements(db, tenantA.id);
     createdCompanyIds.add(tenantA.id);
     createdCompanyIds.add(tenantB.id);
 
@@ -146,6 +148,7 @@ describe('B4B1 — RC3: Accounts write routes require CompanyMember.role company
     const company = await createTestCompany('B4B1 Role Co');
     await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role } });
     createdCompanyIds.add(company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
     return { user, company, token };
   }
@@ -162,6 +165,7 @@ describe('B4B1 — RC3: Accounts write routes require CompanyMember.role company
     });
     const company = await createTestCompany('B4B1 Super Co');
     createdCompanyIds.add(company.id);
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     const token = await createSession(user.id);
     return { user, company, token };
   }

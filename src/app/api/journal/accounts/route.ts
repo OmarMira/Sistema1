@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { journalAccountsCache } from '@/lib/cache';
 
 // ─── GET /api/journal/accounts ──────────────────────────────────────
@@ -10,6 +11,7 @@ import { journalAccountsCache } from '@/lib/cache';
 // Returns: id, code, name, accountType, normalBalance
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
   const { searchParams } = new URL(request.url);
 
   // Try cache first

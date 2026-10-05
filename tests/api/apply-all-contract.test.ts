@@ -25,6 +25,20 @@ vi.mock('@/lib/db', () => ({
     user: { findUnique: mockDbUserFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },
     company: { findUnique: mockDbCompanyFindUnique },
+    companyModuleEntitlement: {
+      findFirst: vi.fn(async ({ where }: { where: { companyId: string; moduleKey: string } }) =>
+        where.moduleKey === 'banking' || where.moduleKey === 'accounting'
+          ? {
+              id: `ent-${where.moduleKey}`,
+              companyId: where.companyId,
+              moduleKey: where.moduleKey,
+              enabled: true,
+              activatedAt: new Date(),
+              deactivatedAt: null,
+            }
+          : null,
+      ),
+    },
   },
 }));
 

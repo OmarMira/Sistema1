@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyRole } from '@/lib/rbac';
 import { companySettingsCache } from '@/lib/cache';
 import { serverT } from '@/lib/server-i18n';
@@ -31,6 +32,7 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const locale = req.headers.get('x-locale') || 'es';
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('accounting');
 
   const validated = await validateRequest(req, CreateFiscalPeriodSchema);
   if (validated instanceof NextResponse) return validated;

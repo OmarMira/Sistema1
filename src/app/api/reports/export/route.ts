@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { toUTCRange } from '@/lib/reports/date-filter';
 import { aggregateFinancialData } from '@/lib/reports/aggregation';
 import { exportToCSVContent, type TrialBalanceData, type IncomeStatementData, type BalanceSheetData } from '@/lib/reports/export-csv';
@@ -9,6 +10,7 @@ import { generateHash } from '@/lib/reports/integrity';
 
 export const GET = apiHandler(async (req: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
 
   const { searchParams } = new URL(req.url);
   const type = searchParams.get('type') || '';

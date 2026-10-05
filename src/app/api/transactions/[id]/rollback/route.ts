@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext, requireCurrentUserId } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { rollbackAutomationDecision } from '@/lib/rollback-automation';
@@ -19,6 +20,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   const { companyId } = requireCompanyContext();
   const actorUserId = requireCurrentUserId();
   await requireCompanyRole(companyId, ['company_admin', 'employee']);
+  await requireModuleEntitlement('banking');
   const { id: transactionId } = await context.params;
 
   if (!transactionId || typeof transactionId !== 'string') {

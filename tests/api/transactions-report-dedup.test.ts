@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 
 const mockDb = vi.hoisted(() => ({
+  companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
   user: { findUnique: vi.fn() },
   companyMember: { findUnique: vi.fn() },
   company: { findUnique: vi.fn() },

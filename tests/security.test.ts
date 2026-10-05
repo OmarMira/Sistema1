@@ -22,6 +22,7 @@ vi.mock('@/lib/sessions', () => ({
 
 vi.mock('@/lib/db', () => {
   const mockDb = {
+    companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
     entityContext: {
       findMany: vi.fn().mockResolvedValue([]),
     },

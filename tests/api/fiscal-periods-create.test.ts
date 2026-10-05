@@ -9,6 +9,7 @@ const mockDbCompanyMemberFindUnique = vi.hoisted(() => vi.fn());
 const mockDbPeriodFindMany = vi.hoisted(() => vi.fn().mockResolvedValue([]));
 const mockDbPeriodCreate = vi.hoisted(() => vi.fn());
 const mockDbAuditLogCreate = vi.hoisted(() => vi.fn().mockResolvedValue({}));
+const mockDbEntitlementFindFirst = vi.hoisted(() => vi.fn());
 const mockDbTransaction = vi.hoisted(() => vi.fn((fn: any) => fn({
   fiscalPeriod: { findMany: mockDbPeriodFindMany, create: mockDbPeriodCreate },
   auditLog: { create: mockDbAuditLogCreate },
@@ -22,6 +23,7 @@ vi.mock('@/lib/db', () => ({
     user: { findUnique: mockDbUserFindUnique },
     company: { findUnique: mockDbCompanyFindUnique },
     companyMember: { findUnique: mockDbCompanyMemberFindUnique },
+    companyModuleEntitlement: { findFirst: mockDbEntitlementFindFirst },
     fiscalPeriod: {
       findMany: mockDbPeriodFindMany,
       create: mockDbPeriodCreate,
@@ -53,6 +55,16 @@ describe('POST /api/fiscal-periods — inclusive end day (D4)', () => {
     mockDbCompanyMemberFindUnique.mockResolvedValue({ id: 'member-1', role: 'company_admin' });
     mockCheckRateLimit.mockReturnValue({ allowed: true, limit: 100, remaining: 99, resetAt: Math.ceil(Date.now() / 1000) + 60 });
     mockDbPeriodFindMany.mockResolvedValue([]);
+    mockDbEntitlementFindFirst.mockResolvedValue({
+      id: 'entitlement-1',
+      companyId: 'c1',
+      moduleKey: 'accounting',
+      enabled: true,
+      activatedAt: new Date(),
+      deactivatedAt: null,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
   });
 
   it('keeps the full last day: created period endDate === T23:59:59.999Z while startDate stays at midnight', async () => {

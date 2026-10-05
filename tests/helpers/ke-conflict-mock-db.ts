@@ -85,6 +85,7 @@ export function createKeMockDb() {
       }),
       findMany: vi.fn(async () => []),
     },
+    companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
     $transaction: async <T,>(fn: (tx: KeMockDb) => Promise<T>): Promise<T> => fn(db),
     reset: () => {
       store.clear();

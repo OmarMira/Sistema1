@@ -63,3 +63,13 @@ export class MathMismatchError extends AppError {
     super(400, message, 'MATH_MISMATCH', metadata);
   }
 }
+
+export class ModuleEntitlementError extends AppError {
+  constructor(
+    message: string,
+    code: 'MODULE_NOT_ENTITLED' | 'MODULE_UNAVAILABLE' | 'MODULE_DEPENDENCY_MISSING',
+    details?: unknown,
+  ) {
+    super(403, message, code, details);
+  }
+}

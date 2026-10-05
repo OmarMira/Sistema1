@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyRole } from '@/lib/rbac';
 import { executeYearClose } from '@/lib/services/closing-engine';
 import { fiscalConfigSchema } from '@/lib/fiscal-period/types';
@@ -9,6 +10,7 @@ import { logger } from '@/lib/logger';
 export const POST = apiHandler(async (req: NextRequest) => {
   const { companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin', 'employee']);
+  await requireModuleEntitlement('accounting');
   const { year, config } = await req.json();
 
   if (!year || !config) {

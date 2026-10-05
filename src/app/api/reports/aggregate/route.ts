@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { toUTCRange } from '@/lib/reports/date-filter';
 import { aggregateFinancialData } from '@/lib/reports/aggregation';
 
 export const GET = apiHandler(async (req: NextRequest) => {
   const { companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
 
   const { searchParams } = new URL(req.url);
   const type = searchParams.get('type');

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { ValidationError } from '@/lib/api-error';
 import { ImportService } from '@/lib/services/import.service';
 import { trackAPIResponseTime } from '@/lib/metrics';
@@ -15,6 +16,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
   const locale = request.headers.get('x-locale') || 'es';
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
 
   const formData = await request.formData();
   const file = formData.get('file') as File | null;

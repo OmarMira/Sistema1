@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { z } from 'zod';
 
 // ─── GET /api/reconciliation/report ────────────────────────────────
@@ -12,6 +13,7 @@ const paramsSchema = z.object({
 });
 
 export const GET = apiHandler(async (request: NextRequest) => {
+  await requireModuleEntitlement('banking');
   const { searchParams } = new URL(request.url);
   const raw = {
     bankAccountId: searchParams.get('bankAccountId'),

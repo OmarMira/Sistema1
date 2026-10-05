@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 
 import {
@@ -14,6 +15,7 @@ import {
 // Preview auto-reconcile using bank rules + amount matching without making changes.
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
   const body = await request.json();
   const { bankAccountId, matchByAmount = true } = body;
 

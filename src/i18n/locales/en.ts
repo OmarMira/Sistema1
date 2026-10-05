@@ -700,6 +700,33 @@ const en = {
       'Prioritize entities over patterns: avoids false matches when a partner appears as an individual in merchant transactions (e.g., AMEX + SOCIO).',
     diagnosticsTab: 'Diagnostics',
     aiConfigTab: 'AI Configuration',
+    modulesTab: 'Modules',
+    modules: {
+      description: 'Enable or disable commercial modules for this company.',
+      dependsOn: 'Depends on',
+      enabled: 'Enabled',
+      disabled: 'Disabled',
+      readOnly: 'Only company administrators can change modules.',
+      missingDependency: 'Missing dependency',
+      activationError: 'Could not update the module',
+      status: {
+        AVAILABLE: 'AVAILABLE',
+        PARTIAL: 'PARTIAL',
+        UNAVAILABLE: 'UNAVAILABLE',
+      },
+      statusDescription: {
+        AVAILABLE: 'Fully implemented',
+        PARTIAL: 'Partial implementation',
+        UNAVAILABLE: 'Not available yet',
+      },
+      reason: {
+        EFFECTIVE_ENABLED: 'Active',
+        NOT_CONFIGURED: 'Not configured',
+        COMMERCIALLY_DISABLED: 'Disabled',
+        IMPLEMENTATION_UNAVAILABLE: 'Not available yet',
+        MISSING_DEPENDENCY: 'Configured, but not active due to a missing dependency',
+      },
+    },
     backup: {
       createBackup: 'Create Backup',
       createBackupDesc: 'Generate a complete backup of all company data.',

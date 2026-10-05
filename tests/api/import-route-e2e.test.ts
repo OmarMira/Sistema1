@@ -30,6 +30,7 @@ import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { POST } from '../../src/app/api/import/route';
 import { createSession } from '@/lib/sessions';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import {
   createTestUser,
   createTestCompany,
@@ -103,6 +104,7 @@ NEWFILEUID:NONE
 async function setup() {
   const user = await createTestUser('block4-e2e@example.com');
   const company = await createTestCompany('block4-e2e');
+  await initializeDefaultCompanyModuleEntitlements(db, company.id);
   await createTestCompanyMember(user.id, company.id);
   const token = await createSession(user.id);
 

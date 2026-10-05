@@ -3,11 +3,13 @@ import { Prisma } from '@prisma/client';
 import { apiHandler } from '@/lib/api-handler';
 import { db } from '@/lib/db';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { readJsonConfig } from '@/lib/config-loader';
 import { getYearCloseEntryIds } from '@/lib/reports/aggregation';
 
 export const GET = apiHandler(async (req: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
 
   interface DashboardConfig {
     alertThresholds: { balanceMismatchTolerance: number };

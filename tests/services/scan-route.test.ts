@@ -18,6 +18,20 @@ vi.mock('@/lib/db', () => ({
     company: {
       findUnique: vi.fn().mockResolvedValue({ id: 'comp_1', isActive: true }),
     },
+    companyModuleEntitlement: {
+      findFirst: vi.fn(async ({ where }: { where: { companyId: string; moduleKey: string } }) =>
+        where.moduleKey === 'banking' || where.moduleKey === 'accounting'
+          ? {
+              id: `ent-${where.moduleKey}`,
+              companyId: where.companyId,
+              moduleKey: where.moduleKey,
+              enabled: true,
+              activatedAt: new Date(),
+              deactivatedAt: null,
+            }
+          : null,
+      ),
+    },
     bankAccount: { findMany: vi.fn() },
     bankTransaction: { findMany: vi.fn() },
     bankRule: { findMany: vi.fn() },

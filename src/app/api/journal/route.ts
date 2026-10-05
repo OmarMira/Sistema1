@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 import { createJournalEntrySchema } from '@/lib/validations/journal';
@@ -39,6 +40,7 @@ const journalInclude = {
 // List journal entries for a company.
 export const GET = apiHandler(async (request: NextRequest) => {
   const { companyId } = requireCompanyContext();
+  await requireModuleEntitlement('accounting');
 
   const { searchParams } = new URL(request.url);
   const { page, limit } = parsePaginationParams(searchParams);
@@ -120,6 +122,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
   const { userId, companyId } = requireCompanyContext();
 
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('accounting');
 
   const body = await validateRequest(request, createJournalEntrySchema);
   if (body instanceof NextResponse) return body;

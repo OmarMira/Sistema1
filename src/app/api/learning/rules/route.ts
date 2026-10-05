@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { createAuditLogWithRetry } from '@/lib/audit';
@@ -10,6 +11,9 @@ import { handleRouteError } from '@/lib/route-error-handler';
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  // Cross-module policy (11D-D): REQUIRE_ALL — both modules must be effective.
+  await requireModuleEntitlement('accounting');
+  await requireModuleEntitlement('banking');
 
   const body = await request.json();
   const parsed = createLearningRuleSchema.safeParse(body);

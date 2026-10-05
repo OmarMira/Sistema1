@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { db } from '@/lib/db';
@@ -29,6 +30,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   try {
     const { userId, companyId } = requireCompanyContext();
     await requireCompanyRole(companyId, ['company_admin']);
+    await requireModuleEntitlement('banking');
     const { id } = await context.params;
 
     const adapter = createAdapter(db, (fn) => db.$transaction(fn));

@@ -1,16 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { safeAuditLog } from '@/lib/services/audit-service';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { ForbiddenError } from '@/lib/api-error';
+import { AppError, ForbiddenError } from '@/lib/api-error';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   try {
     const { userId, companyId } = requireCompanyContext();
     await requireCompanyRole(companyId, ['company_admin']);
+    await requireModuleEntitlement('banking');
     const { id } = await context.params;
 
     // Load EntityContext by id
@@ -73,7 +75,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       message: 'Auto-assignment rolled back',
     });
   } catch (error: unknown) {
-    if (error instanceof ForbiddenError) {
+    if (error instanceof AppError) {
       throw error;
     }
     const msg = error instanceof Error ? error.message : 'Unknown error';

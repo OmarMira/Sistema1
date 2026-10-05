@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { assertCompanyModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireActiveTenantAccess, requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
@@ -55,6 +56,7 @@ export const GET = apiHandler(
 
     // F-6 tenant gate: resource-scoped to the entry's companyId
     await requireActiveTenantAccessForEntry(userId, entry.companyId);
+    await assertCompanyModuleEntitlement(entry.companyId, 'accounting');
 
     return NextResponse.json({
       ...entry,
@@ -90,6 +92,7 @@ export const PUT = apiHandler(
     // F-6 tenant gate: resource-scoped to the entry's companyId
     await requireActiveTenantAccessForEntry(userId, existing.companyId);
     await requireCompanyRole(existing.companyId, ['company_admin', 'employee']);
+    await assertCompanyModuleEntitlement(existing.companyId, 'accounting');
 
     const body = await request.json();
     const { date, description, reference, lines } = body;
@@ -237,6 +240,7 @@ export const POST = apiHandler(
 
     // Verify access: tenant role gate, resource-scoped to entry.companyId
     await requireCompanyRole(entry.companyId, ['company_admin']);
+    await assertCompanyModuleEntitlement(entry.companyId, 'accounting');
 
     const body = await request.json();
     const { action } = body;

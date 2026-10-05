@@ -23,6 +23,7 @@ vi.mock('@/lib/db', () => {
   const userFindUnique = vi.fn().mockResolvedValue({ platformRole: 'user' });
   return {
     db: {
+      companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
       journalLine: { findMany: journalLineFindMany },
       journalEntry: { findMany: journalEntryFindMany },
       company: { findUnique: companyFindUnique },

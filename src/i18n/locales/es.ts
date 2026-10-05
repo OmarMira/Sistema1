@@ -705,6 +705,33 @@ const es = {
       'Priorizar entidades sobre patrones: evita falsos match cuando un socio aparece como INDN: en transacciones de comercios (ej: AMEX + SOCIO).',
     diagnosticsTab: 'Diagnóstico',
     aiConfigTab: 'Configuración IA',
+    modulesTab: 'Módulos',
+    modules: {
+      description: 'Activa o desactiva los módulos comerciales de esta empresa.',
+      dependsOn: 'Depende de',
+      enabled: 'Habilitado',
+      disabled: 'Deshabilitado',
+      readOnly: 'Sólo los administradores de la empresa pueden modificar los módulos.',
+      missingDependency: 'Dependencia faltante',
+      activationError: 'No se pudo actualizar el módulo',
+      status: {
+        AVAILABLE: 'AVAILABLE',
+        PARTIAL: 'PARTIAL',
+        UNAVAILABLE: 'UNAVAILABLE',
+      },
+      statusDescription: {
+        AVAILABLE: 'Implementación completa',
+        PARTIAL: 'Implementación parcial',
+        UNAVAILABLE: 'No disponible aún',
+      },
+      reason: {
+        EFFECTIVE_ENABLED: 'Activo',
+        NOT_CONFIGURED: 'Sin configurar',
+        COMMERCIALLY_DISABLED: 'Deshabilitado',
+        IMPLEMENTATION_UNAVAILABLE: 'No disponible aún',
+        MISSING_DEPENDENCY: 'Configurado, pero no activo por una dependencia faltante',
+      },
+    },
     backup: {
       createBackup: 'Crear Respaldo',
       createBackupDesc: 'Genera una copia de seguridad completa de todos los datos de la empresa.',

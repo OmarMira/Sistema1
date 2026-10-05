@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
@@ -10,6 +11,7 @@ import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 // ─── GET /api/banks?companyId=xxx ──────────────────────────────────────
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
+  await requireModuleEntitlement('banking');
   const { searchParams } = new URL(request.url);
 
   const accounts = await db.bankAccount.findMany({
@@ -34,6 +36,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
+  await requireModuleEntitlement('banking');
   const body = await request.json();
   const { accountName, bankName, accountNo, routingNo, glAccountId, balance, currency } = body;
 

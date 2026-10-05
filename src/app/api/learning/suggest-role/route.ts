@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { AppError } from '@/lib/api-error';
+import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { ENTITY_ROLES, EXPECTED_DIRECTION } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { checkPromptInjection } from '@/lib/guardrails';
@@ -17,6 +19,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   try {
     const body = await request.json();
     const { companyId } = requireCompanyContext();
+    await requireModuleEntitlement('banking');
     const { description, directionProfile, sampleDescriptions, totalAmount, occurrences, manualRequest } = body as {
       description?: string;
       directionProfile?: { creditPct: number; debitPct: number };
@@ -498,6 +501,9 @@ Based on this additional context, re-evaluate the role.`;
 
     return NextResponse.json(response);
   } catch (error: unknown) {
+    if (error instanceof AppError) {
+      throw error;
+    }
     const msg = error instanceof Error ? error.message : 'Unknown error';
     logger.error('[SUGGEST_ROLE ERROR]', { error: msg });
     return NextResponse.json(

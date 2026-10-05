@@ -13,6 +13,7 @@ import {
   Bot,
   Sparkles,
   Brain,
+  Box,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
@@ -29,6 +30,7 @@ import { BackupTab } from './settings/BackupTab';
 import { DiagnosticsTab } from './settings/DiagnosticsTab';
 import AiConfigTab from './settings/AiConfigTab';
 import { KnowledgeEngineTab } from './settings/KnowledgeEngineTab';
+import { ModulesTab } from './settings/ModulesTab';
 import { EntityManagementPage } from '@/components/spa/EntityManagementPage';
 
 /* ─── Navigation Items ───────────────────────────────────────── */
@@ -44,6 +46,7 @@ const navItems: NavItem[] = [
   { id: 'company', labelKey: 'settings.companyData', icon: Building2 },
   { id: 'users', labelKey: 'settings.userManagement', icon: Users },
   { id: 'roles', labelKey: 'settings.rolesPermissions', icon: Shield },
+  { id: 'modules', labelKey: 'settings.modulesTab', icon: Box },
   { id: 'entity-management', labelKey: 'entityManagement.title', icon: Sparkles },
   { id: 'knowledge-engine', labelKey: 'settings.knowledgeEngine', icon: Brain },
   { id: 'periods', labelKey: 'settings.fiscalPeriodsTab', icon: Calendar },
@@ -96,6 +99,8 @@ export function SettingsPage() {
         return <UsersTab />;
       case 'roles':
         return <RolesTab />;
+      case 'modules':
+        return <ModulesTab />;
       case 'entity-management':
         return <EntityManagementPage />;
       case 'knowledge-engine':

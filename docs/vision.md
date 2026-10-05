@@ -11,7 +11,7 @@ AccountExpress nace para ofrecer una alternativa:
 - **Determinista**: las reglas del negocio se aplican de forma explícita y predecible
 - **Auditable**: cada decisión contable tiene trazabilidad completa
 - **Local first**: sin dependencia de cloud para la operación diaria
-- **IA explicable**: la IA propone, el contador decide
+- **IA explicable**: la IA propone, el usuario decide
 
 ## What AccountExpress is NOT
 

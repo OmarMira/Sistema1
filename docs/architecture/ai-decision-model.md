@@ -32,7 +32,7 @@ La IA **no contabiliza**. Solamente **propone clasificaciones** cuando el motor 
    └── Propuesta probabilística
    └── Trazabilidad: "AI suggested: {category} ({confidence}%)"
 
-5. Contador decide
+5. Usuario decide
    └── Acepta, rechaza o reclasifica
    └── Queda registrado como decisión final
 ```

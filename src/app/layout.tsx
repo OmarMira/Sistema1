@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'AccountExpress - Accounting CRM',
+  title: 'AccountExpress - Sistema Contable',
   description: 'Professional bookkeeping for US businesses',
   icons: {
     icon: '/favicon.ico',
@@ -29,7 +29,6 @@ export const metadata: Metadata = {
   keywords: [
     'AccountExpress',
     'accounting',
-    'CRM',
     'bookkeeping',
     'US GAAP',
     'financial management',

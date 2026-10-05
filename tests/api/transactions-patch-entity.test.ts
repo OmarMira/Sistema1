@@ -33,6 +33,7 @@ vi.mock('@/lib/db', () => ({
     user: {
       findUnique: vi.fn().mockResolvedValue({ id: 'user-1', platformRole: 'company_admin' }),
     },
+    companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
     $transaction: (...args: unknown[]) => mockTransactionFn(...args),
   },
 }));

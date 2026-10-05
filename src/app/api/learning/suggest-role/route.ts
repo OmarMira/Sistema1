@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
+import { AppError } from '@/lib/api-error';
 import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { ENTITY_ROLES, EXPECTED_DIRECTION } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
@@ -500,6 +501,9 @@ Based on this additional context, re-evaluate the role.`;
 
     return NextResponse.json(response);
   } catch (error: unknown) {
+    if (error instanceof AppError) {
+      throw error;
+    }
     const msg = error instanceof Error ? error.message : 'Unknown error';
     logger.error('[SUGGEST_ROLE ERROR]', { error: msg });
     return NextResponse.json(

@@ -51,9 +51,9 @@ function patchRequest(
   );
 }
 
-async function makeTenant(email: string, name: string) {
+async function makeTenant(email: string, name: string, options: { seedEntitlements?: boolean } = {}) {
   const user = await createTestUser(email);
-  const company = await createTestCompany(name);
+  const company = await createTestCompany(name, 'BUSINESS', options);
   await createTestCompanyMember(user.id, company.id);
   const token = await createSession(user.id);
   return { user, company, token };
@@ -151,7 +151,7 @@ describe('GAP #11E-A - PATCH /api/company/entitlements/[moduleKey]', () => {
 
   it('E3: viewer PATCH => 403 FORBIDDEN, mutation not executed', async () => {
     const user = await createTestUser('11e-a-e3@example.com');
-    const company = await createTestCompany('E3 Company');
+    const company = await createTestCompany('E3 Company', 'BUSINESS', { seedEntitlements: false });
     await db.companyMember.create({ data: { userId: user.id, companyId: company.id, role: 'viewer' } });
     const token = await createSession(user.id);
 
@@ -168,7 +168,7 @@ describe('GAP #11E-A - PATCH /api/company/entitlements/[moduleKey]', () => {
   });
 
   it('E4: foreign tenant without membership => 403, mutation not executed', async () => {
-    const { company: companyA } = await makeTenant('11e-a-e4a@example.com', 'E4 Company A');
+    const { company: companyA } = await makeTenant('11e-a-e4a@example.com', 'E4 Company A', { seedEntitlements: false });
     const { token: tokenB } = await makeTenant('11e-a-e4b@example.com', 'E4 Company B');
 
     const res = await patchRequest(tokenB, companyA.id, 'accounting', JSON.stringify({ enabled: true }));
@@ -181,7 +181,7 @@ describe('GAP #11E-A - PATCH /api/company/entitlements/[moduleKey]', () => {
   });
 
   it('E5: inventory enable=true => service rejects UNAVAILABLE, no bypass', async () => {
-    const { company, token } = await makeTenant('11e-a-e5@example.com', 'E5 Company');
+    const { company, token } = await makeTenant('11e-a-e5@example.com', 'E5 Company', { seedEntitlements: false });
     const res = await patchRequest(token, company.id, 'inventory', JSON.stringify({ enabled: true }));
 
     expect(res.status).toBe(400);
@@ -213,7 +213,7 @@ describe('GAP #11E-A - PATCH /api/company/entitlements/[moduleKey]', () => {
   });
 
   it('E7: dependent enable with accounting missing => persists enabled, engine denies', async () => {
-    const { company, token } = await makeTenant('11e-a-e7@example.com', 'E7 Company');
+    const { company, token } = await makeTenant('11e-a-e7@example.com', 'E7 Company', { seedEntitlements: false });
 
     const res = await patchRequest(token, company.id, 'banking', JSON.stringify({ enabled: true }));
 
@@ -232,7 +232,7 @@ describe('GAP #11E-A - PATCH /api/company/entitlements/[moduleKey]', () => {
   });
 
   it('E8: invalid moduleKey => 400, no mutation', async () => {
-    const { company, token } = await makeTenant('11e-a-e8@example.com', 'E8 Company');
+    const { company, token } = await makeTenant('11e-a-e8@example.com', 'E8 Company', { seedEntitlements: false });
     const res = await patchRequest(token, company.id, 'not-a-module', JSON.stringify({ enabled: true }));
 
     expect(res.status).toBe(400);
@@ -246,7 +246,7 @@ describe('GAP #11E-A - PATCH /api/company/entitlements/[moduleKey]', () => {
   });
 
   it('E9: invalid body / enabled not boolean => 400, no mutation', async () => {
-    const { company, token } = await makeTenant('11e-a-e9@example.com', 'E9 Company');
+    const { company, token } = await makeTenant('11e-a-e9@example.com', 'E9 Company', { seedEntitlements: false });
 
     const badBoolean = await patchRequest(token, company.id, 'accounting', JSON.stringify({ enabled: 'yes' }));
     expect(badBoolean.status).toBe(400);
@@ -263,8 +263,8 @@ describe('GAP #11E-A - PATCH /api/company/entitlements/[moduleKey]', () => {
   });
 
   it('E10: exact active tenant is used for enable and resolve', async () => {
-    const { company: companyA, token } = await makeTenant('11e-a-e10a@example.com', 'E10 Company A');
-    const { company: companyB } = await makeTenant('11e-a-e10b@example.com', 'E10 Company B');
+    const { company: companyA, token } = await makeTenant('11e-a-e10a@example.com', 'E10 Company A', { seedEntitlements: false });
+    const { company: companyB } = await makeTenant('11e-a-e10b@example.com', 'E10 Company B', { seedEntitlements: false });
     // Company B has its own distinct pre-state that must remain untouched.
     await enableCompanyModule(companyB.id, 'banking');
 

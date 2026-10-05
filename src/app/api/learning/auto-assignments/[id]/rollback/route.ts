@@ -6,7 +6,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { safeAuditLog } from '@/lib/services/audit-service';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { ForbiddenError } from '@/lib/api-error';
+import { AppError, ForbiddenError } from '@/lib/api-error';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   try {
@@ -75,7 +75,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       message: 'Auto-assignment rolled back',
     });
   } catch (error: unknown) {
-    if (error instanceof ForbiddenError) {
+    if (error instanceof AppError) {
       throw error;
     }
     const msg = error instanceof Error ? error.message : 'Unknown error';

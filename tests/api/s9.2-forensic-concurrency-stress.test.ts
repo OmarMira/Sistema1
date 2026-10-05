@@ -10,6 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import { AsyncLocalStorage } from 'async_hooks';
 
 // ── Mocks ────────────────────────────────────────────────────────────
@@ -96,6 +97,7 @@ beforeAll(async () => {
     where: { id: CID }, update: {},
     create: { id: CID, legalName: 'S9.2 Test Co', entityType: 'BUSINESS', isActive: true },
   });
+  await initializeDefaultCompanyModuleEntitlements(db, CID);
   await db.user.upsert({
     where: { id: UID }, update: {},
     create: { id: UID, email: `s92-test-${Date.now()}@test.com`, passwordHash: 'x', firstName: 'S92', lastName: 'Test', isActive: true },

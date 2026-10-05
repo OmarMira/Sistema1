@@ -9,6 +9,7 @@ vi.mock('../src/lib/sessions', () => ({
 
 vi.mock('../src/lib/db', () => ({
   db: {
+    companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
     company: {
       findUnique: vi.fn().mockResolvedValue({ id: 'c123', isActive: true }),
     },

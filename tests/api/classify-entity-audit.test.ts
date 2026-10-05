@@ -55,7 +55,7 @@ vi.mock('@/lib/server-i18n', () => ({
   serverT: vi.fn((locale: string, key: string) => `${locale}:${key}`),
 }));
 
-vi.mock('@/lib/db', () => ({ db: {} }));
+vi.mock('@/lib/db', () => ({ db: { companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) } } }));
 
 // ─── Imports after mocks ─────────────────────────────────────────
 

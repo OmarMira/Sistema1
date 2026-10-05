@@ -8,6 +8,7 @@ vi.mock('../../src/lib/sessions', () => ({
 
 vi.mock('../../src/lib/db', () => ({
   db: {
+    companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
     user: {
       findUnique: vi.fn().mockResolvedValue({ id: 'user-id-123', platformRole: 'user' }),
     },

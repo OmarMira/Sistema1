@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import { POST } from '@/app/api/fiscal-periods/route';
 
 // ── Mocks ──────────────────────────────────────────────────────
@@ -69,6 +70,7 @@ describe('C-01: POST /api/fiscal-periods — real endpoint TOCTOU', () => {
       update: {},
       create: { id: COMPANY_ID, legalName: 'C01 Test Co', entityType: 'BUSINESS', isActive: true },
     });
+    await initializeDefaultCompanyModuleEntitlements(db, COMPANY_ID);
   });
 
   afterAll(async () => {

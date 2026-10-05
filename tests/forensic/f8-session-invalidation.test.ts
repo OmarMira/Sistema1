@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 import { hashPassword } from '@/lib/auth';
 import { createSession, deleteAllUserSessions } from '@/lib/sessions';
 import { authRateLimiter } from '@/lib/rate-limiter';
@@ -110,6 +111,7 @@ describe('F-8 — password changes invalidate ALL sessions (policy C, RED)', () 
   it('V1: voluntary password change invalidates ALL existing sessions (current included) -> both 401', async () => {
     const user = await createUserWithPassword('f8-v1@example.com', 'ViejaPass1!');
     const company = await db.company.create({ data: { legalName: 'F8 V1 Co', entityType: 'BUSINESS', taxId: '12-3456789' } });
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     createdCompanyIds.add(company.id);
     await createMembership(user.id, company.id);
 
@@ -139,6 +141,7 @@ describe('F-8 — password changes invalidate ALL sessions (policy C, RED)', () 
   it('V2: old password stops working; new password creates a working session', async () => {
     const user = await createUserWithPassword('f8-v2@example.com', 'ViejaPass1!');
     const company = await db.company.create({ data: { legalName: 'F8 V2 Co', entityType: 'BUSINESS', taxId: '12-3456789' } });
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     createdCompanyIds.add(company.id);
     await createMembership(user.id, company.id);
 
@@ -173,6 +176,7 @@ describe('F-8 — password changes invalidate ALL sessions (policy C, RED)', () 
     const admin = await createUserWithPassword('f8-admin@example.com', 'AdminPass1!', 'super_admin');
     const target = await createUserWithPassword('f8-target@example.com', 'TargetPass1!');
     const company = await db.company.create({ data: { legalName: 'F8 A1 Co', entityType: 'BUSINESS', taxId: '12-3456789' } });
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     createdCompanyIds.add(company.id);
     await createMembership(target.id, company.id);
 
@@ -218,6 +222,7 @@ describe('F-8 — password changes invalidate ALL sessions (policy C, RED)', () 
     const admin = await createUserWithPassword('f8-n1admin@example.com', 'AdminPass1!', 'super_admin');
     const target = await createUserWithPassword('f8-n1@example.com', 'TargetPass1!');
     const company = await db.company.create({ data: { legalName: 'F8 N1 Co', entityType: 'BUSINESS', taxId: '12-3456789' } });
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     createdCompanyIds.add(company.id);
     await createMembership(target.id, company.id);
 
@@ -296,6 +301,7 @@ describe('F-8 — password changes invalidate ALL sessions (policy C, RED)', () 
   it('L1: logout still invalidates ONLY the presented session (unchanged behavior)', async () => {
     const user = await createUserWithPassword('f8-l1@example.com', 'ViejaPass1!');
     const company = await db.company.create({ data: { legalName: 'F8 L1 Co', entityType: 'BUSINESS', taxId: '12-3456789' } });
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
     createdCompanyIds.add(company.id);
     await createMembership(user.id, company.id);
 

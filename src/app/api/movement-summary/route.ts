@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler } from '@/lib/api-handler';
+import { AppError } from '@/lib/api-error';
 import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { db } from '@/lib/db';
@@ -372,6 +373,9 @@ export const GET = apiHandler(async (request: NextRequest) => {
       recentMovements: filteredRecent,
     });
   } catch (error: unknown) {
+    if (error instanceof AppError) {
+      throw error;
+    }
     logger.error('Movement summary error:', { error: String(error) });
     return NextResponse.json({ error: 'Failed to fetch movement summary' }, { status: 500 });
   }

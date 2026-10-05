@@ -99,6 +99,7 @@ function createMockDb() {
 
   const self = {
     memoryItem,
+    companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
     memoryVersion: { create: vi.fn(async () => ({})), findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []) },
     relationship: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },
     contradiction: { create: vi.fn(async () => ({})), findMany: vi.fn(async () => []) },

@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 export async function createTestUser(email: string = 'test@example.com') {
   return db.user.create({
@@ -15,16 +16,21 @@ export async function createTestUser(email: string = 'test@example.com') {
 export async function createTestCompany(
   name: string = 'Test Company',
   entityType: 'INDIVIDUAL' | 'BUSINESS' = 'BUSINESS',
-  overrides: Partial<{ autoRoleAssignment: boolean }> = {},
+  overrides: Partial<{ autoRoleAssignment: boolean }> & { seedEntitlements?: boolean } = {},
 ) {
-  return db.company.create({
+  const { seedEntitlements, ...companyOverrides } = overrides;
+  const company = await db.company.create({
     data: {
       legalName: name,
       entityType,
       taxId: '12-3456789',
-      ...overrides,
+      ...companyOverrides,
     },
   });
+  if (seedEntitlements !== false) {
+    await initializeDefaultCompanyModuleEntitlements(db, company.id);
+  }
+  return company;
 }
 
 export async function createTestCompanyMember(userId: string, companyId: string) {

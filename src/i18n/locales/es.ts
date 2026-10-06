@@ -405,6 +405,8 @@ const es = {
     anyDirection: 'Cualquiera',
     confirmDelete: '¿Estás seguro de que deseas eliminar esta regla?',
     noRules: 'No hay reglas de categorización configuradas.',
+    applyNoneNothingPending: 'No hay transacciones pendientes: ya están todas categorizadas.',
+    applyNoneNoMatch: 'Las reglas activas no coincidieron con ninguna transacción pendiente.',
     rulesDescription: 'Categoriza automáticamente las transacciones bancarias basándose en reglas.',
     applyAll: 'Aplicar Todas',
     applyAllTitle: 'Aplicar Reglas Bancarias',

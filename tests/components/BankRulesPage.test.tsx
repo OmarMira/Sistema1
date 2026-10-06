@@ -162,7 +162,7 @@ describe('BankRulesPage', () => {
   // ── Apply All enforcement dialog ─────────────────────────────
 
   describe('Apply All enforcement dialog', () => {
-    function setupApplyAllFetch(applyAllResponse: Record<string, unknown>) {
+    function setupApplyAllFetch(applyAllResponse: Record<string, unknown>, rules = mockRules) {
       mockFetch.mockImplementation((url: string, opts?: RequestInit) => {
         if (url.includes('/api/bank-rules/apply-all')) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve(applyAllResponse) });
@@ -174,7 +174,7 @@ describe('BankRulesPage', () => {
           return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
         }
         if (url.includes('/api/bank-rules')) {
-          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: mockRules }) });
+          return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: rules }) });
         }
         if (url.includes('/api/journal/accounts')) {
           return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
@@ -226,6 +226,54 @@ describe('BankRulesPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('READINESS_NOT_MET')).toBeInTheDocument();
+      });
+    });
+
+    it('EXECUTED matched=0 with no rules shows no-rules copy instead of a blank dialog', async () => {
+      setupApplyAllFetch(
+        { status: 'EXECUTED', success: true, matched: 0, total: 0, remaining: 0, rulesApplied: [] },
+        [],
+      );
+      render(<BankRulesPage />);
+      await waitFor(() => expect(screen.getByText('bankRules.noRules')).toBeInTheDocument());
+
+      await openApplyAllDialog();
+      await clickApplyAllInDialog();
+
+      await waitFor(() => {
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByText('bankRules.noRules')).toBeInTheDocument();
+        expect(within(dialog).queryByText('bankRules.transactionsCategorized')).not.toBeInTheDocument();
+        expect(within(dialog).getByText('common.close')).toBeInTheDocument();
+      });
+    });
+
+    it('EXECUTED matched=0 with nothing pending shows all-categorized copy', async () => {
+      setupApplyAllFetch({ status: 'EXECUTED', success: true, matched: 0, total: 0, remaining: 0, rulesApplied: [] });
+      render(<BankRulesPage />);
+      await waitFor(() => expect(screen.getByText('Walmart purchases')).toBeInTheDocument());
+
+      await openApplyAllDialog();
+      await clickApplyAllInDialog();
+
+      await waitFor(() => {
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByText('bankRules.applyNoneNothingPending')).toBeInTheDocument();
+        expect(within(dialog).queryByText('bankRules.transactionsCategorized')).not.toBeInTheDocument();
+      });
+    });
+
+    it('EXECUTED matched=0 with pending transactions shows no-match copy', async () => {
+      setupApplyAllFetch({ status: 'EXECUTED', success: true, matched: 0, total: 5, remaining: 0, rulesApplied: [] });
+      render(<BankRulesPage />);
+      await waitFor(() => expect(screen.getByText('Walmart purchases')).toBeInTheDocument());
+
+      await openApplyAllDialog();
+      await clickApplyAllInDialog();
+
+      await waitFor(() => {
+        const dialog = screen.getByRole('dialog');
+        expect(within(dialog).getByText('bankRules.applyNoneNoMatch')).toBeInTheDocument();
       });
     });
 

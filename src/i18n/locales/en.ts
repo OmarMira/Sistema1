@@ -401,6 +401,8 @@ const en = {
     anyDirection: 'Any',
     confirmDelete: 'Are you sure you want to delete this rule?',
     noRules: 'No bank matching rules configured.',
+    applyNoneNothingPending: 'No pending transactions: they are all already categorized.',
+    applyNoneNoMatch: 'Active rules did not match any pending transaction.',
     rulesDescription: 'Automatically categorize bank transactions based on rules.',
     applyAll: 'Apply All Rules',
     applyAllTitle: 'Apply Bank Rules',

@@ -1052,16 +1052,28 @@ export function BankRulesPage() {
                   </CardContent>
                 </Card>
               )}
-              <Card className="bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800">
-                <CardContent className="p-4 text-center">
-                  <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
-                    {applyState.data.matched}
-                  </p>
-                  <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
-                    {t('bankRules.transactionsCategorized')}
-                  </p>
-                </CardContent>
-              </Card>
+              {applyState.data.matched === 0 ? (
+                <Card className="bg-muted/50 border">
+                  <CardContent className="p-4 text-center text-sm text-muted-foreground">
+                    {rules.length === 0
+                      ? t('bankRules.noRules')
+                      : applyState.data.total === 0
+                        ? t('bankRules.applyNoneNothingPending')
+                        : t('bankRules.applyNoneNoMatch')}
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="bg-emerald-50 border-emerald-200 dark:bg-emerald-900/20 dark:border-emerald-800">
+                  <CardContent className="p-4 text-center">
+                    <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+                      {applyState.data.matched}
+                    </p>
+                    <p className="text-sm text-emerald-600 dark:text-emerald-400 mt-1">
+                      {t('bankRules.transactionsCategorized')}
+                    </p>
+                  </CardContent>
+                </Card>
+              )}
               {applyState.data.rulesApplied.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-sm font-medium text-muted-foreground">
@@ -1162,7 +1174,9 @@ export function BankRulesPage() {
                 <p className="text-sm text-muted-foreground">{applyState.data.warning}</p>
               )}
               <DialogFooter>
-                <Button onClick={handleCancelApplyAll}>{t('common.confirm')}</Button>
+                <Button onClick={handleCancelApplyAll}>
+                  {applyState.data.matched === 0 ? t('common.close') : t('common.confirm')}
+                </Button>
               </DialogFooter>
             </div>
           )}

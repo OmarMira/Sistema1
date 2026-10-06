@@ -124,6 +124,7 @@ describe('POST /api/bank-rules/apply-all — current HTTP contract', () => {
     expect(body).toHaveProperty('total', 2);
     expect(body).toHaveProperty('remaining', 0);
     expect(body).toHaveProperty('rulesApplied');
+    expect(body).toHaveProperty('status', 'EXECUTED');
 
     // rulesApplied shape
     expect(body.rulesApplied).toHaveLength(2);
@@ -305,6 +306,7 @@ describe('POST /api/bank-rules/apply-all — current HTTP contract', () => {
     const body = await res.json();
 
     expect(body.success).toBe(true);
+    expect(body.status).toBe('EXECUTED');
     expect(body.matched).toBe(0);
     expect(body.total).toBe(0);
     expect(body.remaining).toBe(0);

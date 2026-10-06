@@ -332,6 +332,7 @@ describe('TX-REVIEW-UI-001 — UncategorizedReviewDialog (T8–T18)', () => {
       expect(screen.getByTestId('reconciled-badge-tx-rec')).toBeInTheDocument();
     });
     expect(tFn).toHaveBeenCalledWith('banks.importReview.reconciled');
+    expect(tFn).toHaveBeenCalledWith('banks.importReview.descriptionLabel');
   });
 
   it('T8b: an unreconciled queue entry shows no reconciled badge', async () => {

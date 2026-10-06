@@ -147,7 +147,7 @@ export function DashboardPage() {
         {error && !loading && (
           <Badge variant="secondary" className="w-fit gap-1 text-amber-600 border-amber-300">
             <AlertTriangle className="size-3" />
-            {t('common.warning')} — Demo data
+            {t('common.warning')} — {t('dashboard.loadError')}
           </Badge>
         )}
       </motion.div>

@@ -106,6 +106,7 @@ const es = {
   dashboard: {
     title: 'Panel',
     overview: 'Resumen',
+    loadError: 'No se pudieron cargar los datos del panel',
     totalAssets: 'Total de Activos',
     totalLiabilities: 'Total de Pasivos',
     netEquity: 'Capital Contable',

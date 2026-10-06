@@ -105,6 +105,7 @@ const en = {
   dashboard: {
     title: 'Dashboard',
     overview: 'Overview',
+    loadError: 'Dashboard data could not be loaded',
     totalAssets: 'Total Assets',
     totalLiabilities: 'Total Liabilities',
     netEquity: "Owner's Equity",

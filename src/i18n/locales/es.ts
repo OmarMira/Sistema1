@@ -14,6 +14,7 @@ const es = {
     loading: 'Cargando...',
     noData: 'Sin datos',
     confirm: 'Confirmar',
+    close: 'Cerrar',
     back: 'Volver',
     next: 'Siguiente',
     previous: 'Anterior',

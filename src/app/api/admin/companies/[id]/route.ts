@@ -153,6 +153,9 @@ export const DELETE = apiHandler(
         where: { statement: { companyId: id } },
       });
       await tx.journalEntry.deleteMany({ where: { companyId: id } });
+      // RuleExecutionAudit has no FK to Company: clean by tenant scope before
+      // its winnerRule reference (ON DELETE SET NULL) becomes dangling.
+      await tx.ruleExecutionAudit.deleteMany({ where: { companyId: id } });
       await tx.bankRule.deleteMany({ where: { companyId: id } });
       await tx.bankStatement.deleteMany({ where: { companyId: id } });
       await tx.bankAccount.deleteMany({ where: { companyId: id } });

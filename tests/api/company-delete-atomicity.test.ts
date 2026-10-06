@@ -72,6 +72,17 @@ describe('D11-A: Company deletion atomicity', () => {
       },
     });
 
+    // RuleExecutionAudit has no FK to Company — must be cleaned by tenant scope
+    await db.ruleExecutionAudit.create({
+      data: {
+        engineVersion: 'test-1.0.0',
+        transactionId: `d11a-tx-${company.id}`,
+        companyId: company.id,
+        result: 'MATCHED',
+        candidateCount: 1,
+      },
+    });
+
     return { company, token, gl, knowledge, userId: user.id, user };
   }
 
@@ -97,6 +108,9 @@ describe('D11-A: Company deletion atomicity', () => {
 
     // Verify PendingApproval is gone
     expect(await db.pendingApproval.findMany({ where: { companyKnowledge: { companyId: company.id } } })).toHaveLength(0);
+
+    // Verify RuleExecutionAudit (no FK to Company — tenant-scoped cleanup) is gone
+    expect(await db.ruleExecutionAudit.findMany({ where: { companyId: company.id } })).toHaveLength(0);
   });
 
   it('T2: rollback on transaction failure — all prior deletions restored', async () => {

@@ -9,6 +9,32 @@ import { useAuthStore } from '@/store/auth-store';
 
 import { useLanguageStore } from '@/store/language-store';
 
+// Human-readable labels for the known insight.context keys produced by
+// insight-engine.ts (cash_trend, budget_alert, recon_alert).
+const CONTEXT_KEY_LABELS: Record<string, { es: string; en: string }> = {
+  code: { es: 'Cuenta', en: 'Account' },
+  budget: { es: 'Presupuesto', en: 'Budget' },
+  actual: { es: 'Real', en: 'Actual' },
+  variance: { es: 'Desviación', en: 'Variance' },
+  count: { es: 'Pendientes', en: 'Pending' },
+};
+
+function formatInsightContext(context: Record<string, unknown>, language: string): string {
+  const lang: 'es' | 'en' = language === 'en' ? 'en' : 'es';
+  const locale = lang === 'es' ? 'es-AR' : 'en-US';
+  const fmtNumber = (n: number) => n.toLocaleString(locale, { maximumFractionDigits: 2 });
+  return Object.entries(context)
+    .map(([key, value]) => {
+      const label = CONTEXT_KEY_LABELS[key]?.[lang] ?? key;
+      if (key === 'variance' && typeof value === 'number') {
+        return `${label}: ${fmtNumber(value * 100)}%`;
+      }
+      if (typeof value === 'number') return `${label}: ${fmtNumber(value)}`;
+      return `${label}: ${String(value)}`;
+    })
+    .join(' · ');
+}
+
 export function FinancialAssistantPanel({ companyId }: { companyId: string }) {
   const { user } = useAuth();
   const language = useLanguageStore((s) => s.language) || 'es';
@@ -78,7 +104,7 @@ export function FinancialAssistantPanel({ companyId }: { companyId: string }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {data.insights.map((insight: { id: string; severity: string; message: string; context?: string }) => {
+        {data.insights.map((insight: { id: string; severity: string; message: string; context?: Record<string, unknown> }) => {
           const cfg =
             severityConfig[insight.severity as keyof typeof severityConfig] || severityConfig.info;
           return (
@@ -91,7 +117,7 @@ export function FinancialAssistantPanel({ companyId }: { companyId: string }) {
                 <p className="text-sm leading-snug">{insight.message}</p>
                 {insight.context && (
                   <p className="text-xs text-muted-foreground mt-1 truncate">
-                    Ref: {JSON.stringify(insight.context).slice(0, 80)}...
+                    {formatInsightContext(insight.context, language)}
                   </p>
                 )}
               </div>

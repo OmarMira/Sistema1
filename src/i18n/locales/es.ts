@@ -418,6 +418,24 @@ const es = {
     readiness: 'Preparación',
     transactionsToProcess: 'Transacciones a procesar',
     matchedRules: 'Reglas coincidentes',
+    applyAllReasons: {
+      insufficientSample: 'Historial insuficiente',
+      readinessNotMet: 'Preparación insuficiente',
+      highRisk: 'Riesgo alto',
+      conditionsWorsened: 'Las condiciones empeoraron',
+      generic: 'Revisión manual requerida',
+    },
+    applyAllReadiness: {
+      ready: 'Preparado',
+      notReady: 'No preparado',
+      insufficientData: 'Datos insuficientes',
+      generic: 'No determinado',
+    },
+    applyAllConfirmDesc: {
+      insufficientHistory:
+        'Todavía no hay suficiente historial para aplicar estas reglas automáticamente sin confirmación. Revisá los datos y confirmá si querés continuar.',
+      generic: 'Se requiere confirmación manual antes de aplicar estas reglas.',
+    },
     policyWarningSuffix: 'Advertencia emitida — aplicando de todas formas',
     applyAllBlocked: 'Operación Bloqueada',
     applyAllBlockedDesc: 'La operación fue bloqueada por la política de enforcement.',

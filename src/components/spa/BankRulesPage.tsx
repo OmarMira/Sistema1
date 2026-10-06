@@ -252,6 +252,41 @@ function getConditionPreview(form: RuleForm, t: (k: string) => string): string {
 /* ─── Component ─── */
 export function BankRulesPage() {
   const t = useLanguageStore((s) => s.t);
+
+  // Presentation-only mapping: internal policy codes -> human-readable copy.
+  // Backend codes stay untouched (audit trail); the UI never renders them raw.
+  const applyAllReasonLabel = (code: string): string => {
+    switch (code) {
+      case 'INSUFFICIENT_SAMPLE':
+        return t('bankRules.applyAllReasons.insufficientSample');
+      case 'READINESS_NOT_MET':
+        return t('bankRules.applyAllReasons.readinessNotMet');
+      case 'HIGH_RISK':
+        return t('bankRules.applyAllReasons.highRisk');
+      case 'CONDITIONS_WORSENED':
+        return t('bankRules.applyAllReasons.conditionsWorsened');
+      default:
+        return t('bankRules.applyAllReasons.generic');
+    }
+  };
+
+  const applyAllReadinessLabel = (code: string): string => {
+    switch (code) {
+      case 'READY':
+        return t('bankRules.applyAllReadiness.ready');
+      case 'NOT_READY':
+        return t('bankRules.applyAllReadiness.notReady');
+      case 'INSUFFICIENT_DATA':
+        return t('bankRules.applyAllReadiness.insufficientData');
+      default:
+        return t('bankRules.applyAllReadiness.generic');
+    }
+  };
+
+  const applyAllDescription = (reasonCode: string, readinessStatus: string): string =>
+    reasonCode === 'INSUFFICIENT_SAMPLE' || readinessStatus === 'INSUFFICIENT_DATA'
+      ? t('bankRules.applyAllConfirmDesc.insufficientHistory')
+      : t('bankRules.applyAllConfirmDesc.generic');
   const activeCompany = useAuthStore((s) => s.activeCompany);
 
   const [rules, setRules] = useState<BankRule[]>([]);
@@ -954,7 +989,10 @@ export function BankRulesPage() {
               <DialogHeader>
                 <DialogTitle>{t('bankRules.confirmationRequired')}</DialogTitle>
                 <DialogDescription>
-                  {applyState.data.decision.summary}
+                  {applyAllDescription(
+                    applyState.data.decision.reasonCode,
+                    applyState.data.decision.readinessStatus,
+                  )}
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-3 py-2">
@@ -962,11 +1000,15 @@ export function BankRulesPage() {
                   <CardContent className="p-4 space-y-2">
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{t('bankRules.reason')}</span>
-                      <span className="font-medium">{applyState.data.decision.reasonCode}</span>
+                      <span className="font-medium">
+                        {applyAllReasonLabel(applyState.data.decision.reasonCode)}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{t('bankRules.readiness')}</span>
-                      <span className="font-medium">{applyState.data.decision.readinessStatus}</span>
+                      <span className="font-medium">
+                        {applyAllReadinessLabel(applyState.data.decision.readinessStatus)}
+                      </span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-muted-foreground">{t('bankRules.transactionsToProcess')}</span>

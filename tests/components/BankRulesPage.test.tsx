@@ -5,6 +5,8 @@ import { render, screen, waitFor, within, cleanup } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { toast } from 'sonner';
 import { BankRulesPage } from '@/components/spa/BankRulesPage';
+import enLocale from '@/i18n/locales/en';
+import esLocale from '@/i18n/locales/es';
 
 afterEach(() => cleanup());
 
@@ -241,10 +243,107 @@ describe('BankRulesPage', () => {
 
       await waitFor(() => {
         expect(screen.getByText('bankRules.confirmationRequired')).toBeInTheDocument();
-        expect(screen.getByText('READINESS_NOT_MET')).toBeInTheDocument();
-        expect(screen.getByText('NOT_READY')).toBeInTheDocument();
+        expect(screen.getByText('bankRules.applyAllReasons.readinessNotMet')).toBeInTheDocument();
+        expect(screen.getByText('bankRules.applyAllReadiness.notReady')).toBeInTheDocument();
+        expect(screen.getByText('bankRules.applyAllConfirmDesc.generic')).toBeInTheDocument();
         expect(screen.getByText('12')).toBeInTheDocument();
+        // Internal policy codes and technical summary must never reach the UI
+        expect(screen.queryByText('READINESS_NOT_MET')).not.toBeInTheDocument();
+        expect(screen.queryByText('NOT_READY')).not.toBeInTheDocument();
+        expect(screen.queryByText('Readiness not met')).not.toBeInTheDocument();
       });
+    });
+
+    // Resolve dotted keys against a real locale so these tests assert the
+    // actual human copy the user sees (not the key strings from the mock t).
+    const makeLocaleT =
+      (locale: unknown) =>
+      (key: string): string => {
+        const resolved = key
+          .split('.')
+          .reduce<unknown>((acc, part) => (acc as Record<string, unknown>)?.[part], locale);
+        return typeof resolved === 'string' ? resolved : key;
+      };
+
+    const insufficientSampleConfirmation = {
+      status: 'CONFIRMATION_REQUIRED',
+      decision: {
+        reasonCode: 'INSUFFICIENT_SAMPLE',
+        summary: 'Rule "enforce-apply-all-insufficient" matched — INSUFFICIENT_SAMPLE. Action: CONFIRM.',
+        profileId: 'standard-enforcement-v1',
+        profileVersion: '1.0.0',
+        readinessStatus: 'INSUFFICIENT_DATA',
+      },
+      context: { transactionCount: 4, matchedRuleCount: 2 },
+    };
+
+    // Locale-aware variant of openApplyAllDialog/clickApplyAllInDialog: with a
+    // real locale active, buttons render their translated label, not the key.
+    async function openApplyAllWith(realT: (key: string) => string) {
+      const user = userEvent.setup();
+      const headerBtn = screen.getByText(realT('bankRules.applyAll'));
+      await user.click(headerBtn);
+      await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument());
+      const dialog = screen.getByRole('dialog');
+      const applyBtn = within(dialog).getByText(realT('bankRules.applyAll'));
+      await user.click(applyBtn);
+    }
+
+    it('CONFIRMATION_REQUIRED renders human copy instead of internal codes (EN, real locale)', async () => {
+      const realT = makeLocaleT(enLocale);
+      mockLangState.t = realT;
+      try {
+        setupApplyAllFetch(insufficientSampleConfirmation);
+        render(<BankRulesPage />);
+        await waitFor(() => expect(screen.getByText('Walmart purchases')).toBeInTheDocument());
+
+        await openApplyAllWith(realT);
+
+        await waitFor(() => {
+          expect(screen.getByText('Insufficient history')).toBeInTheDocument();
+          expect(screen.getByText('Insufficient data')).toBeInTheDocument();
+          expect(screen.getByText('4')).toBeInTheDocument();
+          expect(screen.getByText('2')).toBeInTheDocument();
+        });
+        expect(
+          screen.getByText(
+            'There is not enough history yet to apply these rules automatically without confirmation. Review the data and confirm if you want to continue.'
+          )
+        ).toBeInTheDocument();
+        expect(screen.queryByText('INSUFFICIENT_SAMPLE')).not.toBeInTheDocument();
+        expect(screen.queryByText('INSUFFICIENT_DATA')).not.toBeInTheDocument();
+        expect(screen.queryByText('enforce-apply-all-insufficient')).not.toBeInTheDocument();
+        expect(screen.queryByText('Action: CONFIRM')).not.toBeInTheDocument();
+      } finally {
+        mockLangState.t = tFn;
+      }
+    });
+
+    it('CONFIRMATION_REQUIRED renders Spanish copy (ES, real locale)', async () => {
+      const realT = makeLocaleT(esLocale);
+      mockLangState.t = realT;
+      try {
+        setupApplyAllFetch(insufficientSampleConfirmation);
+        render(<BankRulesPage />);
+        await waitFor(() => expect(screen.getByText('Walmart purchases')).toBeInTheDocument());
+
+        await openApplyAllWith(realT);
+
+        await waitFor(() => {
+          expect(screen.getByText('Historial insuficiente')).toBeInTheDocument();
+          expect(screen.getByText('Datos insuficientes')).toBeInTheDocument();
+        });
+        expect(
+          screen.getByText(
+            'Todavía no hay suficiente historial para aplicar estas reglas automáticamente sin confirmación. Revisá los datos y confirmá si querés continuar.'
+          )
+        ).toBeInTheDocument();
+        expect(screen.queryByText('INSUFFICIENT_SAMPLE')).not.toBeInTheDocument();
+        expect(screen.queryByText('INSUFFICIENT_DATA')).not.toBeInTheDocument();
+        expect(screen.queryByText('enforce-apply-all-insufficient')).not.toBeInTheDocument();
+      } finally {
+        mockLangState.t = tFn;
+      }
     });
 
     it('CONFIRMATION_REQUIRED Cancel resets dialog', async () => {

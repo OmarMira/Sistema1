@@ -81,12 +81,6 @@ function PremiumCard({
           >
             {value}
           </div>
-          <div className="w-full h-1 bg-slate-100 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200 dark:border-slate-850 mt-3">
-            <div
-              className={`h-full rounded-full ${isPositive ? 'bg-emerald-500' : 'bg-rose-500'}`}
-              style={{ width: '65%' }}
-            ></div>
-          </div>
         </div>
       </div>
     </div>
@@ -105,8 +99,8 @@ interface KpiCardsGridProps {
 export function KpiCardsGrid({ dt, formatCurrency, stats, initialBalanceInput }: KpiCardsGridProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-5">
-      <PremiumCard title={dt.totalIncome} value={formatCurrency(stats.revenue)} trend="+10.4%" isUp color="teal" />
-      <PremiumCard title={dt.totalExpenses} value={formatCurrency(stats.expenses)} trend="+8.2%" isUp={false} color="rose" />
+      <PremiumCard title={dt.totalIncome} value={formatCurrency(stats.revenue)} trend="" isUp color="teal" />
+      <PremiumCard title={dt.totalExpenses} value={formatCurrency(stats.expenses)} trend="" isUp={false} color="rose" />
       <PremiumCard title={dt.netFlow} value={formatCurrency(stats.netFlow)} trend="" isUp={stats.netFlow >= 0} color="emerald" isSpecialColor />
       <PremiumCard title={dt.startingBalance} value={formatCurrency(initialBalanceInput)} trend="" isUp color="blue" />
       <PremiumCard title={dt.endingBalance} value={formatCurrency(stats.finalBalance)} trend="" isUp={stats.finalBalance >= initialBalanceInput} color="teal" isSpecialBalance isDrop={stats.finalBalance < initialBalanceInput} />

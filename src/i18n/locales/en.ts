@@ -43,6 +43,7 @@ const en = {
     viewCompanyStructure: 'View company structure',
     processing: 'Processing...',
     pleaseWait: 'Please wait a moment.',
+    didacticSupport: 'Didactic Support',
   },
   companyStructure: {
     title: 'Company Structure',
@@ -123,6 +124,7 @@ const en = {
     income: 'Income',
     expenses: 'Expenses',
     periodEnds: '{name} — ends {date}',
+    vsPreviousPeriod: 'vs previous period',
   },
   accounts: {
     title: 'Chart of Accounts',

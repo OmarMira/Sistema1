@@ -44,11 +44,13 @@ export function FinancialAssistantPanel({ companyId }: { companyId: string }) {
       loading: 'Cargando asistente...',
       noAlerts: 'Sin alertas activas. Sistema estable.',
       title: 'Asistente Financiero',
+      severity: { info: 'INFO', warning: 'AVISO', critical: 'CRÍTICO' },
     },
     en: {
       loading: 'Loading assistant...',
       noAlerts: 'No active alerts. Stable system.',
       title: 'Financial Assistant',
+      severity: { info: 'INFO', warning: 'WARNING', critical: 'CRITICAL' },
     },
   }[language];
 
@@ -122,7 +124,11 @@ export function FinancialAssistantPanel({ companyId }: { companyId: string }) {
                 )}
               </div>
               <Badge variant={cfg.badge} className="shrink-0 font-semibold">
-                {insight.severity.toUpperCase()}
+                {(
+                  translations.severity[
+                    insight.severity as keyof typeof translations.severity
+                  ] ?? insight.severity.toUpperCase()
+                )}
               </Badge>
             </div>
           );

@@ -16,6 +16,9 @@ const FILES = [
   'src/components/import/ReclassifyDialog.tsx',
   'src/components/import/ImportResultDialog.tsx',
   'src/components/spa/ImportPage.tsx',
+  'src/components/spa/DashboardPage.tsx',
+  'src/components/dashboard/DashboardPageBlocks.tsx',
+  'src/components/spa/UtcEducationalModal.tsx',
 ];
 
 function resolve(locale: unknown, key: string): unknown {

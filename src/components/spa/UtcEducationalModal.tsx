@@ -37,7 +37,7 @@ export function UtcEducationalModal({ children }: { children?: React.ReactNode }
             className="h-7 gap-1 px-2 text-xs font-semibold text-amber-700 hover:text-amber-800 hover:bg-amber-100/50 dark:text-amber-400 dark:hover:text-amber-300 dark:hover:bg-amber-950/30 shrink-0 border border-amber-200 dark:border-amber-800/60 rounded-md"
           >
             <Info className="size-3.5" />
-            <span>Soporte Didáctico</span>
+            <span>{t('common.didacticSupport')}</span>
           </Button>
         )}
       </DialogTrigger>

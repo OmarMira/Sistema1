@@ -150,7 +150,7 @@ export function ImportResultDialog({
                       className="w-full"
                     >
                       <ClipboardList className="size-4 mr-1 shrink-0" />
-                      <span className="truncate">{t('importReview.reviewAction')}</span>
+                      <span className="truncate">{t('banks.importReview.reviewAction')}</span>
                     </Button>
                   </div>
                 )}

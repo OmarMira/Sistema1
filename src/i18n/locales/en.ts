@@ -14,6 +14,7 @@ const en = {
     loading: 'Loading...',
     noData: 'No data',
     confirm: 'Confirm',
+    close: 'Close',
     back: 'Back',
     next: 'Next',
     previous: 'Previous',

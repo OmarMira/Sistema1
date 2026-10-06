@@ -394,6 +394,34 @@ describe('BankRulesPage', () => {
       }
     });
 
+    it('matched=0 no-rules result renders human Spanish copy (ES, real locale)', async () => {
+      const realT = makeLocaleT(esLocale);
+      mockLangState.t = realT;
+      try {
+        setupApplyAllFetch(
+          { status: 'EXECUTED', success: true, matched: 0, total: 0, remaining: 0, rulesApplied: [] },
+          [],
+        );
+        render(<BankRulesPage />);
+        await waitFor(() =>
+          expect(screen.getByText('No hay reglas de categorización configuradas.')).toBeInTheDocument(),
+        );
+
+        await openApplyAllWith(realT);
+
+        await waitFor(() => {
+          const dialog = screen.getByRole('dialog');
+          expect(within(dialog).getByText('No hay reglas de categorización configuradas.')).toBeInTheDocument();
+          expect(within(dialog).getByText('Cerrar')).toBeInTheDocument();
+          // A missing locale key falls back to the raw key (e.g. "common.close")
+          // and leaks into the UI — no dotted i18n key may appear in the dialog.
+          expect(within(dialog).queryByText(/^[a-z][a-zA-Z]*\.[a-zA-Z.]+$/)).not.toBeInTheDocument();
+        });
+      } finally {
+        mockLangState.t = tFn;
+      }
+    });
+
     it('CONFIRMATION_REQUIRED Cancel resets dialog', async () => {
       setupApplyAllFetch({
         status: 'CONFIRMATION_REQUIRED',

@@ -146,15 +146,15 @@ export function ReclassifyDialog({
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        toast.error(errBody?.error ?? t('reclassifyTx.failed'));
+        toast.error(errBody?.error ?? t('banks.reclassifyTx.failed'));
         return;
       }
-      toast.success(t('reclassifyTx.success'));
+      toast.success(t('banks.reclassifyTx.success'));
       onReclassified(transaction.id, selectedGlId);
       onOpenChange(false);
     } catch (error) {
       logger.error('Failed to reclassify transaction', { error: String(error) });
-      toast.error(t('reclassifyTx.failed'));
+      toast.error(t('banks.reclassifyTx.failed'));
     } finally {
       setSubmitting(false);
     }
@@ -202,9 +202,9 @@ export function ReclassifyDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <RefreshCcw className="size-5" />
-            {t('reclassifyTx.title')}
+            {t('banks.reclassifyTx.title')}
           </DialogTitle>
-          <DialogDescription>{t('reclassifyTx.description')}</DialogDescription>
+          <DialogDescription>{t('banks.reclassifyTx.description')}</DialogDescription>
         </DialogHeader>
 
         {transaction && (
@@ -221,34 +221,34 @@ export function ReclassifyDialog({
                 </p>
               )}
               <p className="text-xs text-muted-foreground">
-                {t('reclassifyTx.currentAccount')}:{' '}
+                {t('banks.reclassifyTx.currentAccount')}:{' '}
                 <span data-testid="current-gl-label">
                   {transaction.glAccount
                     ? `${transaction.glAccount.code} ${transaction.glAccount.name}`
-                    : t('reclassifyTx.noAccount')}
+                    : t('banks.reclassifyTx.noAccount')}
                 </span>
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">{t('reclassifyTx.newAccount')}</label>
+              <label className="text-sm font-medium">{t('banks.reclassifyTx.newAccount')}</label>
               <AccountSelector
                 accounts={accounts}
                 value={selectedGlId}
                 onChange={(id) => setSelectedGlId(id)}
-                placeholder={t('reclassifyTx.selectAccount')}
+                placeholder={t('banks.reclassifyTx.selectAccount')}
               />
               {isNoOp && (
                 <p className="text-xs text-amber-600 dark:text-amber-400">
-                  {t('reclassifyTx.sameAccount')}
+                  {t('banks.reclassifyTx.sameAccount')}
                 </p>
               )}
             </div>
 
             {entityStatus === 'UNKNOWN' && (
               <div className="space-y-3 rounded-md border p-3">
-                <p className="text-sm font-medium">{t('reclassifyTx.identityTitle')}</p>
-                <p className="text-xs text-muted-foreground">{t('reclassifyTx.identityHelp')}</p>
+                <p className="text-sm font-medium">{t('banks.reclassifyTx.identityTitle')}</p>
+                <p className="text-xs text-muted-foreground">{t('banks.reclassifyTx.identityHelp')}</p>
                 <label className="flex items-start gap-2 text-sm">
                   <input
                     type="checkbox"
@@ -257,13 +257,13 @@ export function ReclassifyDialog({
                     onChange={(e) => setIdentityConfirmed(e.target.checked)}
                     className="mt-0.5"
                   />
-                  <span>{t('reclassifyTx.identityToggle')}</span>
+                  <span>{t('banks.reclassifyTx.identityToggle')}</span>
                 </label>
                 {identityConfirmed && (
                   <div className="space-y-2">
                     <div className="space-y-1">
                       <label className="text-sm font-medium" htmlFor="identity-canonical-name">
-                        {t('reclassifyTx.canonicalNameLabel')}
+                        {t('banks.reclassifyTx.canonicalNameLabel')}
                       </label>
                       <input
                         id="identity-canonical-name"
@@ -271,13 +271,13 @@ export function ReclassifyDialog({
                         type="text"
                         value={canonicalName}
                         onChange={(e) => setCanonicalName(e.target.value)}
-                        placeholder={t('reclassifyTx.canonicalNamePlaceholder')}
+                        placeholder={t('banks.reclassifyTx.canonicalNamePlaceholder')}
                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       />
                     </div>
                     <div className="space-y-1">
                       <label className="text-sm font-medium" htmlFor="identity-entity-type">
-                        {t('reclassifyTx.entityTypeLabel')}
+                        {t('banks.reclassifyTx.entityTypeLabel')}
                       </label>
                       <select
                         id="identity-entity-type"
@@ -338,7 +338,7 @@ export function ReclassifyDialog({
 
             <DialogFooter>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                {t('reclassifyTx.cancel')}
+                {t('banks.reclassifyTx.cancel')}
               </Button>
               <Button
                 data-testid="confirm-reclassify-btn"
@@ -348,10 +348,10 @@ export function ReclassifyDialog({
                 {submitting ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    {t('reclassifyTx.submitting')}
+                    {t('banks.reclassifyTx.submitting')}
                   </>
                 ) : (
-                  t('reclassifyTx.confirm')
+                  t('banks.reclassifyTx.confirm')
                 )}
               </Button>
             </DialogFooter>

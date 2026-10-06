@@ -143,17 +143,17 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
       });
       if (!res.ok) {
         const errBody = await res.json().catch(() => null);
-        toast.error(errBody?.error ?? t('importReview.classifyFailed'));
+        toast.error(errBody?.error ?? t('banks.importReview.classifyFailed'));
         return;
       }
-      toast.success(t('importReview.classified'));
+      toast.success(t('banks.importReview.classified'));
       // Server-authoritative refresh — no optimistic removal.
       setTransactions((prev) => prev.filter((tx) => tx.id !== selectedTxId));
       setSelectedTxId(null);
       setSelectedGlId(null);
     } catch (error) {
       logger.error('Failed to classify transaction', { error: String(error) });
-      toast.error(t('importReview.classifyFailed'));
+      toast.error(t('banks.importReview.classifyFailed'));
     } finally {
       setSubmittingId(null);
     }
@@ -163,13 +163,13 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-4xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <ClipboardList className="size-5" />
-            {t('importReview.title')}
+            {t('banks.importReview.title')}
           </DialogTitle>
-          <DialogDescription>{t('importReview.description')}</DialogDescription>
+          <DialogDescription>{t('banks.importReview.description')}</DialogDescription>
         </DialogHeader>
 
         {companyId && (
@@ -184,15 +184,15 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
         {fetchState === 'loading' && (
           <div className="flex items-center justify-center gap-2 py-10 text-muted-foreground">
             <Loader2 className="size-5 animate-spin" />
-            {t('importReview.loading')}
+            {t('banks.importReview.loading')}
           </div>
         )}
 
         {fetchState === 'error' && (
           <div className="py-10 text-center space-y-3">
-            <p className="text-sm text-destructive">{t('importReview.loadError')}</p>
+            <p className="text-sm text-destructive">{t('banks.importReview.loadError')}</p>
             <Button variant="outline" onClick={() => void fetchQueue()}>
-              {t('importReview.retry')}
+              {t('banks.importReview.retry')}
             </Button>
           </div>
         )}
@@ -200,7 +200,7 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
         {fetchState === 'loaded' && transactions.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 py-10 text-center">
             <CheckCircle2 className="size-10 text-emerald-500" />
-            <p className="text-sm text-muted-foreground">{t('importReview.empty')}</p>
+            <p className="text-sm text-muted-foreground">{t('banks.importReview.empty')}</p>
           </div>
         )}
 
@@ -210,10 +210,10 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>{t('importReview.date')}</TableHead>
-                    <TableHead>{t('importReview.description')}</TableHead>
-                    <TableHead className="text-right">{t('importReview.amount')}</TableHead>
-                    <TableHead>{t('importReview.account')}</TableHead>
+                    <TableHead>{t('banks.importReview.date')}</TableHead>
+                    <TableHead>{t('banks.importReview.description')}</TableHead>
+                    <TableHead className="text-right">{t('banks.importReview.amount')}</TableHead>
+                    <TableHead>{t('banks.importReview.account')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -245,7 +245,7 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
                               className="mt-0.5 text-[10px]"
                               data-testid={`proposal-pending-badge-${tx.id}`}
                             >
-                              {t('aiProposals.pendingBadge')}
+                              {t('banks.aiProposals.pendingBadge')}
                             </Badge>
                           )}
                           {tx.isReconciled && (
@@ -254,7 +254,7 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
                               className="mt-0.5 text-[10px]"
                               data-testid={`reconciled-badge-${tx.id}`}
                             >
-                              {t('importReview.reconciled')}
+                              {t('banks.importReview.reconciled')}
                             </Badge>
                           )}
                         </TableCell>
@@ -279,7 +279,7 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
               <div className="space-y-3 rounded-md border p-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <Tag className="size-4" />
-                  {t('importReview.classifyTitle')}
+                  {t('banks.importReview.classifyTitle')}
                 </div>
                 <p className="text-xs text-muted-foreground">
                   {new Date(selectedTx.date).toLocaleDateString()} · {selectedTx.description} ·{' '}
@@ -289,7 +289,7 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
                   accounts={accounts}
                   value={selectedGlId}
                   onChange={(id) => setSelectedGlId(id)}
-                  placeholder={t('importReview.selectAccount')}
+                  placeholder={t('banks.importReview.selectAccount')}
                 />
                 <DialogFooter>
                   <Button
@@ -300,10 +300,10 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
                     {submittingId ? (
                       <>
                         <Loader2 className="size-4 animate-spin" />
-                        {t('importReview.submitting')}
+                        {t('banks.importReview.submitting')}
                       </>
                     ) : (
-                      t('importReview.confirm')
+                      t('banks.importReview.confirm')
                     )}
                   </Button>
                 </DialogFooter>

@@ -469,7 +469,7 @@ describe('S10 §12 — AiProposalSection (T1–T17)', () => {
     await waitFor(() => expect(screen.getByTestId('ai-accept-btn')).toBeInTheDocument());
     await user.click(screen.getByTestId('ai-accept-btn'));
     const { toast } = await import('sonner');
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('aiProposals.alreadyResolved'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('banks.aiProposals.alreadyResolved'));
     // Authoritative refetch + resolution callback.
     await waitFor(() => expect(onProposalResolved).toHaveBeenCalledTimes(1));
     expect(getCalls().length).toBeGreaterThanOrEqual(2);
@@ -491,7 +491,7 @@ describe('S10 §12 — AiProposalSection (T1–T17)', () => {
     await waitFor(() => expect(screen.getByTestId('ai-accept-btn')).toBeInTheDocument());
     await user.click(screen.getByTestId('ai-accept-btn'));
     const { toast } = await import('sonner');
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('aiProposals.notFound'));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('banks.aiProposals.notFound'));
     await waitFor(() => expect(onProposalResolved).toHaveBeenCalledTimes(1));
     expect(getCalls().length).toBeGreaterThanOrEqual(2);
     expect(toast.success).not.toHaveBeenCalled();
@@ -552,7 +552,7 @@ describe('S10 §12 — AiProposalSection (T1–T17)', () => {
       await waitFor(() => expect(screen.getByTestId('ai-accept-btn')).toBeInTheDocument());
       await user.click(screen.getByTestId('ai-accept-btn'));
       const { toast } = await import('sonner');
-      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('aiProposals.accessError'));
+      await waitFor(() => expect(toast.error).toHaveBeenCalledWith('banks.aiProposals.accessError'));
       expect(toast.success).not.toHaveBeenCalled();
       expect(postCalls()).toHaveLength(1);
     }

@@ -216,7 +216,7 @@ describe('TX-RECLASSIFY-UI-001 — ReclassifyDialog (T1–T23)', () => {
     render(
       <ReclassifyDialog transaction={TX} accounts={ACCOUNTS} onOpenChange={onOpenChange} onReclassified={vi.fn()} />,
     );
-    await user.click(screen.getByRole('button', { name: tFn('reclassifyTx.cancel') }));
+    await user.click(screen.getByRole('button', { name: tFn('banks.reclassifyTx.cancel') }));
     // Opening the dialog fires the entity-status GET; assert NO PATCH only.
     expect(fetchMock.mock.calls.filter((c) => c[1]?.method === 'PATCH')).toHaveLength(0);
     expect(onOpenChange).toHaveBeenCalledWith(false);

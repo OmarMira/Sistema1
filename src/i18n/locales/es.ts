@@ -42,6 +42,7 @@ const es = {
     change: 'Cambiar',
     viewCompanyStructure: 'Ver estructura de la empresa',    processing: 'Procesando...',
     pleaseWait: 'Por favor, espera un momento.',
+    didacticSupport: 'Soporte Didáctico',
   },
   companyStructure: {
     title: 'Estructura de la Empresa',
@@ -124,6 +125,7 @@ const es = {
     income: 'Ingresos',
     expenses: 'Gastos',
     periodEnds: '{name} — finaliza el {date}',
+    vsPreviousPeriod: 'vs período anterior',
   },
   accounts: {
     title: 'Plan de Cuentas',

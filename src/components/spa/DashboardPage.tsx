@@ -60,6 +60,21 @@ interface DashboardData {
     endDate: string;
   }[];
   monthlyTrend?: { month: string; income: number; expenses: number }[];
+  period: {
+    startDate: string;
+    endDate: string;
+    prevStartDate: string;
+    prevEndDate: string;
+    name: string | null;
+  } | null;
+  periodRevenue: number;
+  periodExpenses: number;
+  deltas: {
+    assets: number | null;
+    liabilities: number | null;
+    revenue: number | null;
+    expenses: number | null;
+  };
 }
 
 /* ─── Empty fallback data ─── */
@@ -78,7 +93,24 @@ const EMPTY_DATA: DashboardData = {
   accountBalances: [],
   bankAccounts: [],
   upcomingPeriodEnds: [],
+  period: null,
+  periodRevenue: 0,
+  periodExpenses: 0,
+  deltas: { assets: null, liabilities: null, revenue: null, expenses: null },
 };
+
+/* ─── Current UTC calendar month as a YYYY-MM-DD range (fallback window) ─── */
+function currentUtcMonthRange(): { startDate: string; endDate: string } {
+  const now = new Date();
+  const startDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const endDate = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999),
+  );
+  return {
+    startDate: startDate.toISOString().slice(0, 10),
+    endDate: endDate.toISOString().slice(0, 10),
+  };
+}
 
 /* ─── Main DashboardPage ─── */
 export function DashboardPage() {
@@ -90,6 +122,14 @@ export function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
+  const d = data ?? EMPTY_DATA;
+
+  // Flow/audit window derives from the API-resolved period (fiscal period or
+  // current calendar month) — never a hardcoded date range.
+  const flowRange = d.period
+    ? { startDate: d.period.startDate.slice(0, 10), endDate: d.period.endDate.slice(0, 10) }
+    : currentUtcMonthRange();
+
   // Hook de Accounting Flow (Fase 2)
   const {
     data: flowData,
@@ -97,8 +137,8 @@ export function DashboardPage() {
     refetch: refetchFlow,
   } = useAccountingFlow({
     companyId: activeCompany?.id,
-    startDate: '2025-01-01',
-    endDate: '2025-05-31',
+    startDate: flowRange.startDate,
+    endDate: flowRange.endDate,
   });
 
   const fetchDashboard = useCallback(async () => {
@@ -126,8 +166,6 @@ export function DashboardPage() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
-
-  const d = data ?? EMPTY_DATA;
 
   const handleNewEntry = () => setCurrentView('journal');
   const handleImportStatement = () => setCurrentView('banks');
@@ -159,7 +197,8 @@ export function DashboardPage() {
           value={formatCurrency(d.totalAssets)}
           icon={<TrendingUp className="size-5 text-emerald-700" />}
           iconBg="bg-emerald-100 dark:bg-emerald-950"
-          trend="up"
+          delta={d.deltas.assets}
+          deltaUpIsGood
           loading={loading}
         />
         <StatCard
@@ -167,22 +206,26 @@ export function DashboardPage() {
           value={formatCurrency(Math.abs(d.totalLiabilities))}
           icon={<TrendingDown className="size-5 text-amber-700" />}
           iconBg="bg-amber-100 dark:bg-amber-950"
-          trend="down"
+          delta={d.deltas.liabilities}
+          deltaUpIsGood={false}
           loading={loading}
         />
         <StatCard
           title={t('dashboard.currentRevenue')}
-          value={formatCurrency(d.totalRevenue)}
+          value={formatCurrency(d.periodRevenue)}
           icon={<ArrowUpRight className="size-5 text-teal-700" />}
           iconBg="bg-teal-100 dark:bg-teal-950"
-          trend="up"
+          delta={d.deltas.revenue}
+          deltaUpIsGood
           loading={loading}
         />
         <StatCard
           title={t('dashboard.currentExpenses')}
-          value={formatCurrency(Math.abs(d.totalExpenses))}
+          value={formatCurrency(Math.abs(d.periodExpenses))}
           icon={<ArrowDownRight className="size-5 text-rose-700" />}
           iconBg="bg-rose-100 dark:bg-rose-950"
+          delta={d.deltas.expenses}
+          deltaUpIsGood={false}
           loading={loading}
         />
       </div>
@@ -201,8 +244,8 @@ export function DashboardPage() {
             <FlowKpiCards
               summary={flowData.summary}
               companyId={activeCompany?.id}
-              startDate="2025-01-01"
-              endDate="2025-05-31"
+              startDate={flowRange.startDate}
+              endDate={flowRange.endDate}
               isLoading={flowLoading}
               onRefresh={refetchFlow}
             />
@@ -240,7 +283,7 @@ export function DashboardPage() {
                 <span className="font-medium text-amber-800 dark:text-amber-300">
                   {d.upcomingPeriodEnds
                     .map((p) => {
-                      const template = t('dashboard.periodEnds') || '{name} — ends {date}';
+                      const template = t('dashboard.periodEnds');
                       return template
                         .replace('{name}', p.name)
                         .replace('{date}', formatDate(p.endDate));
@@ -249,7 +292,7 @@ export function DashboardPage() {
                 </span>
                 <span className="text-xs font-semibold text-amber-700 dark:text-amber-400 flex items-center gap-1 border border-amber-200 dark:border-amber-800/60 rounded-md px-2.5 py-1 bg-white/50 dark:bg-black/20 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors shrink-0">
                   <Info className="size-3.5" />
-                  <span>Soporte Didáctico</span>
+                  <span>{t('common.didacticSupport')}</span>
                 </span>
               </div>
             </div>

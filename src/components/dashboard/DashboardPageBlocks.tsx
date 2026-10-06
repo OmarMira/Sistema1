@@ -19,6 +19,7 @@ import {
   ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig,
 } from '@/components/ui/chart';
 import { formatCurrency, formatDate } from '@/lib/format';
+import { useLanguageStore } from '@/store/language-store';
 
 // ─── Variants (shared) ───
 
@@ -39,11 +40,35 @@ interface StatCardProps {
   value: string;
   icon: React.ReactNode;
   iconBg: string;
-  trend?: 'up' | 'down';
+  /** Percentage change vs the previous comparable period; null/undefined hides the row. */
+  delta?: number | null;
+  /** Whether an increase is favorable for this metric (expenses/liabilities: false). */
+  deltaUpIsGood?: boolean;
   loading?: boolean;
 }
 
-export function StatCard({ title, value, icon, iconBg, trend, loading }: StatCardProps) {
+export function StatCard({
+  title,
+  value,
+  icon,
+  iconBg,
+  delta,
+  deltaUpIsGood = true,
+  loading,
+}: StatCardProps) {
+  const t = useLanguageStore((s) => s.t);
+  const language = useLanguageStore((s) => s.language) || 'es';
+
+  const hasDelta = delta != null && Number.isFinite(delta);
+  const isGood = hasDelta && delta !== 0 ? (delta > 0) === deltaUpIsGood : null;
+  const deltaColor =
+    isGood === null ? 'text-muted-foreground' : isGood ? 'text-emerald-600' : 'text-rose-600';
+  const deltaText = hasDelta
+    ? `${delta > 0 ? '+' : ''}${delta.toLocaleString(language === 'en' ? 'en-US' : 'es-AR', {
+        maximumFractionDigits: 1,
+      })}%`
+    : '';
+
   return (
     <motion.div variants={itemVariants}>
       <Card className="relative overflow-hidden">
@@ -61,17 +86,15 @@ export function StatCard({ title, value, icon, iconBg, trend, loading }: StatCar
               {icon}
             </div>
           </div>
-          {trend && (
+          {hasDelta && (
             <div className="mt-3 flex items-center gap-1 text-xs">
-              {trend === 'up' ? (
-                <ArrowUpRight className="size-3.5 text-emerald-600" />
-              ) : (
-                <ArrowDownRight className="size-3.5 text-rose-600" />
-              )}
-              <span className={trend === 'up' ? 'text-emerald-600' : 'text-rose-600'}>
-                {trend === 'up' ? '+' : '-'}12.5%
-              </span>
-              <span className="text-muted-foreground">vs last period</span>
+              {delta > 0 ? (
+                <ArrowUpRight className={`size-3.5 ${deltaColor}`} />
+              ) : delta < 0 ? (
+                <ArrowDownRight className={`size-3.5 ${deltaColor}`} />
+              ) : null}
+              <span className={deltaColor}>{deltaText}</span>
+              <span className="text-muted-foreground">{t('dashboard.vsPreviousPeriod')}</span>
             </div>
           )}
         </CardContent>

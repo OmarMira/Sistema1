@@ -114,6 +114,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
 
   // Fallback: no enforcement (backward compat for edge cases)
   const body: Record<string, unknown> = {
+    status: 'EXECUTED',
     success: true,
     matched: applyResult.appliedCount,
     total: matchResult.totalCount + matchResult.remaining,

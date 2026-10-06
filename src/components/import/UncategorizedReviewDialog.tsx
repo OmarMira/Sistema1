@@ -211,7 +211,7 @@ export function UncategorizedReviewDialog({ open, onOpenChange }: ReviewDialogPr
                 <TableHeader>
                   <TableRow>
                     <TableHead>{t('banks.importReview.date')}</TableHead>
-                    <TableHead>{t('banks.importReview.description')}</TableHead>
+                    <TableHead>{t('banks.importReview.descriptionLabel')}</TableHead>
                     <TableHead className="text-right">{t('banks.importReview.amount')}</TableHead>
                     <TableHead>{t('banks.importReview.account')}</TableHead>
                   </TableRow>

@@ -414,6 +414,24 @@ const en = {
     readiness: 'Readiness',
     transactionsToProcess: 'Transactions to process',
     matchedRules: 'Matched rules',
+    applyAllReasons: {
+      insufficientSample: 'Insufficient history',
+      readinessNotMet: 'Readiness requirements not met',
+      highRisk: 'High risk',
+      conditionsWorsened: 'Conditions worsened',
+      generic: 'Manual review required',
+    },
+    applyAllReadiness: {
+      ready: 'Ready',
+      notReady: 'Not ready',
+      insufficientData: 'Insufficient data',
+      generic: 'Not determined',
+    },
+    applyAllConfirmDesc: {
+      insufficientHistory:
+        'There is not enough history yet to apply these rules automatically without confirmation. Review the data and confirm if you want to continue.',
+      generic: 'Manual confirmation is required before applying these rules.',
+    },
     policyWarningSuffix: 'Policy warning issued — applying anyway',
     applyAllBlocked: 'Apply All Blocked',
     applyAllBlockedDesc: 'The operation was blocked by the enforcement policy.',

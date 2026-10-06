@@ -677,7 +677,6 @@ export function ImportPage() {
           setCurrentView('reconciliation');
         }}
         onReviewUncategorized={() => {
-          setResultOpen(false);
           setReviewDialogOpen(true);
         }}
       />

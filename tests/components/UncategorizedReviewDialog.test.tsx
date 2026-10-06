@@ -131,7 +131,7 @@ describe('TX-REVIEW-UI-001 — UncategorizedReviewDialog (T8–T18)', () => {
   it('T9: empty queue shows the empty state', async () => {
     renderDialog();
     await waitFor(() => {
-      expect(tFn).toHaveBeenCalledWith('importReview.empty');
+      expect(tFn).toHaveBeenCalledWith('banks.importReview.empty');
     });
   });
 
@@ -331,7 +331,7 @@ describe('TX-REVIEW-UI-001 — UncategorizedReviewDialog (T8–T18)', () => {
     await waitFor(() => {
       expect(screen.getByTestId('reconciled-badge-tx-rec')).toBeInTheDocument();
     });
-    expect(tFn).toHaveBeenCalledWith('importReview.reconciled');
+    expect(tFn).toHaveBeenCalledWith('banks.importReview.reconciled');
   });
 
   it('T8b: an unreconciled queue entry shows no reconciled badge', async () => {

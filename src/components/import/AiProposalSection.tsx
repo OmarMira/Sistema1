@@ -164,26 +164,26 @@ export function AiProposalSection({
       const errBody = (await res.json().catch(() => null)) as { error?: string } | null;
 
       if (status === 409) {
-        toast.error(t('aiProposals.alreadyResolved'));
+        toast.error(t('banks.aiProposals.alreadyResolved'));
         await fetchProposals();
         onResolvedRef.current?.();
         return;
       }
       if (status === 404) {
-        toast.error(t('aiProposals.notFound'));
+        toast.error(t('banks.aiProposals.notFound'));
         await fetchProposals();
         onResolvedRef.current?.();
         return;
       }
       if (status === 401 || status === 403) {
-        toast.error(t('aiProposals.accessError'));
+        toast.error(t('banks.aiProposals.accessError'));
         return;
       }
       // 400 / 422 / other: keep the proposal visible, surface the error.
-      toast.error(errBody?.error ?? t('aiProposals.decisionFailed'));
+      toast.error(errBody?.error ?? t('banks.aiProposals.decisionFailed'));
     } catch (error) {
       logger.error('Failed to decide AI proposal', { error: String(error) });
-      toast.error(t('aiProposals.decisionFailed'));
+      toast.error(t('banks.aiProposals.decisionFailed'));
     } finally {
       setSubmittingId(null);
     }
@@ -209,7 +209,7 @@ export function AiProposalSection({
         className="flex items-center gap-2 py-4 text-sm text-muted-foreground"
       >
         <Loader2 className="size-4 animate-spin" />
-        {t('aiProposals.loading')}
+        {t('banks.aiProposals.loading')}
       </div>
     );
   }
@@ -217,14 +217,14 @@ export function AiProposalSection({
   if (fetchState === 'error') {
     return (
       <div data-testid="ai-proposals-error" className="space-y-2 py-4 text-center">
-        <p className="text-sm text-destructive">{t('aiProposals.loadError')}</p>
+        <p className="text-sm text-destructive">{t('banks.aiProposals.loadError')}</p>
         <Button
           data-testid="ai-proposals-retry"
           variant="outline"
           size="sm"
           onClick={() => void fetchProposals()}
         >
-          {t('importReview.retry')}
+          {t('banks.importReview.retry')}
         </Button>
       </div>
     );
@@ -233,7 +233,7 @@ export function AiProposalSection({
   if (items.length === 0) {
     return (
       <div data-testid="ai-proposals-empty" className="py-4 text-center">
-        <p className="text-sm text-muted-foreground">{t('aiProposals.empty')}</p>
+        <p className="text-sm text-muted-foreground">{t('banks.aiProposals.empty')}</p>
       </div>
     );
   }
@@ -242,7 +242,7 @@ export function AiProposalSection({
     <section data-testid="ai-proposal-section" className="space-y-3">
       <div className="flex items-center gap-2 text-sm font-medium">
         <Sparkles className="size-4" />
-        {t('aiProposals.title')}
+        {t('banks.aiProposals.title')}
       </div>
 
       {items.map((item) => {
@@ -278,18 +278,18 @@ export function AiProposalSection({
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {proposedAccount && (
                 <span className="text-muted-foreground">
-                  {t('aiProposals.proposedAccount')}:{' '}
+                  {t('banks.aiProposals.proposedAccount')}:{' '}
                   <span data-testid="ai-proposed-account">{proposedAccount}</span>
                 </span>
               )}
               {typeof item.aiProposal.role === 'string' && item.aiProposal.role !== '' && (
                 <Badge variant="outline" data-testid="ai-proposal-role">
-                  {t('aiProposals.role')}: {item.aiProposal.role}
+                  {t('banks.aiProposals.role')}: {item.aiProposal.role}
                 </Badge>
               )}
               {proposedEntityName && (
                 <Badge variant="outline" data-testid="ai-proposed-entity">
-                  {t('aiProposals.proposedEntity')}: {proposedEntityName}
+                  {t('banks.aiProposals.proposedEntity')}: {proposedEntityName}
                 </Badge>
               )}
             </div>
@@ -304,7 +304,7 @@ export function AiProposalSection({
                 {submittingId === item.approvalId ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : null}
-                {t('aiProposals.accept')}
+                {t('banks.aiProposals.accept')}
               </Button>
               <Button
                 data-testid="ai-correct-btn"
@@ -313,7 +313,7 @@ export function AiProposalSection({
                 disabled={submitting}
                 onClick={() => (correctingId === item.approvalId ? closeCorrectForm() : openCorrectForm(item))}
               >
-                {t('aiProposals.correct')}
+                {t('banks.aiProposals.correct')}
               </Button>
               <Button
                 data-testid="ai-reject-btn"
@@ -322,23 +322,23 @@ export function AiProposalSection({
                 disabled={submitting}
                 onClick={() => void decide(item, 'REJECT')}
               >
-                {t('aiProposals.reject')}
+                {t('banks.aiProposals.reject')}
               </Button>
             </div>
 
             {correctingId === item.approvalId && (
               <div data-testid="ai-correct-form" className="space-y-3 rounded-md border p-3">
-                <p className="text-sm font-medium">{t('aiProposals.correctTitle')}</p>
+                <p className="text-sm font-medium">{t('banks.aiProposals.correctTitle')}</p>
                 <AccountSelector
                   accounts={accounts}
                   value={correctGlId}
                   onChange={setCorrectGlId}
-                  placeholder={t('importReview.selectAccount')}
+                  placeholder={t('banks.importReview.selectAccount')}
                 />
 
                 <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-sm font-medium">{t('reclassifyTx.identityTitle')}</p>
-                  <p className="text-xs text-muted-foreground">{t('reclassifyTx.identityHelp')}</p>
+                  <p className="text-sm font-medium">{t('banks.reclassifyTx.identityTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('banks.reclassifyTx.identityHelp')}</p>
                   <label className="flex items-start gap-2 text-sm">
                     <input
                       type="checkbox"
@@ -347,7 +347,7 @@ export function AiProposalSection({
                       onChange={(e) => setIdentityConfirmed(e.target.checked)}
                       className="mt-0.5"
                     />
-                    <span>{t('reclassifyTx.identityToggle')}</span>
+                    <span>{t('banks.reclassifyTx.identityToggle')}</span>
                   </label>
                   {identityConfirmed && (
                     <div className="space-y-2">
@@ -356,7 +356,7 @@ export function AiProposalSection({
                           className="text-sm font-medium"
                           htmlFor="ai-identity-canonical-name"
                         >
-                          {t('reclassifyTx.canonicalNameLabel')}
+                          {t('banks.reclassifyTx.canonicalNameLabel')}
                         </label>
                         <input
                           id="ai-identity-canonical-name"
@@ -364,13 +364,13 @@ export function AiProposalSection({
                           type="text"
                           value={canonicalName}
                           onChange={(e) => setCanonicalName(e.target.value)}
-                          placeholder={t('reclassifyTx.canonicalNamePlaceholder')}
+                          placeholder={t('banks.reclassifyTx.canonicalNamePlaceholder')}
                           className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                         />
                       </div>
                       <div className="space-y-1">
                         <label className="text-sm font-medium" htmlFor="ai-identity-entity-type">
-                          {t('reclassifyTx.entityTypeLabel')}
+                          {t('banks.reclassifyTx.entityTypeLabel')}
                         </label>
                         <select
                           id="ai-identity-entity-type"
@@ -400,7 +400,7 @@ export function AiProposalSection({
                     {submittingId === item.approvalId ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : null}
-                    {t('aiProposals.confirmCorrect')}
+                    {t('banks.aiProposals.confirmCorrect')}
                   </Button>
                   <Button
                     data-testid="ai-correct-cancel-btn"
@@ -409,7 +409,7 @@ export function AiProposalSection({
                     disabled={submitting}
                     onClick={closeCorrectForm}
                   >
-                    {t('reclassifyTx.cancel')}
+                    {t('banks.reclassifyTx.cancel')}
                   </Button>
                 </div>
               </div>

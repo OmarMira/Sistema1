@@ -44,6 +44,8 @@ const en = {
     processing: 'Processing...',
     pleaseWait: 'Please wait a moment.',
     didacticSupport: 'Didactic Support',
+    viewError: 'Error rendering this view',
+    viewErrorDesc: 'A rendering failure occurred. The rest of the modules remain operational.',
   },
   companyStructure: {
     title: 'Company Structure',
@@ -125,6 +127,13 @@ const en = {
     expenses: 'Expenses',
     periodEnds: '{name} — ends {date}',
     vsPreviousPeriod: 'vs previous period',
+    flowLoadError: 'Cash flow data could not be loaded',
+    flowDegraded: 'Partial data: the flow was computed with an internal error',
+    assetLabel: 'Assets',
+    liabilityLabel: 'Liabilities',
+    equityLabel: 'Equity',
+    revenueLabel: 'Revenue',
+    expenseLabel: 'Expenses',
   },
   accounts: {
     title: 'Chart of Accounts',
@@ -591,8 +600,12 @@ const en = {
     linking: 'Linking...',
     linkButton: 'Link',
   },
+  budget: {
+    loading: 'Loading budget analysis...',
+  },
   reports: {
     title: 'Reports',
+    exportModalTitle: 'Export Financial Reports',
     balanceSheet: 'Balance Sheet',
     incomeStatement: 'Income Statement',
     trialBalance: 'Trial Balance',
@@ -1021,6 +1034,7 @@ const en = {
     toDate: 'To',
     allAccounts: 'All Accounts',
     filter: 'Filter',
+    loadError: 'Failed to load the movement summary',
   },
   aiAssistant: {
     title: 'AI Assistant',
@@ -1078,6 +1092,7 @@ const en = {
     networkErrorVerify: 'Network error during verification.',
     notConfiguredTitle: 'AI Assistant not configured',
     notConfiguredDesc: 'Set up a provider and API key to activate AI features.',
+    accountWizardTitle: 'Chart of Accounts Assistant',
   },
   onboarding: {
     title: 'Welcome to AccountExpress',
@@ -1179,6 +1194,7 @@ const en = {
     searchPlaceholder: 'Search US address...',
     searching: 'Searching address...',
     noResults: 'No results found. You can type manually.',
+    loadingSuggestions: 'Searching for suggestions...',
   },
   utc: {
     modal: {

@@ -2,6 +2,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { AlertTriangle, CheckCircle, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { useLanguageStore } from '@/store/language-store';
 
 export function BudgetVarianceReport({
   companyId,
@@ -12,6 +13,7 @@ export function BudgetVarianceReport({
   year: number;
   month: number;
 }) {
+  const t = useLanguageStore((s) => s.t);
   const { data, isLoading } = useQuery({
     queryKey: ['budget-variance', companyId, year, month],
     queryFn: () =>
@@ -21,7 +23,7 @@ export function BudgetVarianceReport({
     enabled: !!companyId,
   });
 
-  if (isLoading) return <div>Cargando análisis presupuestal...</div>;
+  if (isLoading) return <div>{t('budget.loading')}</div>;
 
   return (
     <Card>

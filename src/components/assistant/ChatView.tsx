@@ -174,7 +174,7 @@ export function ChatView({
               >
                 <div className="flex items-center gap-2 text-blue-400 font-semibold text-xs">
                   <Sparkles className="size-4 animate-pulse text-blue-300" />
-                  <span>Asistente de Cuenta Contable</span>
+                  <span>{t('aiAssistant.accountWizardTitle')}</span>
                 </div>
 
                 <div className="space-y-3 text-xs">

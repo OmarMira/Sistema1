@@ -19,6 +19,10 @@ const FILES = [
   'src/components/spa/DashboardPage.tsx',
   'src/components/dashboard/DashboardPageBlocks.tsx',
   'src/components/spa/UtcEducationalModal.tsx',
+  'src/components/reports/ReportExportModal.tsx',
+  'src/components/assistant/ChatView.tsx',
+  'src/components/budget/BudgetVarianceReport.tsx',
+  'src/components/ui/address-autocomplete.tsx',
 ];
 
 function resolve(locale: unknown, key: string): unknown {

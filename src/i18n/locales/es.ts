@@ -43,6 +43,8 @@ const es = {
     viewCompanyStructure: 'Ver estructura de la empresa',    processing: 'Procesando...',
     pleaseWait: 'Por favor, espera un momento.',
     didacticSupport: 'Soporte Didáctico',
+    viewError: 'Error al mostrar esta vista',
+    viewErrorDesc: 'Ocurrió un fallo al renderizar. Los demás módulos siguen operativos.',
   },
   companyStructure: {
     title: 'Estructura de la Empresa',
@@ -126,6 +128,13 @@ const es = {
     expenses: 'Gastos',
     periodEnds: '{name} — finaliza el {date}',
     vsPreviousPeriod: 'vs período anterior',
+    flowLoadError: 'No se pudo cargar el flujo contable',
+    flowDegraded: 'Datos parciales: el flujo se calculó con un error interno',
+    assetLabel: 'Activos',
+    liabilityLabel: 'Pasivos',
+    equityLabel: 'Capital',
+    revenueLabel: 'Ingresos',
+    expenseLabel: 'Gastos',
   },
   accounts: {
     title: 'Plan de Cuentas',
@@ -595,8 +604,12 @@ const es = {
     linking: 'Vinculando...',
     linkButton: 'Vincular',
   },
+  budget: {
+    loading: 'Cargando análisis presupuestal...',
+  },
   reports: {
     title: 'Reportes',
+    exportModalTitle: 'Exportar Reportes Financieros',
     balanceSheet: 'Balance General',
     incomeStatement: 'Estado de Resultados',
     trialBalance: 'Balanza de Comprobación',
@@ -1032,6 +1045,7 @@ const es = {
     toDate: 'Hasta',
     allAccounts: 'Todas las Cuentas',
     filter: 'Filtrar',
+    loadError: 'No se pudo cargar el resumen de movimientos',
   },
   aiAssistant: {
     title: 'Asistente IA',
@@ -1092,6 +1106,7 @@ const es = {
     networkErrorVerify: 'Error de red al verificar.',
     notConfiguredTitle: 'Asistente de IA no configurado',
     notConfiguredDesc: 'Configurá un proveedor y una API key para activar las funciones de IA.',
+    accountWizardTitle: 'Asistente de Cuenta Contable',
   },
   onboarding: {
     title: 'Bienvenido a AccountExpress',
@@ -1193,6 +1208,7 @@ const es = {
     searchPlaceholder: 'Buscar dirección en EE.UU...',
     searching: 'Buscando dirección...',
     noResults: 'No se encontraron resultados. Puede escribir manualmente.',
+    loadingSuggestions: 'Buscando sugerencias...',
   },
   utc: {
     modal: {

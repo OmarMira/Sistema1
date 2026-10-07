@@ -8,9 +8,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   AlertTriangle,
+  AlertCircle,
   Info,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -115,6 +118,7 @@ function currentUtcMonthRange(): { startDate: string; endDate: string } {
 /* ─── Main DashboardPage ─── */
 export function DashboardPage() {
   const t = useLanguageStore((s) => s.t);
+  const language = useLanguageStore((s) => s.language) || 'es';
   const activeCompany = useAuthStore((s) => s.activeCompany);
   const setCurrentView = useAuthStore((s) => s.setCurrentView);
 
@@ -134,6 +138,8 @@ export function DashboardPage() {
   const {
     data: flowData,
     isLoading: flowLoading,
+    isError: flowIsError,
+    error: flowError,
     refetch: refetchFlow,
   } = useAccountingFlow({
     companyId: activeCompany?.id,
@@ -146,9 +152,12 @@ export function DashboardPage() {
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(`/api/dashboard?companyId=${activeCompany.id}`, {
-        credentials: 'include',
-      });
+      const res = await fetch(
+        `/api/dashboard?companyId=${activeCompany.id}&locale=${language}`,
+        {
+          credentials: 'include',
+        },
+      );
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -161,7 +170,7 @@ export function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeCompany]);
+  }, [activeCompany, language]);
 
   useEffect(() => {
     fetchDashboard();
@@ -240,15 +249,30 @@ export function DashboardPage() {
       {/* ── Accounting Flow KPIs (Fase 2) ── */}
       <motion.div variants={itemVariants}>
         <FlowErrorBoundary>
-          {flowData && (
-            <FlowKpiCards
-              summary={flowData.summary}
-              companyId={activeCompany?.id}
-              startDate={flowRange.startDate}
-              endDate={flowRange.endDate}
-              isLoading={flowLoading}
-              onRefresh={refetchFlow}
-            />
+          {flowIsError && !flowData ? (
+            <Card>
+              <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+                <AlertCircle className="size-8 text-destructive" aria-hidden="true" />
+                <p className="text-sm font-medium">{t('dashboard.flowLoadError')}</p>
+                {flowError?.code && (
+                  <p className="text-xs text-muted-foreground">{flowError.code}</p>
+                )}
+                <Button variant="outline" onClick={() => refetchFlow()}>
+                  {t('common.retry')}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            flowData && (
+              <FlowKpiCards
+                summary={flowData.summary}
+                companyId={activeCompany?.id}
+                startDate={flowRange.startDate}
+                endDate={flowRange.endDate}
+                isLoading={flowLoading}
+                onRefresh={refetchFlow}
+              />
+            )
           )}
         </FlowErrorBoundary>
       </motion.div>

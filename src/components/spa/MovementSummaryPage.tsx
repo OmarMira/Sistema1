@@ -72,6 +72,12 @@ export function MovementSummaryPage() {
           setFromDate(json.minDate || defaultFrom);
           setToDate(json.maxDate || defaultTo);
           setDatesInitialized(true);
+        } else if (!cancelled) {
+          const today = new Date();
+          const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+          setFromDate(firstOfMonth.toISOString().split('T')[0]);
+          setToDate(today.toISOString().split('T')[0]);
+          setDatesInitialized(true);
         }
       } catch {
         const today = new Date();
@@ -139,14 +145,20 @@ export function MovementSummaryPage() {
               setData(json);
             }
           } else {
-            setError(t('common.error'));
+            const body = await res.json().catch(() => null);
+            const detail = body?.error ? ` — ${body.error}` : '';
+            setError(`${t('movementSummary.loadError')} (HTTP ${res.status})${detail}`);
             setData(null);
           }
         }
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         if (!controller.signal.aborted) {
-          setError(err instanceof Error ? err.message : t('common.error'));
+          setError(
+            err instanceof Error
+              ? `${t('movementSummary.loadError')}: ${err.message}`
+              : t('common.error'),
+          );
           setData(null);
         }
       } finally {

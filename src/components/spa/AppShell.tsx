@@ -28,6 +28,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { SidebarNav } from '@/components/app/SidebarNav';
 import { DesktopSidebar } from '@/components/app/DesktopSidebar';
 import { PlaceholderView } from '@/components/app/PlaceholderView';
+import { ViewErrorBoundary } from '@/components/app/ViewErrorBoundary';
 import { navItems, settingsItem } from '@/lib/constants/app-navigation';
 
 
@@ -228,7 +229,11 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
         {/* ── Main Content Area ── */}
         <main className="flex-1 overflow-auto p-4 lg:p-6">
           <div className="mx-auto max-w-7xl">
-            {children ? children : <PlaceholderView view={currentView} />}
+            {children ? children : (
+              <ViewErrorBoundary key={currentView}>
+                <PlaceholderView view={currentView} />
+              </ViewErrorBoundary>
+            )}
           </div>
         </main>
       </div>

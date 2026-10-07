@@ -7,6 +7,7 @@ import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui
 import { Popover, PopoverContent, PopoverTrigger, PopoverAnchor } from '@/components/ui/popover';
 import { MapPin, Loader2, X } from 'lucide-react';
 import { type AddressData } from '@/lib/services/address-autocomplete';
+import { useLanguageStore } from '@/store/language-store';
 
 interface AddressAutocompleteProps {
   onSelect: (addr: AddressData) => void;
@@ -33,6 +34,7 @@ export function AddressAutocomplete({
     clear,
     setQuery,
   } = useAddressAutocomplete();
+  const t = useLanguageStore((s) => s.t);
   const [open, setOpen] = useState(false);
 
   // Sync with default values when initial settings are fetched
@@ -103,7 +105,7 @@ export function AddressAutocomplete({
             {loading ? (
               <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
                 <Loader2 className="size-4 animate-spin text-primary" />
-                <span>Buscando sugerencias...</span>
+                <span>{t('address.loadingSuggestions')}</span>
               </div>
             ) : error ? (
               <div className="py-6 text-center text-sm text-muted-foreground">{error}</div>

@@ -62,7 +62,7 @@ export default function SuperAdminDashboardPage() {
     companiesCount: 0,
     usersCount: 0,
     logsCount: 0,
-    systemLoad: '0%',
+    systemLoad: null as string | null,
   });
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -78,7 +78,9 @@ export default function SuperAdminDashboardPage() {
             companiesCount: data.companiesCount || 0,
             usersCount: data.usersCount || 0,
             logsCount: data.logsCount || 0,
-            systemLoad: `${Math.floor(Math.random() * 12) + 5}%`,
+            // /api/admin/stats does not report system load; keep it null so the
+            // card shows an honest placeholder instead of an invented number.
+            systemLoad: null,
           });
         }
       } catch (err) {

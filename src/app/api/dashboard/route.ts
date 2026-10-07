@@ -141,6 +141,8 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   const { userId, companyId } = requireCompanyContext();
   await requireModuleEntitlement('accounting');
   const { searchParams } = new URL(request.url);
+  const localeParam = searchParams.get('locale');
+  const locale = localeParam === 'en' || localeParam === 'es' ? localeParam : 'es';
 
   // ── Bank accounts summary ──
   const bankAccounts = await db.bankAccount.findMany({
@@ -287,13 +289,23 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     ORDER BY "month" ASC
   `;
 
-  const MONTH_NAMES = [
-    'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
-    'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic',
-  ];
+  // Month labels are localized: `locale` is validated against the supported
+  // set (default 'es' so requests without the param keep today's output).
+  // Intl gives e.g. 'ene'/'sept' (es) or 'Jan' (en); normalize to the
+  // canonical 3-letter, capitalized form consumers already expect ('Ene').
+  const monthLabelFormatter = new Intl.DateTimeFormat(locale, {
+    month: 'short',
+    timeZone: 'UTC',
+  });
+  const monthName = (monthIndex: number) =>
+    monthLabelFormatter
+      .format(new Date(Date.UTC(2000, monthIndex, 1)))
+      .replace(/\./g, '')
+      .replace(/^./, (c) => c.toUpperCase())
+      .slice(0, 3);
 
   const monthlyTrend = trendRows.map((row) => ({
-    month: MONTH_NAMES[parseInt(row.month.split('-')[1] ?? '1') - 1] ?? '',
+    month: monthName(parseInt(row.month.split('-')[1] ?? '1', 10) - 1),
     income: Math.round(Number(row.income) * 100) / 100,
     expenses: Math.round(Number(row.expenses) * 100) / 100,
   }));

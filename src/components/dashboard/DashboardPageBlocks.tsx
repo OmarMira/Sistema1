@@ -105,18 +105,24 @@ export function StatCard({
 
 // ─── Chart configs ───
 
-export const balanceChartConfig: ChartConfig = {
-  asset: { label: 'Assets', color: 'hsl(160, 60%, 45%)' },
-  liability: { label: 'Liabilities', color: 'hsl(38, 92%, 50%)' },
-  equity: { label: 'Equity', color: 'hsl(170, 60%, 41%)' },
-  revenue: { label: 'Revenue', color: 'hsl(152, 69%, 38%)' },
-  expense: { label: 'Expenses', color: 'hsl(350, 80%, 55%)' },
-};
+type Translate = (key: string) => string;
 
-export const cashFlowChartConfig: ChartConfig = {
-  income: { label: 'Ingresos', color: 'hsl(217, 91%, 60%)' },
-  expenses: { label: 'Gastos', color: 'hsl(350, 80%, 55%)' },
-};
+export function balanceChartConfig(t: Translate): ChartConfig {
+  return {
+    asset: { label: t('dashboard.assetLabel'), color: 'hsl(160, 60%, 45%)' },
+    liability: { label: t('dashboard.liabilityLabel'), color: 'hsl(38, 92%, 50%)' },
+    equity: { label: t('dashboard.equityLabel'), color: 'hsl(170, 60%, 41%)' },
+    revenue: { label: t('dashboard.revenueLabel'), color: 'hsl(152, 69%, 38%)' },
+    expense: { label: t('dashboard.expenseLabel'), color: 'hsl(350, 80%, 55%)' },
+  };
+}
+
+export function cashFlowChartConfig(t: Translate): ChartConfig {
+  return {
+    income: { label: t('dashboard.income'), color: 'hsl(217, 91%, 60%)' },
+    expenses: { label: t('dashboard.expenses'), color: 'hsl(350, 80%, 55%)' },
+  };
+}
 
 // ─── Summary Mini Cards ───
 
@@ -233,7 +239,7 @@ export function BalanceChartCard({ t, loading, accountBalances }: BalanceChartPr
           {loading ? (
             <Skeleton className="h-[280px] w-full" />
           ) : (
-            <ChartContainer config={balanceChartConfig} className="h-[280px] w-full">
+            <ChartContainer config={balanceChartConfig(t)} className="h-[280px] w-full">
               <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="type" tickLine={false} axisLine={false} fontSize={12} />
@@ -286,7 +292,7 @@ export function MonthlyTrendChartCard({ t, loading, data }: MonthlyTrendChartPro
           {loading ? (
             <Skeleton className="h-[280px] w-full" />
           ) : data && data.length > 0 ? (
-            <ChartContainer config={cashFlowChartConfig} className="h-[280px] w-full">
+            <ChartContainer config={cashFlowChartConfig(t)} className="h-[280px] w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <defs>
@@ -480,7 +486,8 @@ interface AdminStats {
   companiesCount: number;
   usersCount: number;
   logsCount: number;
-  systemLoad: string;
+  /** Not measured server-side; null renders an honest placeholder instead of a fake figure. */
+  systemLoad: string | null;
 }
 
 interface AdminStatCardsProps {
@@ -560,7 +567,7 @@ export function AdminStatCards({ t, stats, loading, onNavigate }: AdminStatCards
           {loading ? (
             <div className="h-9 w-16 animate-pulse bg-muted rounded my-0.5" />
           ) : (
-            <span className="text-3xl font-bold text-foreground">{stats.systemLoad}</span>
+            <span className="text-3xl font-bold text-foreground">{stats.systemLoad ?? '—'}</span>
           )}
           <p className="text-xs text-muted-foreground mt-1">{t('superAdmin.serverLoadDesc')}</p>
         </CardContent>

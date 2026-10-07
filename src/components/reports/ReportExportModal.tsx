@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/select';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { FileText, Download, AlertTriangle } from 'lucide-react';
+import { useLanguageStore } from '@/store/language-store';
 
 interface ReportExportModalProps {
   isOpen: boolean;
@@ -26,11 +27,26 @@ interface ReportExportModalProps {
   companyId: string;
 }
 
+/**
+ * Default export window: first day of the current UTC month through today (UTC).
+ * Derived from the clock so the modal never opens on a stale/fake period.
+ */
+function defaultDateRange(): { start: string; end: string } {
+  const now = new Date();
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: now.toISOString().slice(0, 10),
+  };
+}
+
 export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportModalProps) {
+  const t = useLanguageStore((s) => s.t);
   const [type, setType] = useState<string>('trial_balance');
   const [format, setFormat] = useState<string>('csv');
-  const [startDate, setStartDate] = useState<string>('2025-01-01');
-  const [endDate, setEndDate] = useState<string>('2025-05-31');
+  const [defaultRange] = useState(defaultDateRange);
+  const [startDate, setStartDate] = useState<string>(defaultRange.start);
+  const [endDate, setEndDate] = useState<string>(defaultRange.end);
   const [loading, setLoading] = useState<boolean>(false);
 
   const handleExport = () => {
@@ -55,7 +71,7 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-primary" />
-            Exportar Reportes Financieros
+            {t('reports.exportModalTitle')}
           </DialogTitle>
           <DialogDescription>
             Genera y descarga balances contables auditados en formato CSV o PDF firmado.

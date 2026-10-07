@@ -44,6 +44,8 @@ const en = {
     processing: 'Processing...',
     pleaseWait: 'Please wait a moment.',
     didacticSupport: 'Didactic Support',
+    viewError: 'Error rendering this view',
+    viewErrorDesc: 'A rendering failure occurred. The rest of the modules remain operational.',
   },
   companyStructure: {
     title: 'Company Structure',
@@ -125,6 +127,8 @@ const en = {
     expenses: 'Expenses',
     periodEnds: '{name} — ends {date}',
     vsPreviousPeriod: 'vs previous period',
+    flowLoadError: 'Cash flow data could not be loaded',
+    flowDegraded: 'Partial data: the flow was computed with an internal error',
   },
   accounts: {
     title: 'Chart of Accounts',
@@ -1021,6 +1025,7 @@ const en = {
     toDate: 'To',
     allAccounts: 'All Accounts',
     filter: 'Filter',
+    loadError: 'Failed to load the movement summary',
   },
   aiAssistant: {
     title: 'AI Assistant',

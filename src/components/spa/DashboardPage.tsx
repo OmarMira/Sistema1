@@ -115,6 +115,7 @@ function currentUtcMonthRange(): { startDate: string; endDate: string } {
 /* ─── Main DashboardPage ─── */
 export function DashboardPage() {
   const t = useLanguageStore((s) => s.t);
+  const language = useLanguageStore((s) => s.language) || 'es';
   const activeCompany = useAuthStore((s) => s.activeCompany);
   const setCurrentView = useAuthStore((s) => s.setCurrentView);
 
@@ -146,9 +147,12 @@ export function DashboardPage() {
     setLoading(true);
     setError(false);
     try {
-      const res = await fetch(`/api/dashboard?companyId=${activeCompany.id}`, {
-        credentials: 'include',
-      });
+      const res = await fetch(
+        `/api/dashboard?companyId=${activeCompany.id}&locale=${language}`,
+        {
+          credentials: 'include',
+        },
+      );
       if (res.ok) {
         const json = await res.json();
         setData(json);
@@ -161,7 +165,7 @@ export function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [activeCompany]);
+  }, [activeCompany, language]);
 
   useEffect(() => {
     fetchDashboard();

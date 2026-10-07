@@ -8,9 +8,12 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   AlertTriangle,
+  AlertCircle,
   Info,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { formatCurrency, formatDate } from '@/lib/format';
@@ -135,6 +138,8 @@ export function DashboardPage() {
   const {
     data: flowData,
     isLoading: flowLoading,
+    isError: flowIsError,
+    error: flowError,
     refetch: refetchFlow,
   } = useAccountingFlow({
     companyId: activeCompany?.id,
@@ -244,15 +249,30 @@ export function DashboardPage() {
       {/* ── Accounting Flow KPIs (Fase 2) ── */}
       <motion.div variants={itemVariants}>
         <FlowErrorBoundary>
-          {flowData && (
-            <FlowKpiCards
-              summary={flowData.summary}
-              companyId={activeCompany?.id}
-              startDate={flowRange.startDate}
-              endDate={flowRange.endDate}
-              isLoading={flowLoading}
-              onRefresh={refetchFlow}
-            />
+          {flowIsError && !flowData ? (
+            <Card>
+              <CardContent className="flex flex-col items-center gap-3 py-8 text-center">
+                <AlertCircle className="size-8 text-destructive" aria-hidden="true" />
+                <p className="text-sm font-medium">{t('dashboard.flowLoadError')}</p>
+                {flowError?.code && (
+                  <p className="text-xs text-muted-foreground">{flowError.code}</p>
+                )}
+                <Button variant="outline" onClick={() => refetchFlow()}>
+                  {t('common.retry')}
+                </Button>
+              </CardContent>
+            </Card>
+          ) : (
+            flowData && (
+              <FlowKpiCards
+                summary={flowData.summary}
+                companyId={activeCompany?.id}
+                startDate={flowRange.startDate}
+                endDate={flowRange.endDate}
+                isLoading={flowLoading}
+                onRefresh={refetchFlow}
+              />
+            )
           )}
         </FlowErrorBoundary>
       </motion.div>

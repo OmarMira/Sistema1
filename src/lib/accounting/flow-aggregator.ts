@@ -253,6 +253,6 @@ export async function aggregateAccountingFlow(
     };
   } catch (error) {
     logger.error('Error calculating accounting flow:', { error: String(error) });
-    return fallbackResponse;
+    throw error;
   }
 }

@@ -56,6 +56,8 @@ model User {
   lastName              String
   platformRole          PlatformRole           @default(user) @map("role")
   isActive              Boolean                @default(true)
+  emailVerifiedAt     DateTime?              
+  legacyUser           Boolean                @default(false)
   phone                 String                 @default("")
   streetLine1           String                 @default("")
   streetLine2           String                 @default("")
@@ -824,3 +826,4 @@ model IdentitySecurityEvent {
 
   @@index([createdAt])
 }
+

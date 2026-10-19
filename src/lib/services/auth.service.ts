@@ -19,6 +19,8 @@ export class AuthService {
         platformRole: true,
         isActive: true,
         passwordHash: true,
+        emailVerifiedAt: true,
+        legacyUser: true,
         companyMemberships: {
           where: { company: { isActive: true } },
           include: {
@@ -37,6 +39,10 @@ export class AuthService {
     });
 
     if (!user || !user.isActive) {
+      throw new AuthError('Correo electrónico o contraseña inválidos');
+    }
+    // Phase B — T3: reject pending (not verified) for new users; allow legacy transition only when legacyUser = true.
+    if (user.emailVerifiedAt === null && !(user.legacyUser ?? false)) {
       throw new AuthError('Correo electrónico o contraseña inválidos');
     }
 

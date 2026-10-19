@@ -72,4 +72,10 @@ export class IdentityService {
     if (!this.config.enabled || !this.repository || !/^[a-f0-9]{64}$/.test(token)) return null;
     return this.repository.consumeRecovery(tokenDigest(token), this.clock());
   }
+  // T5 — atomic recovery: token consumption + password replacement + session
+  // revocation confirmed in one repository transaction. Returns the user id.
+  async completeRecovery(token: string, passwordHash: string): Promise<string | null> {
+    if (!this.config.enabled || !this.repository || !/^[a-f0-9]{64}$/.test(token)) return null;
+    return this.repository.completeRecovery(tokenDigest(token), passwordHash, this.clock());
+  }
 }

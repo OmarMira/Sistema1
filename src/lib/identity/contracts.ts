@@ -8,6 +8,8 @@ export interface IdentityRepository {
   attemptCode(email: string, now: Date, digest: DigestForCode, budgets: Budget[]): Promise<boolean>;
   issueRecovery(email: string, digest: string, now: Date, budgets: Budget[]): Promise<boolean>;
   consumeRecovery(digest: string, now: Date): Promise<string | null>;
+  // Atomic: token consumption + password replacement + session revocation in one transaction.
+  completeRecovery(digest: string, passwordHash: string, now: Date): Promise<string | null>;
   recordDelivery(subject: string, success: boolean, now: Date): Promise<void>;
 }
 

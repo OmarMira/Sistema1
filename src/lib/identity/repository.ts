@@ -123,4 +123,18 @@ export class PostgresIdentityRepository implements IdentityRepository {
   async recordDelivery(subject: string, success: boolean, now: Date): Promise<void> {
     await this.transaction(tx => this.audit(tx, success ? 'delivery_ok' : 'delivery_failed', subject, now));
   }
+
+  async completeRecovery(digest: string, passwordHash: string, now: Date): Promise<string | null> {
+    return this.transaction(async tx => {
+      const userRow = (await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "User" WHERE id = (SELECT "subjectId" FROM "IdentityChallenge" WHERE digest=${digest} AND purpose='RECOVERY' AND "usedAt" IS NULL AND "expiresAt">${now})`)[0];
+      if (!userRow) return null;
+      const updated = await tx.$executeRaw`UPDATE "IdentityChallenge" SET "usedAt"=${now} WHERE digest=${digest} AND purpose='RECOVERY' AND "usedAt" IS NULL AND "expiresAt">${now}`;
+      if (updated !== 1) return null;
+      await tx.$executeRaw`UPDATE "User" SET "passwordHash"=${passwordHash} WHERE id=${userRow.id}::uuid`;
+      await tx.$executeRaw`DELETE FROM "Session" WHERE "userId"=${userRow.id}`;
+      await this.audit(tx, 'recovery_consumed', tokenDigest('recovery-user:' + userRow.id), now);
+      return userRow.id;
+    });
+  }
+
 }

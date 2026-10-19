@@ -26,3 +26,24 @@ export class IdentityMailer {
     return this.deliver({ type: 'recovery', to, token });
   }
 }
+
+
+// Phase B — T2 SMTP interface (dormant; not activated; .env untouched)
+export interface SmtpConfig {
+  host: string; port: number; secure: boolean;
+  user: string; pass: string;
+  from: string; fromName?: string;
+}
+export interface IdentitySmtpTransport extends IdentityMailTransport {
+  verifyConfig(): boolean;
+}
+// Adapter placeholder: requires operator-approved HTTPS origin for recovery links.
+export class SmtpAdapter implements IdentitySmtpTransport {
+  constructor(private readonly cfg: SmtpConfig) {}
+  verifyConfig(): boolean { return !!(this.cfg.host && this.cfg.from); }
+  async send(message: IdentityMessage): Promise<void> {
+    // Actual SMTP delivery deferred to T2 verification / CI / production approval.
+    // Never emit tokens directly; logs only delivery status.
+    return Promise.resolve();
+  }
+}

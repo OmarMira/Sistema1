@@ -25,6 +25,10 @@ describe('S7 Acceptance (Phase B contracts T2-T6)', () => {
     const repo = new PostgresIdentityRepository(db);
     const email = 'verify-cycle@example.test';
     const digestHex = '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+    // Idempotent disposable state: previous runs leave consumed challenges and rate-limit rows.
+    await db.$executeRawUnsafe('DELETE FROM "IdentityChallenge" WHERE "digest" = $1', digestHex);
+    await db.$executeRawUnsafe('DELETE FROM "IdentityRateLimit" WHERE "subject" = $1', digestHex);
+    await db.$executeRawUnsafe('DELETE FROM "IdentityPendingRegistration" WHERE "email" = $1', email);
     await repo.issueVerification(email, new Date(), false, (id, g) => digestHex, [{ subject: digestHex, maximum: 5 }]);
     const accepted = await repo.attemptCode(email, new Date(), (id, g) => digestHex, [{ subject: digestHex, maximum: 5 }]);
     expect(accepted).toBe(true);

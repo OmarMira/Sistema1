@@ -24,8 +24,20 @@ export const GET = apiHandler(async (request: NextRequest) => {
   await requireModuleEntitlement('accounting');
 
   const { searchParams } = new URL(request.url);
-  const startDateStr = searchParams.get('startDate');
-  const endDateStr = searchParams.get('endDate');
+  // Derivar período por defecto desde el último resumen bancario (no forzar fechas futuras sin datos)
+  let startDateStr = searchParams.get('startDate');
+  let endDateStr = searchParams.get('endDate');
+  if (!startDateStr || !endDateStr) {
+    const latestStatement = await db.bankStatement.findFirst({
+      where: { bankAccount: { companyId, isActive: true } },
+      orderBy: { endDate: 'desc' },
+      select: { endDate: true },
+    });
+    const latestEnd = latestStatement?.endDate ? new Date(latestStatement.endDate) : new Date();
+    const periodStr = `${latestEnd.getUTCFullYear()}-${String(latestEnd.getUTCMonth() + 1).padStart(2, '0')}`;
+    startDateStr = startDateStr || `${periodStr}-01`;
+    endDateStr = endDateStr || periodStr;
+  }
 
   if (!startDateStr || !endDateStr) {
     throw new ValidationError(serverT(locale, 'apiErrors.accountingFlow.datesRequired'));

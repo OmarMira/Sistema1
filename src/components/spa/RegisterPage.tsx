@@ -34,9 +34,18 @@ export function RegisterPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  const [showVerify, setShowVerify] = useState(false);
+  const [verifyCode, setVerifyCode] = useState('');
+  const [verifyError, setVerifyError] = useState('');
+  const [registerResult, setRegisterResult] = useState<{ email: string; requiresVerification: boolean } | null>(null);
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setError('');
+    setShowVerify(false);
+    setVerifyCode('');
+    setVerifyError('');
+    setRegisterResult(null);
 
     if (password !== confirmPassword) {
       setError(t('auth.passwordMismatch'));
@@ -73,18 +82,61 @@ export function RegisterPage() {
         return;
       }
 
-      // Auto-login on success
+      if (data.requiresVerification) {
+        setRegisterResult({ email: data.email || email, requiresVerification: true });
+        setShowVerify(true);
+        return;
+      }
+
+      // Auto-login on fully verified registration (legacy direct path)
       const user: User = data.user;
       const companies = data.companies || [];
-
       login(user);
-
       if (companies.length > 0) {
         useAuthStore.getState().setActiveCompany(companies[0]);
       }
       setCurrentView('dashboard');
     } catch {
       setError(t('common.error'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify(e: FormEvent) {
+    e.preventDefault();
+    setVerifyError('');
+
+    if (!/^\d{6}$/.test(verifyCode.trim())) {
+      setVerifyError('Ingresa el código de 6 dígitos que te enviamos por email.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/auth/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: registerResult?.email || email, code: verifyCode.trim() }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setVerifyError(data.error || 'No se pudo verificar el código.');
+        return;
+      }
+
+      const user: User = data.user;
+      const companies = data.companies || [];
+      login(user);
+      if (companies.length > 0) {
+        useAuthStore.getState().setActiveCompany(companies[0]);
+      }
+      setCurrentView('dashboard');
+    } catch {
+      setVerifyError('No se pudo verificar el código.');
     } finally {
       setLoading(false);
     }
@@ -260,6 +312,41 @@ export function RegisterPage() {
               </p>
             </CardFooter>
           </form>
+
+          {showVerify && (
+            <div className="border-t px-6 py-6 space-y-4">
+              <div className="text-center space-y-1">
+                <h2 className="text-lg font-semibold">Verifica tu correo</h2>
+                <p className="text-sm text-muted-foreground">
+                  Se envió un código de 6 dígitos a {registerResult?.email || email}. Ingrésalo para completar tu registro.
+                </p>
+              </div>
+              <form onSubmit={handleVerify} className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Input
+                  id="verifyCode"
+                  value={verifyCode}
+                  onChange={(e) => setVerifyCode(e.target.value)}
+                  placeholder="123456"
+                  maxLength={6}
+                  inputMode="numeric"
+                  className="w-full sm:w-44 text-center tracking-[0.3em] text-lg font-mono"
+                  required
+                />
+                <Button type="submit" disabled={loading}>
+                  {loading && <Loader2 className="size-4 animate-spin" />}
+                  Verificar
+                </Button>
+              </form>
+              {verifyError && (
+                <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive text-center">
+                  {verifyError}
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground text-center">
+                ¿No llegó el correo? Revisá la carpeta de spam o registrate nuevamente.
+              </p>
+            </div>
+          )}
         </Card>
       </main>
 

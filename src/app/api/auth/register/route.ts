@@ -4,6 +4,7 @@ import { apiHandler } from '@/lib/api-handler';
 import { validateRequest } from '@/lib/validate-request';
 import { registerSchema } from '@/lib/validations/auth';
 import { AuthService } from '@/lib/services/auth.service';
+import { createIdentityService } from '@/lib/identity/runtime';
 import { authRateLimiter } from '@/lib/rate-limiter';
 import { getClientIp } from '@/lib/security/client-ip';
 
@@ -30,13 +31,28 @@ export const POST = apiHandler(
     if (body instanceof NextResponse) return body;
 
     try {
+      const identity = createIdentityService();
+
+      // Option A: issue verification code to the registered email.
+      // The identity service is only active when SMTP + identity key are
+      // configured; if unavailable, the account is still created PENDING
+      // (emailVerifiedAt stays null) and can be verified manually.
+      if (identity) {
+        try {
+          await identity.beginRegistration(email ?? '', ip ?? undefined);
+        } catch {
+          // Delivery failure (e.g., SMTP_PASS absent) must not block
+          // account creation per Option A design.
+        }
+      }
+
       const result = await AuthService.register(body);
 
       authRateLimiter.reset(ip, email);
 
-      const token = await createSession(result.user.id);
-
       const response = NextResponse.json({
+        requiresVerification: true,
+        email: result.user.email,
         user: {
           id: result.user.id,
           email: result.user.email,
@@ -53,15 +69,6 @@ export const POST = apiHandler(
             isOnboardingComplete: result.company.isOnboardingComplete,
           },
         ],
-      });
-
-      const isProd = process.env.NODE_ENV === 'production';
-      response.cookies.set(isProd ? '__Host-session' : 'session', token, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60,
       });
 
       return response;

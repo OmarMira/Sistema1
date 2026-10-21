@@ -143,8 +143,9 @@ export function FinancialDashboardPage() {
       const res = await fetch(`/api/dashboard/financial?companyId=${activeCompany.id}`);
       if (res.ok) {
         const data = await res.json();
-        setInitialBalanceInput(data.initialBalance || 0);
-        apiInitialBalance.current = data.initialBalance || 0;
+        const balanceFromApi = (data.currentBalance !== undefined ? data.currentBalance : data.initialBalance) || 0;
+        setInitialBalanceInput(balanceFromApi);
+        apiInitialBalance.current = balanceFromApi;
         setBankAccountInfo(data.bankAccountInfo || null);
         setRevenueTrend(data.revenueTrend || 0);
         setExpenseTrend(data.expenseTrend || 0);

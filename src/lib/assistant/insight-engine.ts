@@ -20,14 +20,17 @@ export async function generateInsights(companyId: string): Promise<Insight[]> {
   const year = now.getUTCFullYear();
   const month = now.getUTCMonth() + 1;
 
-  // 1. Flujo de caja (últimos 3 períodos)
+  // 1. Flujo de caja (últimos 3 períodos) — excluir saldo inicial de apertura
   if (config.healthChecks.cashFlowTrend.enabled) {
-    const threeMonthsAgo = new Date(Date.UTC(year, month - 3, 1));
+    const bankAcc = await db.bankAccount.findFirst({ where: { companyId, isActive: true } });
+    // Derivar período real del último resumen importado (no hardcodear 2026)
+    const latestStmt = bankAcc
+      ? await db.bankStatement.findFirst({ where: { bankAccountId: bankAcc.id }, orderBy: { endDate: 'desc' } })
+      : null;
+    const periodYear = latestStmt ? latestStmt.endDate.getUTCFullYear() : now.getUTCFullYear();
+    const periodMonth = latestStmt ? latestStmt.endDate.getUTCMonth() + 1 : now.getUTCMonth() + 1;
 
-    // Buscar la cuenta bancaria de la compañía
-    const bankAcc = await db.bankAccount.findFirst({
-      where: { companyId, isActive: true },
-    });
+    const threeMonthsAgo = new Date(Date.UTC(periodYear, periodMonth - 3, 1));
 
     if (bankAcc) {
       const trendLines = await db.journalLine.findMany({
@@ -37,6 +40,7 @@ export async function generateInsights(companyId: string): Promise<Insight[]> {
             companyId,
             status: 'posted',
             date: { gte: threeMonthsAgo },
+            description: { not: { contains: 'Opening balance' } },
           },
         },
         select: {

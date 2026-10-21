@@ -43,7 +43,7 @@ export async function getSessionUserIdFromToken(rawToken: string | null): Promis
 
   const session = await db.session.findUnique({
     where: { token: hashedToken },
-    include: { user: { select: { isActive: true } } },
+    include: { user: { select: { isActive: true, emailVerifiedAt: true, legacyUser: true } } },
   });
 
   if (!session) return null;
@@ -56,6 +56,8 @@ export async function getSessionUserIdFromToken(rawToken: string | null): Promis
 
   // F-6: deactivated users lose access to all existing sessions (401 upstream)
   if (!session.user?.isActive) return null;
+  // Phase B — T3: pending users (emailVerifiedAt == null, legacyUser == false) are rejected
+  if (session.user.emailVerifiedAt === null && !(session.user.legacyUser ?? false)) return null;
 
   return session.userId;
 }

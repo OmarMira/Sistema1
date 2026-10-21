@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useAuthStore } from '@/store/auth-store';
 import {
   Users,
   UserPlus,
@@ -262,7 +263,16 @@ export default function AdminUsersPage() {
         method: 'DELETE',
       });
       if (res.ok) {
+        const data = await res.json().catch(() => ({}));
         setDeleteTarget(null);
+        if (data.selfDeleted) {
+          // When a super-admin deletes themselves (after company removal),
+          // drop the stale session and return to the initial landing screen
+          // instead of rendering a broken page against a dead session.
+          useAuthStore.getState().logout();
+          window.location.href = '/';
+          return;
+        }
         loadUsers();
       } else {
         const data = await res.json();

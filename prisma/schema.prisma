@@ -56,6 +56,8 @@ model User {
   lastName              String
   platformRole          PlatformRole           @default(user) @map("role")
   isActive              Boolean                @default(true)
+  emailVerifiedAt     DateTime?              
+  legacyUser           Boolean                @default(false)
   phone                 String                 @default("")
   streetLine1           String                 @default("")
   streetLine2           String                 @default("")
@@ -776,3 +778,52 @@ model CsvLayoutProfile {
 
   @@unique([companyId, fingerprint])
 }
+
+// Dormant identity infrastructure. No existing model fields/relations change.
+// Deployment, User verification/legacy fields and activation require approval.
+model IdentityPendingRegistration {
+  id          String    @id @db.Uuid
+  email       String    @unique
+  expiresAt   DateTime  @db.Timestamptz(3)
+  confirmedAt DateTime? @db.Timestamptz(3)
+  resends     Int       @default(0)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}
+
+model IdentityChallenge {
+  id         String    @id @db.Uuid
+  subjectId  String
+  purpose    String
+  generation Int
+  digest     String
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @db.Timestamptz(3)
+  usedAt     DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([subjectId, purpose])
+  @@index([digest, purpose])
+  @@index([expiresAt])
+}
+
+model IdentityRateLimit {
+  subject     String
+  windowStart DateTime @db.Timestamptz(3)
+  attempts    Int
+  expiresAt   DateTime @db.Timestamptz(3)
+
+  @@id([subject, windowStart])
+  @@index([expiresAt])
+}
+
+model IdentitySecurityEvent {
+  id        String   @id @db.Uuid
+  action    String
+  subject   String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
+}
+

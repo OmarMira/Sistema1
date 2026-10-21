@@ -195,6 +195,20 @@ export const GET = apiHandler(async (req: NextRequest) => {
     where: { companyId, isActive: true },
   });
 
+  // Derivar saldo actual desde el último resumen importado (no usar initialBalance como total)
+  const latestStatement = await db.bankStatement.findFirst({
+    where: { bankAccount: { companyId } },
+    orderBy: { endDate: 'desc' },
+    include: { bankAccount: { select: { accountName: true, bankName: true } } },
+  });
+
+  const currentBalance = latestStatement
+    ? Number(latestStatement.closingBalance ?? 0)
+    : Number(bankAccount?.balance ?? bankAccount?.initialBalance ?? 0);
+  const statementPeriod = latestStatement
+    ? `${latestStatement.endDate.getUTCFullYear()}-${String(latestStatement.endDate.getUTCMonth() + 1).padStart(2, '0')}`
+    : String(fiscalYear);
+
   const initialBalance = bankAccount?.initialBalance ?? 0;
   const bankAccountInfo = bankAccount
     ? {
@@ -261,6 +275,8 @@ export const GET = apiHandler(async (req: NextRequest) => {
     bankAccountInfo,
     revenueTrend: 0,
     expenseTrend: 0,
+    currentBalance,
+    statementPeriod,
     transactions,
     hasMore,
     timestamp: new Date().toISOString(),

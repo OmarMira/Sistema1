@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { AuthService } from '@/lib/services/auth.service';
+import { createSession, getSessionUserIdFromToken } from '@/lib/sessions';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 import { db } from '@/lib/db';
 import bcrypt from 'bcryptjs';
@@ -69,6 +70,7 @@ describe('AuthService', () => {
     const user = await db.user.create({
       data: {
         email: 'login@example.com',
+        emailVerifiedAt: new Date(),
         passwordHash,
         firstName: 'John',
         lastName: 'Doe',
@@ -93,6 +95,7 @@ describe('AuthService', () => {
     await db.user.create({
       data: {
         email: 'wrongpass@example.com',
+        emailVerifiedAt: new Date(),
         passwordHash,
         firstName: 'John',
         lastName: 'Doe',
@@ -105,5 +108,43 @@ describe('AuthService', () => {
         password: 'incorrect_password',
       })
     ).rejects.toThrow('Correo electrónico o contraseña inválidos');
+  });
+
+  it.each([
+    { name: 'pending', emailVerifiedAt: null, legacyUser: false, isActive: true, allowed: false },
+    { name: 'verified', emailVerifiedAt: new Date('2026-01-01'), legacyUser: false, isActive: true, allowed: true },
+    { name: 'legacy', emailVerifiedAt: null, legacyUser: true, isActive: true, allowed: true },
+    { name: 'inactive-verified', emailVerifiedAt: new Date('2026-01-01'), legacyUser: false, isActive: false, allowed: false },
+    { name: 'inactive-legacy', emailVerifiedAt: null, legacyUser: true, isActive: false, allowed: false },
+  ])('preserves login and session eligibility for $name accounts', async ({
+    name, emailVerifiedAt, legacyUser, isActive, allowed,
+  }) => {
+    const password = 'password123';
+    const user = await db.user.create({
+      data: {
+        email: `eligibility-${name}@example.com`,
+        passwordHash: await bcrypt.hash(password, 10),
+        firstName: 'Eligibility',
+        lastName: 'Fixture',
+        emailVerifiedAt,
+        legacyUser,
+        isActive,
+      },
+    });
+    const token = await createSession(user.id);
+    const sessionsBefore = await db.session.findMany({ where: { userId: user.id } });
+
+    const login = AuthService.login({ email: user.email, password });
+    if (allowed) {
+      await expect(login).resolves.toMatchObject({ user: { id: user.id } });
+    } else {
+      await expect(login).rejects.toMatchObject({
+        statusCode: 401,
+        message: 'Correo electrónico o contraseña inválidos',
+      });
+    }
+    await expect(getSessionUserIdFromToken(token)).resolves.toBe(allowed ? user.id : null);
+    expect(await db.user.findUnique({ where: { id: user.id } })).toEqual(user);
+    expect(await db.session.findMany({ where: { userId: user.id } })).toEqual(sessionsBefore);
   });
 });

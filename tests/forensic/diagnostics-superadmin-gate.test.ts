@@ -118,6 +118,7 @@ describe('DIAGNOSTICS SUPER_ADMIN GATE — /api/diagnostics is INSTANCE_GLOBAL, 
     await seedVictimTenant();
     const superUser = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'super-dsa@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Super',

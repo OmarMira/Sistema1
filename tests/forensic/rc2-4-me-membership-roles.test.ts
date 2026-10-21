@@ -40,6 +40,7 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
   it('ME-1: a role=user member gets companies with their tenant membership roles', async () => {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'rc24-me1@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',
@@ -91,6 +92,7 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
   it('ME-2: super_admin gets all active companies with role=null (no invented membership)', async () => {
     const superUser = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'rc24-me2@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',
@@ -157,6 +159,7 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
   it('ME-3: inactive memberships are excluded from normal member companies', async () => {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'rc24-me3@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',
@@ -204,12 +207,13 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
     expect(active?.role).toBe('employee');
   });
 
-  it('ME-4: a freshly registered member (role=user + membership company_admin, onboarding NOT complete) still gets the tenant role from /api/auth/me', async () => {
-    // Mirrors the exact post-register state on the wire: User.role='user' (AuthService.register),
-    // membership company_admin (created in the same TX), company with isOnboardingComplete=false
+  it('ME-4: a verified new member (role=user + membership company_admin, onboarding NOT complete) still gets the tenant role from /api/auth/me', async () => {
+    // Models a new member after email verification: User.role='user',
+    // membership company_admin (created at registration), company with isOnboardingComplete=false
     // (schema default) which gates the UI to OnboardingWizard until hydrate() runs.
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'rc24-me4@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'RC24',

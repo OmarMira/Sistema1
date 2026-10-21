@@ -535,6 +535,7 @@ describe('§GAP8-2D — PendingApproval tenant scope (T1–T12)', () => {
         firstName: 'Super',
         lastName: 'Admin',
         platformRole: 'super_admin',
+        emailVerifiedAt: new Date(),
       },
     });
     await createTestCompanyMember(admin.id, a.company.id);

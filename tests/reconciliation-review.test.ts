@@ -18,6 +18,7 @@ async function seedTestData() {
       firstName: 'Review',
       lastName: 'Tester',
       platformRole: 'user',
+      emailVerifiedAt: new Date(),
     },
   });
 
@@ -128,6 +129,7 @@ async function seedTwoDuplicatePending() {
       firstName: 'Review',
       lastName: 'Duplicate',
       platformRole: 'user',
+      emailVerifiedAt: new Date(),
     },
   });
 

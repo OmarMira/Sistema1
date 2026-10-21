@@ -374,6 +374,7 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
   it('A: User.role=super_admin — access granted to global AI config', async () => {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'rc2-super@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
@@ -388,6 +389,7 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
   it('B: User.role=user — 403 on global AI config', async () => {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'rc2-user@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
@@ -402,6 +404,7 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
   it('C: User.role=user + CompanyMember.role=company_admin — 403 on global AI config (tenant authority does NOT grant global access)', async () => {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'rc2-tenant-admin@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
@@ -439,6 +442,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify authorization gate', () => {
   it('a non-admin member cannot call verify: status 403 and outbound fetch = 0', async () => {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'g4-viewer@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',
@@ -488,6 +492,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify provider allowlist', () => {
   async function createVerifyAdmin() {
     return db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'g4-verify-admin@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Test',

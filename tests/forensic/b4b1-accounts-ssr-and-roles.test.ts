@@ -156,6 +156,7 @@ describe('B4B1 — RC3: Accounts write routes require CompanyMember.role company
   async function superAdminWithCompany(email: string) {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email,
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Super',

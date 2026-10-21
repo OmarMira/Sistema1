@@ -34,6 +34,7 @@ async function asUser(email: string, membershipRole: 'viewer' | 'employee' | 'co
 async function asSuperAdmin(email: string) {
   const user = await db.user.create({
     data: {
+      emailVerifiedAt: new Date(),
       email,
       passwordHash: 'hashed_password_placeholder',
       firstName: 'Super',

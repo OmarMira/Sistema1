@@ -257,6 +257,7 @@ describe('F-10 — KnowledgeAudit identity must come from the session (RED)', ()
   it('R9: a super_admin actor is recorded with their real userId (RED)', async () => {
     const superAdmin = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'f10-r9-super@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'F10',

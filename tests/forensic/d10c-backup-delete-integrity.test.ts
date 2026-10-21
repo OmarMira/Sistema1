@@ -96,6 +96,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
 
     superUser = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: 'super-d10c@example.com',
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Super',

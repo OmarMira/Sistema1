@@ -14,6 +14,7 @@ describe('D11-A: Company deletion atomicity', () => {
   async function createSuperAdmin() {
     const user = await db.user.create({
       data: {
+        emailVerifiedAt: new Date(),
         email: `d11a-admin-${Date.now()}@example.com`,
         passwordHash: 'hashed_password_placeholder',
         firstName: 'Super',

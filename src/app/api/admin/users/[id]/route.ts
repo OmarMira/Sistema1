@@ -3,7 +3,7 @@ import { db } from '@/lib/db';
 import { apiHandler, RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { hashPassword } from '@/lib/auth';
-import { deleteAllUserSessions } from '@/lib/sessions';
+import { deleteAllUserSessions, getSessionCookieName } from '@/lib/sessions';
 import { saveLogo, deleteLogo } from '@/lib/uploads/logo-service';
 import { updateUserSchema } from '@/lib/validations/admin';
 import { parseAdminBody } from '@/lib/parse-admin-body';
@@ -131,16 +131,22 @@ export const DELETE = apiHandler(
     const userId = requireCurrentUserId();
     const { id } = await context.params;
 
-    if (userId === id) {
-      return NextResponse.json({ error: 'Cannot delete yourself' }, { status: 400 });
-    }
-
-    const targetUser = await db.user.findUnique({ where: { id } });
+    const targetUser = await db.user.findUnique({
+      where: { id },
+      include: { companyMemberships: { select: { id: true } } },
+    });
     if (!targetUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
 
-    await db.user.delete({ where: { id } });
+    if (userId === id && targetUser.companyMemberships.length > 0) {
+      return NextResponse.json({ error: 'Cannot delete yourself' }, { status: 400 });
+    }
+
+    // Revoke every session of the target user before deleting the account, so
+    // access to all companies is revoked explicitly (the Session rows are also
+    // removed by the FK cascade on User delete).
+    await deleteAllUserSessions(id);
 
     await db.auditLog.create({
       data: {
@@ -152,7 +158,28 @@ export const DELETE = apiHandler(
       },
     });
 
-    return NextResponse.json({ message: 'User deleted successfully' });
+    await db.user.delete({ where: { id } });
+
+    const response = NextResponse.json({
+      message: 'User deleted successfully',
+      // When the deleted account is the caller's own, the client must drop the
+      // local session state and return to the landing screen instead of
+      // rendering a broken page against a dead session.
+      selfDeleted: userId === id,
+    });
+
+    if (userId === id) {
+      const isProd = process.env.NODE_ENV === 'production';
+      response.cookies.set(getSessionCookieName(), '', {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 0,
+      });
+    }
+
+    return response;
   },
   { requireSuperAdmin: true, requireMembership: false },
 );

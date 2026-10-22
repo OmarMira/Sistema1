@@ -37,9 +37,11 @@ export const POST = apiHandler(
       // The identity service is only active when SMTP + identity key are
       // configured; if unavailable, the account is still created PENDING
       // (emailVerifiedAt stays null) and can be verified manually.
+      let deliveryFailed = true;
       if (identity) {
         try {
           await identity.beginRegistration(email ?? '', ip ?? undefined);
+          deliveryFailed = false;
         } catch {
           // Delivery failure (e.g., SMTP_PASS absent) must not block
           // account creation per Option A design.
@@ -52,6 +54,7 @@ export const POST = apiHandler(
 
       const response = NextResponse.json({
         requiresVerification: true,
+        deliveryFailed,
         email: result.user.email,
         user: {
           id: result.user.id,

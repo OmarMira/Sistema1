@@ -37,7 +37,18 @@ export function RegisterPage() {
   const [showVerify, setShowVerify] = useState(false);
   const [verifyCode, setVerifyCode] = useState('');
   const [verifyError, setVerifyError] = useState('');
-  const [registerResult, setRegisterResult] = useState<{ email: string; requiresVerification: boolean } | null>(null);
+  const [registerResult, setRegisterResult] = useState<{ email: string; deliveryFailed: boolean } | null>(null);
+  const [verifyNotice, setVerifyNotice] = useState('');
+
+  function verificationMessage(code?: string, status?: number) {
+    const keys: Record<string, string> = {
+      AUTH_REQUIRED: 'authorizationFailed', UNAUTHORIZED: 'authorizationFailed',
+      INVALID_CODE: 'invalidCode', INVALID_VERIFICATION_INPUT: 'codeRequired',
+      VERIFICATION_UNAVAILABLE: 'unavailable', RATE_LIMIT_EXCEEDED: 'tooManyAttempts',
+    };
+    const key = keys[code ?? ''] ?? (status === 429 ? 'tooManyAttempts' : status === 503 ? 'unavailable' : 'verificationFailed');
+    return t(`register.${key}`);
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -46,6 +57,7 @@ export function RegisterPage() {
     setVerifyCode('');
     setVerifyError('');
     setRegisterResult(null);
+    setVerifyNotice('');
 
     if (password !== confirmPassword) {
       setError(t('auth.passwordMismatch'));
@@ -83,7 +95,7 @@ export function RegisterPage() {
       }
 
       if (data.requiresVerification) {
-        setRegisterResult({ email: data.email || email, requiresVerification: true });
+        setRegisterResult({ email: data.email || email, deliveryFailed: data.deliveryFailed === true });
         setShowVerify(true);
         return;
       }
@@ -108,7 +120,7 @@ export function RegisterPage() {
     setVerifyError('');
 
     if (!/^\d{6}$/.test(verifyCode.trim())) {
-      setVerifyError('Ingresa el código de 6 dígitos que te enviamos por email.');
+      setVerifyError(t('register.codeRequired'));
       return;
     }
 
@@ -124,7 +136,7 @@ export function RegisterPage() {
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setVerifyError(data.error || 'No se pudo verificar el código.');
+        setVerifyError(verificationMessage(data.code, res.status));
         return;
       }
 
@@ -136,7 +148,31 @@ export function RegisterPage() {
       }
       setCurrentView('dashboard');
     } catch {
-      setVerifyError('No se pudo verificar el código.');
+      setVerifyError(t('register.verificationFailed'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setLoading(true);
+    setVerifyError('');
+    setVerifyNotice('');
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: registerResult?.email || email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setVerifyError(verificationMessage(data.code, res.status));
+        return;
+      }
+      setVerifyNotice(t('register.resendAccepted'));
+    } catch {
+      setVerifyError(t('register.verificationFailed'));
     } finally {
       setLoading(false);
     }
@@ -316,14 +352,17 @@ export function RegisterPage() {
           {showVerify && (
             <div className="border-t px-6 py-6 space-y-4">
               <div className="text-center space-y-1">
-                <h2 className="text-lg font-semibold">Verifica tu correo</h2>
+                <h2 className="text-lg font-semibold">{t('register.verifyTitle')}</h2>
                 <p className="text-sm text-muted-foreground">
-                  Se envió un código de 6 dígitos a {registerResult?.email || email}. Ingrésalo para completar tu registro.
+                  {verifyNotice || (registerResult?.deliveryFailed
+                    ? t('register.deliveryFailed')
+                    : t('register.codeSent', { email: registerResult?.email || email }))}
                 </p>
               </div>
               <form onSubmit={handleVerify} className="flex flex-col sm:flex-row gap-3 justify-center">
                 <Input
                   id="verifyCode"
+                  aria-label={t('register.codeLabel')}
                   value={verifyCode}
                   onChange={(e) => setVerifyCode(e.target.value)}
                   placeholder="123456"
@@ -334,7 +373,7 @@ export function RegisterPage() {
                 />
                 <Button type="submit" disabled={loading}>
                   {loading && <Loader2 className="size-4 animate-spin" />}
-                  Verificar
+                  {t('register.verify')}
                 </Button>
               </form>
               {verifyError && (
@@ -343,8 +382,11 @@ export function RegisterPage() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground text-center">
-                ¿No llegó el correo? Revisá la carpeta de spam o registrate nuevamente.
+                {t('register.checkSpam')}
               </p>
+              <Button type="button" variant="outline" onClick={handleResend} disabled={loading}>
+                {t('register.resend')}
+              </Button>
             </div>
           )}
         </Card>

@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSession } from '@/lib/sessions';
 import { apiHandler } from '@/lib/api-handler';
 import { validateRequest } from '@/lib/validate-request';
 import { registerSchema } from '@/lib/validations/auth';
-import { AuthService } from '@/lib/services/auth.service';
 import { createIdentityService } from '@/lib/identity/runtime';
 import { authRateLimiter } from '@/lib/rate-limiter';
 import { getClientIp } from '@/lib/security/client-ip';
 
-// ─── POST /api/auth/register ──────────────────────────────────────────
 export const POST = apiHandler(
   async (request: NextRequest) => {
     const ip = getClientIp(request);
-
     const raw = await request.clone().json();
     const email = typeof raw?.email === 'string' ? raw.email : undefined;
 
@@ -32,49 +28,24 @@ export const POST = apiHandler(
 
     try {
       const identity = createIdentityService();
-
-      // Option A: issue verification code to the registered email.
-      // The identity service is only active when SMTP + identity key are
-      // configured; if unavailable, the account is still created PENDING
-      // (emailVerifiedAt stays null) and can be verified manually.
       let deliveryFailed = true;
       if (identity) {
         try {
-          await identity.beginRegistration(email ?? '', ip ?? undefined);
-          deliveryFailed = false;
+          const delivery = await identity.requestRegistrationCode(body.email, false, ip ?? undefined);
+          deliveryFailed = !delivery.delivered;
         } catch {
-          // Delivery failure (e.g., SMTP_PASS absent) must not block
-          // account creation per Option A design.
+          // Delivery failure (SMTP unavailable) must not block verification flow.
         }
       }
 
-      const result = await AuthService.register(body);
-
       authRateLimiter.reset(ip, email);
 
-      const response = NextResponse.json({
+      // Only a temporary email challenge exists. Never return a fictitious user/session.
+      return NextResponse.json({
         requiresVerification: true,
         deliveryFailed,
-        email: result.user.email,
-        user: {
-          id: result.user.id,
-          email: result.user.email,
-          firstName: result.user.firstName,
-          lastName: result.user.lastName,
-          role: result.user.platformRole,
-        },
-        companies: [
-          {
-            id: result.company.id,
-            legalName: result.company.legalName,
-            entityType: result.company.entityType,
-            taxId: result.company.taxId,
-            isOnboardingComplete: result.company.isOnboardingComplete,
-          },
-        ],
+        email: body.email.trim().toLowerCase(),
       });
-
-      return response;
     } catch (err) {
       authRateLimiter.increment(ip, email);
       throw err;

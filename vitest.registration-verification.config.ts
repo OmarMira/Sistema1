@@ -7,6 +7,7 @@ export default defineConfig({
   resolve: { alias: { '@': path.resolve(__dirname, 'src') } },
   test: {
     include: ['tests/identity/registration-*.test.{ts,tsx}'],
+    exclude: ['tests/identity/*.integration.test.ts'],
     environment: 'node',
     setupFiles: [],
     globalSetup: [],

@@ -123,6 +123,12 @@ export function RegisterPage() {
       setVerifyError(t('register.codeRequired'));
       return;
     }
+    // Final verification validates submitted full registration fields again
+    // and password only in memory until hash/final creation.
+    if (password.length < 8 || password !== confirmPassword) {
+      setVerifyError(t('register.passwordMin'));
+      return;
+    }
 
     setLoading(true);
     try {
@@ -130,7 +136,17 @@ export function RegisterPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email: registerResult?.email || email, code: verifyCode.trim() }),
+        body: JSON.stringify({
+          email: registerResult?.email || email,
+          code: verifyCode.trim(),
+          firstName,
+          lastName,
+          companyName,
+          entityType,
+          taxId: taxId || null,
+          password,
+          confirmPassword,
+        }),
       });
 
       const data = await res.json().catch(() => ({}));

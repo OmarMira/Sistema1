@@ -15,21 +15,21 @@ const user = { id: 'user-1', email: 'test@example.invalid', firstName: 'Test', l
 const company = { id: 'company-1', legalName: 'Test Company', entityType: 'BUSINESS', taxId: null, isOnboardingComplete: false };
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.identity.mockReturnValue({ beginRegistration: mocks.begin });
-  mocks.begin.mockResolvedValue(undefined);
+  mocks.identity.mockReturnValue({ requestRegistrationCode: mocks.begin });
+  mocks.begin.mockResolvedValue({ issued: true, delivered: true });
   mocks.register.mockResolvedValue({ user, company });
 });
-it.each(['accepted', 'rejected', 'unavailable'])('reports %s delivery without issuing an authenticated session', async (delivery) => {
+it.each(['accepted', 'not-delivered', 'rejected', 'unavailable'])('reports %s delivery without issuing an authenticated session', async (delivery) => {
+  if (delivery === 'not-delivered') mocks.begin.mockResolvedValue({ issued: true, delivered: false });
   if (delivery === 'rejected') mocks.begin.mockRejectedValue(new Error('SMTP delivery rejected: private details'));
   if (delivery === 'unavailable') mocks.identity.mockReturnValue(null);
   const response = await POST(new NextRequest('http://localhost/api/auth/register', {
     method: 'POST', body: JSON.stringify({ email: user.email }), headers: { 'content-type': 'application/json' },
   }), { params: Promise.resolve({}) });
   expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ requiresVerification: true, deliveryFailed: delivery !== 'accepted', email: user.email,
-    user: { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, role: user.platformRole }, companies: [company] });
+  expect(await response.json()).toEqual({ requiresVerification: true, deliveryFailed: delivery !== 'accepted', email: user.email });
   expect(response.headers.get('set-cookie')).toBeNull();
-  expect(mocks.register).toHaveBeenCalledTimes(1);
+  expect(mocks.register).not.toHaveBeenCalled();
   expect(mocks.reset).toHaveBeenCalledTimes(1);
   expect(mocks.increment).not.toHaveBeenCalled();
 });

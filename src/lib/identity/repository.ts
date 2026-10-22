@@ -1,6 +1,6 @@
 import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { POLICY, type Budget, type DigestForCode, type IdentityRepository } from './contracts';
+import { POLICY, type Budget, type DigestForCode, type IdentityRepository, type VerificationFinalizer } from './contracts';
 import { tokenDigest } from './crypto';
 
 type Tx = Prisma.TransactionClient;
@@ -45,13 +45,17 @@ export class PostgresIdentityRepository implements IdentityRepository {
   async issueVerification(email: string, now: Date, resend: boolean, digest: DigestForCode, budgets: Budget[]): Promise<boolean> {
     return this.transaction(async tx => {
       await this.lock(tx, 'registration', email);
-      const existing = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "User" WHERE lower(email)=${email} LIMIT 1`;
-      if (existing.length) return false;
+      const userRow = (await tx.$queryRaw<Array<{ emailVerifiedAt: Date | null; isActive: boolean; legacyUser: boolean }>>`SELECT "emailVerifiedAt","isActive","legacyUser" FROM "User" WHERE lower(email)=${email} LIMIT 1`)[0];
+      if (userRow && (userRow.emailVerifiedAt || !userRow.isActive || userRow.legacyUser)) return false;
       const found = await tx.$queryRaw<Pending[]>`SELECT id,"expiresAt","confirmedAt",resends FROM "IdentityPendingRegistration" WHERE email=${email} FOR UPDATE`;
       const pending = found[0];
       const expired = pending && pending.expiresAt.getTime() <= now.getTime();
-      if (pending && !expired && (!resend || pending.confirmedAt || pending.resends >= POLICY.resends)) return false;
-      if (!pending && resend) return false;
+      if (pending && !expired) {
+        if ((!resend && !userRow) || pending.resends >= POLICY.resends) return false;
+        // Only a genuinely unverified account can recover an old consumed request.
+        if (pending.confirmedAt && !userRow) return false;
+      }
+      if (!pending && resend && !userRow) return false;
       if (!await this.admit(tx, budgets, now)) return false;
       const id = pending?.id ?? randomUUID();
       if (!pending) {
@@ -59,7 +63,7 @@ export class PostgresIdentityRepository implements IdentityRepository {
       } else if (expired) {
         await tx.$executeRaw`UPDATE "IdentityPendingRegistration" SET "expiresAt"=${new Date(now.getTime() + POLICY.pendingMs)},resends=0,"confirmedAt"=NULL WHERE id=${id}::uuid`;
       } else {
-        await tx.$executeRaw`UPDATE "IdentityPendingRegistration" SET resends=resends+1 WHERE id=${id}::uuid`;
+        await tx.$executeRaw`UPDATE "IdentityPendingRegistration" SET resends=resends+1,"confirmedAt"=NULL WHERE id=${id}::uuid`;
       }
       const previous = await tx.$queryRaw<Array<{ generation: number }>>`SELECT generation FROM "IdentityChallenge" WHERE "subjectId"=${id} AND purpose='VERIFICATION'`;
       const generation = (previous[0]?.generation ?? 0) + 1;
@@ -68,7 +72,7 @@ export class PostgresIdentityRepository implements IdentityRepository {
       return true;
     });
   }
-  async attemptCode(email: string, now: Date, digest: DigestForCode, budgets: Budget[]): Promise<boolean> {
+  async attemptCode(email: string, now: Date, digest: DigestForCode, budgets: Budget[], finalize?: VerificationFinalizer): Promise<boolean> {
     return this.transaction(async tx => {
       await this.lock(tx, 'registration', email);
       const pending = (await tx.$queryRaw<Pending[]>`SELECT id,"expiresAt","confirmedAt",resends FROM "IdentityPendingRegistration" WHERE email=${email} FOR UPDATE`)[0];
@@ -87,6 +91,8 @@ export class PostgresIdentityRepository implements IdentityRepository {
       const updated = await tx.$executeRaw`UPDATE "IdentityChallenge" SET "usedAt"=${now} WHERE id=${challenge.id}::uuid AND "usedAt" IS NULL AND "expiresAt">${now} AND attempts<=${POLICY.attempts}`;
       if (updated !== 1) return false;
       await tx.$executeRaw`UPDATE "IdentityPendingRegistration" SET "confirmedAt"=${now} WHERE id=${pending.id}::uuid`;
+      // Account finalization shares this transaction: failure also restores the code.
+      if (finalize) await finalize(tx);
       await this.audit(tx, 'verification_confirmed', budgets[0].subject, now);
       return true;
     });

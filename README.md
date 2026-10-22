@@ -6,6 +6,8 @@ Sistema contable / ERP con conciliación bancaria y motor de conocimiento para e
 
 **Nota de ejecución (2026-10-21):** esta sesión verificó la identidad (`Fase A` review nativo aprobado 4/4 lentes, fixtures S7 7/7, `email-verification` implementado, `entity-suggestions` 60/60 PASS), reconciliándo los 4 documentos `odd/tasks/` y eliminando las 2 carpetas externas (`Sistema1-worktrees`, `.identity-review-01a1519b`). Ver `docs/session-execution.md` para pasos, evidencia, verificación y checklist de cierre (también: `README.md` «Qué es el proyecto» + [Estado de release](#estado-de-release-post-auditoría)).
 
+**Registro y correo:** [Cómo confirmar, retomar y reenviar el código](docs/registration-confirmation.md).
+
 **Documentación:** v0.9.0 (2026-07) · **Última auditoría:** post-Gap12 release readiness (2026-10-05)
 
 ---

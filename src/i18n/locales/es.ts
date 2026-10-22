@@ -125,6 +125,8 @@ const es = {
     resend: 'Reenviar código',
     resendAccepted: 'Si hay una cuenta pendiente con ese correo, recibirás un nuevo código.',
     checkSpam: 'Si no encuentras el correo, revisa la carpeta de spam o solicita otro código.',
+    resumePassword: 'Para continuar, vuelve a ingresar tu contraseña. No la guardamos en este navegador.',
+    resumeExisting: 'Tu cuenta necesita confirmar el correo. Ingresa el código o solicita uno nuevo.',
   },
   dashboard: {
     title: 'Panel',

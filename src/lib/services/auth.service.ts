@@ -1,14 +1,14 @@
 import type { Prisma } from '@prisma/client';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword } from '@/lib/auth';
-import { AuthError, ValidationError } from '@/lib/api-error';
+import { AppError, AuthError, ValidationError } from '@/lib/api-error';
 import { LoginInput, RegisterInput } from '@/lib/validations/auth';
 import { withTiming } from '@/lib/timing';
 import { seedChartOfAccounts } from '@/lib/chart-of-accounts';
 import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
 
 export class AuthService {
-  static login = withTiming(async (input: LoginInput) => {
+  static login = withTiming(async (input: LoginInput, options?: { resumeVerification: boolean }) => {
     const { email, password } = input;
     const user = await db.user.findUnique({
       where: { email: email.toLowerCase().trim() },
@@ -42,14 +42,21 @@ export class AuthService {
     if (!user || !user.isActive) {
       throw new AuthError('Correo electrónico o contraseña inválidos');
     }
-    // Phase B — T3: reject pending (not verified) for new users; allow legacy transition only when legacyUser = true.
-    if (user.emailVerifiedAt === null && !(user.legacyUser ?? false)) {
+    const pending = user.emailVerifiedAt === null && !(user.legacyUser ?? false);
+    // Keep the original internal contract unless the login endpoint requests resume.
+    if (pending && !options?.resumeVerification) {
       throw new AuthError('Correo electrónico o contraseña inválidos');
     }
 
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
       throw new AuthError('Correo electrónico o contraseña inválidos');
+    }
+
+    if (pending) {
+      // Never reveal account status until its password has actually been verified.
+      throw new AppError(403, 'Confirma tu correo electrónico para continuar.',
+        'EMAIL_VERIFICATION_REQUIRED', { email: user.email });
     }
 
     const companies = user.companyMemberships.map((m) => m.company);

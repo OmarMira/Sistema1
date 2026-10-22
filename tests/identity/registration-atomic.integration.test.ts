@@ -9,6 +9,7 @@ import { AuthService } from '../../src/lib/services/auth.service';
 import { POST as register } from '../../src/app/api/auth/register/route';
 import { POST as verify } from '../../src/app/api/auth/verify/route';
 import { POST as resend } from '../../src/app/api/auth/resend-verification/route';
+import { POST as login } from '../../src/app/api/auth/login/route';
 
 // Reject the operative destination BEFORE importing/constructing any DB singleton.
 const state = vi.hoisted(() => {
@@ -24,8 +25,8 @@ vi.mock('@/lib/identity/runtime', () => ({ createIdentityService: () => state.id
 // Exercise the exported HTTP handlers and real services/repository, not unrelated guards.
 vi.mock('@/lib/api-handler', () => ({ apiHandler: (handler: (request: NextRequest) => Promise<Response>) => async (request: NextRequest) => {
   try { return await handler(request); } catch (error) {
-    const failure = error as { statusCode?: number; message?: string; code?: string };
-    return NextResponse.json({ error: failure.statusCode ? failure.message : 'Error interno del servidor', code: failure.code || 'INTERNAL_ERROR' }, { status: failure.statusCode || 500 });
+    const failure = error as { statusCode?: number; message?: string; code?: string; details?: unknown };
+    return NextResponse.json({ error: failure.statusCode ? failure.message : 'Error interno del servidor', code: failure.code || 'INTERNAL_ERROR', details: failure.details }, { status: failure.statusCode || 500 });
   }
 } }));
 vi.mock('@/lib/rate-limiter', () => ({ authRateLimiter: { check: () => ({ success: true }), reset: vi.fn(), increment: vi.fn() } }));
@@ -169,4 +170,35 @@ describe('confirmed registration through public HTTP handlers and real PostgreSQ
     expect(state.messages).toHaveLength(messages);
     expect(state.sessions).toHaveBeenCalledTimes(1);
   });
+});
+
+it('reveals the pending verification path only after the correct password, preserves the account and creates no session', async () => {
+  const data = profile('pending-login@example.invalid');
+  const original = await AuthService.register(data);
+  const before = await state.db.user.findUniqueOrThrow({ where: { id: original.user.id } });
+  const oldCounts = await counts();
+  await expect(AuthService.login(data)).rejects.toMatchObject({ statusCode: 401, code: 'UNAUTHORIZED' });
+  const wrong = await call(login, 'login', { email: data.email, password: 'wrong-password' });
+  expect(wrong.status).toBe(401);
+  expect(await wrong.json()).toEqual({ error: 'Correo electrónico o contraseña inválidos', code: 'UNAUTHORIZED' });
+  const pending = await call(login, 'login', data);
+  expect(pending.status).toBe(403);
+  expect(await pending.json()).toEqual({
+    error: 'Confirma tu correo electrónico para continuar.',
+    code: 'EMAIL_VERIFICATION_REQUIRED', details: { email: data.email },
+  });
+  expect(pending.headers.get('set-cookie')).toBeNull();
+  expect(state.sessions).not.toHaveBeenCalled();
+  expect(await counts()).toEqual(oldCounts);
+  expect(await state.db.user.findUniqueOrThrow({ where: { id: original.user.id } })).toEqual(before);
+  expect(state.messages).toHaveLength(0);
+  await call(resend, 'resend-verification', { email: data.email });
+  const confirmed = await call(verify, 'verify', { email: data.email, code: lastCode(data.email) });
+  expect(confirmed.status).toBe(200);
+  expect((await confirmed.json()).user.id).toBe(original.user.id);
+  expect(await counts()).toEqual(oldCounts);
+  const after = await state.db.user.findUniqueOrThrow({ where: { id: original.user.id } });
+  expect(after.passwordHash).toBe(before.passwordHash);
+  expect(after.emailVerifiedAt).not.toBeNull();
+  expect((await call(login, 'login', data)).status).toBe(200);
 });

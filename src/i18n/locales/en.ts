@@ -124,6 +124,8 @@ const en = {
     resend: 'Resend code',
     resendAccepted: 'If an account is pending for that email, you will receive a new code.',
     checkSpam: 'Check your spam folder or request another code if the email is missing.',
+    resumePassword: 'Enter your password again to continue. We do not save it in this browser.',
+    resumeExisting: 'Your account needs email confirmation. Enter your code or request a new one.',
   },
   dashboard: {
     title: 'Dashboard',

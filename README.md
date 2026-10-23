@@ -8,6 +8,8 @@ Sistema contable / ERP con conciliación bancaria y motor de conocimiento para e
 
 **Registro y correo:** [Cómo confirmar, retomar y reenviar el código](docs/registration-confirmation.md).
 
+**Control bancario:** [Períodos, saldos y preparación de información para la contadora](docs/bank-reconciliation-control.md).
+
 **Documentación:** v0.9.0 (2026-07) · **Última auditoría:** post-Gap12 release readiness (2026-10-05)
 
 ---

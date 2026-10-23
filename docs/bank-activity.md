@@ -62,3 +62,5 @@ node node_modules/typescript/bin/tsc --noEmit --incremental false
 ```
 
 The dedicated config disables `.env` loading, setup and global setup. UI HTTP and API database calls are mocked; the existing monthly aggregation tests are pure. Do not replace it with the default Vitest config: that configuration can initialize an actual database. DOM checks are not a real-browser visual inspection or a production build.
+
+See the [read-only API contract](bank-activity-api.md) and [observed verification, proof limits and delivery units](bank-activity-verification.md).

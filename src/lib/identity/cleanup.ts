@@ -24,6 +24,6 @@ export async function deleteIdentityAccess(tx: Tx, userId: string, email: string
   `;
   await tx.$executeRaw`DELETE FROM "IdentityPendingRegistration" WHERE email = ${email}`;
   // Preserve company/accounting relationships (clean_identity_keep_minimal_audit).
-  // Do NOT delete Company/CompanyMember; the user access/state is removed,
-  // but accounting records and company ownership remain intact.
+  // The user access/state is removed; company/accounting records remain intact.
+  // No Company or CompanyMember is deleted by this identity-only cleanup.
 }

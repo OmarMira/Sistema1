@@ -27,7 +27,7 @@ Bank fees, when present, are already included in money out. Do not add them agai
 
 ## Consistent system appearance
 
-The page and chart surfaces use the same shared `Card`/`CardContent` components and semantic theme colors as the main Panel, in both light and dark modes. Bank activity does not define a separate page palette. The movement-year selector sizes to its four-digit text and dropdown affordance instead of expanding to fill an account-sized column; its label and year-selection behavior are unchanged.
+The page and chart surfaces use the same shared `Card`/`CardContent` components and semantic theme colors as the main Panel, in both light and dark modes. Bank activity does not define a separate page palette. The bank-account selector sizes to its selected name/currency and dropdown affordance, capped at the available width for long names. The movement-year selector matches the width of its label, not merely the four-digit value. Both selectors retain the same control height and wrap with the other controls when space is limited; their labels and selection behavior are unchanged.
 
 ## Charts and indicators
 

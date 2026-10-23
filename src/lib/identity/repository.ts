@@ -50,15 +50,20 @@ export class PostgresIdentityRepository implements IdentityRepository {
       const found = await tx.$queryRaw<Pending[]>`SELECT id,"expiresAt","confirmedAt",resends FROM "IdentityPendingRegistration" WHERE email=${email} FOR UPDATE`;
       const pending = found[0];
       const expired = pending && pending.expiresAt.getTime() <= now.getTime();
-      if (pending && !expired) {
+      const restart = Boolean(pending?.confirmedAt && !userRow);
+      if (pending && !expired && !restart) {
         if ((!resend && !userRow) || pending.resends >= POLICY.resends) return false;
-        // Only a genuinely unverified account can recover an old consumed request.
-        if (pending.confirmedAt && !userRow) return false;
       }
       if (!pending && resend && !userRow) return false;
       if (!await this.admit(tx, budgets, now)) return false;
-      const id = pending?.id ?? randomUUID();
-      if (!pending) {
+      // An old confirmed request may outlive a deleted account. Retire it only
+      // after budget admission; a fresh request must never reuse its old code.
+      if (restart) {
+        await tx.$executeRaw`DELETE FROM "IdentityChallenge" WHERE "subjectId"=${pending.id} AND purpose='VERIFICATION'`;
+        await tx.$executeRaw`DELETE FROM "IdentityPendingRegistration" WHERE id=${pending.id}::uuid`;
+      }
+      const id = pending && !restart ? pending.id : randomUUID();
+      if (!pending || restart) {
         await tx.$executeRaw`INSERT INTO "IdentityPendingRegistration" (id,email,"expiresAt",resends,"createdAt") VALUES (${id}::uuid,${email},${new Date(now.getTime() + POLICY.pendingMs)},0,${now})`;
       } else if (expired) {
         await tx.$executeRaw`UPDATE "IdentityPendingRegistration" SET "expiresAt"=${new Date(now.getTime() + POLICY.pendingMs)},resends=0,"confirmedAt"=NULL WHERE id=${id}::uuid`;
@@ -132,11 +137,11 @@ export class PostgresIdentityRepository implements IdentityRepository {
 
   async completeRecovery(digest: string, passwordHash: string, now: Date): Promise<string | null> {
     return this.transaction(async tx => {
-      const userRow = (await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "User" WHERE id = (SELECT "subjectId" FROM "IdentityChallenge" WHERE digest=${digest} AND purpose='RECOVERY' AND "usedAt" IS NULL AND "expiresAt">${now})`)[0];
+      const userRow = (await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "User" WHERE id = (SELECT "subjectId" FROM "IdentityChallenge" WHERE digest=${digest} AND purpose='RECOVERY' AND "usedAt" IS NULL AND "expiresAt">${now}) FOR UPDATE`)[0];
       if (!userRow) return null;
       const updated = await tx.$executeRaw`UPDATE "IdentityChallenge" SET "usedAt"=${now} WHERE digest=${digest} AND purpose='RECOVERY' AND "usedAt" IS NULL AND "expiresAt">${now}`;
       if (updated !== 1) return null;
-      await tx.$executeRaw`UPDATE "User" SET "passwordHash"=${passwordHash} WHERE id=${userRow.id}::uuid`;
+      await tx.$executeRaw`UPDATE "User" SET "passwordHash"=${passwordHash} WHERE id=${userRow.id}`;
       await tx.$executeRaw`DELETE FROM "Session" WHERE "userId"=${userRow.id}`;
       await this.audit(tx, 'recovery_consumed', tokenDigest('recovery-user:' + userRow.id), now);
       return userRow.id;

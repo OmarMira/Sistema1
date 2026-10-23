@@ -1814,6 +1814,12 @@ const en = {
     deleteWarning:
       'This action will revoke all their company accesses. This operation is irreversible.',
     deleteBtn: 'Yes, Delete User',
+    deleteBlockedTitle: 'This user cannot be deleted',
+    lastSuperAdminMessage: 'Deleting this user would leave one or more companies without their last active superadmin. Another active superadmin with enabled access must be available to administer those companies first.',
+    deleteNoChanges: 'No changes were made.',
+    deleteFailedTitle: 'The user could not be deleted',
+    deleteFailedMessage: 'The request could not be completed. Check your connection and permissions before trying again.',
+    acknowledgeBtn: 'Understood',
     deletingBtn: 'Deleting...',
     placeholderFirstName: 'First name',
     placeholderLastName: 'Last name',

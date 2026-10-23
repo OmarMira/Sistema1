@@ -14,6 +14,12 @@ Una cuenta incompleta anterior no se borra ni se recrea. Al iniciar sesión con 
 
 Si el navegador bloquea el almacenamiento, el flujo de la pestaña continúa en memoria, pero no se garantiza recuperarlo después de cerrarla. No se afirma que se envió un correo cuando el transporte informó un fallo.
 
+## Volver a empezar después de eliminar una cuenta
+
+Podés registrarte nuevamente con el mismo correo y los mismos datos, o con datos nuevos. La eliminación correcta limpia las solicitudes de confirmación, los códigos, los tokens de recuperación y las sesiones de esa cuenta. El registro nuevo exige una confirmación nueva; no recupera la contraseña ni los accesos anteriores.
+
+Si la cuenta se eliminó antes de incorporar esa limpieza y quedó una solicitud ya confirmada, **Registrarse** o **Reenviar código** la reemplaza por una solicitud nueva: no tenés que esperar las 24 horas de la anterior. Esto no reemplaza cuentas que todavía existen ni borra empresas conservadas. Se mantienen una auditoría mínima y los límites contra abusos; los correos ya entregados no se pueden retirar del buzón, pero sus códigos anteriores no habilitan la cuenta nueva.
+
 ## Contratos para mantenimiento
 
 - `POST /api/auth/register` responde `{ requiresVerification, deliveryFailed, email }`, sin usuario definitivo ni cookie de sesión.
@@ -29,6 +35,7 @@ Usá las configuraciones específicas, **no** `vitest.config.ts`, cuyo arranque 
 ```bash
 node node_modules/vitest/vitest.mjs run --config vitest.registration-verification.config.ts
 node node_modules/vitest/vitest.mjs run --config vitest.identity-unit.config.ts
+node node_modules/vitest/vitest.mjs run --config vitest.clean-identity.config.ts
 node node_modules/typescript/bin/tsc --noEmit --incremental false
 ```
 

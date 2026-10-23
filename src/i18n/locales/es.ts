@@ -1831,6 +1831,12 @@ const es = {
     deleteWarning:
       'Esta acción revocará todos sus accesos a empresas. Esta operación es irreversible.',
     deleteBtn: 'Sí, Eliminar Usuario',
+    deleteBlockedTitle: 'No se puede eliminar este usuario',
+    lastSuperAdminMessage: 'La eliminación dejaría una o más empresas sin su último superusuario activo. Antes de continuar, debe existir otro superusuario activo con acceso habilitado para administrar esas empresas.',
+    deleteNoChanges: 'No se realizó ningún cambio.',
+    deleteFailedTitle: 'No se pudo eliminar el usuario',
+    deleteFailedMessage: 'No fue posible completar la solicitud. Compruebe la conexión y sus permisos antes de volver a intentarlo.',
+    acknowledgeBtn: 'Entendido',
     deletingBtn: 'Eliminando...',
     placeholderFirstName: 'Nombre',
     placeholderLastName: 'Apellido',

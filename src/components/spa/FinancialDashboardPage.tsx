@@ -179,14 +179,14 @@ export function FinancialDashboardPage() {
       <p className="max-w-3xl text-sm text-muted-foreground">{copy.intro}</p>
       <h2 className="text-base font-semibold">{bankTitle}</h2>
     </header>
-    <Card role="region" className={`${panel} grid gap-4 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end`} aria-label={language === 'en' ? 'Account and period' : 'Cuenta y período'}>
-      <label className="text-sm font-medium">{copy.account}<select className={inputClass} value={data.account?.id ?? ''} disabled={!data.accounts.length} onChange={e => setSelection({
+    <Card role="region" className={`${panel} grid grid-cols-1 gap-4 sm:flex sm:flex-row sm:flex-wrap sm:items-end`} aria-label={language === 'en' ? 'Account and period' : 'Cuenta y período'}>
+      <label className="flex w-fit max-w-full min-w-0 flex-col text-sm font-medium"><span>{copy.account}</span><select className={`${fieldClass} w-fit min-w-0 max-w-full [field-sizing:content]`} value={data.account?.id ?? ''} disabled={!data.accounts.length} onChange={e => setSelection({
           companyId: activeCompany.id,
           accountId: e.target.value
         })}>
         {data.accounts.map(a => <option key={a.id} value={a.id}>{[...new Set([a.bankName, a.accountName])].join(' — ')} ({a.currency})</option>)}
       </select></label>
-      <label className="flex flex-col items-start text-sm font-medium">{copy.year}<select className={`${fieldClass} w-fit [field-sizing:content]`} value={data.year ?? ''} disabled={!data.years.length} onChange={e => setSelection({
+      <label className="grid w-max max-w-full min-w-0 text-sm font-medium"><span>{copy.year}</span><select className={`${fieldClass} w-full min-w-0`} value={data.year ?? ''} disabled={!data.years.length} onChange={e => setSelection({
           companyId: activeCompany.id,
           accountId: data.account?.id,
           year: Number(e.target.value)

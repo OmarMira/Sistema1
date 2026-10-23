@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
+import { AppError, AuthError, ForbiddenError } from '@/lib/api-error';
 import { hashPassword } from '@/lib/auth';
 import { deleteAllUserSessions, getSessionCookieName } from '@/lib/sessions';
+import { deleteIdentityAccess, lockIdentityForDeletion } from '@/lib/identity/cleanup';
 import { saveLogo, deleteLogo } from '@/lib/uploads/logo-service';
 import { updateUserSchema } from '@/lib/validations/admin';
 import { parseAdminBody } from '@/lib/parse-admin-body';
@@ -131,55 +133,93 @@ export const DELETE = apiHandler(
     const userId = requireCurrentUserId();
     const { id } = await context.params;
 
-    const targetUser = await db.user.findUnique({
-      where: { id },
-      include: { companyMemberships: { select: { id: true } } },
-    });
-    if (!targetUser) {
-      return NextResponse.json({ error: 'User not found' }, { status: 404 });
-    }
+    return db.$transaction(async (tx) => {
+      const identityTarget = await tx.user.findUnique({ where: { id }, select: { email: true } });
+      const identityEmail = identityTarget?.email.trim().toLowerCase();
+      if (identityEmail) await lockIdentityForDeletion(tx, identityEmail);
 
-    if (userId === id && targetUser.companyMemberships.length > 0) {
-      return NextResponse.json({ error: 'Cannot delete yourself' }, { status: 400 });
-    }
+      // Superadmins have global company access, independent of memberships.
+      // Lock in a stable order before counting: concurrent deletions must not
+      // both count the other account as the company's surviving administrator.
+      await tx.$queryRaw`
+        SELECT "id" FROM "User" WHERE "role" = 'super_admin'
+        ORDER BY "id" FOR UPDATE
+      `;
 
-    // Revoke every session of the target user before deleting the account, so
-    // access to all companies is revoked explicitly (the Session rows are also
-    // removed by the FK cascade on User delete).
-    await deleteAllUserSessions(id);
+      // Recovery also locks User before its challenge. Follow that order for
+      // ordinary users too, not only the superadmin rows locked above.
+      await tx.$queryRaw`SELECT "id" FROM "User" WHERE id = ${id} FOR UPDATE`;
 
-    await db.auditLog.create({
-      data: {
-        userId,
-        action: 'delete_user',
-        entity: 'User',
-        entityId: id,
-        details: `Permanently deleted user ${targetUser.email}`,
-      },
-    });
-
-    await db.user.delete({ where: { id } });
-
-    const response = NextResponse.json({
-      message: 'User deleted successfully',
-      // When the deleted account is the caller's own, the client must drop the
-      // local session state and return to the landing screen instead of
-      // rendering a broken page against a dead session.
-      selfDeleted: userId === id,
-    });
-
-    if (userId === id) {
-      const isProd = process.env.NODE_ENV === 'production';
-      response.cookies.set(getSessionCookieName(), '', {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 0,
+      // Authorization may have changed while this request waited for the lock.
+      const actor = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, email: true, platformRole: true, isActive: true, emailVerifiedAt: true, legacyUser: true },
       });
-    }
+      if (!actor?.isActive || (!actor.emailVerifiedAt && !actor.legacyUser)) {
+        throw new AuthError();
+      }
+      if (actor.platformRole !== 'super_admin') throw new ForbiddenError();
 
-    return response;
+      const targetUser = id === userId ? actor : await tx.user.findUnique({
+        where: { id },
+        select: { id: true, email: true, platformRole: true },
+      });
+      if (!targetUser) {
+        return NextResponse.json({ error: 'User not found' }, { status: 404 });
+      }
+
+      if (!identityEmail || targetUser.email.trim().toLowerCase() !== identityEmail) {
+        throw new AppError(409, 'User details changed. Refresh and try again.', 'USER_CHANGED');
+      }
+
+      if (targetUser.platformRole === 'super_admin') {
+        const remaining = await tx.user.count({
+          where: {
+            id: { not: id },
+            platformRole: 'super_admin',
+            isActive: true,
+            OR: [{ emailVerifiedAt: { not: null } }, { legacyUser: true }],
+          },
+        });
+        // Inactive companies also retain administration through global admins.
+        if (remaining === 0 && await tx.company.findFirst({ select: { id: true } })) {
+          throw new AppError(
+            409,
+            'Deleting this user would leave companies without an active superadmin.',
+            'LAST_COMPANY_SUPERADMIN',
+          );
+        }
+      }
+
+      // Guard, access cleanup, revocation, audit and deletion share one commit.
+      await deleteIdentityAccess(tx, id, identityEmail);
+      await deleteAllUserSessions(id, tx);
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'delete_user',
+          entity: 'User',
+          entityId: id,
+          details: 'Permanently deleted user and authentication state',
+        },
+      });
+      await tx.user.delete({ where: { id } });
+
+      const response = NextResponse.json({
+        message: 'User deleted successfully',
+        selfDeleted: userId === id,
+      });
+      if (userId === id) {
+        response.cookies.set(getSessionCookieName(), '', {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 0,
+        });
+      }
+      return response;
+    }, { maxWait: 5000, timeout: 10000 });
   },
   { requireSuperAdmin: true, requireMembership: false },
 );

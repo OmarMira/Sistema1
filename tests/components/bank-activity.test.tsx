@@ -135,7 +135,30 @@ it('uses the same theme cards as the Panel instead of a separate bank-page palet
     expect(figure.closest('[data-slot="card"]')?.classList.contains('bg-card')).toBe(true);
   }
 });
-it('sizes the movement-year selector to its text and preserves year selection', async () => {
+it('sizes the bank-account selector to its selected name and preserves account selection', async () => {
+  const primary = fixture().account;
+  const secondary = { ...primary, id: 'bank-other', bankName: 'Second Bank', accountName: 'Reserve account' };
+  fetchMock.mockImplementation(async (url: string) => ({
+    ok: true,
+    json: async () => ({ ...fixture(), accounts: [primary, secondary], account: url.includes('accountId=bank-other') ? secondary : primary })
+  }));
+  await open();
+  const account = screen.getByLabelText('Cuenta bancaria') as HTMLSelectElement;
+  expect(account.classList.contains('w-full')).toBe(false);
+  expect(account.classList.contains('[field-sizing:content]')).toBe(true);
+  expect(account.classList.contains('max-w-full')).toBe(true);
+  expect(account.classList.contains('min-w-0')).toBe(true);
+  expect(account.closest('label')!.classList.contains('flex')).toBe(true);
+  expect(screen.getByRole('region', { name: 'Cuenta y período' }).classList.contains('grid-cols-1')).toBe(true);
+  fireEvent.change(account, { target: { value: 'bank-other' } });
+  await screen.findByRole('heading', { name: 'Second Bank — Reserve account' });
+  const selected = screen.getByLabelText('Cuenta bancaria') as HTMLSelectElement;
+  expect(selected.value).toBe('bank-other');
+  expect(selected.selectedOptions[0].textContent).toBe('Second Bank — Reserve account (USD)');
+  expect(fetchMock.mock.calls.some(([url]) => url.includes('accountId=bank-other'))).toBe(true);
+  expect(fetchMock.mock.calls.every(([, init]) => !init?.method || init.method === 'GET')).toBe(true);
+});
+it('sizes the movement-year selector to its label and preserves year selection', async () => {
   fetchMock.mockImplementation(async (url: string) => ({
     ok: true,
     json: async () => ({
@@ -151,8 +174,11 @@ it('sizes the movement-year selector to its text and preserves year selection', 
   }));
   await open();
   const year = screen.getByLabelText('Año de los movimientos');
-  expect(year.classList.contains('w-full')).toBe(false);
-  expect(year.classList.contains('[field-sizing:content]')).toBe(true);
+  expect(year.classList.contains('w-full')).toBe(true);
+  const label = year.closest('label')!;
+  expect(label.classList.contains('grid')).toBe(true);
+  expect(label.classList.contains('w-max')).toBe(true);
+  expect(within(label).getByText('Año de los movimientos').tagName).toBe('SPAN');
   fireEvent.change(year, {
     target: {
       value: '2024'

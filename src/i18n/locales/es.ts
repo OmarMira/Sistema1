@@ -1219,8 +1219,8 @@ const es = {
     adminConsoleDesc: 'Gestionar empresas, accesos de usuarios y bitácoras',
   },
   financialDashboard: {
-    title: 'Estado Financiero',
-    subtitle: 'Análisis de transacciones reales e histórico de flujos',
+    title: 'Actividad bancaria',
+    subtitle: 'Entradas, salidas y saldos de los extractos bancarios',
     syncing: 'Sincronizando Estado Financiero...',
     export: 'Exportar Datos',
     revenue: 'Ingresos Totales',
@@ -1741,7 +1741,7 @@ const es = {
   sidebar: {
     logoTooltip: 'Visualización del flujo contable de la empresa',
     dashboard: 'Panel principal con el flujo contable de la empresa',
-    financialDashboard: 'Indicadores financieros: ingresos, gastos y rentabilidad',
+    financialDashboard: 'Movimientos y saldos bancarios, con filtros por cuenta y año',
     accounts: 'Plan de cuentas contables de la empresa',
     journal: 'Registro de movimientos y asientos contables',
     banks: 'Cuentas bancarias conectadas y sus saldos',

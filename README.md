@@ -10,6 +10,8 @@ Sistema contable / ERP con conciliación bancaria y motor de conocimiento para e
 
 **Control bancario:** [Períodos, saldos y preparación de información para la contadora](docs/bank-reconciliation-control.md).
 
+**Actividad bancaria:** [Datos reales, filtros y lectura de los extractos sin ajustes contables](docs/bank-activity.md).
+
 **Documentación:** v0.9.0 (2026-07) · **Última auditoría:** post-Gap12 release readiness (2026-10-05)
 
 ---

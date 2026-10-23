@@ -10,7 +10,7 @@ export default defineConfig({
     }
   },
   test: {
-    include: ['tests/api/bank-activity.test.ts', 'tests/lib/financial-dashboard-monthly.test.ts'],
+    include: ['tests/components/bank-activity.test.tsx', 'tests/api/bank-activity.test.ts', 'tests/lib/financial-dashboard-monthly.test.ts'],
     environment: 'jsdom',
     setupFiles: [],
     globalSetup: [],

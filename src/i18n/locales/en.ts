@@ -1205,8 +1205,8 @@ const en = {
     adminConsoleDesc: 'Manage companies, user access, and system audit logs',
   },
   financialDashboard: {
-    title: 'Financial Health',
-    subtitle: 'Analysis of real transactions and historical flows',
+    title: 'Bank activity',
+    subtitle: 'Money in, money out and bank statement balances',
     syncing: 'Syncing Financial Status...',
     export: 'Export Data',
     revenue: 'Total Revenue',
@@ -1725,7 +1725,7 @@ const en = {
   sidebar: {
     logoTooltip: "View of the company's accounting flow",
     dashboard: "Main dashboard with the company's accounting flow",
-    financialDashboard: 'Financial indicators: revenue, expenses and profitability',
+    financialDashboard: 'Bank movements and balances, filtered by account and year',
     accounts: 'Company chart of accounts',
     journal: 'Register of movements and journal entries',
     banks: 'Connected bank accounts and their balances',

@@ -21,7 +21,7 @@ function createBaseClient() {
         ? new URL(process.env.DATABASE_URL).pathname.replace(/^\//, '')
         : null;
 
-    if (configuredDatabase !== 'accountexpress_test') {
+    if (configuredDatabase !== 'accountexpress_test' && configuredDatabase !== 'accountexpress_bootstraptest') {
       throw new Error(
         `[TEST SAFETY] Refusing to create PrismaClient — DATABASE_URL points to "${configuredDatabase ?? 'null'}" ` +
         `instead of "accountexpress_test". Tests MUST use the test database. Aborting.`

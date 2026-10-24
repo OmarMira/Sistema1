@@ -87,7 +87,8 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "local/no-server-import-in-client": "error",
   },
 }, {
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "scripts/**", "*.mjs", "tests/**"]
+  // Keep other tests excluded while allowing traversal into the CI test directory.
+  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "scripts/**", "*.mjs", "tests/*", "!tests/ci/"]
 }];
 
 export default eslintConfig;

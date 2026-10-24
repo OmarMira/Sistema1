@@ -80,7 +80,15 @@ export async function proxy(request: NextRequest) {
   const method = request.method;
   const isApi = pathname.startsWith('/api/');
 
-  const PUBLIC_API_ROUTES = ['/api/auth/login', '/api/auth/register', '/api/health', '/api/bootstrap/check', '/api/bootstrap/restore'];
+  const PUBLIC_API_ROUTES = [
+    '/api/auth/login',
+    '/api/auth/register',
+    '/api/auth/verify',
+    '/api/auth/resend-verification',
+    '/api/health',
+    '/api/bootstrap/check',
+    '/api/bootstrap/restore',
+  ];
 
   const securityHeaders = getSecurityHeaders();
 

@@ -59,6 +59,7 @@ import {
   AdjustmentDialog,
   HistoryDialog,
 } from '@/components/reconciliation/ReconciliationDialogs';
+import { BalanceCutoff, PreparationContext, formatStatementDate } from '@/components/reconciliation/PreparationContext';
 import type {
   BankAccountOption,
   StatementOption,
@@ -71,6 +72,7 @@ import type {
 /* ─── Component ─── */
 export function ReconciliationPage() {
   const t = useLanguageStore((s) => s.t);
+  const language = useLanguageStore((s) => s.language);
   const activeCompany = useAuthStore((s) => s.activeCompany);
   const setCurrentView = useAuthStore((s) => s.setCurrentView);
   const startProcessing = useAuthStore((s) => s.startProcessing);
@@ -626,6 +628,10 @@ export function ReconciliationPage() {
   };
 
   const isReconciledView = statusFilter === 'reconciled' || statusFilter === 'all';
+  const reportStatements = statements.filter(s => selectedStatementId === 'all' || s.id === selectedStatementId);
+  const statementCutoff = [...reportStatements].sort((a, b) => b.endDate.localeCompare(a.endDate))[0]?.endDate;
+  const bookCutoff = endDate ? `${endDate}T23:59:59.999Z` : statementCutoff;
+  const differentCutoffs = statementCutoff && bookCutoff && statementCutoff.slice(0, 10) !== bookCutoff.slice(0, 10);
 
   // Split management
   const openSplitDialog = (tx: Transaction) => {
@@ -785,7 +791,7 @@ export function ReconciliationPage() {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">{t('reconciliation.title')}</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            {t('reconciliation.reconciliationSubtitle')}
+            {t('reconciliation.report.subtitle')}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -816,10 +822,11 @@ export function ReconciliationPage() {
                 size="sm"
                 onClick={handleExport}
                 disabled={loadingData}
+                title={t('reconciliation.report.exportHelp')}
                 className="gap-2"
               >
                 <Download className="size-4" />
-                {t('reconciliation.exportReport')}
+                {t('reconciliation.report.exportWorking')}
               </Button>
             </>
           )}
@@ -844,7 +851,7 @@ export function ReconciliationPage() {
               )}
               {bankAccounts.map((ba) => (
                 <SelectItem key={ba.id} value={ba.id}>
-                  {ba.accountName} — {ba.bankName}
+                  {ba.accountName === ba.bankName ? ba.accountName : `${ba.accountName} — ${ba.bankName}`}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -865,6 +872,17 @@ export function ReconciliationPage() {
 
       {selectedAccountId && !loadingData && summary && (
         <>
+          <PreparationContext
+            statements={reportStatements}
+            transactions={[...deposits, ...payments]}
+            totalTransactions={summary.totalTransactions}
+            currency={bankAccountInfo?.currency ?? 'USD'}
+          />
+          {differentCutoffs && (
+            <p role="status" className="text-sm text-amber-700 dark:text-amber-400">
+              {t('reconciliation.report.differentCutoffs')}
+            </p>
+          )}
           {/* Summary Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Card>
@@ -876,12 +894,15 @@ export function ReconciliationPage() {
                   {formatCurrency(summary.statementBalance)}
                 </p>
                 <p className="text-xs text-muted-foreground mt-1">{bankAccountInfo?.accountName}</p>
+                <BalanceCutoff date={statementCutoff} />
               </CardContent>
             </Card>
             <Card>
               <CardContent className="p-4">
                 <p className="text-sm text-muted-foreground">{t('reconciliation.bookBalance')}</p>
                 <p className="text-2xl font-bold mt-1">{formatCurrency(summary.bookBalance)}</p>
+                <BalanceCutoff date={bookCutoff} showTime />
+                <p className="text-xs text-muted-foreground mt-1">{t('reconciliation.report.bookHelp')}</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {bankAccountInfo?.glAccount
                     ? `${bankAccountInfo.glAccount.code} - ${bankAccountInfo.glAccount.name}`
@@ -898,7 +919,7 @@ export function ReconciliationPage() {
                       'text-2xl font-bold',
                       Math.abs(summary.difference) < 0.005
                         ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-rose-600 dark:text-rose-400',
+                        : 'text-amber-700 dark:text-amber-400',
                     )}
                   >
                     {formatCurrency(summary.difference)}
@@ -906,13 +927,14 @@ export function ReconciliationPage() {
                   {Math.abs(summary.difference) < 0.005 ? (
                     <Check className="size-5 text-emerald-600 dark:text-emerald-400" />
                   ) : (
-                    <AlertTriangle className="size-5 text-rose-600 dark:text-rose-400" />
+                    <AlertTriangle className="size-5 text-amber-700 dark:text-amber-400" />
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
                   {summary.reconciledCount} / {summary.totalTransactions}{' '}
                   {t('reconciliation.reconciled').toLowerCase()}
                 </p>
+                <p className="text-xs text-muted-foreground mt-1">{t('reconciliation.report.differenceHelp')}</p>
               </CardContent>
             </Card>
           </div>
@@ -975,13 +997,13 @@ export function ReconciliationPage() {
                   value={statusFilter}
                   onValueChange={(v) => setStatusFilter(v as typeof statusFilter)}
                 >
-                  <TabsList className="h-8">
+                  <TabsList className="h-auto flex-wrap justify-start gap-1">
                     <TabsTrigger value="unreconciled" className="text-xs px-3 h-6">
                       {t('reconciliation.showUnreconciled')} ({summary.unreconciledCount})
                     </TabsTrigger>
                     <TabsTrigger value="pending_review" className="text-xs px-3 h-6">
                       <AlertTriangle className="size-3 mr-1 text-amber-500" />
-                      {summary.pendingReviewCount}
+                      {t('reconciliation.report.pendingReview')} ({summary.pendingReviewCount})
                     </TabsTrigger>
                     <TabsTrigger value="reconciled" className="text-xs px-3 h-6">
                       {t('reconciliation.showReconciled')} ({summary.reconciledCount})
@@ -1005,6 +1027,7 @@ export function ReconciliationPage() {
                 )}
               </div>
 
+              <p className="text-xs text-muted-foreground">{t('reconciliation.report.statusHelp')}</p>
               {/* Search & Filters */}
               <div className="flex flex-wrap items-center gap-3">
                 <div className="relative flex-1 min-w-[200px] max-w-sm">
@@ -1020,6 +1043,7 @@ export function ReconciliationPage() {
                   <Filter className="size-3.5 text-muted-foreground" />
                   <Input
                     type="date"
+                    aria-label={t('reconciliation.report.from')}
                     value={startDate}
                     onChange={(e) => setStartDate(e.target.value)}
                     className="h-8 w-36"
@@ -1027,6 +1051,7 @@ export function ReconciliationPage() {
                   <span className="text-xs text-muted-foreground">—</span>
                   <Input
                     type="date"
+                    aria-label={t('reconciliation.report.until')}
                     value={endDate}
                     onChange={(e) => setEndDate(e.target.value)}
                     className="h-8 w-36"
@@ -1034,15 +1059,15 @@ export function ReconciliationPage() {
                 </div>
                 {statements.length > 0 && (
                   <Select value={selectedStatementId} onValueChange={setSelectedStatementId}>
-                    <SelectTrigger className="h-8 w-48">
+                    <SelectTrigger className="h-8 w-48" aria-label={t('reconciliation.report.statementFilter')}>
                       <SelectValue placeholder={t('reconciliation.allStatements')} />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">{t('reconciliation.allStatements')}</SelectItem>
                       {statements.map((s) => (
                         <SelectItem key={s.id} value={s.id}>
-                          {formatDate(s.startDate)} {t('reconciliation.endDateFrom')}{' '}
-                          {formatDate(s.endDate)}
+                          {formatStatementDate(s.startDate, language)} {t('reconciliation.endDateFrom')}{' '}
+                          {formatStatementDate(s.endDate, language)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -1126,6 +1151,7 @@ export function ReconciliationPage() {
                   <div className="flex items-center gap-1.5">
                     <Switch
                       id="createJE"
+                      aria-describedby="createJE-help"
                       checked={createJournalEntries}
                       onCheckedChange={setCreateJournalEntries}
                     />
@@ -1135,6 +1161,11 @@ export function ReconciliationPage() {
                   </div>
                 </div>
               </div>
+              <p id="createJE-help" className="text-xs text-muted-foreground">
+                {t(createJournalEntries ? 'reconciliation.report.postingOn' : 'reconciliation.report.postingOff')}
+              </p>
+              <p className="text-xs text-muted-foreground">{t('reconciliation.report.adjustmentHelp')}</p>
+              <p className="text-xs text-muted-foreground">{t('reconciliation.report.counterpartHelp')}</p>
             </CardContent>
           </Card>
 
@@ -1187,7 +1218,7 @@ export function ReconciliationPage() {
                         <TableHead>{t('common.date')}</TableHead>
                         <TableHead>{t('common.description')}</TableHead>
                         <TableHead className="text-right">{t('common.amount')}</TableHead>
-                        <TableHead>{t('reconciliation.glAccount')}</TableHead>
+                        <TableHead>{t('reconciliation.report.counterpart')}</TableHead>
                         <TableHead>{t('reconciliation.matchedRule')}</TableHead>
                         {statusFilter !== 'unreconciled' && (
                           <TableHead className="w-[100px]">Reconciled</TableHead>
@@ -1274,7 +1305,7 @@ export function ReconciliationPage() {
                         <TableHead>{t('common.date')}</TableHead>
                         <TableHead>{t('common.description')}</TableHead>
                         <TableHead className="text-right">{t('common.amount')}</TableHead>
-                        <TableHead>{t('reconciliation.glAccount')}</TableHead>
+                        <TableHead>{t('reconciliation.report.counterpart')}</TableHead>
                         <TableHead>{t('reconciliation.matchedRule')}</TableHead>
                         {statusFilter !== 'unreconciled' && (
                           <TableHead className="w-[100px]">Reconciled</TableHead>

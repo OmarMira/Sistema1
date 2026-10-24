@@ -36,6 +36,8 @@ import { ROLE_LABELS } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { TRANSACTION_INTENT_VALUES } from '@/lib/constants/transaction-intent';
 import { classifyDirection } from '@/lib/services/direction-filter';
+import { EntityAccountGuidance } from './EntityAccountGuidance';
+import type { AccountGuidance, GuidanceAccount } from '@/lib/services/entity-account-guidance';
 
 const CUSTOM_ROLE = '__CUSTOM__';
 const ACTOR_ROLES = ['INQUILINO', 'PROVEEDOR', 'SOCIO', 'CLIENTE', 'EMPLEADO', 'TARJETA_CREDITO', 'PRESTAMO', 'OTRO'] as const;
@@ -59,6 +61,7 @@ interface SuggestionData {
   explanation: string;
   isNewRole?: boolean;
   roleSource?: 'BASE_ROLE' | 'COMPANY_ROLE' | 'NEW_ROLE_CANDIDATE';
+  accountGuidance?: AccountGuidance;
 }
 
 interface EntityOnboardingModalProps {
@@ -87,6 +90,8 @@ function renderAutomationSection(
   glAccounts: Array<{ id: string; code: string; name: string }>,
   glAccountsLoading: boolean,
   glAccountsError: string | null,
+  hideAccountSelector = false,
+  rentReceipt = false,
 ) {
   const isOn = createRuleFlags[name] ?? false;
 
@@ -124,15 +129,15 @@ function renderAutomationSection(
               <SelectContent>
                 {TRANSACTION_INTENT_VALUES.map((intent) => (
                   <SelectItem key={intent} value={intent}>
-                    {t(`transactionIntent.${intent}`)}
+                    {t(rentReceipt && intent === 'RENT_PAYMENT' ? 'learning.rentReceipt' : `transactionIntent.${intent}`)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
 
-          {/* GL Account selector */}
-          <div>
+          {/* Manual assignment keeps its existing account selector. */}
+          {!hideAccountSelector && <div>
             <label className="text-xs text-muted-foreground mb-1 block">
               {t('learning.glAccount')}
             </label>
@@ -159,12 +164,12 @@ function renderAutomationSection(
                 </SelectContent>
               </Select>
             )}
-          </div>
+          </div>}
 
           {/* Rule preview */}
           {intentValues[name] && glAccountCodes[name] && (
             <div className="p-2 border rounded text-xs text-muted-foreground bg-muted/30">
-              {t('transactionIntent.' + intentValues[name])} → {glAccountCodes[name]}
+              {t(rentReceipt && intentValues[name] === 'RENT_PAYMENT' ? 'learning.rentReceipt' : 'transactionIntent.' + intentValues[name])} → {glAccountCodes[name]}
             </div>
           )}
         </div>
@@ -182,6 +187,7 @@ export function EntityOnboardingModal({
   onComplete,
 }: EntityOnboardingModalProps) {
   const t = useLanguageStore((s) => s.t);
+  const language = useLanguageStore((s) => s.language);
 
   const [candidates, setCandidates] = useState<EntityCandidate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -206,7 +212,8 @@ export function EntityOnboardingModal({
   // Per-entity selected GL account code
   const [glAccountCodes, setGlAccountCodes] = useState<Record<string, string>>({});
   // Shared GL accounts list
-  const [glAccounts, setGlAccounts] = useState<Array<{ id: string; code: string; name: string }>>([]);
+  const [glAccounts, setGlAccounts] = useState<GuidanceAccount[]>([]);
+  const [accountCreationFlags, setAccountCreationFlags] = useState<Record<string, boolean>>({});
   const [glAccountsLoading, setGlAccountsLoading] = useState(false);
   const [glAccountsError, setGlAccountsError] = useState<string | null>(null);
 
@@ -221,7 +228,7 @@ export function EntityOnboardingModal({
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch(`/api/learning/smart-classify?companyId=${companyId}`);
+        const res = await fetch(`/api/learning/smart-classify?companyId=${companyId}`, { method: 'GET', headers: { 'x-locale': language } });
         if (res.ok) {
           const data = await res.json();
           setCandidates(data.data ?? []);
@@ -240,10 +247,12 @@ export function EntityOnboardingModal({
       setGlAccountsLoading(true);
       setGlAccountsError(null);
       try {
-        const res = await fetch(`/api/accounts?companyId=${companyId}`);
+        const res = await fetch(`/api/accounts?companyId=${companyId}`, { method: 'GET', headers: { 'x-locale': language } });
         if (res.ok) {
           const data = await res.json();
-          setGlAccounts((data.accounts ?? []).map((a: any) => ({ id: a.id, code: a.code, name: a.name })));
+          setGlAccounts((data.accounts ?? []).filter((a: any) => a.isActive !== false).map((a: any) => ({ id: a.id, code: a.code, name: a.name, accountType: a.accountType, normalBalance: a.normalBalance, parentId: a.parentId ?? null })));
+        } else {
+          setGlAccountsError(t('learning.accountsError'));
         }
       } catch {
         setGlAccountsError(t('learning.accountsError'));
@@ -270,13 +279,33 @@ export function EntityOnboardingModal({
       setIntentValues({});
       setGlAccountCodes({});
       setGlAccounts([]);
+      setAccountCreationFlags({});
       setSavedSet(new Set());
     };
-  }, [companyId, isOpen, t]);
+  }, [companyId, isOpen, language, t]);
 
   const remainingCandidates = candidates.filter(
     (c) => !savedSet.has(c.canonicalName),
   );
+
+  function accountGuidanceSection(candidate: EntityCandidate) {
+    const name = candidate.canonicalName;
+    const guidance = suggestions[name]?.accountGuidance;
+    if (glAccountsLoading) return <p className="text-sm text-muted-foreground">{t('learning.loadingAccounts')}</p>;
+    if (glAccountsError) return <p role="alert" className="text-sm text-destructive">{glAccountsError}</p>;
+    return <EntityAccountGuidance
+      guidance={guidance} accounts={glAccounts} selectedCode={glAccountCodes[name] ?? ''}
+      locale={language} rentReceipt={candidate.directionProfile.creditPct >= 0.85} t={t}
+      clarification={descriptions[name] ?? ''}
+      onClarify={(value) => setDescriptions((prev) => ({ ...prev, [name]: value }))}
+      onSelect={(code) => {
+        setGlAccountCodes((prev) => ({ ...prev, [name]: code }));
+        if (guidance?.intent) setIntentValues((prev) => ({ ...prev, [name]: guidance.intent! }));
+      }}
+      onCreated={(account) => setGlAccounts((prev) => [...prev, account])}
+      onBusyChange={(busy) => setAccountCreationFlags((prev) => ({ ...prev, [name]: busy }))}
+    />;
+  }
 
   /* ── State helpers ─────────────────────────────────────────────────── */
   function setState(name: string, state: EntityState) {
@@ -299,6 +328,7 @@ export function EntityOnboardingModal({
     abortControllers.current[name] = controller;
 
     const body: Record<string, unknown> = {
+      entityName: name,
       description: descriptions[name] || name,
       companyId,
       directionProfile: candidate.directionProfile,
@@ -306,6 +336,12 @@ export function EntityOnboardingModal({
       occurrences: candidate.occurrences,
       manualRequest: true,
     };
+    if (suggestions[name]) {
+      body.previousSuggestion = {
+        role: suggestions[name].suggestedRole,
+        explanation: suggestions[name].explanation,
+      };
+    }
     if (candidate.totalAmount) {
       body.totalAmount = { min: candidate.totalAmount, max: candidate.totalAmount };
     }
@@ -313,7 +349,7 @@ export function EntityOnboardingModal({
     try {
       const resp = await fetch('/api/learning/suggest-role', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-locale': language },
         body: JSON.stringify(body),
         signal: controller.signal,
       });
@@ -333,6 +369,9 @@ export function EntityOnboardingModal({
       }
 
       const data = await resp.json();
+      setGlAccountCodes((prev) => ({ ...prev, [name]: '' }));
+      setIntentValues((prev) => ({ ...prev, [name]: '' }));
+      setCreateRuleFlags((prev) => ({ ...prev, [name]: false }));
       setSuggestions((prev) => ({
         ...prev,
         [name]: {
@@ -341,6 +380,7 @@ export function EntityOnboardingModal({
           explanation: data.explanation,
           isNewRole: data.isNewRole ?? false,
           roleSource: data.roleSource ?? 'BASE_ROLE',
+          accountGuidance: data.accountGuidance,
         },
       }));
       setState(name, 'suggestion');
@@ -352,7 +392,7 @@ export function EntityOnboardingModal({
     } finally {
       delete abortControllers.current[name];
     }
-  }, [companyId, descriptions, entityStates, t]);
+  }, [companyId, descriptions, entityStates, suggestions, language, t]);
 
   /* ── Assign immediately (State 3 → saved) ──────────────────────────── */
   async function handleAssign(
@@ -371,14 +411,14 @@ export function EntityOnboardingModal({
         userInput: name,
         role,
         createRule: extra?.createRule ?? false,
-        ...(userDescription ? { userDescription } : {}),
+        ...((userDescription || descriptions[name]?.trim()) ? { userDescription: userDescription || descriptions[name]?.trim() } : {}),
         ...(extra?.intent ? { intent: extra.intent } : {}),
         ...(extra?.glAccountCode ? { glAccountCode: extra.glAccountCode } : {}),
       };
 
       const res = await fetch('/api/learning/classify-entity', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-locale': language },
         body: JSON.stringify(body),
       });
 
@@ -392,24 +432,22 @@ export function EntityOnboardingModal({
         toast.success(`${name} → ${ROLE_LABELS[role as EntityRole] || role}`);
         if (onComplete) onComplete();
       } else if (res.status === 409) {
-        const errBody = await res.json().catch(() => ({}));
-        setEntityErrors((prev) => ({ ...prev, [name]: errBody.error || t('learning.conflictError') }));
+        setEntityErrors((prev) => ({ ...prev, [name]: t('learning.conflictError') }));
         setState(name, getState(name) === 'manual' ? 'manual' : 'suggestion');
       } else {
-        const errBody = await res.json().catch(() => ({}));
-        setEntityErrors((prev) => ({ ...prev, [name]: errBody.error || 'Error' }));
+        setEntityErrors((prev) => ({ ...prev, [name]: t('learning.loadError') }));
         setState(name, getState(name) === 'manual' ? 'manual' : 'suggestion');
       }
     } catch (err) {
       logger.error('Assign error', { name, error: String(err) });
-      setEntityErrors((prev) => ({ ...prev, [name]: 'Error de red' }));
+      setEntityErrors((prev) => ({ ...prev, [name]: t('learning.loadError') }));
       setState(name, getState(name) === 'manual' ? 'manual' : 'suggestion');
     }
   }
 
   /* ── Discard suggestion (State 3 → State 1) ────────────────────────── */
   function handleDiscard(name: string) {
-    setSuggestions((prev) => ({ ...prev, [name]: undefined as unknown as SuggestionData }));
+    // Hide the proposal, but retain it as context for this entity's next request.
     setState(name, 'pending');
   }
 
@@ -564,7 +602,7 @@ export function EntityOnboardingModal({
                         data-testid="pre-classify-btn"
                         onClick={() => handleAskAI(candidate)}
                       >
-                        🤖 {t('learning.preClassify')}
+                        🤖 {t(suggestion ? 'learning.newSuggestion' : 'learning.preClassify')}
                       </Button>
                       <Button
                         size="sm"
@@ -617,15 +655,15 @@ export function EntityOnboardingModal({
                               : t('learning.suggestionBanner.lowConfidence', { percent: Math.round(suggestion.confidence * 100) })}
                           </span>
 
-                          {/* ── Automation section ── */}
-                          {renderAutomationSection(name, t, createRuleFlags, setCreateRuleFlags, intentValues, setIntentValues, glAccountCodes, setGlAccountCodes, glAccounts, glAccountsLoading, glAccountsError)}
+                          {accountGuidanceSection(candidate)}
+                          {renderAutomationSection(name, t, createRuleFlags, setCreateRuleFlags, intentValues, setIntentValues, glAccountCodes, setGlAccountCodes, glAccounts, glAccountsLoading, glAccountsError, true, candidate.directionProfile.creditPct >= 0.85)}
 
                           <div className="flex flex-wrap gap-2 mt-3">
                             <Button
                               size="sm"
                               className="h-8 text-sm"
                               disabled={
-                                (createRuleFlags[name] ?? false) &&
+                                accountCreationFlags[name] || (createRuleFlags[name] ?? false) &&
                                 (!intentValues[name] || !glAccountCodes[name])
                               }
                               onClick={() => handleAssign(name, suggestion.suggestedRole, undefined, {
@@ -673,8 +711,8 @@ export function EntityOnboardingModal({
                             </span>
                           </div>
 
-                          {/* ── Automation section ── */}
-                          {renderAutomationSection(name, t, createRuleFlags, setCreateRuleFlags, intentValues, setIntentValues, glAccountCodes, setGlAccountCodes, glAccounts, glAccountsLoading, glAccountsError)}
+                          {accountGuidanceSection(candidate)}
+                          {renderAutomationSection(name, t, createRuleFlags, setCreateRuleFlags, intentValues, setIntentValues, glAccountCodes, setGlAccountCodes, glAccounts, glAccountsLoading, glAccountsError, true, candidate.directionProfile.creditPct >= 0.85)}
 
                           <div className="flex flex-wrap gap-2">
                             <Button
@@ -682,7 +720,7 @@ export function EntityOnboardingModal({
                               className="h-8 text-sm"
                               data-testid="accept-suggestion-btn"
                               disabled={
-                                (createRuleFlags[name] ?? false) &&
+                                accountCreationFlags[name] || (createRuleFlags[name] ?? false) &&
                                 (!intentValues[name] || !glAccountCodes[name])
                               }
                               onClick={() => handleAssign(name, suggestion.suggestedRole, undefined, {
@@ -714,6 +752,18 @@ export function EntityOnboardingModal({
                           </div>
                         </div>
                       )}
+                      {suggestion.explanation && (
+                        <p className="text-sm text-muted-foreground">{suggestion.explanation}</p>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-8 text-xs"
+                        onClick={() => handleAskAI(candidate)}
+                      >
+                        <RefreshCw className="h-3 w-3 mr-1" />
+                        {t('learning.newSuggestion')}
+                      </Button>
                     </div>
                   )}
 
@@ -745,7 +795,7 @@ export function EntityOnboardingModal({
                     <div className="space-y-3 border-t pt-3">
                       <div className="w-full">
                         <label className="text-xs text-muted-foreground mb-1 block">
-                          {isOtro ? t('learning.describeRelationship') : isCustom ? 'Nombre del rol personalizado' : t('learning.selectRole')}
+                          {isOtro ? t('learning.describeRelationship') : isCustom ? t('learning.customRoleLabel') : t('learning.selectRole')}
                         </label>
                         <Select
                           value={manualRole}
@@ -769,7 +819,7 @@ export function EntityOnboardingModal({
                               </SelectItem>
                             ))}
                             <SelectItem value={CUSTOM_ROLE}>
-                              Personalizado...
+                              {t('learning.customRoleOption')}
                             </SelectItem>
                           </SelectContent>
                         </Select>
@@ -799,7 +849,7 @@ export function EntityOnboardingModal({
                               className="h-8 text-xs"
                               onClick={() => handleAskAI(candidate)}
                             >
-                              🤖 {t('learning.preClassify')}
+                              🤖 {t(suggestion ? 'learning.newSuggestion' : 'learning.preClassify')}
                             </Button>
                           </div>
                         </div>
@@ -809,7 +859,7 @@ export function EntityOnboardingModal({
                       {isCustom && (
                         <div className="w-full space-y-2">
                           <Input
-                            placeholder="Ej: FIDEICOMISO, PLATAFORMA, INVERSOR..."
+                            placeholder={t('learning.customRolePlaceholder')}
                             value={customName}
                             onChange={(e) => setCustomRoleNames((prev) => ({ ...prev, [name]: e.target.value }))}
                             className="h-8 text-sm"
@@ -836,7 +886,7 @@ export function EntityOnboardingModal({
                             size="sm"
                             className="h-8 text-sm"
                             disabled={
-                              (createRuleFlags[name] ?? false) &&
+                              accountCreationFlags[name] || (createRuleFlags[name] ?? false) &&
                               (!intentValues[name] || !glAccountCodes[name])
                             }
                             onClick={() => handleManualAssign(name)}

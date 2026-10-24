@@ -17,6 +17,7 @@ import { ThemeToggle } from '@/components/spa/ThemeToggle';
 import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type User } from '@/store/auth-store';
+import { saveRegistrationDraft, clearRegistrationDraft } from '@/lib/registration-draft';
 
 export function LoginPage() {
   const t = useLanguageStore((s) => s.t);
@@ -44,6 +45,12 @@ export function LoginPage() {
       const data = await res.json();
 
       if (!res.ok) {
+        if (res.status === 403 && data.code === 'EMAIL_VERIFICATION_REQUIRED') {
+          saveRegistrationDraft({ kind: 'existing', email: data.details?.email || email.trim().toLowerCase() });
+          setPassword('');
+          setCurrentView('register');
+          return;
+        }
         setError(data.error || t('auth.invalidCredentials'));
         return;
       }
@@ -51,6 +58,7 @@ export function LoginPage() {
       const user: User = data.user;
       const companies = data.companies || [];
 
+      clearRegistrationDraft();
       login(user);
 
       useAuthStore.getState().setActiveCompany(null);

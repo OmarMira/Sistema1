@@ -55,6 +55,12 @@ export async function aggregateAccountingFlow(
         companyId,
         status: 'posted',
         date: { gte: startDate, lte: endDate },
+        NOT: {
+          description: {
+            contains: 'Opening',
+            mode: 'insensitive',
+          },
+        },
       },
       include: {
         lines: {

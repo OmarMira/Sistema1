@@ -29,7 +29,7 @@ export const POST = apiHandler(
     if (validated instanceof NextResponse) return validated;
 
     try {
-      const result = await AuthService.login(validated);
+      const result = await AuthService.login(validated, { resumeVerification: true });
 
       authRateLimiter.reset(ip, email);
 

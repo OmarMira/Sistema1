@@ -1,17 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSession } from '@/lib/sessions';
 import { apiHandler } from '@/lib/api-handler';
 import { validateRequest } from '@/lib/validate-request';
 import { registerSchema } from '@/lib/validations/auth';
-import { AuthService } from '@/lib/services/auth.service';
+import { createIdentityService } from '@/lib/identity/runtime';
 import { authRateLimiter } from '@/lib/rate-limiter';
 import { getClientIp } from '@/lib/security/client-ip';
 
-// ─── POST /api/auth/register ──────────────────────────────────────────
 export const POST = apiHandler(
   async (request: NextRequest) => {
     const ip = getClientIp(request);
-
     const raw = await request.clone().json();
     const email = typeof raw?.email === 'string' ? raw.email : undefined;
 
@@ -30,41 +27,25 @@ export const POST = apiHandler(
     if (body instanceof NextResponse) return body;
 
     try {
-      const result = await AuthService.register(body);
+      const identity = createIdentityService();
+      let deliveryFailed = true;
+      if (identity) {
+        try {
+          const delivery = await identity.requestRegistrationCode(body.email, false, ip ?? undefined);
+          deliveryFailed = !delivery.delivered;
+        } catch {
+          // Delivery failure (SMTP unavailable) must not block verification flow.
+        }
+      }
 
       authRateLimiter.reset(ip, email);
 
-      const token = await createSession(result.user.id);
-
-      const response = NextResponse.json({
-        user: {
-          id: result.user.id,
-          email: result.user.email,
-          firstName: result.user.firstName,
-          lastName: result.user.lastName,
-          role: result.user.platformRole,
-        },
-        companies: [
-          {
-            id: result.company.id,
-            legalName: result.company.legalName,
-            entityType: result.company.entityType,
-            taxId: result.company.taxId,
-            isOnboardingComplete: result.company.isOnboardingComplete,
-          },
-        ],
+      // Only a temporary email challenge exists. Never return a fictitious user/session.
+      return NextResponse.json({
+        requiresVerification: true,
+        deliveryFailed,
+        email: body.email.trim().toLowerCase(),
       });
-
-      const isProd = process.env.NODE_ENV === 'production';
-      response.cookies.set(isProd ? '__Host-session' : 'session', token, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60,
-      });
-
-      return response;
     } catch (err) {
       authRateLimiter.increment(ip, email);
       throw err;

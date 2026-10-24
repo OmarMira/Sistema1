@@ -33,6 +33,8 @@ export interface Transaction {
   glAccountId: string | null;
   glAccount: { id: string; code: string; name: string } | null;
   matchedRule: { id: string; name: string } | null;
+  journalEntryId?: string | null;
+  journalLineId?: string | null;
   reconciledAt: string | null;
   createdAt: string;
 }

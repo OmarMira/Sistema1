@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,7 @@ import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type User } from '@/store/auth-store';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { saveRegistrationDraft, readRegistrationDraft, clearRegistrationDraft } from '@/lib/registration-draft';
 
 export function RegisterPage() {
   const t = useLanguageStore((s) => s.t);
@@ -37,7 +38,38 @@ export function RegisterPage() {
   const [showVerify, setShowVerify] = useState(false);
   const [verifyCode, setVerifyCode] = useState('');
   const [verifyError, setVerifyError] = useState('');
-  const [registerResult, setRegisterResult] = useState<{ email: string; requiresVerification: boolean } | null>(null);
+  const [registerResult, setRegisterResult] = useState<{ email: string; deliveryFailed: boolean } | null>(null);
+  const [verifyNotice, setVerifyNotice] = useState('');
+  const [existingAccount, setExistingAccount] = useState(false);
+  const [resumed, setResumed] = useState(false);
+
+  useEffect(() => {
+    // Browser state is restored after hydration, never during the server render.
+    const draft = readRegistrationDraft();
+    if (!draft) return;
+    setEmail(draft.email);
+    setExistingAccount(draft.kind === 'existing');
+    setResumed(true);
+    setRegisterResult({ email: draft.email, deliveryFailed: draft.kind === 'new' && draft.deliveryFailed });
+    if (draft.kind === 'new') {
+      setFirstName(draft.firstName);
+      setLastName(draft.lastName);
+      setCompanyName(draft.companyName);
+      setEntityType(draft.entityType);
+      setTaxId(draft.taxId || '');
+    }
+    setShowVerify(true);
+  }, []);
+
+  function verificationMessage(code?: string, status?: number) {
+    const keys: Record<string, string> = {
+      AUTH_REQUIRED: 'authorizationFailed', UNAUTHORIZED: 'authorizationFailed',
+      INVALID_CODE: 'invalidCode', INVALID_VERIFICATION_INPUT: 'codeRequired',
+      VERIFICATION_UNAVAILABLE: 'unavailable', RATE_LIMIT_EXCEEDED: 'tooManyAttempts',
+    };
+    const key = keys[code ?? ''] ?? (status === 429 ? 'tooManyAttempts' : status === 503 ? 'unavailable' : 'verificationFailed');
+    return t(`register.${key}`);
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -46,6 +78,7 @@ export function RegisterPage() {
     setVerifyCode('');
     setVerifyError('');
     setRegisterResult(null);
+    setVerifyNotice('');
 
     if (password !== confirmPassword) {
       setError(t('auth.passwordMismatch'));
@@ -83,7 +116,12 @@ export function RegisterPage() {
       }
 
       if (data.requiresVerification) {
-        setRegisterResult({ email: data.email || email, requiresVerification: true });
+        const pendingEmail = data.email || email.trim().toLowerCase();
+        saveRegistrationDraft({
+          kind: 'new', email: pendingEmail, firstName, lastName, companyName, entityType,
+          taxId: taxId || null, deliveryFailed: data.deliveryFailed === true,
+        });
+        setRegisterResult({ email: pendingEmail, deliveryFailed: data.deliveryFailed === true });
         setShowVerify(true);
         return;
       }
@@ -91,6 +129,7 @@ export function RegisterPage() {
       // Auto-login on fully verified registration (legacy direct path)
       const user: User = data.user;
       const companies = data.companies || [];
+      clearRegistrationDraft();
       login(user);
       if (companies.length > 0) {
         useAuthStore.getState().setActiveCompany(companies[0]);
@@ -108,7 +147,13 @@ export function RegisterPage() {
     setVerifyError('');
 
     if (!/^\d{6}$/.test(verifyCode.trim())) {
-      setVerifyError('Ingresa el código de 6 dígitos que te enviamos por email.');
+      setVerifyError(t('register.codeRequired'));
+      return;
+    }
+    // Final verification validates submitted full registration fields again
+    // and password only in memory until hash/final creation.
+    if (!existingAccount && (password.length < 8 || password !== confirmPassword)) {
+      setVerifyError(t('register.passwordMin'));
       return;
     }
 
@@ -118,25 +163,62 @@ export function RegisterPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ email: registerResult?.email || email, code: verifyCode.trim() }),
+        body: JSON.stringify(existingAccount ? {
+          email: registerResult?.email || email, code: verifyCode.trim(),
+        } : {
+          email: registerResult?.email || email,
+          code: verifyCode.trim(),
+          firstName,
+          lastName,
+          companyName,
+          entityType,
+          taxId: taxId || null,
+          password,
+          confirmPassword,
+        }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setVerifyError(data.error || 'No se pudo verificar el código.');
+        setVerifyError(verificationMessage(data.code, res.status));
         return;
       }
 
       const user: User = data.user;
       const companies = data.companies || [];
+      clearRegistrationDraft();
       login(user);
       if (companies.length > 0) {
         useAuthStore.getState().setActiveCompany(companies[0]);
       }
       setCurrentView('dashboard');
     } catch {
-      setVerifyError('No se pudo verificar el código.');
+      setVerifyError(t('register.verificationFailed'));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleResend() {
+    setLoading(true);
+    setVerifyError('');
+    setVerifyNotice('');
+    try {
+      const res = await fetch('/api/auth/resend-verification', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: registerResult?.email || email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setVerifyError(verificationMessage(data.code, res.status));
+        return;
+      }
+      setVerifyNotice(t('register.resendAccepted'));
+    } catch {
+      setVerifyError(t('register.verificationFailed'));
     } finally {
       setLoading(false);
     }
@@ -170,7 +252,7 @@ export function RegisterPage() {
             <CardTitle className="text-2xl">{t('auth.createAccount')}</CardTitle>
             <CardDescription>{t('register.subtitle')}</CardDescription>
           </CardHeader>
-          <form onSubmit={handleSubmit}>
+          {!showVerify && <form onSubmit={handleSubmit}>
             <CardContent className="space-y-4">
               {error && (
                 <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">
@@ -311,19 +393,39 @@ export function RegisterPage() {
                 </button>
               </p>
             </CardFooter>
-          </form>
+          </form>}
 
           {showVerify && (
             <div className="border-t px-6 py-6 space-y-4">
               <div className="text-center space-y-1">
-                <h2 className="text-lg font-semibold">Verifica tu correo</h2>
+                <h2 className="text-lg font-semibold">{t('register.verifyTitle')}</h2>
                 <p className="text-sm text-muted-foreground">
-                  Se envió un código de 6 dígitos a {registerResult?.email || email}. Ingrésalo para completar tu registro.
+                  {verifyNotice || (existingAccount ? t('register.resumeExisting') : registerResult?.deliveryFailed
+                    ? t('register.deliveryFailed')
+                    : t('register.codeSent', { email: registerResult?.email || email }))}
                 </p>
               </div>
-              <form onSubmit={handleVerify} className="flex flex-col sm:flex-row gap-3 justify-center">
+              {resumed && !existingAccount && (
+                <p className="text-sm text-muted-foreground" role="status">{t('register.resumePassword')}</p>
+              )}
+              <form onSubmit={handleVerify} className="flex flex-col gap-3">
+                {!existingAccount && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="verify-password">{t('auth.password')}</Label>
+                      <Input id="verify-password" type="password" autoComplete="new-password" minLength={8}
+                        value={password} onChange={e => setPassword(e.target.value)} required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="verify-confirm-password">{t('auth.confirmPassword')}</Label>
+                      <Input id="verify-confirm-password" type="password" autoComplete="new-password" minLength={8}
+                        value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} required />
+                    </div>
+                  </div>
+                )}
                 <Input
                   id="verifyCode"
+                  aria-label={t('register.codeLabel')}
                   value={verifyCode}
                   onChange={(e) => setVerifyCode(e.target.value)}
                   placeholder="123456"
@@ -334,7 +436,7 @@ export function RegisterPage() {
                 />
                 <Button type="submit" disabled={loading}>
                   {loading && <Loader2 className="size-4 animate-spin" />}
-                  Verificar
+                  {t('register.verify')}
                 </Button>
               </form>
               {verifyError && (
@@ -343,8 +445,11 @@ export function RegisterPage() {
                 </div>
               )}
               <p className="text-xs text-muted-foreground text-center">
-                ¿No llegó el correo? Revisá la carpeta de spam o registrate nuevamente.
+                {t('register.checkSpam')}
               </p>
+              <Button type="button" variant="outline" onClick={handleResend} disabled={loading}>
+                {t('register.resend')}
+              </Button>
             </div>
           )}
         </Card>

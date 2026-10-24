@@ -29,6 +29,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
@@ -123,6 +124,12 @@ export default function AdminUsersPage() {
   // Delete modal state
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteFailure, setDeleteFailure] = useState<'last-superadmin' | 'other' | null>(null);
+  const closeDeleteDialog = () => {
+    if (deleting) return;
+    setDeleteTarget(null);
+    setDeleteFailure(null);
+  };
 
   // Form State
   const [formData, setFormData] = useState({
@@ -256,7 +263,7 @@ export default function AdminUsersPage() {
   };
 
   const executeDelete = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || deleting || deleteFailure) return;
     setDeleting(true);
     try {
       const res = await fetch(`/api/admin/users/${deleteTarget.id}`, {
@@ -275,11 +282,14 @@ export default function AdminUsersPage() {
         }
         loadUsers();
       } else {
-        const data = await res.json();
-        toast.error(data.error || 'Error al eliminar usuario.');
+        const data = await res.json().catch(() => ({}));
+        setDeleteFailure(
+          res.status === 409 && data.code === 'LAST_COMPANY_SUPERADMIN' ? 'last-superadmin' : 'other',
+        );
       }
     } catch (err) {
       logger.error(String(err));
+      setDeleteFailure('other');
     } finally {
       setDeleting(false);
     }
@@ -426,7 +436,10 @@ export default function AdminUsersPage() {
                       variant="ghost"
                       size="icon"
                       className="size-9 text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors"
-                      onClick={() => setDeleteTarget(u)}
+                      onClick={() => {
+                        setDeleteFailure(null);
+                        setDeleteTarget(u);
+                      }}
                       title="Eliminar"
                     >
                       <Trash2 className="size-4.5" />
@@ -708,41 +721,58 @@ export default function AdminUsersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+      {/* A refused deletion becomes an informational state, not another confirmation. */}
+      <Dialog open={!!deleteTarget} onOpenChange={closeDeleteDialog}>
         <DialogContent className="bg-slate-900 text-white border border-white/10 rounded-2xl max-w-md shadow-2xl">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold flex items-center gap-2 text-rose-500">
-              <ShieldAlert className="size-6 text-rose-500 animate-bounce" />
-              {t('adminUsers.deleteTitle')}
+              <ShieldAlert className="size-6 text-rose-500" />
+              {t(deleteFailure === 'last-superadmin'
+                ? 'adminUsers.deleteBlockedTitle'
+                : deleteFailure ? 'adminUsers.deleteFailedTitle' : 'adminUsers.deleteTitle')}
             </DialogTitle>
           </DialogHeader>
-          <div className="py-2 text-sm text-slate-300">
-            {t('adminUsers.deleteConfirm').replace(
-              '{name}',
-              `${deleteTarget?.firstName || ''} ${deleteTarget?.lastName || ''}`.trim(),
+          <DialogDescription className="py-2 text-sm text-slate-300">
+            {deleteFailure ? (
+              <>
+                {t(deleteFailure === 'last-superadmin' ? 'adminUsers.lastSuperAdminMessage' : 'adminUsers.deleteFailedMessage')}
+                {deleteFailure === 'last-superadmin' && <><br /><br />{t('adminUsers.deleteNoChanges')}</>}
+              </>
+            ) : (
+              <>
+                {t('adminUsers.deleteConfirm').replace(
+                  '{name}',
+                  `${deleteTarget?.firstName || ''} ${deleteTarget?.lastName || ''}`.trim(),
+                )}
+                <br /><br />
+                {t('adminUsers.deleteWarning')}
+              </>
             )}
-            <br />
-            <br />
-            {t('adminUsers.deleteWarning')}
-          </div>
+          </DialogDescription>
           <DialogFooter className="pt-4 border-t border-white/5">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setDeleteTarget(null)}
-              className="text-slate-400 hover:text-white rounded-xl"
-            >
-              {t('adminUsers.cancelBtn')}
-            </Button>
-            <Button
-              type="button"
-              disabled={deleting}
-              onClick={executeDelete}
-              className="bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl shadow-lg shadow-rose-500/20"
-            >
-              {deleting ? t('adminUsers.deletingBtn') : t('adminUsers.deleteBtn')}
-            </Button>
+            {deleteFailure ? (
+              <Button type="button" onClick={closeDeleteDialog}>{t('adminUsers.acknowledgeBtn')}</Button>
+            ) : (
+              <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={deleting}
+                  onClick={closeDeleteDialog}
+                  className="text-slate-400 hover:text-white rounded-xl"
+                >
+                  {t('adminUsers.cancelBtn')}
+                </Button>
+                <Button
+                  type="button"
+                  disabled={deleting}
+                  onClick={executeDelete}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-semibold rounded-xl shadow-lg shadow-rose-500/20"
+                >
+                  {deleting ? t('adminUsers.deletingBtn') : t('adminUsers.deleteBtn')}
+                </Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

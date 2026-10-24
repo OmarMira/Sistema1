@@ -1,11 +1,10 @@
-import type { Budget, IdentityConfig, IdentityRepository } from './contracts';
+import type { Budget, IdentityConfig, IdentityRepository, VerificationFinalizer } from './contracts';
 import { codeDigest, createCode, createRecoveryToken, opaqueSubject, tokenDigest } from './crypto';
 import { IdentityMailer } from './mail';
 
 export const NEUTRAL_RESPONSE = 'Si existe una cuenta registrada, recibirás instrucciones';
 
-// Dormant infrastructure: no route imports or instantiates this class in Phase A.
-// Verification confirms only a pending identity challenge, never a User/session/role.
+// Verification may finalize an account only through the repository-owned transaction.
 export class IdentityService {
   constructor(
     private readonly config: IdentityConfig = { enabled: false },
@@ -24,10 +23,10 @@ export class IdentityService {
     if (ip && ip.length <= 128) result.push({ subject: opaqueSubject(key, `${purpose}:ip`, ip), maximum: 20 });
     return result;
   }
-  private async verification(value: string, resend: boolean, ip?: string): Promise<string> {
-    if (!this.config.enabled || !this.repository) return NEUTRAL_RESPONSE;
+  async requestRegistrationCode(value: string, resend = false, ip?: string): Promise<{ issued: boolean; delivered: boolean }> {
+    if (!this.config.enabled || !this.repository) return { issued: false, delivered: false };
     const email = this.email(value);
-    if (!email) return NEUTRAL_RESPONSE;
+    if (!email) return { issued: false, delivered: false };
     const { key } = this.config;
     const code = createCode();
     const now = this.clock();
@@ -36,24 +35,30 @@ export class IdentityService {
     if (issued) {
       const delivered = await this.mail.verification(email, code);
       await this.repository.recordDelivery(opaqueSubject(key, 'delivery', email), delivered, now);
+      return { issued, delivered };
     }
+    return { issued: false, delivered: false };
+  }
+  async beginRegistration(email: string, ip?: string): Promise<string> {
+    await this.requestRegistrationCode(email, false, ip);
     return NEUTRAL_RESPONSE;
   }
-  beginRegistration(email: string, ip?: string): Promise<string> {
-    return this.verification(email, false, ip);
+  async resendVerification(email: string, ip?: string): Promise<string> {
+    await this.requestRegistrationCode(email, true, ip);
+    return NEUTRAL_RESPONSE;
   }
-  resendVerification(email: string, ip?: string): Promise<string> {
-    return this.verification(email, true, ip);
-  }
-  async verifyCode(value: string, code: string, ip?: string): Promise<boolean> {
+  async verifyCode(value: string, code: string, ip?: string, finalize?: VerificationFinalizer): Promise<boolean> {
     if (!this.config.enabled || !this.repository) return false;
     const email = this.email(value);
     if (!email) return false;
     const { key } = this.config;
     // Malformed input still consumes the same persistent attempt budget.
     const candidate = /^\d{6}$/.test(code) ? code : '<invalid>';
-    return this.repository.attemptCode(email, this.clock(),
-      (id, generation) => codeDigest(key, id, generation, candidate), this.budgets(key, 'verify', email, ip));
+    const digest = (id: string, generation: number) => codeDigest(key, id, generation, candidate);
+    const budgets = this.budgets(key, 'verify', email, ip);
+    return finalize
+      ? this.repository.attemptCode(email, this.clock(), digest, budgets, finalize)
+      : this.repository.attemptCode(email, this.clock(), digest, budgets);
   }
   async requestRecovery(value: string, ip?: string): Promise<string> {
     if (!this.config.enabled || !this.repository) return NEUTRAL_RESPONSE;

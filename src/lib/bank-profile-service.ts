@@ -6,11 +6,42 @@ import {
   BankProfileConfigSchema,
   BankProfileTyped,
 } from './bank-profile-schema';
+import boaStandardRaw from './bank-profiles/boa-standard.json';
 export type { BankProfileTyped };
 
 // In-memory cache variables
 const profileCache = new Map<string, BankProfileTyped>();
 let allActiveProfilesCache: BankProfileTyped[] | null = null;
+
+// Registry-backed packaged structural profiles (non-persistent fallback)
+// Only the shipped structural definitions in bank-profiles/ are referenced;
+// fingerprint matching remains the parser's responsibility (S2, S1).
+const packagedProfiles = new Map<string, BankProfileTyped>();
+
+function registerPackagedProfile(raw: unknown): void {
+  try {
+    const bankId: string = (raw as any)?.bankId;
+    if (!bankId || typeof bankId !== 'string') return;
+    const bankName: string = (raw as any)?.bankName || bankId;
+    const fingerprints: string[] = Array.isArray((raw as any)?.fingerprints) ? (raw as any)?.fingerprints : [];
+    const config: BankProfileConfig = BankProfileConfigSchema.parse(raw);
+    packagedProfiles.set(bankId, {
+      id: `${bankId}-packaged`,
+      bankId,
+      bankName,
+      fingerprints,
+      isActive: true,
+      requiresReview: false,
+      config,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+  } catch (e) {
+    logger.warn('Packaged profile registration failed', { error: String(e) });
+  }
+}
+
+registerPackagedProfile(boaStandardRaw);
 
 /**
  * Transforms a raw database BankProfile model into the strictly typed BankProfileTyped interface.
@@ -65,13 +96,19 @@ export async function getBankProfile(bankId: string): Promise<BankProfileTyped |
     where: { bankId },
   });
 
-  if (!rawProfile) {
-    return null;
+  if (rawProfile) {
+    const typedProfile = mapToTypedProfile(rawProfile);
+    profileCache.set(bankId, typedProfile);
+    return typedProfile;
   }
 
-  const typedProfile = mapToTypedProfile(rawProfile);
-  profileCache.set(bankId, typedProfile);
-  return typedProfile;
+  const packaged = packagedProfiles.get(bankId) ?? null;
+  if (packaged) {
+    profileCache.set(bankId, packaged);
+    return packaged;
+  }
+
+  return null;
 }
 
 /**
@@ -87,6 +124,23 @@ export async function getAllActiveProfiles(): Promise<BankProfileTyped[]> {
   });
 
   const typedProfiles = rawProfiles.map(mapToTypedProfile);
+  const activeBankIds = new Set(typedProfiles.map((p) => p.bankId));
+
+  const packagedBankIds = Array.from(packagedProfiles.keys()).filter((id) => !activeBankIds.has(id));
+  if (packagedBankIds.length > 0) {
+    const existingInDb = await db.bankProfile.findMany({
+      where: { bankId: { in: packagedBankIds } },
+      select: { bankId: true },
+    });
+    const suppressed = new Set(existingInDb.map((r) => r.bankId));
+    for (const bankId of packagedBankIds) {
+      if (!suppressed.has(bankId)) {
+        const packaged = packagedProfiles.get(bankId)!;
+        typedProfiles.push(packaged);
+      }
+    }
+  }
+
   allActiveProfilesCache = typedProfiles;
   return allActiveProfilesCache;
 }

@@ -34,3 +34,18 @@ node --test --test-reporter=spec tests/installer/windows-preflight.test.cjs test
 ```
 
 The preflight tests use Windows directories/junctions under their own temporary test folder, sentinel files for existing-data safety, and injected filesystem-service failures for insufficient-space/permission cases. They also assert exact rejection stdout, stderr and exit code through the public CLI. No user's installed application, database, Windows configuration, mail account or registry is touched.
+
+## Isolated real migration replay
+
+```powershell
+node installer/windows/check-migrations.cjs --help
+node installer/windows/check-migrations.cjs --run
+```
+
+This development proof requires an already cached `postgres:16-alpine` image on the explicit local Docker socket and an installed local Prisma schema engine. It never pulls an image or accepts an existing database URL, remote Docker context, bind mount or persistent database volume. It does not use the application's default Vitest setup or `db push`.
+
+The command creates one new labelled, proven-owned container with tmpfs PostgreSQL storage, a random test password and an ephemeral loopback-only port. It stages only schema/migration files and a private package/config workspace; ambient application/database/mail environment values are not passed through. Actual `prisma migrate deploy` runs against a new empty database. The proof also constructs a separate empty historical-state simulation, applies the documented historical CHECK repair there, deploys the original migration chain, and then applies the additive prerequisite migration. Original applied names/checksums must remain byte-identical, and no default user or company may be seeded. This simulation is not acceptance proof for a customer's actual upgrade history.
+
+`20261019000301_identity_transition_action_prerequisite` permits the audit action before the existing transition insert. It intentionally sorts before `20261019000400`; all pre-existing migration files and the later `00401` repair stay untouched. The new CHECK change is transactional. Appending a repair after the failing insert would not fix fresh replay.
+
+The proof removes only its freshly created workspace and the container whose ID, owner/scope labels, running status, tmpfs storage and loopback ephemeral port still match. If ownership cannot be proven, deletion is refused and the owned resource name is reported for operator inspection. Exit 0 means this isolated proof passed; 1 means failure/unavailable proof; 2 means invalid command options. There is no automatic recovery, `migrate resolve`, production migration, host PostgreSQL installation or application startup. Native Windows PostgreSQL/runtime packaging and clean-machine acceptance remain separate checks.

@@ -63,3 +63,9 @@ node node_modules/vitest/vitest.mjs run --config vitest.installer.config.mts
 ```
 
 These checks use new owned temporary fixture folders and mock the unrelated asynchronous AI configuration health check; no user database is contacted. Upload/logo durability, standalone output and the native Windows launcher are separate pending implementation slices. No installed application is claimed by this optional configuration alone.
+
+### Installed company logos
+
+With `ACCOUNTEXPRESS_DATA_DIR`, new logos live in `<data>/uploads/logos`, not inside program files. Existing `/uploads/logos/<filename>` URLs remain unchanged. A dynamic Node route reads installed images on each request, including files created after startup. Only generated timestamp/UUID PNG/JPEG/SVG names are accepted; MIME-derived extensions, exclusive new-file writes and canonical-directory checks avoid client filename escapes or redirected storage. Responses use image MIME types, `nosniff`, sandbox CSP and private revalidation. Missing files return404; unavailable/redirected storage returns a sanitized503. The unset-root development save/delete paths, extensions and validation messages remain unchanged; existing Next public-file handling still owns their delivery. No previous images are moved automatically.
+
+These filesystem checks are not a sandbox against a malicious process with the same Windows account and write access to the storage namespace. The final launcher must run as the owning user, not a privileged shared service. The final package must exclude development `public/uploads`; full installed Next routing/relocation proof remains part of package acceptance.

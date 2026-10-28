@@ -4,7 +4,7 @@ import { hashPassword } from './auth';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { RUNTIME_FILES } from '@/lib/config/paths';
+import { BACKUP_DIR, RUNTIME_FILES } from '@/lib/config/paths';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
 // JH2: pure chain-verdict (no DB access) — restore certifies the chain head
@@ -121,7 +121,6 @@ interface ManifestFile {
 
 /* ─── Constants ───────────────────────────────────────────────────── */
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 const BACKUP_VERSION = '1.1.0';
 

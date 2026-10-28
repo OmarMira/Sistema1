@@ -49,3 +49,17 @@ The command creates one new labelled, proven-owned container with tmpfs PostgreS
 `20261019000301_identity_transition_action_prerequisite` permits the audit action before the existing transition insert. It intentionally sorts before `20261019000400`; all pre-existing migration files and the later `00401` repair stay untouched. The new CHECK change is transactional. Appending a repair after the failing insert would not fix fresh replay.
 
 The proof removes only its freshly created workspace and the container whose ID, owner/scope labels, running status, tmpfs storage and loopback ephemeral port still match. If ownership cannot be proven, deletion is refused and the owned resource name is reported for operator inspection. Exit 0 means this isolated proof passed; 1 means failure/unavailable proof; 2 means invalid command options. There is no automatic recovery, `migrate resolve`, production migration, host PostgreSQL installation or application startup. Native Windows PostgreSQL/runtime packaging and clean-machine acceptance remain separate checks.
+
+## Optional installed-instance data root
+
+The Windows launcher will supply `ACCOUNTEXPRESS_DATA_DIR` as the selected absolute data directory, separate from program binaries. With it configured, company runtime JSON lives under `<data>/config` and the existing backup directory/manifest live under `<data>/backups`. Immutable templates still come from the program's `rules/defaults`. Installed initialization never imports the development `rules/company-config.json`. Existing runtime JSON is retained on restart; no backup format, journal, balance, database, restore or onboarding-completion rule is changed by this path selection.
+
+Without this optional variable (or with an empty value), the original development paths and legacy import behavior remain unchanged: `.data/company-config.json` and `db/backups`. Relative paths, filesystem roots, Windows device/UNC paths and program/data overlap are rejected at module load before initialization writes. Existing path components are canonicalized through the filesystem to catch aliases into the program tree. This resolver is not installation/overwrite authorization; destination preflight and ownership-limited installation remain required. Do not populate this variable in an existing installation without an explicit data-location migration plan; this unit does not move old records or backups automatically.
+
+The filesystem-only checks load neither dotenv nor the application's global database/PDF test setup:
+
+```powershell
+node node_modules/vitest/vitest.mjs run --config vitest.installer.config.mts
+```
+
+These checks use new owned temporary fixture folders and mock the unrelated asynchronous AI configuration health check; no user database is contacted. Upload/logo durability, standalone output and the native Windows launcher are separate pending implementation slices. No installed application is claimed by this optional configuration alone.

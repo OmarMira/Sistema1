@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { RUNTIME_DIR, RUNTIME_FILES, LEGACY_FILES, DEFAULT_TEMPLATES } from '@/lib/config/paths';
+import { DATA_ROOT, RUNTIME_DIR, RUNTIME_FILES, LEGACY_FILES, DEFAULT_TEMPLATES } from '@/lib/config/paths';
 import { logger } from '@/lib/logger';
 
 function ensureDir(dir: string): void {
@@ -36,8 +36,9 @@ function initFromDefault(templatePath: string, targetPath: string): void {
 export function initRuntimeData(): void {
   ensureDir(RUNTIME_DIR);
 
-  // 1. Migrate legacy files first (they take priority over defaults)
-  migrateLegacy(LEGACY_FILES.companyConfig, RUNTIME_FILES.companyConfig);
+  // Installed instances must not import development legacy company data.
+  // Unconfigured development keeps the existing legacy migration behavior.
+  if (!DATA_ROOT) migrateLegacy(LEGACY_FILES.companyConfig, RUNTIME_FILES.companyConfig);
 
   // 2. Init from defaults only if no runtime file exists yet
   initFromDefault(DEFAULT_TEMPLATES.companyConfig, RUNTIME_FILES.companyConfig);

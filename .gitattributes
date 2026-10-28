@@ -1,1 +1,4 @@
 scripts/bootstrap-super-admin.mjs text eol=lf
+
+# Force LF line endings for all text files to prevent CRLF noise
+* text=auto eol=lf

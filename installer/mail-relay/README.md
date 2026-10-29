@@ -1,12 +1,12 @@
 # Gmail verification relay — operator setup
 
-This is the mail-only component of the Windows installer, **not the complete installer**. It is not yet connected to the application's identity transport. The accounting application and PostgreSQL remain on the customer's PC. This component sends only verification codes and recovery tokens through the owner's Gmail account.
+This is the mail-only component of the Windows installer, **not the complete installer**. The installed application's identity transport is connected in explicit relay mode; operational delivery still requires the owner actions below. The accounting application and PostgreSQL remain on the customer's PC. This component sends only verification codes and recovery tokens through the owner's Gmail account.
 
 **No Gmail password or app password is required by this component.** Google authorizes `MailApp` for the owner. The relay signing key is a different, generated secret: keep it on the operator's PC and in private Google Script Properties, never in a client package. No Google deployment or actual delivery has been performed by the repository tests.
 
 ## One-time owner actions
 
-You must perform these steps while signed in to the Gmail account that will send the messages. Do not share its password, app password, Google session or OAuth tokens with an assistant or customer.
+You must perform these steps while signed in to the Gmail account that will send the messages. Never paste its password, app password, cookies, Google session data or OAuth tokens into chat or client files. Any assisted Google operation requires explicit owner authorization for the new project and a fresh owner-started session; an existing browser login is not permission.
 
 1. At https://script.google.com/, create an Apps Script project named `AccountExpress mail verification`.
 2. Replace its `Code.gs` with this directory's `Code.gs`. In project settings, enable displaying the manifest, and replace `appsscript.json` with this directory's manifest. It requests send-mail permission, not access to your Gmail inbox.
@@ -46,7 +46,7 @@ node installer/mail-relay/owner.cjs issue `
   --output installer/mail-relay/.credentials/customer-000001.json
 ```
 
-The command prints neither signing key nor token, creates a new file only, and rejects unsupported endpoints. The JSON contains the public relay URL and **only that installation's** authorization. It does not reveal the signing key or Gmail credentials. Copying an installation credential shares its same quota; it does not create new quota. Revoke a compromised ID through `REVOKED_INSTALLATIONS`. This is mail permission, not a paid licensing system. The Windows packaging/integration task must consume only the corresponding installation JSON; never distribute `owner.cjs`, `.operator/`, other customers' credentials, or development `.env` files.
+The command prints neither signing key nor token, creates a new file only, and rejects unsupported endpoints. The JSON contains the public relay URL and **only that installation's** authorization. It does not reveal the signing key or Gmail credentials. Copying an installation credential shares its same quota; it does not create new quota. Revoke a compromised ID through `REVOKED_INSTALLATIONS`. This is mail permission, not a paid licensing system. Copy only that installation's issued JSON to `<selected-data-directory>/relay.json`. The installed runtime explicitly selects relay mode and fails closed when this file is missing, invalid or expired; the development SMTP branch is unchanged. Never distribute `owner.cjs`, `.operator/`, other customers' credentials, or development `.env` files.
 
 ## Request and failure contract
 
@@ -64,9 +64,9 @@ The application integration must POST JSON over HTTPS to the published URL:
 
 Recovery uses `{"type":"recovery","to":"person@example.com","token":"THE_LOCAL_RECOVERY_TOKEN"}`. No caller-controlled subject, HTML, arbitrary message, recipient list, attachment, CC or BCC is accepted. Do not send accounting records, passwords or SMTP credentials. Verification codes must have six digits; recovery tokens are bounded URL-safe values. The route does not verify codes itself: the local identity service retains challenge expiry, consumption and password/session authorization.
 
-Google ContentService may redirect the response to a Google-owned content URL. A future client must handle this deliberately without forwarding installation credentials/body to arbitrary redirect destinations. **HTTP 200 is not success**: inspect JSON `ok` and `code`. `{"ok":true,"code":"accepted"}` means MailApp accepted the request, not that the recipient received it; actual verification still requires entering the received code.
+Google ContentService may redirect the response to a Google-owned content URL. The installed client manually validates Google-only redirect destinations and follows the content response using GET without forwarding the installation credential/body. It bounds responses to8,192bytes and attempts to10seconds. **HTTP 200 is not success**: inspect JSON `ok` and `code`. `{"ok":true,"code":"accepted"}` means MailApp accepted the request, not that the recipient received it; actual verification still requires entering the received code.
 
-Failures are sanitized: `invalid_request`, `not_configured`, `unauthorized`, `busy`, `rate_limited`, `quota_exhausted`, `request_conflict`, `delivery_failed`, `delivery_unknown`, or `unavailable`. Do not auto-retry an ambiguous send with a new request ID. Same-ID requests with identical content replay their stored result during the same UTC quota day; different content is rejected. Deduplication does not span UTC days. The later client integration must bound an attempt to its challenge lifetime, never re-send an old attempt after the challenge expires. No provider error, address, code, recovery token or credential is logged by this code; counters retain message digests, not raw codes.
+Failures are sanitized: `invalid_request`, `not_configured`, `unauthorized`, `busy`, `rate_limited`, `quota_exhausted`, `request_conflict`, `delivery_failed`, `delivery_unknown`, or `unavailable`. Do not auto-retry an ambiguous send with a new request ID. Same-ID requests with identical content replay their stored result during the same UTC quota day; different content is rejected. Deduplication does not span UTC days. The installed client does not automatically retry a failed or ambiguous attempt. A resend is a new explicit user action through the identity service, not replay of an expired challenge. No provider error, address, code, recovery token or credential is logged by this code; counters retain message digests, not raw codes.
 
 ## Free-tier limits and honest availability
 
@@ -81,6 +81,7 @@ Sources: [Apps Script availability](https://workspace.google.com/intl/en_US/prod
 ```powershell
 node --test --test-reporter=spec tests/installer/mail-relay.test.cjs
 node installer/mail-relay/owner.cjs --help
+node node_modules/vitest/vitest.mjs run --config vitest.packaging.config.mts
 ```
 
 Tests invoke the public handler using fake Google services and the real operator CLI against temporary test files. They do not authorize Google, publish a web app, send real mail, create a production signing key or prove native Windows installation. A real owner-authorized deployment and inbox/code round trip remain required before claiming operational mail. Run that acceptance only with the exact account, endpoint and operation authorized by the owner; never reuse an ambient browser session or credential.

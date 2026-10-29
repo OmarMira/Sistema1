@@ -17,7 +17,7 @@ import {
 } from '@/lib/services/ai-proposal-approval.service';
 import { excludePendingHumanDecisions } from '@/lib/services/single-rule-apply.service';
 import { matchTransactions, executeApplyAll } from '@/lib/services/apply-all-engine';
-import { revalidateAutoMatchCandidate } from '@/app/api/reconciliation/auto/route';
+import { revalidateAutoMatchCandidate } from '@/app/api/reconciliation/auto/helpers';
 import { ImportService } from '@/lib/services/import.service';
 import { runRuleEngineV2 } from '@/lib/services/rule-engine-adapter';
 import { resolveEntity } from '@/memory/entity-resolution';

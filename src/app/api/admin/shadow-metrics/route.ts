@@ -4,18 +4,7 @@ import { apiHandler } from '@/lib/api-handler';
 import { ShadowMetricsReader } from '@/lib/services/shadow-metrics-reader';
 import { PrismaAuditLogRepository } from '@/lib/db/audit-log-repository';
 import type { ShadowMetricsQuery, ShadowMetricsTrustPolicy } from '@/lib/services/shadow-metrics-reader';
-
-/** @visibleForTesting */
-export function parseDateOrError(value: string, label: string): Date | NextResponse {
-  const d = new Date(value);
-  if (isNaN(d.getTime())) {
-    return NextResponse.json(
-      { error: `Invalid ${label}: "${value}" is not a valid date`, code: 'VALIDATION_ERROR' },
-      { status: 400 },
-    );
-  }
-  return d;
-}
+import { parseDateOrError } from './helpers';
 
 const VALID_SOURCES = ['IMPORT', 'APPLY_ALL', 'ALL'] as const;
 const VALID_TRUST_POLICIES = ['TRUSTED_ONLY', 'INCLUDE_LEGACY_IMPORT', 'INCLUDE_UNTRUSTED_HISTORY'] as const;

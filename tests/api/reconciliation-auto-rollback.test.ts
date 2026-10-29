@@ -563,7 +563,7 @@ describe('H4 — POST /api/reconciliation/auto', () => {
     const pending = await createPendingClassificationApproval(company.id, s.importHash, user.id);
 
     const { revalidateAutoMatchCandidate } = await import(
-      '../../src/app/api/reconciliation/auto/route'
+      '../../src/app/api/reconciliation/auto/helpers'
     );
 
     // Write-scope primitive: with the pending decision present, revalidation fails.

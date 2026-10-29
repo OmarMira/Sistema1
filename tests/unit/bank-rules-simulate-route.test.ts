@@ -37,7 +37,8 @@ vi.mock('@/lib/services/rule-simulation.service', () => ({
   simulateApply: mockSimulateApply,
 }));
 
-import { POST, parseSimulateLimit } from '@/app/api/bank-rules/simulate/route';
+import { POST } from '@/app/api/bank-rules/simulate/route';
+import { parseSimulateLimit } from '@/app/api/bank-rules/simulate/helpers';
 import { MAX_PER_BATCH } from '@/lib/services/apply-all-engine';
 
 const BASE_URL = 'http://localhost/api/bank-rules/simulate?companyId=c1';

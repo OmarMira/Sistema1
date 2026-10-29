@@ -16,6 +16,8 @@ Program files and durable data remain separate. This single-user installation do
 
 An existing installation/data directory requires an explicit upgrade/recovery procedure; this first-install package does not silently migrate, reset, merge or overwrite existing accounting data.
 
+The fresh-start action uses the operational `InstallationWizard`, not the standalone design HTML. Passwords and verification codes remain in component memory; after verification it completes onboarding and checks the authoritative company via `/api/auth/me` before entering the application. Retrying a failed company completion does not re-verify an already consumed code.
+
 ## Email activation is separate
 
 The application/data stay local. Email verification and recovery use the owner's mail-only Google relay. Follow [the owner activation guide](../mail-relay/README.md), then place **only this installation's issued credential** at `<selected-data-directory>/relay.json`. Do not distribute the signing key, another customer's authorization, Gmail app password or development `.env` files.

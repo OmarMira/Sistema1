@@ -12,12 +12,13 @@ import { Progress } from '@/components/ui/progress';
 import { ThemeToggle } from '@/components/spa/ThemeToggle';
 import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { formatFileSize } from '@/lib/types/backup';
+import { InstallationWizard } from '@/components/onboarding/InstallationWizard';
 
 export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
   const t = useLanguageStore((s) => s.t);
   const { login, setCurrentView } = useAuthStore();
 
-  const [mode, setMode] = useState<'choose' | 'restore' | 'restoring'>('choose');
+  const [mode, setMode] = useState<'choose' | 'restore' | 'restoring' | 'setup'>('choose');
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoreProgress, setRestoreProgress] = useState(0);
 
@@ -85,6 +86,8 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
     setRestoreProgress(0);
   }
 
+  if (mode === 'setup') return <InstallationWizard onBack={() => setMode('choose')} />;
+
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur-md">
@@ -139,7 +142,7 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
               ) : (
                 <Card
                   className="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-0.5 border-primary/20"
-                  onClick={() => setCurrentView('register')}
+                  onClick={() => setMode('setup')}
                 >
                   <CardHeader>
                     <CardTitle className="text-base flex items-center gap-2">
@@ -149,7 +152,7 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                     <CardDescription>{t('bootstrap.startFreshDesc')}</CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <Button className="w-full" variant="outline" onClick={() => setCurrentView('register')}>
+                    <Button className="w-full" variant="outline" onClick={() => setMode('setup')}>
                       {t('auth.register')}
                     </Button>
                   </CardContent>

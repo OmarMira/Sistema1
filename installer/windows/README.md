@@ -1,71 +1,78 @@
-# Windows destination preflight
+# AccountExpress single-PC Windows installer
 
-This module performs actual local filesystem checks; it is **not yet the Windows installer executable or folder-selection UI**. It never initializes PostgreSQL, writes a company/account, creates program/data destination folders, changes the registry, starts services, elevates privileges or deletes stored accounting data.
+The installer includes its own Node.js and PostgreSQL. Customers do **not** need Inno Setup, Node.js, npm, Docker or a separate PostgreSQL installation. Inno Setup is a developer build tool only. See [STATUS.md](STATUS.md) for observed verification; source code or a successful prerequisite check is not installed-product proof.
 
-```powershell
-node installer/windows/preflight.cjs `
-  --program-dir "C:\Users\Example\AppData\Local\Programs\AccountExpress" `
-  --data-dir "C:\Users\Example\AppData\Local\AccountExpress" `
-  --program-bytes 1073741824 `
-  --data-bytes 268435456
-```
+**Verified local artifact:** `installer/windows/dist/AccountExpress-Setup.exe`. Actual installation/start/restart/uninstall with data retention passed on this Windows host. Google activation and real inbox/first-account acceptance remain pending; an unsigned executable is not a trusted-signed or clean-VM release.
 
-The numbers above are illustrative, not certified payload requirements. The packaging unit must supply actual expanded payload/staging requirements plus the initial data reserve. Missing, zero, negative, noninteger and unsafe-size estimates fail closed. Run `node installer/windows/preflight.cjs --help` for the command contract.
+## Customer installation
 
-The program and durable data locations must be absolute local Windows paths, distinct and non-overlapping. UNC/device paths, drive roots, traversal components, Windows-device names, forbidden/trailing characters and the Windows system-directory tree are rejected. Filesystem symlinks/junctions in existing components are rejected rather than followed. Existing components are resolved through the real filesystem before comparing locations. Nonempty program directories and data directories are never reused; `.accountexpress-install.json` identifies an already installed program for a later explicit upgrade/recovery flow.
+1. Open the delivered `AccountExpress-Setup.exe` and select Spanish or English.
+2. Choose an empty program directory, then a **separate empty data directory**. Existing files, accounting data, junctions, overlapping paths, unsafe paths, insufficient space and unwritable locations are rejected instead of overwritten.
+3. Start AccountExpress using its Start-menu shortcut or `start.cmd` in the selected program folder. The owned runtime starts PostgreSQL and opens the application in the browser only after its bootstrap endpoint responds successfully.
+4. Follow the company, fiscal period, administrator, review and email verification screens. No global opening balance is requested. The account/company are created by the existing verification transaction, not a local completion flag.
+5. Use the Stop shortcut or `stop.cmd` before shutting down the runtime. While the foreground launcher is running, keep its console open.
 
-The check measures actual free bytes with Node's Windows filesystem API, combines requirements when both locations share a volume, and checks them separately otherwise. It proves write permission by creating and removing only a uniquely named probe directory/file in each nearest existing ancestor. Directory creation is tested as well as file creation: Windows ACLs can grant one without the other. It does not create the selected destination folders. A failed check does not trigger elevation or silently select another location. Cleanup removes only its own file and an empty owned probe directory, never arbitrary directory contents.
+Program files and durable data remain separate. This single-user installation does not create Windows services, install global runtimes, change machine-wide registry settings, or register itself in Windows Settings. Its Start-menu Uninstall shortcut (or `unins000.exe`) removes installed files **but retains the selected data directory**. The installer is unsigned; Windows may show an unknown-publisher warning. No trusted signing is claimed.
 
-## Public interface
+An existing installation/data directory requires an explicit upgrade/recovery procedure; this first-install package does not silently migrate, reset, merge or overwrite existing accounting data.
 
-```js
-const { preflight } = require('./preflight.cjs');
-const result = preflight({ programDir, dataDir, requiredProgramBytes, requiredDataBytes });
-```
+## Email activation is separate
 
-The result is one JSON object. `ok:true, code:"ready"` includes canonical selected paths and decimal-string required/available byte totals. Rejections contain only `ok:false` and a machine-readable code for later bilingual UI translation: `invalid_path`, `overlapping_paths`, `not_directory`, `destination_not_empty`, `existing_data`, `already_installed`, `unsafe_link`, `insufficient_space`, `permission_denied`, `invalid_size`, `unsupported_platform` or `filesystem_unavailable`. The CLI emits one JSON line, no filesystem details on stderr; exits are 0=ready, 1=rejected, 2=invalid command options. CLI help is non-mutating.
+The application/data stay local. Email verification and recovery use the owner's mail-only Google relay. Follow [the owner activation guide](../mail-relay/README.md), then place **only this installation's issued credential** at `<selected-data-directory>/relay.json`. Do not distribute the signing key, another customer's authorization, Gmail app password or development `.env` files.
 
-Free space, paths and permissions can change after inspection. A ready result is **not permission to overwrite files** or proof of a completed installation. The later installer must recheck before creating its owned staging/destination paths, refuse changed/existing targets, and limit rollback to files it created. Existing data requires an explicit upgrade/recovery path, not automatic deletion. This unit does not establish those later operations.
+Packaged mode explicitly selects the relay. Missing, invalid, expired or unavailable mail configuration causes a visible delivery failure; there is no fallback pretending that a code was sent. HTTP200 alone is not delivery success. Real inbox/code acceptance requires owner Google authorization and is not established by local tests.
 
-## Isolated verification
+## Build on Windows x64
+
+Pinned runtime inputs live in project-only `.cache`: Node24.22.2 and PostgreSQL16.15 (EDB packaging revision1). Node is checked against the release's official `SHASUMS256.txt`; PostgreSQL is obtained over HTTPS from the official EDB distributor and its locally calculated SHA256 is recorded. A locally calculated digest is **not** described as a separately published vendor checksum.
 
 ```powershell
-node --test --test-reporter=spec tests/installer/windows-preflight.test.cjs tests/installer/mail-relay.test.cjs
+node installer/windows/build.cjs --status
+node installer/windows/build.cjs --build
+# Read installer/windows/.checks/latest-build.json for its actual payload path:
+node installer/windows/build.cjs --compile "C:\absolute\owned-build\payload"
 ```
 
-The preflight tests use Windows directories/junctions under their own temporary test folder, sentinel files for existing-data safety, and injected filesystem-service failures for insufficient-space/permission cases. They also assert exact rejection stdout, stderr and exit code through the public CLI. No user's installed application, database, Windows configuration, mail account or registry is touched.
+The build snapshots allowlisted source, immutable rules/defaults and public assets into a new owned `.checks/build-*` workspace. It does not load development `.env`, use the development database, or replace the active `.next`. Only a deliberately unreachable private loopback database URL and disposable build secrets are supplied during compilation. Runtime migrations are **not** replaced by build success.
 
-## Isolated real migration replay
+The payload uses Next standalone output plus explicit production dependency closure (including Prisma CLI/Windows engine, PDF worker/canvas and image dependencies). Development caches, credential files, databases, backups and customer uploads are excluded. Runtimes/licenses are included locally. PostgreSQL staging keeps its `bin`, `lib`, `share` and required server/third-party notices; optional pgAdmin/Python, StackBuilder and development headers are not distributed. The build refuses missing production server/runtime files before invoking the installed compiler using an argument array, not an MSYS/cmd command string.
+
+Compiler output: `.checks/output/AccountExpress-Setup.exe` and `.sha256`. Final distribution copies belong under `installer/windows/dist/` after acceptance, not before it. No push, release or publication is implied.
+
+## Installed runtime interface
+
+From the selected program directory, using its bundled executable:
 
 ```powershell
-node installer/windows/check-migrations.cjs --help
-node installer/windows/check-migrations.cjs --run
+.\runtime\node\node.exe .\launcher.cjs --status
+.\runtime\node\node.exe .\launcher.cjs --start --open
+.\runtime\node\node.exe .\launcher.cjs --stop
+.\runtime\node\node.exe .\launcher.cjs --restart --open
 ```
 
-This development proof requires an already cached `postgres:16-alpine` image on the explicit local Docker socket and an installed local Prisma schema engine. It never pulls an image or accepts an existing database URL, remote Docker context, bind mount or persistent database volume. It does not use the application's default Vitest setup or `db push`.
+`--configure --data-dir <new-absolute-directory>` is normally called by the installer. `--app-dir` selects an owned payload for isolated acceptance. `--port` defaults to32180; `0` requests a free loopback port for proof. Unknown options fail with exit2. Status is read-only; runtime/configuration failures exit1. A running supervisor remains active until stopped and never kills unrelated processes on collision.
 
-The command creates one new labelled, proven-owned container with tmpfs PostgreSQL storage, a random test password and an ephemeral loopback-only port. It stages only schema/migration files and a private package/config workspace; ambient application/database/mail environment values are not passed through. Actual `prisma migrate deploy` runs against a new empty database. The proof also constructs a separate empty historical-state simulation, applies the documented historical CHECK repair there, deploys the original migration chain, and then applies the additive prerequisite migration. Original applied names/checksums must remain byte-identical, and no default user or company may be seeded. This simulation is not acceptance proof for a customer's actual upgrade history.
+Configuration uses independent generated session, identity, database and control secrets. The data directory's Windows ACL is restricted to its owner and SYSTEM. PostgreSQL uses SCRAM authentication, an owned cluster, an ephemeral loopback port and the existing `prisma migrate deploy` chain; no `db push`, seed or forced registration/onboarding flags. Stop authenticates against that instance's private loopback control endpoint. Restart retains secrets, database and runtime files.
 
-`20261019000301_identity_transition_action_prerequisite` permits the audit action before the existing transition insert. It intentionally sorts before `20261019000400`; all pre-existing migration files and the later `00401` repair stay untouched. The new CHECK change is transactional. Appending a repair after the failing insert would not fix fresh replay.
-
-The proof removes only its freshly created workspace and the container whose ID, owner/scope labels, running status, tmpfs storage and loopback ephemeral port still match. If ownership cannot be proven, deletion is refused and the owned resource name is reported for operator inspection. Exit 0 means this isolated proof passed; 1 means failure/unavailable proof; 2 means invalid command options. There is no automatic recovery, `migrate resolve`, production migration, host PostgreSQL installation or application startup. Native Windows PostgreSQL/runtime packaging and clean-machine acceptance remain separate checks.
-
-## Optional installed-instance data root
-
-The Windows launcher will supply `ACCOUNTEXPRESS_DATA_DIR` as the selected absolute data directory, separate from program binaries. With it configured, company runtime JSON lives under `<data>/config` and the existing backup directory/manifest live under `<data>/backups`. Immutable templates still come from the program's `rules/defaults`. Installed initialization never imports the development `rules/company-config.json`. Existing runtime JSON is retained on restart; no backup format, journal, balance, database, restore or onboarding-completion rule is changed by this path selection.
-
-Without this optional variable (or with an empty value), the original development paths and legacy import behavior remain unchanged: `.data/company-config.json` and `db/backups`. Relative paths, filesystem roots, Windows device/UNC paths and program/data overlap are rejected at module load before initialization writes. Existing path components are canonicalized through the filesystem to catch aliases into the program tree. This resolver is not installation/overwrite authorization; destination preflight and ownership-limited installation remain required. Do not populate this variable in an existing installation without an explicit data-location migration plan; this unit does not move old records or backups automatically.
-
-The filesystem-only checks load neither dotenv nor the application's global database/PDF test setup:
+## Destination preflight
 
 ```powershell
+node installer/windows/preflight.cjs --program-dir "C:\Example\Program" --data-dir "C:\Example\Data" --program-bytes 1073741824 --data-bytes 536870912
+```
+
+The sizes above are examples. The actual installer supplies measured payload/staging requirements and a512MiB initial data reserve. Preflight checks absolute local paths, reserved/system/UNC/device/traversal rejection, canonical aliases/junctions, existing contents, real free space and both file/directory write permissions. It creates/removes only its unique probe directory, not the selected destinations. JSON stdout and exit0 mean ready, exit1 means rejected, exit2 means invalid options. Checks are repeated before installation; preflight alone never authorizes overwrites.
+
+## Checks
+
+```powershell
+node --test tests/installer/windows-package.test.cjs tests/installer/windows-runtime.test.cjs tests/installer/windows-preflight.test.cjs tests/installer/mail-relay.test.cjs tests/installer/migration-proof-ownership.test.cjs tests/installer/migration-slice-verifier.test.cjs tests/installer/route-export-surface.test.cjs
+node node_modules/vitest/vitest.mjs run --config vitest.packaging.config.mts
 node node_modules/vitest/vitest.mjs run --config vitest.installer.config.mts
+node installer/windows/acceptance.cjs --installer "C:\absolute\AccountExpress-Setup.exe" --browser
 ```
 
-These checks use new owned temporary fixture folders and mock the unrelated asynchronous AI configuration health check; no user database is contacted. Upload/logo durability, standalone output and the native Windows launcher are separate pending implementation slices. No installed application is claimed by this optional configuration alone.
+Acceptance invokes the actual installer in new owned project paths, with no icons or registry registration, and checks new PostgreSQL migration/startup, HTTP/bootstrap/background assets, failed-mail behavior, malformed verification rejection, restart/config retention and uninstall/data retention. Browser proof checks the installed application at five approved desktop sizes in both languages/themes. Only its code-form geometry uses a mocked mail receipt; it sends no real email and is not inbox/role-provisioning proof. Evidence, logs and screenshots remain under the specific `.checks/installed-proof-*` directory.
 
-### Installed company logos
+The application's default Vitest setup is **not** an isolated installer test runner: do not use it against an ambient database. Existing `check-migrations.cjs --run` remains a separate opt-in Docker/tmpfs historical-migration proof, with cached image/pull-never, owned resources and no customer upgrade claim.
 
-With `ACCOUNTEXPRESS_DATA_DIR`, new logos live in `<data>/uploads/logos`, not inside program files. Existing `/uploads/logos/<filename>` URLs remain unchanged. A dynamic Node route reads installed images on each request, including files created after startup. Only generated timestamp/UUID PNG/JPEG/SVG names are accepted; MIME-derived extensions, exclusive new-file writes and canonical-directory checks avoid client filename escapes or redirected storage. Responses use image MIME types, `nosniff`, sandbox CSP and private revalidation. Missing files return404; unavailable/redirected storage returns a sanitized503. The unset-root development save/delete paths, extensions and validation messages remain unchanged; existing Next public-file handling still owns their delivery. No previous images are moved automatically.
-
-These filesystem checks are not a sandbox against a malicious process with the same Windows account and write access to the storage namespace. The final launcher must run as the owning user, not a privileged shared service. The final package must exclude development `public/uploads`; full installed Next routing/relocation proof remains part of package acceptance.
+Installed JSON/backups use `<data>/config` and `<data>/backups`; logos use `<data>/uploads/logos` and the dynamic `/uploads/logos/<filename>` route. Without `ACCOUNTEXPRESS_DATA_DIR`, existing development paths and behavior remain unchanged. Installation does not import old developer company configuration or move prior logos/data automatically.

@@ -15,6 +15,7 @@ import { motion } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
+import { downloadBackup } from '@/lib/backup-download';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -97,16 +98,7 @@ export function BackupPage() {
 
         // Auto-download the backup
         if (data.data) {
-          const jsonStr = atob(data.data);
-          const blob = new Blob([jsonStr], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = data.filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          downloadBackup(data.data, data.filename);
         }
 
         await fetchBackups();
@@ -133,16 +125,7 @@ export function BackupPage() {
       if (res.ok) {
         const data = await res.json();
         if (data.data) {
-          const jsonStr = atob(data.data);
-          const blob = new Blob([jsonStr], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = backup.filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          downloadBackup(data.data, backup.filename);
         }
       }
     } catch {

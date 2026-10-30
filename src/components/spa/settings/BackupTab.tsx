@@ -15,6 +15,7 @@ import { motion } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
+import { downloadBackup } from '@/lib/backup-download';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -89,16 +90,7 @@ export function BackupTab() {
           description: `${formatFileSize(data.size)} — ${(Object.values(data.recordCounts) as number[]).reduce((a, b) => a + b, 0)} ${t('settings.backup.records')}`,
         });
         if (data.data) {
-          const jsonStr = atob(data.data);
-          const blob = new Blob([jsonStr], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = data.filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          downloadBackup(data.data, data.filename);
         }
         await fetchBackups();
       } else {
@@ -120,16 +112,7 @@ export function BackupTab() {
       if (res.ok) {
         const data = await res.json();
         if (data.data) {
-          const jsonStr = atob(data.data);
-          const blob = new Blob([jsonStr], { type: 'application/json' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = backup.filename;
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          URL.revokeObjectURL(url);
+          downloadBackup(data.data, backup.filename);
         }
       }
     } catch {

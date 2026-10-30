@@ -7,6 +7,7 @@ import { getClientIp } from './security/client-ip';
 import { db } from './db';
 import { requestContext } from './context-storage';
 import { logger } from './logger';
+import { acquireNormalOperation } from './backup-maintenance.js';
 
 const API_SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
@@ -77,6 +78,24 @@ async function extractCompanyId(request: NextRequest): Promise<string | null> {
 }
 
 export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}) {
+  const admitted = admittedApiHandler(handler, options);
+  return async (request: NextRequest, context: RouteContext) => {
+    try {
+      // Always acquire a fresh lease: an HTTP request cannot inherit recovery
+      // authority or bypass admission through headers, sessions, or options.
+      const lease = acquireNormalOperation();
+      try { return await lease.run(() => admitted(request, context)); }
+      finally { lease.release(); }
+    } catch {
+      return NextResponse.json(
+        { error: 'Maintenance admission unavailable', code: 'BACKUP_MAINTENANCE' },
+        { status: 503, headers: API_SECURITY_HEADERS },
+      );
+    }
+  };
+}
+
+function admittedApiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}) {
   const requireMembership = options.requireMembership ?? true;
   const requireSuperAdmin = options.requireSuperAdmin ?? false;
   const allowAnonymous = options.allowAnonymous ?? false;

@@ -250,5 +250,18 @@ function guardedClient(client: object): object {
   });
 }
 
+/** Internal company backup capability: raw Decimal results, never a raw client.
+ * Admission encloses callback AND commit; escaped transaction operations remain
+ * guarded. Ordinary application promises/extensions are deliberately unchanged.
+ */
+export function withCompanyBackupTransaction<T>(
+  callback: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: { maxWait?: number; timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
+): Promise<T> {
+  return withRuntimeOperation(() => base.$transaction(
+    tx => callback(guardedClient(tx) as Prisma.TransactionClient), options,
+  ));
+}
+
 export const db = guardedClient(extended) as typeof extended;
 export type ExtendedPrismaClient = typeof db;

@@ -1,6 +1,6 @@
 # Persistent maintenance admission
 
-This boundary now fences the supported application DB, runtime-file, startup, background-session and deletion-script writers listed below. It is **not complete option C recovery**: persistent preimages, reconciliation, asset format/restore wiring, Decimal/JSON-null fidelity and independent PostgreSQL/browser/crash proof remain outstanding. Do not activate it for restoration yet.
+This boundary now fences the supported application DB, runtime-file, startup, background-session and deletion-script writers listed below. It is **not complete option C recovery**: persistent preimages, reconciliation, asset format/restore wiring and independent PostgreSQL/browser/crash proof remain outstanding. The bounded 2.1.0 snapshot fidelity repair has deterministic coverage only. Do not activate it for restoration yet.
 
 ## Public contracts
 
@@ -39,7 +39,7 @@ The recovery callback is a trusted in-process owner capability, not a general sa
 - Interactive `$transaction` holds admission around the entire callback **and commit**, including non-DB awaits. Its callback receives a guarded client.
 - Array `$transaction` unwraps only this wrapper's private promise mapping before passing to Prisma, preserving batch `requestTransaction` binding. Admission covers the whole batch and commit. No unguarded base client is exported; `$extends` and `$parent` return guarded clients, not an admission bypass.
 - Custom client extension methods (ordinary and `$`-prefixed) receive the guarded client as `this`. Their synchronous values and lazy PrismaPromise returns are not converted to native promises; queries through `this` remain admitted, including in array transactions. Native `$connect`, `$disconnect` and `$on` keep their required native receiver.
-- Existing per-field monetary Number result overrides remain unchanged. **This does not fix backup Decimal precision.**
+- Existing per-field monetary Number result overrides remain unchanged. The internal `withCompanyBackupTransaction<T>(callback: (tx: Prisma.TransactionClient) => Promise<T>, options?)` uses the private unextended base transaction for company export/preview/replacement/safety capture only. It encloses callback and commit in the same `withRuntimeOperation` lease/owned-recovery guard and exposes a guarded transaction, never an unguarded client. Isolation/maxWait/timeout options pass through unchanged. Format 2.1.0 stores canonical Decimal(18,2) strings and explicit nullable-JSON provenance; see `company-backup-recovery.md`. Real Prisma/PostgreSQL acceptance remains required.
 - Node instrumentation acquires admission before runtime initialization, PDF setup, DB optimization, metric reset and cleanup scheduling. `initRuntimeData()` remains synchronous for its filesystem effects; its asynchronous AI integrity check uses runtime admission separately.
 - Background cleanup owns runtime admission for each invocation. Scheduling cleanup itself is synchronously guarded; expired timer context must reacquire.
 - Onboarding covers the whole DB transaction and JSON configuration write with one outer runtime operation.

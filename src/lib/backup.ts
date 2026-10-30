@@ -1,10 +1,13 @@
-import { db } from '@/lib/db';
+import { db, withCompanyBackupTransaction } from '@/lib/db';
+import type { Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { hashPassword } from './auth';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-import { BACKUP_DIR, RUNTIME_FILES } from '@/lib/config/paths';
+import { RUNTIME_FILES } from '@/lib/config/paths';
+import { COMPANY_BACKUP_VERSION, sealSnapshot, canonicalizeSnapshotMoney, captureSnapshotFidelity, type SnapshotIntegrity, type SnapshotFidelity } from './backup-format';
+import { readCatalog, writeCatalog, publishBackup, readBackupText, removeBackupFile, readCompanyConfig, validBackupFilename } from './backup-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
 // JH2: pure chain-verdict (no DB access) — restore certifies the chain head
@@ -15,6 +18,11 @@ import { buildChainVerdict, type ChainRow } from './journal-hash';
 
 export interface BackupManifest {
   version: string;
+  /** v2 export identity survives loss of the catalog. */
+  id?: string;
+  integrity?: SnapshotIntegrity;
+  /** Required in 2.1.0, absent in legacy files. */
+  fidelity?: SnapshotFidelity;
   createdAt: string;
   companyId: string;
   companyInfo: {
@@ -36,6 +44,14 @@ export interface BackupManifest {
     users: number;
     systemConfig: number;
     companyConfig: boolean;
+    entityContexts?: number;
+    detectionConfigs?: number;
+    companyModuleEntitlements?: number;
+    csvLayoutProfiles?: number;
+    ruleApplyRecords?: number;
+    ruleExecutionAudits?: number;
+    auditLogs?: number;
+    pendingApprovals?: number;
     // D10-E: reconciliation subsystem counts (optional for legacy 1.0.0 backups)
     reconciliationPeriods?: number;
     companyKnowledge?: number;
@@ -69,6 +85,15 @@ export interface BackupData {
     users: Record<string, unknown>[];
     systemConfig: Record<string, unknown>[];
     companyConfig: Record<string, unknown> | null;
+    // Mandatory in v2, optional only for legacy format readers.
+    entityContexts?: Record<string, unknown>[];
+    detectionConfigs?: Record<string, unknown>[];
+    companyModuleEntitlements?: Record<string, unknown>[];
+    csvLayoutProfiles?: Record<string, unknown>[];
+    ruleApplyRecords?: Record<string, unknown>[];
+    ruleExecutionAudits?: Record<string, unknown>[];
+    auditLogs?: Record<string, unknown>[];
+    pendingApprovals?: Record<string, unknown>[];
     // D10-E: reconciliation subsystem data (optional for legacy 1.0.0 backups)
     reconciliationPeriods?: Record<string, unknown>[];
     companyKnowledge?: Record<string, unknown>[];
@@ -121,8 +146,7 @@ interface ManifestFile {
 
 /* ─── Constants ───────────────────────────────────────────────────── */
 
-const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
-const BACKUP_VERSION = '1.1.0';
+const BACKUP_VERSION = COMPANY_BACKUP_VERSION;
 
 /**
  * H-DR-1C: true when the backup manifest version carries Memory Core
@@ -150,32 +174,12 @@ function backupVersionAtLeast(version: string, target: string): boolean {
 
 /* ─── Helpers ─────────────────────────────────────────────────────── */
 
-function ensureBackupDir(): void {
-  if (!fs.existsSync(BACKUP_DIR)) {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
-  }
-}
-
 function readManifest(): ManifestFile {
-  ensureBackupDir();
-  if (!fs.existsSync(MANIFEST_PATH)) {
-    return { backups: [] };
-  }
-  try {
-    const raw = fs.readFileSync(MANIFEST_PATH, 'utf-8');
-    return JSON.parse(raw) as ManifestFile;
-  } catch (err) {
-    logger.warn('[BACKUP MANIFEST] Parse error — resetting manifest', {
-      error: String(err),
-      path: MANIFEST_PATH,
-    });
-    return { backups: [] };
-  }
+  return readCatalog();
 }
 
 function writeManifest(manifest: ManifestFile): void {
-  ensureBackupDir();
-  fs.writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2), 'utf-8');
+  writeCatalog(manifest);
 }
 
 const RESTORE_EXCLUDED_KEYS = new Set([
@@ -271,8 +275,8 @@ export function filterSensitiveSystemConfig(
 }
 
 /**
- * Create a full backup of all company data.
- * Returns the backup data and saves it to disk.
+ * Export a versioned company database snapshot and its runtime configuration.
+ * Returns identical saved/download bytes; v2 recovery is deliberately gated.
  */
 export async function createBackup(companyId: string): Promise<{
   id: string;
@@ -282,7 +286,40 @@ export async function createBackup(companyId: string): Promise<{
   data: string;
   recordCounts: BackupManifest['recordCounts'];
 }> {
-  // Verify company exists
+  if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) throw new Error('Invalid company identifier');
+  const companyConfig = readCompanyConfig(companyId);
+  const snapshot = await withCompanyBackupTransaction(
+    (tx) => captureCompanySnapshot(tx, companyId, companyConfig),
+    { isolationLevel: 'RepeatableRead' },
+  );
+  if (JSON.stringify(companyConfig) !== JSON.stringify(readCompanyConfig(companyId))) {
+    throw new Error('Company configuration changed during snapshot');
+  }
+  const { backupData, backupId, filename, recordCounts, createdAt } = snapshot;
+  sealSnapshot(backupData);
+  const jsonString = JSON.stringify(backupData, null, 2);
+  const size = Buffer.byteLength(jsonString, 'utf-8');
+  publishBackup(filename, jsonString);
+
+  return {
+    id: backupId,
+    filename,
+    size,
+    createdAt,
+    data: Buffer.from(jsonString, 'utf-8').toString('base64'),
+    recordCounts,
+  };
+}
+
+export type CompanySnapshotClient = Prisma.TransactionClient;
+
+/** Shared snapshot builder: callers supply the guarded unextended transaction and config slice. */
+export async function captureCompanySnapshot(
+  db: CompanySnapshotClient,
+  companyId: string,
+  companyConfig: Record<string, unknown> | null,
+) {
+  // Every database read, including company, actors and chain head, uses this snapshot.
   const company = await db.company.findUnique({
     where: { id: companyId },
   });
@@ -359,11 +396,23 @@ export async function createBackup(companyId: string): Promise<{
     db.systemMemory.findMany({ where: { companyId } }),
     db.memoryItem.findMany({ where: { companyId } }),
     db.memoryVersion.findMany({ where: { item: { companyId } } }),
-    db.relationship.findMany({ where: { source: { companyId } } }),
-    db.contradiction.findMany({ where: { itemA: { companyId } } }),
-    db.evolutionLink.findMany({ where: { superseded: { companyId } } }),
+    db.relationship.findMany({ where: { OR: [{ source: { companyId } }, { target: { companyId } }] } }),
+    db.contradiction.findMany({ where: { OR: [{ itemA: { companyId } }, { itemB: { companyId } }] } }),
+    db.evolutionLink.findMany({ where: { OR: [{ superseded: { companyId } }, { supersedingBy: { companyId } }] } }),
     db.traceabilityLog.findMany({ where: { item: { companyId } } }),
     db.confidenceLog.findMany({ where: { item: { companyId } } }),
+  ]);
+
+  const [entityContexts, detectionConfigs, companyModuleEntitlements, csvLayoutProfiles,
+    ruleApplyRecords, ruleExecutionAudits, auditLogs, pendingApprovals] = await Promise.all([
+    db.entityContext.findMany({ where: { companyId } }),
+    db.detectionConfig.findMany({ where: { companyId } }),
+    db.companyModuleEntitlement.findMany({ where: { companyId } }),
+    db.csvLayoutProfile.findMany({ where: { companyId } }),
+    db.ruleApplyRecord.findMany({ where: { companyId } }),
+    db.ruleExecutionAudit.findMany({ where: { companyId } }),
+    db.auditLog.findMany({ where: { companyId } }),
+    db.pendingApproval.findMany({ where: { companyId } }),
   ]);
 
   // H-DR-1C: Memory Core graph edges have no direct companyId (they reference
@@ -426,7 +475,12 @@ export async function createBackup(companyId: string): Promise<{
   });
 
   // Collect unique user IDs from company members
-  const userIds = [...new Set(companyMembers.map((m) => m.userId))];
+  const userIds = [...new Set([
+    ...companyMembers.map((m) => m.userId),
+    ...reconciliationPeriods.map((row) => row.userId),
+    ...ruleApplyRecords.map((row) => row.userId),
+    ...auditLogs.flatMap((row) => row.userId ? [row.userId] : []),
+  ])];
   const users =
     userIds.length > 0
       ? await db.user.findMany({
@@ -451,25 +505,8 @@ export async function createBackup(companyId: string): Promise<{
         })
       : [];
 
-  // Fetch SystemConfig (exclude AI config keys — they are environment-specific)
-  const allSystemConfig = await db.systemConfig.findMany();
-  const systemConfig = filterSensitiveSystemConfig(allSystemConfig);
-
-  // Read company-config.json (currency, periodType)
-  const configPath = RUNTIME_FILES.companyConfig;
-  let companyConfig: Record<string, unknown> | null = null;
-  try {
-    if (fs.existsSync(configPath)) {
-      const allConfig = JSON.parse(fs.readFileSync(configPath, 'utf8')) as {
-        companies?: Record<string, unknown>;
-      };
-      if (allConfig.companies?.[companyId]) {
-        companyConfig = allConfig.companies[companyId] as Record<string, unknown>;
-      }
-    }
-  } catch {
-    // Config file missing or corrupt — backup continues without it
-  }
+  // Global configuration is never company-restorable state, even non-secret keys.
+  const systemConfig: Record<string, unknown>[] = [];
 
   // Collect statement IDs for filtering transactions
   const statementIds = bankStatements.map((s) => s.id);
@@ -481,8 +518,7 @@ export async function createBackup(companyId: string): Promise<{
 
   const now = new Date();
   const backupId = crypto.randomUUID();
-  const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const filename = `${companyId}_${timestamp}.json`;
+  const filename = `${companyId}_${backupId}.json`;
 
   const recordCounts = {
     company: 1,
@@ -498,6 +534,14 @@ export async function createBackup(companyId: string): Promise<{
     users: users.length,
     systemConfig: systemConfig.length,
     companyConfig: companyConfig !== null,
+    entityContexts: entityContexts.length,
+    detectionConfigs: detectionConfigs.length,
+    companyModuleEntitlements: companyModuleEntitlements.length,
+    csvLayoutProfiles: csvLayoutProfiles.length,
+    ruleApplyRecords: ruleApplyRecords.length,
+    ruleExecutionAudits: ruleExecutionAudits.length,
+    auditLogs: auditLogs.length,
+    pendingApprovals: pendingApprovals.length,
     // D10-E: reconcile + knowledge subsystem counts
     reconciliationPeriods: reconciliationPeriods.length,
     companyKnowledge: companyKnowledge.length,
@@ -516,6 +560,7 @@ export async function createBackup(companyId: string): Promise<{
   const backupData: BackupData = {
     manifest: {
       version: BACKUP_VERSION,
+      id: backupId,
       createdAt: now.toISOString(),
       companyId,
       companyInfo: {
@@ -551,6 +596,14 @@ export async function createBackup(companyId: string): Promise<{
       }),
       systemConfig: systemConfig.map((c) => JSON.parse(JSON.stringify(c))),
       companyConfig,
+      entityContexts: JSON.parse(JSON.stringify(entityContexts)),
+      detectionConfigs: JSON.parse(JSON.stringify(detectionConfigs)),
+      companyModuleEntitlements: JSON.parse(JSON.stringify(companyModuleEntitlements)),
+      csvLayoutProfiles: JSON.parse(JSON.stringify(csvLayoutProfiles)),
+      ruleApplyRecords: JSON.parse(JSON.stringify(ruleApplyRecords)),
+      ruleExecutionAudits: JSON.parse(JSON.stringify(ruleExecutionAudits)),
+      auditLogs: JSON.parse(JSON.stringify(auditLogs)),
+      pendingApprovals: JSON.parse(JSON.stringify(pendingApprovals)),
       // D10-E: reconcile + knowledge subsystem data
       reconciliationPeriods: reconciliationPeriods.map((r) =>
         JSON.parse(JSON.stringify(r)),
@@ -577,34 +630,9 @@ export async function createBackup(companyId: string): Promise<{
     },
   };
 
-  const jsonString = JSON.stringify(backupData, null, 2);
-  const size = Buffer.byteLength(jsonString, 'utf-8');
-
-  // Save to file
-  ensureBackupDir();
-  fs.writeFileSync(path.join(BACKUP_DIR, filename), jsonString, 'utf-8');
-
-  // Update manifest
-  const manifest = readManifest();
-  manifest.backups.push({
-    id: backupId,
-    filename,
-    companyId,
-    size,
-    createdAt: now.toISOString(),
-    companyLegalName: company.legalName,
-    recordCounts,
-  });
-  writeManifest(manifest);
-
-  return {
-    id: backupId,
-    filename,
-    size,
-    createdAt: now.toISOString(),
-    data: Buffer.from(jsonString, 'utf-8').toString('base64'),
-    recordCounts,
-  };
+  canonicalizeSnapshotMoney(backupData);
+  backupData.manifest.fidelity = await captureSnapshotFidelity(db, backupData);
+  return { backupData, backupId, filename, recordCounts, createdAt: now.toISOString() };
 }
 
 /**
@@ -632,25 +660,7 @@ export function listBackups(companyId: string): BackupRecord[] {
  * Get a specific backup file as a string.
  */
 export function getBackupFile(filename: string): { data: string; size: number } | null {
-  ensureBackupDir();
-  const filePath = path.join(BACKUP_DIR, filename);
-
-  // Security: prevent directory traversal
-  const resolved = path.resolve(filePath);
-  const resolvedDir = path.resolve(BACKUP_DIR);
-  if (!resolved.startsWith(resolvedDir)) {
-    return null;
-  }
-
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-
-  const jsonString = fs.readFileSync(filePath, 'utf-8');
-  return {
-    data: jsonString,
-    size: Buffer.byteLength(jsonString, 'utf-8'),
-  };
+  return readBackupText(filename);
 }
 
 export type DeleteBackupResult =
@@ -661,21 +671,13 @@ export type DeleteBackupResult =
 /**
  * Delete a specific backup file, scoped to a single tenant.
  *
- * Ownership is anchored to the manifest: a request filename is only accepted
- * when it matches exactly one manifest entry (filename + companyId). The
- * manifest is the single source of truth written by createBackup, so an
- * attacker cannot forge an entry or reach another tenant's file by path
- * normalization.
+ * Ownership is anchored to validated on-disk company metadata, not the
+ * replaceable index. Caller authorization is still required: an unkeyed
+ * checksum detects corruption, not a hostile local writer forging ownership.
  */
 export function deleteBackup(filename: string, companyId: string): DeleteBackupResult {
   // A. Format gate — reject separators, traversal and non-backup names.
-  if (
-    !filename ||
-    filename.includes('/') ||
-    filename.includes('\\') ||
-    filename.includes('..') ||
-    !filename.endsWith('.json')
-  ) {
+  if (!validBackupFilename(filename)) {
     return { status: 'invalid' };
   }
 
@@ -688,22 +690,8 @@ export function deleteBackup(filename: string, companyId: string): DeleteBackupR
     return { status: 'not_found' };
   }
 
-  // C. Defense-in-depth: resolved path must stay strictly inside BACKUP_DIR.
-  const filePath = path.join(BACKUP_DIR, entry.filename);
-  const resolved = path.resolve(filePath);
-  const resolvedDir = path.resolve(BACKUP_DIR);
-  const relative = path.relative(resolvedDir, resolved);
-  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
-    return { status: 'not_found' };
-  }
-
-  // D. Physical file must exist.
-  if (!fs.existsSync(filePath)) {
-    return { status: 'not_found' };
-  }
-
-  // E. Delete the exact authorized file, then remove only its manifest entry.
-  fs.unlinkSync(filePath);
+  // Physical ownership is rechecked without following links.
+  if (!removeBackupFile(entry.filename)) return { status: 'not_found' };
   manifest.backups = manifest.backups.filter(
     (b) => !(b.filename === entry.filename && b.companyId === entry.companyId),
   );
@@ -725,6 +713,9 @@ export function validateBackup(backupData: BackupData): { valid: boolean; errors
 
   if (!backupData.manifest.version) {
     errors.push('Missing backup version');
+  } else if (!['1.0.0', '1.1.0'].includes(backupData.manifest.version)) {
+    // T1 exports mandatory data that the legacy restore cannot safely consume.
+    return { valid: false, errors: [`Backup format ${backupData.manifest.version} requires the company recovery implementation; legacy restore is not supported`] };
   }
 
   if (!backupData.manifest.companyId) {

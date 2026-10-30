@@ -1,5 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
+import { withRuntimeOperationSync } from '../../../lib/backup-maintenance.js';
 import { checkProtected, isOperationAllowed } from '../protected-zones';
 import type { ExecutionContract, Effect } from '../types';
 import type { Driver, DriverResult } from '../execute';
@@ -28,6 +29,14 @@ export class FileResource implements Driver {
   }
 
   execute(contract: ExecutionContract): DriverResult {
+    if (['modify', 'create', 'delete'].includes(contract.operation)) {
+      try { return withRuntimeOperationSync(() => this.executeAdmitted(contract)); }
+      catch (error) { return { success: false, error: error instanceof Error ? error.message : 'Maintenance admission unavailable' }; }
+    }
+    return this.executeAdmitted(contract);
+  }
+
+  private executeAdmitted(contract: ExecutionContract): DriverResult {
     const safe = this.safePath(contract.target);
     if (!safe.ok) {
       return { success: false, error: safe.error };

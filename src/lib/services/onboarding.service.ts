@@ -1,5 +1,6 @@
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
+import { withRuntimeOperation } from '../backup-maintenance.js';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';
@@ -45,7 +46,7 @@ export async function completeOnboarding(
   initialCashBalance?: number,
   userId?: string,
 ) {
-  return await db.$transaction(async (tx) => {
+  return withRuntimeOperation(() => db.$transaction(async (tx) => {
     // 1. Validar que la compañía exista
     const company = await tx.company.findUnique({
       where: { id: companyId },
@@ -239,5 +240,5 @@ export async function completeOnboarding(
       success: true,
       company: updatedCompany,
     };
-  });
+  }));
 }

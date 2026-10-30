@@ -4,6 +4,7 @@ import { DATA_ROOT } from '@/lib/config/paths';
 import { readFileSync, existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
+import { withRuntimeOperation } from '../backup-maintenance.js';
 
 let config: { logo: { maxSizeMB: number; allowedFormats: string[]; path: string } } = {
   logo: {
@@ -58,7 +59,11 @@ export async function loadInstalledLogo(filename: string): Promise<{ bytes: Uint
   }
 }
 
-export async function saveLogo(file: File): Promise<string> {
+export function saveLogo(file: File): Promise<string> {
+  return withRuntimeOperation(() => saveAdmittedLogo(file));
+}
+
+async function saveAdmittedLogo(file: File): Promise<string> {
   const buffer = Buffer.from(await file.arrayBuffer());
   const sizeMB = buffer.length / (1024 * 1024);
 
@@ -82,7 +87,11 @@ export async function saveLogo(file: File): Promise<string> {
   return `/uploads/logos/${filename}`;
 }
 
-export async function deleteLogo(relativePath: string): Promise<void> {
+export function deleteLogo(relativePath: string): Promise<void> {
+  return withRuntimeOperation(() => deleteAdmittedLogo(relativePath));
+}
+
+async function deleteAdmittedLogo(relativePath: string): Promise<void> {
   if (!relativePath || !relativePath.startsWith('/uploads/logos/')) return;
   const filename = relativePath.slice('/uploads/logos/'.length);
   if (DATA_ROOT && !installedName.test(filename)) return;

@@ -1,38 +1,5 @@
 import path from 'path';
-import fs from 'fs';
-
-const invalidDataRoot = 'ACCOUNTEXPRESS_DATA_DIR must be an absolute directory separate from program files.';
-
-function realLocation(input: string): string {
-  let ancestor = path.resolve(input);
-  const missing: string[] = [];
-  while (!fs.existsSync(ancestor)) {
-    missing.unshift(path.basename(ancestor));
-    const parent = path.dirname(ancestor);
-    if (parent === ancestor) throw new Error(invalidDataRoot);
-    ancestor = parent;
-  }
-  if (!fs.statSync(ancestor).isDirectory()) throw new Error(invalidDataRoot);
-  return path.join(fs.realpathSync.native(ancestor), ...missing);
-}
-
-function contains(parent: string, child: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`));
-}
-
-function configuredDataRoot(): string | undefined {
-  const value = process.env.ACCOUNTEXPRESS_DATA_DIR;
-  if (!value) return undefined;
-  if (!path.isAbsolute(value) || /[\x00-\x1f\x7f]/.test(value)) throw new Error(invalidDataRoot);
-  if (process.platform === 'win32' && (!/^[a-z]:[\\/]/i.test(value) || value.slice(3).split(/[\\/]/).filter(Boolean).some(part =>
-    /[<>:"|?*]/.test(part) || /[. ]$/.test(part) || /^(CON|PRN|AUX|NUL|CONIN\$|CONOUT\$|COM[1-9¹²³]|LPT[1-9¹²³])(?:\.|$)/i.test(part)))) throw new Error(invalidDataRoot);
-  const selected = path.resolve(value);
-  if (selected === path.parse(selected).root) throw new Error(invalidDataRoot);
-  const data = realLocation(selected), program = realLocation(process.cwd());
-  if (data === path.parse(data).root || contains(data, program) || contains(program, data)) throw new Error(invalidDataRoot);
-  return data;
-}
+import { configuredDataRoot } from '../backup-maintenance.mjs';
 
 // Optional installed-instance storage; unset keeps the original development paths.
 export const DATA_ROOT = configuredDataRoot();

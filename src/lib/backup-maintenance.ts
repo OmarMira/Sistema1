@@ -7,5 +7,7 @@ import { createMaintenanceGate } from './backup-maintenance.mjs';
 const gate = createMaintenanceGate(path.join(RUNTIME_DIR, 'backup-maintenance'));
 export const acquireNormalOperation = () => gate.acquireNormalOperation();
 export const withNormalOperation: typeof gate.withNormalOperation = fn => gate.withNormalOperation(fn);
+export const withRuntimeOperation: typeof gate.withRuntimeOperation = fn => gate.withRuntimeOperation(fn);
+export const withRuntimeOperationSync: typeof gate.withRuntimeOperationSync = fn => gate.withRuntimeOperationSync(fn);
 export const maintenanceStatus = () => gate.status();
 export const beginMaintenance = () => gate.beginMaintenance();

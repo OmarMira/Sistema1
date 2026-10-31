@@ -16,6 +16,7 @@ import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
 import { downloadBackup } from '@/lib/backup-download';
+import { previewCompanyRestore } from '@/lib/backup-restore';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -54,6 +55,7 @@ export function BackupPage() {
   const [downloading, setDownloading] = useState<string | null>(null);
   const [restoringFromList, setRestoringFromList] = useState<string | null>(null);
   const [showRestoreHistoryConfirm, setShowRestoreHistoryConfirm] = useState<BackupRecord | null>(null);
+  const [restorePreview, setRestorePreview] = useState<{ checksum: string; counts: BackupRecord; ids: object; blockers: string[] } | null>(null);
   const mountedRef = useRef(true);
 
   // Fetch backups
@@ -160,28 +162,72 @@ export function BackupPage() {
   // Restore from file
   async function handleRestore() {
     if (!companyId || !restoreFile) return;
-    setRestoring(true);
-    setRestoreProgress(10);
-    setShowRestoreConfirm(false);
 
     try {
-      setRestoreProgress(30);
-      const formData = new FormData();
-      formData.append('companyId', companyId);
-      formData.append('file', restoreFile);
+      setRestoring(true);
+      setRestoreProgress(10);
+      setShowRestoreConfirm(false);
 
-      setRestoreProgress(50);
+      const fileBuffer = await restoreFile.arrayBuffer();
+      const jsonString = new TextDecoder().decode(fileBuffer);
+      const parsed = JSON.parse(jsonString);
+      const previewData = JSON.stringify({ data: parsed.data ?? parsed });
+
+      setRestoreProgress(30);
+      const previewRes = await fetch('/api/backup/restore/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: previewData,
+      });
+
+      if (!previewRes.ok) {
+        const err = await previewRes.json();
+        toast.error(t('settings.backup.restoreFailed'), { description: err.error });
+        setRestoring(false);
+        setRestoreProgress(0);
+        return;
+      }
+
+      const preview = await previewRes.json();
+      setRestorePreview({
+        checksum: preview.checksum,
+        counts: preview.counts,
+        ids: preview.ids,
+        blockers: preview.blockers,
+      });
+
+      setShowRestoreConfirm(true);
+    } catch {
+      toast.error(t('settings.backup.restoreFailed'));
+    }
+  }
+
+  async function executeRestore() {
+    if (!companyId || !restoreFile) return;
+    setShowRestoreConfirm(false);
+    setRestorePreview(null);
+
+    try {
+      setRestoring(true);
+      setRestoreProgress(30);
+
+      const fileBuffer = await restoreFile.arrayBuffer();
+      const jsonString = new TextDecoder().decode(fileBuffer);
+      const parsed = JSON.parse(jsonString);
+      const data = parsed.data ?? parsed;
+
       const res = await fetch('/api/backup/restore', {
         method: 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data }),
       });
 
       setRestoreProgress(80);
-      const data = await res.json();
+      const result = await res.json();
 
       if (res.ok) {
         setRestoreProgress(100);
-        const totalRecords = (Object.values(data.restoredCounts) as number[]).reduce(
+        const totalRecords = (Object.values(result.counts ?? {} ) as number[]).reduce(
           (a, b) => a + b,
           0,
         );
@@ -192,7 +238,7 @@ export function BackupPage() {
         await fetchBackups();
       } else {
         toast.error(t('settings.backup.restoreFailed'), {
-          description: data.error,
+          description: result.error,
         });
       }
     } catch {
@@ -205,11 +251,12 @@ export function BackupPage() {
   // Restore from history
   async function handleRestoreFromHistory(backup: BackupRecord) {
     if (!companyId) return;
-    setRestoringFromList(backup.id);
-    setShowRestoreHistoryConfirm(null);
-    setRestoreProgress(10);
 
     try {
+      setRestoringFromList(backup.id);
+      setRestoreProgress(10);
+      setShowRestoreHistoryConfirm(null);
+
       setRestoreProgress(30);
       const res = await fetch(
         `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
@@ -220,39 +267,36 @@ export function BackupPage() {
       const data = await res.json();
       if (!data.data) throw new Error('No backup data');
 
-      setRestoreProgress(70);
-      const restoreRes = await fetch('/api/backup/restore', {
+      setRestoreProgress(60);
+      const previewRes = await fetch('/api/backup/restore/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: data.data }),
       });
 
-      setRestoreProgress(90);
-      const result = await restoreRes.json();
-
-      if (restoreRes.ok) {
-        setRestoreProgress(100);
-        const totalRecords = (Object.values(result.restoredCounts) as number[]).reduce(
-          (a, b) => a + b,
-          0,
-        );
-        toast.success(t('settings.backup.restoreSuccess'), {
-          description: `${totalRecords} ${t('settings.backup.records')}`,
-        });
-        await fetchBackups();
-      } else {
-        toast.error(t('settings.backup.restoreFailed'), {
-          description: result.error,
-        });
+      if (!previewRes.ok) {
+        const err = await previewRes.json();
+        toast.error(t('settings.backup.restoreFailed'), { description: err.error });
+        setRestoringFromList(null);
+        setRestoreProgress(0);
+        return;
       }
+
+      const preview = await previewRes.json();
+      setRestorePreview({
+        checksum: preview.checksum,
+        counts: preview.counts,
+        ids: preview.ids,
+        blockers: preview.blockers,
+      });
+
+      setShowRestoreHistoryConfirm(backup);
     } catch {
       toast.error(t('settings.backup.restoreFailed'));
     }
-    setRestoringFromList(null);
-    setRestoreProgress(0);
   }
 
-  // Restore progress overlay
+  // Note: history restore preview stored in restorePreview; executeRestore handles both
   const showRestoreOverlay = restoring || restoringFromList !== null;
 
   return (
@@ -429,10 +473,11 @@ export function BackupPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={handleRestore}
+              onClick={executeRestore}
+              disabled={restoring}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {t('settings.backup.restoreBackup')}
+              {restoring ? (t('settings.backup.restoring')) : (t('settings.backup.restoreBackup'))}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -467,9 +512,7 @@ export function BackupPage() {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
-              onClick={() =>
-                showRestoreHistoryConfirm && handleRestoreFromHistory(showRestoreHistoryConfirm)
-              }
+              onClick={executeRestore}
               disabled={restoringFromList !== null}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
@@ -482,6 +525,28 @@ export function BackupPage() {
                 t('settings.backup.restoreBackup')
               )}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Preview info in dialog */}
+      <AlertDialog open={!!restorePreview} onOpenChange={(open) => !open && setRestorePreview(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restore Preview</AlertDialogTitle>
+          </AlertDialogHeader>
+          {restorePreview && (
+            <div className="text-xs space-y-1">
+              <p>Checksum: {restorePreview.checksum}</p>
+              <p>Counts: {JSON.stringify(restorePreview.counts)}</p>
+              {restorePreview.blockers.length > 0 && (
+                <p className="text-red-600">Blockers: {restorePreview.blockers.join(', ')}</p>
+              )}
+            </div>
+          )}
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setRestorePreview(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setRestorePreview(null); setShowRestoreConfirm(true); }}>Confirm</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

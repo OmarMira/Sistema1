@@ -3,7 +3,8 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
-import { restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
+import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
+import { validateBackup, type BackupData } from '@/lib/backup';
 
 /**
  * POST /api/backup/restore — Restore from backup
@@ -89,22 +90,19 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
   // when the authenticated actor is itself a global super_admin (RC2-3). The
   // authority context is derived from the current DB user, never from the
   // backup payload.
-  const actor = await db.user.findUnique({
-    where: { id: userId },
-    select: { platformRole: true },
-  });
-  const restoringActorIsSuperAdmin = actor?.platformRole === 'super_admin';
-  const result = await restoreBackup(companyId, backupData, userId, {
-    restoringActorIsSuperAdmin,
-  });
+  const result = await restoreCompanyBackupCoordinated(companyId, JSON.stringify(backupData));
 
-  if (!result.success) {
-    return NextResponse.json({ error: result.message }, { status: 400 });
+  if (result.status === 'aborted' || result.status === 'reconciliation_required') {
+    return NextResponse.json({ error: result.error ?? 'Restore failed', status: result.status }, { status: 400 });
   }
 
   return NextResponse.json({
     success: true,
-    message: result.message,
-    restoredCounts: result.restoredCounts,
+    scope: result.scope,
+    status: result.status,
+    message: 'Restore completed',
+    restoredCounts: result.counts,
+    operationId: result.operationId,
+    safetyFilename: result.safetyFilename,
   });
 });

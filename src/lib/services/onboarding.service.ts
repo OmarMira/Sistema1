@@ -1,6 +1,6 @@
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
-import { withRuntimeOperation } from '../backup-maintenance.js';
+import { withRuntimeOperation } from '../backup-runtime-maintenance';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';

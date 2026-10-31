@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { DATA_ROOT, RUNTIME_DIR, RUNTIME_FILES, LEGACY_FILES, DEFAULT_TEMPLATES } from '@/lib/config/paths';
 import { logger } from '@/lib/logger';
-import { withRuntimeOperation, withRuntimeOperationSync } from './backup-maintenance.js';
+import { withRuntimeOperation, withRuntimeOperationSync } from './backup-runtime-maintenance';
 
 function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) {

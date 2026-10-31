@@ -1,6 +1,6 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import { withRuntimeOperationSync } from '../../../lib/backup-maintenance.js';
+import { withRuntimeOperationSync } from '../../../lib/backup-runtime-maintenance';
 import { checkProtected, isOperationAllowed } from '../protected-zones';
 import type { ExecutionContract, Effect } from '../types';
 import type { Driver, DriverResult } from '../execute';

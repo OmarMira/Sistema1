@@ -7,7 +7,7 @@ import { getClientIp } from './security/client-ip';
 import { db } from './db';
 import { requestContext } from './context-storage';
 import { logger } from './logger';
-import { acquireNormalOperation } from './backup-maintenance.js';
+import { acquireNormalOperation } from './backup-runtime-maintenance';
 
 const API_SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',

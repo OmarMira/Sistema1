@@ -4,7 +4,7 @@ import { DATA_ROOT } from '@/lib/config/paths';
 import { readFileSync, existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
-import { withRuntimeOperation } from '../backup-maintenance.js';
+import { withRuntimeOperation } from '../backup-runtime-maintenance';
 
 let config: { logo: { maxSizeMB: number; allowedFormats: string[]; path: string } } = {
   logo: {

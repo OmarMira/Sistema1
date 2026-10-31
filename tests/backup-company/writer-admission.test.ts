@@ -12,7 +12,7 @@ vi.mock('../../src/lib/config/paths', () => ({
   get LEGACY_FILES() { return { companyConfig: path.join(state.root, 'legacy.json') }; },
   get DEFAULT_TEMPLATES() { return { companyConfig: path.join(state.root, 'default.json') }; },
 }));
-vi.mock('../../src/lib/backup-maintenance.ts', () => ({
+vi.mock('../../src/lib/backup-runtime-maintenance', () => ({
   acquireNormalOperation: () => state.gate.acquireNormalOperation(),
   withNormalOperation: (fn: any) => state.gate.withNormalOperation(fn),
   withRuntimeOperation: (fn: any) => state.gate.withRuntimeOperation(fn),

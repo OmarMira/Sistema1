@@ -4,7 +4,7 @@ import path from 'node:path';
 import { NextRequest, NextResponse } from 'next/server';
 import { createMaintenanceGate } from '../../src/lib/backup-maintenance.mjs';
 const mocks = vi.hoisted(() => ({ session: vi.fn(), user: vi.fn(), access: vi.fn(), rate: vi.fn(), acquire: vi.fn() }));
-vi.mock('../../src/lib/backup-maintenance.ts', () => ({ acquireNormalOperation: mocks.acquire }));
+vi.mock('../../src/lib/backup-runtime-maintenance', () => ({ acquireNormalOperation: mocks.acquire }));
 vi.mock('../../src/lib/sessions', () => ({ getSessionUserId: mocks.session }));
 vi.mock('../../src/lib/db', () => ({ db: { user: { findUnique: mocks.user } } }));
 vi.mock('../../src/lib/rbac', () => ({ requireActiveTenantAccess: mocks.access }));

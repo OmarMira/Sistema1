@@ -1,6 +1,6 @@
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import { withRuntimeOperation, withRuntimeOperationSync } from '../backup-maintenance.js';
+import { withRuntimeOperation, withRuntimeOperationSync } from '../backup-runtime-maintenance';
 
 export async function cleanupExpiredSessions(): Promise<void> {
   try {

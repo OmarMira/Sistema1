@@ -16,7 +16,7 @@ export async function register() {
 
   // 2️⃣ Node.js Runtime Config & Setup
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { withRuntimeOperation } = await import('./lib/backup-maintenance.js');
+    const { withRuntimeOperation } = await import('./lib/backup-runtime-maintenance');
     await withRuntimeOperation(registerNodeRuntime);
   }
 }

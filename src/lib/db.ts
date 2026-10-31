@@ -1,7 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { trackQueryDuration } from './metrics';
 import { logger } from './logger';
-import { withRuntimeOperation } from './backup-maintenance.js';
+import { withRuntimeOperation } from './backup-runtime-maintenance';
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;

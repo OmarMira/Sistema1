@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { destroySession, getSessionToken } from '@/lib/sessions';
-import { acquireNormalOperation } from '@/lib/backup-maintenance.js';
+import { acquireNormalOperation } from '@/lib/backup-runtime-maintenance';
 
 // ─── POST /api/auth/logout ────────────────────────────────────────────
 export async function POST(request: NextRequest) {

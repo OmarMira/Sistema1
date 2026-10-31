@@ -10,7 +10,7 @@ const state = vi.hoisted(() => ({
   writes: 0,
   lifecycle: [] as string[],
 }));
-vi.mock('../../src/lib/backup-maintenance.ts', () => ({
+vi.mock('../../src/lib/backup-runtime-maintenance', () => ({
   withRuntimeOperation: (operation: () => unknown) => state.gate.withRuntimeOperation(operation),
 }));
 vi.mock('../../src/lib/logger', () => ({

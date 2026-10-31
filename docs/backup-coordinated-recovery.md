@@ -25,6 +25,10 @@ A process crash may leave `recovery.json`. There is no timed or automatic lock t
 
 Do not delete maintenance markers, leases, journals or locks simply to reopen the application. Preserve the safety snapshot and intent until recovery has been confirmed.
 
+## Runtime import boundary
+
+Next.js application modules import `backup-runtime-maintenance` without an extension. This TypeScript facade creates the shared runtime gate and delegates to the explicitly imported plain-Node `backup-maintenance.mjs`. The old explicit `backup-maintenance.ts` path is a compatibility re-export. Do not import a nonexistent `backup-maintenance.js` or rely on extensionless resolution of the colliding `.ts`/`.mjs` basename.
+
 ## Observed checks
 
 The isolated deterministic suite passed 220 tests in 15 files after the release/recovery race correction. Scoped TypeScript and `git diff --check` passed. A baseline differential matched existing maintenance API outputs, errors and exit codes before that final correction. An independent verifier reproduced the race; its regression failed before the correction. Limited independent structural recheck found the exact race resolved, without rerunning tests. None of this establishes final PostgreSQL, browser, crash or complete feature acceptance.

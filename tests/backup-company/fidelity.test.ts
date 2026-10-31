@@ -19,7 +19,7 @@ vi.mock('@/lib/config/paths', () => ({ BACKUP_DIR: path.join(state.root, 'backup
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ logger: { slowQuery: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/metrics', () => ({ trackQueryDuration: vi.fn() }));
-vi.mock('@/lib/backup-maintenance.ts', () => ({ withRuntimeOperation: (fn: () => unknown) => state.gate.withRuntimeOperation(fn) }));
+vi.mock('@/lib/backup-runtime-maintenance', () => ({ withRuntimeOperation: (fn: () => unknown) => state.gate.withRuntimeOperation(fn) }));
 vi.mock('@prisma/client', async importOriginal => {
   const actual = await importOriginal<typeof import('@prisma/client')>();
   class PrismaClient {

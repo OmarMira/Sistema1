@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import type { BackupData } from './backup';
 import { Prisma } from '@prisma/client';
+import { validateCompanyLogo } from './backup-assets';
 
 export const COMPANY_BACKUP_VERSION = '2.1.0';
 export const isCompanyFormat = (version: string) => ['2.0.0', COMPANY_BACKUP_VERSION].includes(version);
@@ -230,6 +231,7 @@ export function parseSnapshot(text: string): BackupData {
       throw new Error('Invalid company snapshot configuration');
     }
   }
+  if (manifest.companyLogo !== undefined) validateCompanyLogo(data.company[0].logo, manifest.companyLogo);
   // Catalogs retain legacy ambiguous files; only the new format promises this
   // provenance. Restore separately checks whether a legacy source is lossless.
   if (manifest.version === COMPANY_BACKUP_VERSION) validateSnapshotFidelity(snapshot);

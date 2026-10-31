@@ -44,6 +44,14 @@ async function installedDirectory(): Promise<string> {
   }
 }
 
+/** Trusted mapping shared by recovery; archive URLs never become arbitrary paths. */
+export async function companyLogoArchiveTarget(url: string): Promise<string> {
+  if (!url.startsWith('/uploads/logos/')) throw new Error('BACKUP_ASSET: unsupported logo URL');
+  const filename = url.slice('/uploads/logos/'.length);
+  if (!installedName.test(filename)) throw new Error('BACKUP_ASSET: unsupported logo filename');
+  return join(DATA_ROOT ? await installedDirectory() : join(process.cwd(), config.logo.path), filename);
+}
+
 export async function loadInstalledLogo(filename: string): Promise<{ bytes: Uint8Array; type: string } | null> {
   if (!DATA_ROOT || !installedName.test(filename)) return null;
   try {

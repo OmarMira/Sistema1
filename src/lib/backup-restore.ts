@@ -1,4 +1,10 @@
 import crypto from 'node:crypto';
+import path from 'node:path';
+import { RUNTIME_FILES } from './config/paths';
+import { createMaintenanceGate } from './backup-maintenance.mjs';
+import { createRecoveryJournal, readRecoveryJournal } from './backup-recovery-journal';
+import { recoveryFileImage, companyConfigImage, reconcileRecoveryFiles } from './backup-recovery-files';
+import { planCompanyLogo, validateCompanyLogo, companyLogoRecoveryTarget } from './backup-assets';
 import { Prisma } from '@prisma/client';
 import { withCompanyBackupTransaction } from '@/lib/db';
 import { captureCompanySnapshot, type BackupData, type BackupManifest, type CompanySnapshotClient } from './backup';
@@ -85,6 +91,11 @@ export async function previewCompanyRestore(companyId: string, text: string): Pr
  * prerequisite check, NOT proof of a coordinated filesystem snapshot.
  */
 export async function restoreCompanyBackup(companyId: string, text: string): Promise<CompanyRestoreResult> {
+  return restoreDatabase(companyId, text);
+}
+
+type PrepareConfiguration = (operationId: string, checksum: string, safetyFilename: string) => void | Promise<void>;
+async function restoreDatabase(companyId: string, text: string, prepareConfiguration?: PrepareConfiguration): Promise<CompanyRestoreResult> {
   const source = validateRestoreSource(companyId, text);
   const operationId = crypto.randomUUID();
   let safetyFilename = '';
@@ -98,7 +109,12 @@ export async function restoreCompanyBackup(companyId: string, text: string): Pro
       const current = await readDestination(tx);
       const owned = validateRestoreDestination(source.tables, current, companyId);
       const config = readCompanyConfig(companyId);
-      const refused = blockers(source.snapshot, config, owned);
+      const refused = blockers(source.snapshot, config, owned).filter(() => !prepareConfiguration);
+      if (prepareConfiguration) {
+        validateCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo);
+        const logo = source.snapshot.data.company[0].logo;
+        if (logo && current.Company.some(row => row.id !== companyId && row.logo === logo)) throw new Error('RESTORE_ASSETS_REQUIRED: logo path shared with another company');
+      }
       if (refused.length) throw new Error(refused.join('; '));
       // The same existing snapshot builder enforces export inventory, graph
       // ownership and user-secret exclusion. Every read is in this transaction.
@@ -111,6 +127,7 @@ export async function restoreCompanyBackup(companyId: string, text: string): Pro
       // Recheck observed config changes before writes; this is deliberately not
       // described as a lock or crash-consistent cross-resource guarantee.
       if (!sameConfig(config, readCompanyConfig(companyId))) throw new Error('RESTORE_FILES_REQUIRED: configuration changed during safety publication');
+      await prepareConfiguration?.(operationId, source.snapshot.manifest.integrity!.digest, safetyFilename);
       mutationStarted = true;
       await replaceRows(tx, source.tables, owned, companyId, source.snapshot);
       const head = source.snapshot.data.journalChainHead;
@@ -130,6 +147,103 @@ export async function restoreCompanyBackup(companyId: string, text: string): Pro
     if (!mutationStarted) throw error; // Invalid input/publication failure: no DB writes started.
     return { status: 'not_confirmed', scope: 'database-only', operationId, safetyFilename,
       error: `Database outcome not confirmed; do not auto-retry or replay files. Inspect commit receipt ${operationId} and safety backup. ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+export interface CoordinatedRestoreResult extends Omit<CompanyRestoreResult, 'status' | 'scope'> {
+  status: 'committed' | 'aborted' | 'reconciliation_required';
+  scope: 'database-and-company-config';
+}
+
+/** Internal service entry point, not HTTP authority. Keeps admission closed on
+ * any uncertain commit/file outcome. Logos require exact checksummed archive
+ * bytes and a trusted installed target mapping; legacy missing bytes fail closed.
+ */
+export async function restoreCompanyBackupCoordinated(companyId: string, text: string): Promise<CoordinatedRestoreResult> {
+  const source = validateRestoreSource(companyId, text);
+  validateCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo);
+  const runtime = path.dirname(RUNTIME_FILES.companyConfig);
+  const journalRoot = path.join(runtime, 'backup-recovery');
+  const gate = createMaintenanceGate(path.join(runtime, 'backup-maintenance'));
+  const owner = gate.beginMaintenance();
+  let journalStarted = false;
+  let intentOperationId = '';
+  let intentSafetyFilename = '';
+  let result: CompanyRestoreResult | undefined;
+  try {
+    await owner.drain({ timeoutMs: 5000 });
+    return await owner.runRecovery(async () => {
+      result = await restoreDatabase(companyId, text, async (operationId, checksum, safetyFilename) => {
+        const before = recoveryFileImage(RUNTIME_FILES.companyConfig);
+        const after = companyConfigImage(before, companyId, source.snapshot.data.companyConfig);
+        const logo = await planCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo);
+        intentOperationId = operationId;
+        intentSafetyFilename = safetyFilename;
+        journalStarted = true;
+        createRecoveryJournal(journalRoot, { operationId, companyId, checksum, maintenanceId: owner.id, safetyFilename,
+          ...(source.snapshot.manifest.companyLogo ? { logoUrl: source.snapshot.manifest.companyLogo.url } : {}),
+          files: [...(before === after ? [] : [{ key: 'company-config', before, after }]), ...(logo ? [logo.file] : [])] });
+      });
+      if (result.status !== 'committed') return { ...result, status: 'reconciliation_required' as const,
+        scope: 'database-and-company-config' as const };
+      const journal = readRecoveryJournal(journalRoot, result.operationId);
+      const targets: Record<string, string> = { 'company-config': RUNTIME_FILES.companyConfig };
+      if (journal.logoUrl) targets['company-logo'] = await companyLogoRecoveryTarget(journal.logoUrl);
+      const outcome = reconcileRecoveryFiles(journal, targets, 'committed');
+      if (outcome !== 'complete') return { ...result, status: 'reconciliation_required' as const,
+        scope: 'database-and-company-config' as const, error: 'File generation changed; maintenance remains closed.' };
+      return { ...result, status: 'committed' as const, scope: 'database-and-company-config' as const };
+    }).then(value => {
+      // runRecovery has settled: ownership cannot be released from inside it.
+      if (value.status === 'committed') owner.release();
+      return value;
+    });
+  } catch (error) {
+    if (!journalStarted) {
+      // A failed drain remains fenced: release refuses while leases are live.
+      if (gate.status().leases === 0) { await owner.drain({ timeoutMs: 0 }); owner.release(); }
+      throw error;
+    }
+    return { status: 'reconciliation_required', scope: 'database-and-company-config',
+      operationId: result?.operationId ?? intentOperationId, safetyFilename: result?.safetyFilename ?? intentSafetyFilename,
+      error: `Recovery intent exists; maintenance remains closed. ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+/** Resume a recorded operation only; never create a replacement DB transaction.
+ * The advisory lock is acquired under ReadCommitted before querying the receipt,
+ * so an absent receipt cannot be an old snapshot of a still-committing restore.
+ * A process-crash recovery lock is intentionally NOT stolen here.
+ */
+export async function reconcileCompanyBackupRecovery(companyId: string, operationId: string): Promise<CoordinatedRestoreResult> {
+  const runtime = path.dirname(RUNTIME_FILES.companyConfig);
+  const journal = readRecoveryJournal(path.join(runtime, 'backup-recovery'), operationId);
+  if (journal.companyId !== companyId || !journal.maintenanceId) throw new Error('RECOVERY_IDENTITY: journal ownership mismatch');
+  const gate = createMaintenanceGate(path.join(runtime, 'backup-maintenance'));
+  const owner = gate.resumeMaintenance(journal.maintenanceId);
+  await owner.drain({ timeoutMs: 5000 });
+  const base = { operationId, safetyFilename: journal.safetyFilename ?? '', scope: 'database-and-company-config' as const };
+  try {
+    const decision = await owner.runRecovery(async () => {
+      const evidence = await withCompanyBackupTransaction(async tx => {
+        await tx.$queryRaw(Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${companyId}, 729104))`);
+        const receipt = await tx.auditLog.findUnique({ where: { id: operationId } });
+        if (!receipt) return 'absent' as const;
+        let details;
+        try { details = JSON.parse(receipt.details ?? ''); } catch { return 'unknown' as const; }
+        return receipt.companyId === companyId && receipt.action === 'COMPANY_RESTORE_COMMITTED' && details.checksum === journal.checksum
+          ? 'committed' as const : 'unknown' as const;
+      }, { isolationLevel: 'ReadCommitted', maxWait: 5000, timeout: 20000 });
+      const targets: Record<string, string> = { 'company-config': RUNTIME_FILES.companyConfig };
+      if (journal.logoUrl) targets['company-logo'] = await companyLogoRecoveryTarget(journal.logoUrl);
+      return reconcileRecoveryFiles(journal, targets, evidence);
+    });
+    if (decision === 'blocked') return { ...base, status: 'reconciliation_required', error: 'Receipt or file generation could not be verified; maintenance remains closed.' };
+    owner.release();
+    if (decision === 'aborted') return { ...base, status: 'aborted', error: 'Database replacement did not commit; original files restored and maintenance reopened. Start a new explicitly confirmed operation.' };
+    return { ...base, status: 'committed' };
+  } catch (error) {
+    return { ...base, status: 'reconciliation_required', error: `Maintenance remains closed. ${error instanceof Error ? error.message : String(error)}` };
   }
 }
 

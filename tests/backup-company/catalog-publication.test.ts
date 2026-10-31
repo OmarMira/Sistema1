@@ -60,7 +60,7 @@ it.each([1, 3])('recovers after %i transient Windows EPERM faults using the same
   const first = await createBackup('tenant');
   const oldIndex = fs.readFileSync(index), oldBackup = getBackupFile(first.filename)!;
   const rows = structuredClone(state.rows);
-  const rename = fs.renameSync, open = fs.openSync, flush = fs.fsyncSync, close = fs.closeSync, stat = fs.lstatSync;
+  const open = fs.openSync, flush = fs.fsyncSync, close = fs.closeSync, stat = fs.lstatSync;
   let fd: number | undefined, opened = 0, flushed = 0, closed = 0, attempts = 0, temp = '', proposed = '';
   let checked: string[] = [];
   vi.spyOn(fs, 'openSync').mockImplementation(((...args: any[]) => {
@@ -84,7 +84,11 @@ it.each([1, 3])('recovers after %i transient Windows EPERM faults using the same
     if (attempts > 1) { expect(checked).toContain(temp); expect(checked).toContain(index); }
     checked = [];
     if (attempts <= failures) throw fault('EPERM');
-    rename(source, target);
+    // This unit injects an exact failure count. Do not let a second, real
+    // Windows sharing violation add nondeterministic failures to that count.
+    // Native replacement is exercised by the ordinary export/catalog tests.
+    fs.writeFileSync(target, fs.readFileSync(source));
+    fs.unlinkSync(source);
   });
   await onPlatform('win32', async waits => {
     const saved = await createBackup('tenant');

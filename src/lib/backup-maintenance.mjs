@@ -148,6 +148,7 @@ export function createMaintenanceGate(storageRoot) {
   const root = path.resolve(storageRoot);
   const leasesDir = path.join(root, 'leases');
   const marker = path.join(root, 'maintenance.json');
+  const recoveryLock = path.join(root, 'recovery.json');
   function guarded(fn) {
     try { return fn(); }
     catch (error) {
@@ -255,6 +256,17 @@ export function createMaintenanceGate(storageRoot) {
       assertUnmarked(); // Validate corrupt leases before publishing a marker.
       const id = randomUUID();
       writeRecord(marker, { version: 1, kind: 'maintenance', id });
+      return maintenanceOwner(id);
+    });
+  }
+  function resumeMaintenance(id) {
+    return guarded(() => {
+      if (!uuid.test(id)) throw new Error('Invalid maintenance identity');
+      if (!readRecord(marker, 'maintenance', id)) throw new Error('Maintenance owner unavailable');
+      return maintenanceOwner(id);
+    });
+  }
+  function maintenanceOwner(id) {
       let active = true;
       let drained = false;
       let running = false;
@@ -263,7 +275,15 @@ export function createMaintenanceGate(storageRoot) {
           throw new MaintenanceAdmissionError('Maintenance owner unavailable');
         }
       }
+      function lockRecovery() {
+        writeRecord(recoveryLock, { version: 1, kind: 'recovery', id });
+        // The marker could have been released before exclusive acquisition.
+        // Revalidate ownership under the same lock that protects release.
+        try { owned(); }
+        catch (error) { fs.unlinkSync(recoveryLock); throw error; }
+      }
       return Object.freeze({
+        id,
         async drain({ timeoutMs = 5000 } = {}) {
           if (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 30000) {
             throw new TypeError('Drain timeout must be between 0 and 30000 milliseconds');
@@ -281,25 +301,34 @@ export function createMaintenanceGate(storageRoot) {
             owned();
             if (!drained || status().leases !== 0) throw new MaintenanceAdmissionError('Maintenance not drained');
             if (running) throw new MaintenanceAdmissionError('Recovery already running');
+            // Exclusive across resumed owner instances and cooperating processes.
+            // A crash leaves this lock blocking: never auto-delete a stale owner.
+            lockRecovery();
             running = true;
           });
           // Only runtime guards accept this owned callback capability. Normal
           // admission (especially HTTP) always remains closed while marked.
           const authority = () => { guarded(owned); return active && running; };
           try { return await scoped({ kind: 'recovery', root, active: authority, authority }, fn); }
-          finally { running = false; }
+          finally {
+            guarded(() => {
+              if (!readRecord(recoveryLock, 'recovery', id)) throw new Error('Recovery lock lost');
+              fs.unlinkSync(recoveryLock);
+            });
+            running = false;
+          }
         },
         release() {
           return guarded(() => {
             owned();
             if (running) throw new MaintenanceAdmissionError('Recovery still running');
             if (!drained || status().leases !== 0) throw new MaintenanceAdmissionError('Maintenance not drained');
-            fs.unlinkSync(marker);
-            active = false;
+            lockRecovery();
+            try { fs.unlinkSync(marker); active = false; }
+            finally { fs.unlinkSync(recoveryLock); }
           });
         },
       });
-    });
   }
-  return Object.freeze({ status, acquireNormalOperation, withNormalOperation, withRuntimeOperation, withRuntimeOperationSync, beginMaintenance });
+  return Object.freeze({ status, acquireNormalOperation, withNormalOperation, withRuntimeOperation, withRuntimeOperationSync, beginMaintenance, resumeMaintenance });
 }

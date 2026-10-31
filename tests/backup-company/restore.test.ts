@@ -65,7 +65,7 @@ vi.mock('@/lib/db', () => ({ db: database, withCompanyBackupTransaction: (callba
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth must not run'); }) }));
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 import { sealSnapshot, SNAPSHOT_SECTIONS } from '@/lib/backup-format';
-import { previewCompanyRestore, restoreCompanyBackup } from '@/lib/backup-restore';
+import { previewCompanyRestore, restoreCompanyBackup, restoreCompanyBackupCoordinated, reconcileCompanyBackupRecovery } from '@/lib/backup-restore';
 import { validateBackup } from '@/lib/backup';
 import { computeEntryHashV2, computeAuditHash } from '@/lib/journal-hash';
 
@@ -184,6 +184,58 @@ async function rejected(body: any, error: string, raw?: string) {
   expect(files()).toEqual(disk);
   expect(state.writes).toEqual([]);
 }
+describe('coordinated company configuration recovery', () => {
+  it('journals original bytes, commits DB then config, and preserves other companies/global state', async () => {
+    backup.data.companyConfig = { currency: 'ARS' };
+    backup.manifest.recordCounts.companyConfig = true;
+    const configPath = path.join(state.root, 'company-config.json');
+    const before = fs.readFileSync(configPath);
+    const result = await restoreCompanyBackupCoordinated('tenant', text(backup));
+    expect(result.status).toBe('committed');
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({ marker: 'global', companies: { other: { currency: 'USD' }, tenant: { currency: 'ARS' } } });
+    const journal = JSON.parse(fs.readFileSync(path.join(state.root, 'backup-recovery', result.operationId + '.json'), 'utf8')).payload;
+    expect(journal.files[0].before).toBe(before.toString('base64'));
+    const safety = JSON.parse(fs.readFileSync(path.join(state.root, 'backups', result.safetyFilename), 'utf8'));
+    expect(safety.data.companyConfig).toBe(null);
+    expect(fs.existsSync(path.join(state.root, 'backup-maintenance', 'maintenance.json'))).toBe(false);
+  });
+  it('keeps maintenance closed and config unchanged after an ambiguous DB commit', async () => {
+    backup.data.companyConfig = { currency: 'ARS' };
+    backup.manifest.recordCounts.companyConfig = true;
+    state.ambiguous = true;
+    const configPath = path.join(state.root, 'company-config.json');
+    const before = fs.readFileSync(configPath);
+    const result = await restoreCompanyBackupCoordinated('tenant', text(backup));
+    expect(result.status).toBe('reconciliation_required');
+    expect(fs.readFileSync(configPath)).toEqual(before);
+    expect(fs.existsSync(path.join(state.root, 'backup-maintenance', 'maintenance.json'))).toBe(true);
+    expect(fs.existsSync(path.join(state.root, 'backup-recovery', result.operationId + '.json'))).toBe(true);
+    state.ambiguous = false;
+    const reconciled = await reconcileCompanyBackupRecovery('tenant', result.operationId);
+    expect(reconciled.status).toBe('committed');
+    expect(JSON.parse(fs.readFileSync(configPath, 'utf8')).companies.tenant).toEqual({ currency: 'ARS' });
+    expect(fs.existsSync(path.join(state.root, 'backup-maintenance', 'maintenance.json'))).toBe(false);
+  });
+  it('reconciles a known rollback to original files without repeating the database replacement', async () => {
+    backup.data.companyConfig = { currency: 'ARS' }; backup.manifest.recordCounts.companyConfig = true;
+    state.failInsert = 'journalLine';
+    const before = structuredClone(state.rows);
+    const configPath = path.join(state.root, 'company-config.json');
+    const original = fs.readFileSync(configPath);
+    const result = await restoreCompanyBackupCoordinated('tenant', text(backup));
+    expect(result.status).toBe('reconciliation_required');
+    expect(state.rows).toEqual(before);
+    state.failInsert = '';
+    const writes = [...state.writes];
+    const reconciled = await reconcileCompanyBackupRecovery('tenant', result.operationId);
+    expect(reconciled.status).toBe('aborted');
+    expect(state.writes).toEqual(writes);
+    expect(state.rows).toEqual(before);
+    expect(fs.readFileSync(configPath)).toEqual(original);
+    expect(fs.existsSync(path.join(state.root, 'backup-maintenance', 'maintenance.json'))).toBe(false);
+  });
+});
+
 describe('public company recovery core', () => {
   it('previews immutable exact IDs/counts and accounting links without any DB/file writes', async () => {
     const before = structuredClone(state.rows), disk = files(), original = JSON.stringify(backup);

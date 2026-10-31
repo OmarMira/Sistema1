@@ -11,6 +11,7 @@ export interface NormalOperationLease {
   release(): void;
 }
 export interface MaintenanceOwner {
+  readonly id: string;
   /** Timeout leaves the durable marker in place. Never reclaims old leases. */
   drain(options?: { timeoutMs?: number }): Promise<void>;
   /** In-process capability only; does not grant any normal/API admission bypass. */
@@ -27,6 +28,8 @@ export interface MaintenanceGate {
   /** Preserves synchronous return timing; promise misuse throws and retains admission. */
   withRuntimeOperationSync<T>(operation: () => T): T;
   beginMaintenance(): MaintenanceOwner;
+  /** Trusted reconciliation only. Exact marker identity; recovery remains exclusive. */
+  resumeMaintenance(id: string): MaintenanceOwner;
 }
 export function createMaintenanceGate(storageRoot: string): MaintenanceGate;
 export function configuredDataRoot(): string | undefined;

@@ -13,6 +13,7 @@ import { logger } from './logger';
 // JH2: pure chain-verdict (no DB access) — restore certifies the chain head
 // inside its own transaction without touching the global db.
 import { buildChainVerdict, type ChainRow } from './journal-hash';
+import { captureCompanyLogo, type CompanyLogoImage } from './backup-assets';
 
 /* ─── Types ───────────────────────────────────────────────────────── */
 
@@ -23,6 +24,8 @@ export interface BackupManifest {
   integrity?: SnapshotIntegrity;
   /** Required in 2.1.0, absent in legacy files. */
   fidelity?: SnapshotFidelity;
+  /** Exact external logo bytes, included in the manifest integrity digest. */
+  companyLogo?: CompanyLogoImage | null;
   createdAt: string;
   companyId: string;
   companyInfo: {
@@ -569,6 +572,7 @@ export async function captureCompanySnapshot(
         taxId: company.taxId,
       },
       recordCounts,
+      companyLogo: await captureCompanyLogo(company.logo),
     },
     data: {
       company: [JSON.parse(JSON.stringify(company))],

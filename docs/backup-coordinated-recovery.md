@@ -21,7 +21,7 @@ Recovery execution and maintenance release acquire the same exclusive `recovery.
 
 ## Interrupted-process limitation
 
-A process crash may leave `recovery.json`. There is no timed or automatic lock theft. Normal admission remains closed. Operator disposition requires establishing that the previous recovery is stopped before clearing its owned lock and reconciling the recorded operation. That operator workflow, actual process/power-loss behavior and directory-entry durability require acceptance testing; `fsync` alone is not proof.
+A process crash may leave `recovery.json`. There is no timed or automatic lock theft. Normal admission remains closed. Operator disposition requires establishing that the previous recovery is stopped before clearing its owned lock and reconciling the recorded operation. The [offline operator workflow](company-recovery-operator.md) requires exact operation/maintenance identities, the inspected lock digest and explicit stopped-owner confirmation. A disposable PostgreSQL test covers a real child-process exit and public-CLI reconciliation. Arbitrary power-loss behavior and directory-entry durability still require separate acceptance evidence; `fsync` alone is not proof.
 
 Do not delete maintenance markers, leases, journals or locks simply to reopen the application. Preserve the safety snapshot and intent until recovery has been confirmed.
 

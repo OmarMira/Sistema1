@@ -5,6 +5,7 @@ import { createMaintenanceGate } from './backup-maintenance.mjs';
 import { createRecoveryJournal, readRecoveryJournal } from './backup-recovery-journal';
 import { recoveryFileImage, companyConfigImage, reconcileRecoveryFiles } from './backup-recovery-files';
 import { planCompanyLogo, validateCompanyLogo, companyLogoRecoveryTarget } from './backup-assets';
+import { recoveryReceiptEvidence } from './backup-recovery-receipt.mjs';
 import { Prisma } from '@prisma/client';
 import { withCompanyBackupTransaction } from '@/lib/db';
 import { captureCompanySnapshot, type BackupData, type BackupManifest, type CompanySnapshotClient } from './backup';
@@ -228,11 +229,7 @@ export async function reconcileCompanyBackupRecovery(companyId: string, operatio
       const evidence = await withCompanyBackupTransaction(async tx => {
         await tx.$queryRaw(Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${companyId}, 729104))`);
         const receipt = await tx.auditLog.findUnique({ where: { id: operationId } });
-        if (!receipt) return 'absent' as const;
-        let details;
-        try { details = JSON.parse(receipt.details ?? ''); } catch { return 'unknown' as const; }
-        return receipt.companyId === companyId && receipt.action === 'COMPANY_RESTORE_COMMITTED' && details.checksum === journal.checksum
-          ? 'committed' as const : 'unknown' as const;
+        return recoveryReceiptEvidence(journal, receipt);
       }, { isolationLevel: 'ReadCommitted', maxWait: 5000, timeout: 20000 });
       const targets: Record<string, string> = { 'company-config': RUNTIME_FILES.companyConfig };
       if (journal.logoUrl) targets['company-logo'] = await companyLogoRecoveryTarget(journal.logoUrl);

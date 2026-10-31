@@ -5,6 +5,7 @@ import { readFileSync, existsSync } from 'fs';
 import { randomUUID } from 'crypto';
 import { logger } from '@/lib/logger';
 import { withRuntimeOperation } from '../backup-runtime-maintenance';
+import { resolveCompanyLogoTarget } from '../backup-logo-target.mjs';
 
 let config: { logo: { maxSizeMB: number; allowedFormats: string[]; path: string } } = {
   logo: {
@@ -46,10 +47,9 @@ async function installedDirectory(): Promise<string> {
 
 /** Trusted mapping shared by recovery; archive URLs never become arbitrary paths. */
 export async function companyLogoArchiveTarget(url: string): Promise<string> {
-  if (!url.startsWith('/uploads/logos/')) throw new Error('BACKUP_ASSET: unsupported logo URL');
-  const filename = url.slice('/uploads/logos/'.length);
-  if (!installedName.test(filename)) throw new Error('BACKUP_ASSET: unsupported logo filename');
-  return join(DATA_ROOT ? await installedDirectory() : join(process.cwd(), config.logo.path), filename);
+  const target = resolveCompanyLogoTarget(url, DATA_ROOT, config.logo.path);
+  if (DATA_ROOT) await installedDirectory();
+  return target;
 }
 
 export async function loadInstalledLogo(filename: string): Promise<{ bytes: Uint8Array; type: string } | null> {

@@ -2,6 +2,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { beforeAll, afterAll, expect, it, vi } from 'vitest';
 import { Prisma, PrismaClient } from '@prisma/client';
 // Original executed verifier SHA256:
@@ -20,7 +22,7 @@ vi.mock('@/lib/logger', () => ({ logger: { slowQuery: vi.fn(), info: vi.fn(), wa
 vi.mock('@/lib/metrics', () => ({ trackQueryDuration: vi.fn() }));
 import { db, withCompanyBackupTransaction } from '@/lib/db';
 import { createBackup, getBackupFile } from '@/lib/backup';
-import { previewCompanyRestore, restoreCompanyBackup } from '@/lib/backup-restore';
+import { previewCompanyRestore, restoreCompanyBackup, restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
 import { sealSnapshot } from '@/lib/backup-format';
 import { beginMaintenance, maintenanceStatus } from '@/lib/backup-maintenance.ts';
 import { BACKUP_DIR } from '@/lib/config/paths';
@@ -127,6 +129,73 @@ it('S3/S4 genuine lazy, array, interactive, fluent, raw helper and extension mai
   await owner.runRecovery(()=>withCompanyBackupTransaction(async tx=>{expect((await tx.glAccount.findUniqueOrThrow({where:{id:ids.ga}})).balance.toFixed(2)).toBe(max);}));
  } finally {owner.release();}
 },25000);
+it('S2/S4 coordinates real DB/config/logo recovery and reconciles a crashed owner through the public operator', async () => {
+  const logoUrl = '/uploads/logos/' + Date.now() + '-' + crypto.randomUUID() + '.png';
+  const logoPath = path.join(fixture.dataDir, 'uploads', 'logos', path.basename(logoUrl));
+  const configPath = path.join(fixture.dataDir, 'config', 'company-config.json');
+  fs.mkdirSync(path.dirname(logoPath), { recursive: true });
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  const logoBytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+j6hQAAAAASUVORK5CYII=', 'base64');
+  fs.writeFileSync(logoPath, logoBytes);
+  const config = { marker: 'preserve-global', companies: { [ids.a]: { currency: 'ARS' }, [ids.b]: { currency: 'EUR' } } };
+  fs.writeFileSync(configPath, JSON.stringify(config));
+  await raw.company.update({ where: { id: ids.a }, data: { logo: logoUrl } });
+  const archive = await createBackup(ids.a);
+  const archiveText = getBackupFile(archive.filename)!.data;
+  expect(JSON.parse(archiveText).manifest.companyLogo.base64).toBe(logoBytes.toString('base64'));
+  const foreign = await foreignState();
+  fs.writeFileSync(logoPath, 'changed-logo');
+  fs.writeFileSync(configPath, JSON.stringify({ ...config, companies: { ...config.companies, [ids.a]: { currency: 'USD' } } }));
+  await raw.glAccount.update({ where: { id: ids.ga }, data: { balance: '0.01' } });
+  const restored = await restoreCompanyBackupCoordinated(ids.a, archiveText);
+  expect(restored.status, JSON.stringify(restored)).toBe('committed');
+  expect(fs.readFileSync(logoPath)).toEqual(logoBytes);
+  expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual(config);
+  expect((await raw.glAccount.findUniqueOrThrow({ where: { id: ids.ga } })).balance.toFixed(2)).toBe(max);
+  expect(await foreignState()).toBe(foreign);
+  const safety = JSON.parse(getBackupFile(restored.safetyFilename)!.data);
+  expect(safety.manifest.companyLogo.base64).toBe(Buffer.from('changed-logo').toString('base64'));
+  expect(safety.data.companyConfig).toEqual({ currency: 'USD' });
+
+  // Real DB commit, controlled post-commit filesystem failure, then an actual
+  // child-process exit while owning recovery. Only synthetic fixture state.
+  fs.writeFileSync(logoPath, 'second-old-logo');
+  fs.writeFileSync(configPath, JSON.stringify({ ...config, companies: { ...config.companies, [ids.a]: { currency: 'USD' } } }));
+  const configBefore = fs.readFileSync(configPath);
+  const rename = fs.renameSync;
+  const spy = vi.spyOn(fs, 'renameSync').mockImplementation((from, to) => {
+    if (String(to) === configPath) throw Object.assign(new Error('synthetic post-commit failure'), { code: 'EIO' });
+    return rename(from, to);
+  });
+  let interrupted;
+  try { interrupted = await restoreCompanyBackupCoordinated(ids.a, archiveText); } finally { spy.mockRestore(); }
+  expect(interrupted.status, JSON.stringify(interrupted)).toBe('reconciliation_required');
+  expect(fs.readFileSync(configPath)).toEqual(configBefore);
+  const journal = JSON.parse(fs.readFileSync(path.join(fixture.dataDir, 'config', 'backup-recovery', interrupted.operationId + '.json'), 'utf8')).payload;
+  const gateRoot = path.join(fixture.dataDir, 'config', 'backup-maintenance');
+  const moduleUrl = pathToFileURL(path.resolve('src/lib/backup-maintenance.mjs')).href;
+  const crashSource = `import fs from 'node:fs';import {createMaintenanceGate} from ${JSON.stringify(moduleUrl)};const gate=createMaintenanceGate(${JSON.stringify(gateRoot)});const owner=gate.resumeMaintenance(${JSON.stringify(journal.maintenanceId)});await owner.drain({timeoutMs:0});await owner.runRecovery(async()=>{fs.writeSync(1,'LOCKHELD\\n');process.exit(23);});`;
+  const crashed = spawnSync(process.execPath, ['--input-type=module', '-'], { input: crashSource, encoding: 'utf8', timeout: 5000 });
+  expect(crashed.status, crashed.stderr).toBe(23); expect(crashed.stdout).toBe('LOCKHELD\n');
+  const script = path.resolve('scripts/company-recovery.mjs');
+  const env = { ...process.env, ACCOUNTEXPRESS_DATA_DIR: fixture.dataDir, DATABASE_URL: fixture.databaseUrl };
+  const inspect = spawnSync(process.execPath, [script, 'inspect', '--operation', interrupted.operationId], { env, encoding: 'utf8', timeout: 5000 });
+  expect(inspect.status, inspect.stderr).toBe(0);
+  const inspection = JSON.parse(inspect.stdout);
+  expect(inspection.recoveryLockSha256).toMatch(/^[a-f0-9]{64}$/);
+  const reconciled = spawnSync(process.execPath, [script, 'reconcile', '--operation', interrupted.operationId, '--maintenance-id', journal.maintenanceId,
+    '--lock-sha256', inspection.recoveryLockSha256, '--confirm-stopped'], { env, encoding: 'utf8', timeout: 25000 });
+  expect(reconciled.status, reconciled.stderr).toBe(0);
+  expect(JSON.parse(reconciled.stdout)).toMatchObject({ status: 'committed', operationId: interrupted.operationId });
+  expect(fs.readFileSync(logoPath)).toEqual(logoBytes);
+  expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual(config);
+  expect(await foreignState()).toBe(foreign);
+  expect(getBackupFile(archive.filename)!.data).toBe(archiveText);
+  expect(fs.existsSync(path.join(gateRoot, 'maintenance.json'))).toBe(false);
+  expect(fs.existsSync(path.join(gateRoot, 'recovery.json'))).toBe(false);
+  evidence.coordinated = { operationId: interrupted.operationId, childExit: crashed.status, operatorExit: reconciled.status };
+}, 25000);
+
 it('S3/S4 rejected future, truncated, provenance, corrupt and wrong-company inputs preserve DB and bytes',async()=>{
  expect(source).toBeTruthy();
  const cases:Array<[string,string]> = [];

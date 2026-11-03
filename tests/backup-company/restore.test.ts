@@ -365,7 +365,14 @@ describe('public company recovery core', () => {
     }
     if (kind === 'credentials') backup.data.users[0].passwordHash = 'must-never-be-restored';
     if (kind === 'cycle') backup.data.glAccounts[0].parentId = backup.data.glAccounts[0].id;
-    if (kind === 'global-unique') state.rows.ruleApplyRecord.push({ ...state.rows.ruleApplyRecord[0], id: 'other-application', companyId: 'other' });
+    // Since the per-company idempotencyKey uniqueness (S19e), a cross-company
+    // key can no longer collide; the contract that survives is a duplicate
+    // composite (companyId, idempotencyKey) INSIDE the payload itself.
+    if (kind === 'global-unique') {
+      backup.data.ruleApplyRecords[0].idempotencyKey = 'duplicate-op-key';
+      backup.data.ruleApplyRecords.push({ ...backup.data.ruleApplyRecords[0], id: 'other-application' });
+      backup.manifest.recordCounts.ruleApplyRecords++;
+    }
     await rejected(backup, kind === 'credentials' ? 'RESTORE_SCHEMA' : kind === 'global-unique' ? 'RESTORE_UNIQUE' : 'RESTORE_REFERENCE');
   });
 

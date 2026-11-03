@@ -90,8 +90,12 @@ function readRecord(target, kind, id) {
   let value;
   try { value = JSON.parse(fs.readFileSync(target, 'utf8')); }
   catch (error) { if (missing(error)) return null; throw error; }
+  // Normal leases may carry the owning process id (added for dead-process
+  // reaping); every other record kind keeps the strict three-key shape.
+  const keyCount = Object.keys(value).length;
+  const pidOk = kind === 'normal' && keyCount === 4 && Number.isInteger(value.pid) && value.pid > 0;
   if (value?.version !== 1 || value.kind !== kind || !uuid.test(value.id) ||
-      (id !== undefined && value.id !== id) || Object.keys(value).length !== 3) {
+      (id !== undefined && value.id !== id) || (keyCount !== 3 && !pidOk)) {
     throw new Error('Corrupt maintenance record');
   }
   return value;
@@ -183,9 +187,22 @@ export function createMaintenanceGate(storageRoot) {
     for (const name of fs.readdirSync(leasesDir)) {
       const id = name.slice(0, -5);
       if (!name.endsWith('.json') || !uuid.test(id)) throw new Error('Corrupt maintenance lease name');
-      if (readRecord(path.join(leasesDir, name), 'normal', id)) ids.push(id);
+      const record = readRecord(path.join(leasesDir, name), 'normal', id);
+      // A normal lease whose owning process is dead can never be released by
+      // it: reap the file so one crash does not fence the system forever.
+      // Legacy pid-less files stay blocking (conservative; operator cleanup).
+      if (record && Number.isInteger(record.pid)) {
+        if (isPidAlive(record.pid)) { ids.push(id); }
+        else { try { fs.unlinkSync(path.join(leasesDir, name)); } catch (error) { if (!missing(error)) throw error; } }
+      } else if (record) {
+        ids.push(id);
+      }
     }
     return ids;
+  }
+  function isPidAlive(pid) {
+    try { process.kill(pid, 0); return true; }
+    catch (error) { return error?.code === 'EPERM'; }
   }
   /**
    * Leases that still block a transition, i.e. every live lease except the exact
@@ -206,7 +223,7 @@ export function createMaintenanceGate(storageRoot) {
       assertUnmarked();
       const id = randomUUID();
       const target = path.join(leasesDir, `${id}.json`);
-      writeRecord(target, { version: 1, kind: 'normal', id });
+      writeRecord(target, { version: 1, kind: 'normal', id, pid: process.pid });
       let active = true;
       let running = 0;
       const lease = Object.freeze({

@@ -185,10 +185,14 @@ describe('durable cooperating maintenance boundary', () => {
     try {
       expect(await closed).toBe(0);
       expect(stdout).toBe('OWNER_EXIT_WITHOUT_RELEASE\n'); expect(stderr).toBe('');
-      expect(gate.status()).toEqual({ marked: true, leases: 1 });
+      // The maintenance MARKER from an exited owner still fences every fresh
+      // process (operator resume required); the exited owner's normal LEASE is
+      // now reaped on sight because its pid is dead (dead-process reaping), so
+      // an operator-resumed drain is not blocked by a lease nobody can release.
+      expect(gate.status()).toEqual({ marked: true, leases: 0 });
       expect(() => gate.acquireNormalOperation()).toThrow('Maintenance');
       expect(() => gate.beginMaintenance()).toThrow('Maintenance');
-      expect(gate.status()).toEqual({ marked: true, leases: 1 });
+      expect(gate.status()).toEqual({ marked: true, leases: 0 });
     } finally {
       clearTimeout(timer);
       if (child.exitCode === null) { child.kill(); await closed; }

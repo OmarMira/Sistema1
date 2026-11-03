@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import crypto from 'node:crypto';
 import type { BackupData } from './backup';
 import { Prisma } from '@prisma/client';
@@ -213,8 +217,13 @@ export function parseSnapshot(text: string): BackupData {
       throw new Error(`Backup count mismatch: ${section}`);
     }
     for (const row of rows) {
-      if (!row || typeof row !== 'object' ||
-          ('companyId' in row && row.companyId !== manifest.companyId)) {
+      if (!row || typeof row !== 'object') {
+        throw new Error(`Backup tenant mismatch: ${section}`);
+      }
+      // A null/unknown companyId is legacy provenance (columns added later,
+      // e.g. BankTransaction.companyId) and is tenant-compatible; only an
+      // explicit DIFFERENT tenant is rejected.
+      if ('companyId' in row && row.companyId != null && row.companyId !== manifest.companyId) {
         throw new Error(`Backup tenant mismatch: ${section}`);
       }
     }

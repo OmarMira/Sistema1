@@ -223,9 +223,12 @@ describe('S7-11: Enforcement HTTP contract', () => {
     expect(body.profileVersion).toBe('1.0.0');
   });
 
-  // ── POLICY_UNAVAILABLE (fail-open) ───────────────────────────────
+  // ── POLICY_UNAVAILABLE — unconfirmed fail-open (legacy S7-11 path) ──
 
-  it('POLICY_UNAVAILABLE returns 200 with status EXECUTED and policyUnavailable', async () => {
+  it('POLICY_UNAVAILABLE returns 200 with status EXECUTED and policyUnavailable (unconfirmed fail-open)', async () => {
+    // S22(a) narrowed the fail-open path to the UNCONFIRMED call only: the
+    // unconfirmed call still executes and reports policyUnavailable. The
+    // confirmed call fails closed (see the confirmed:true case below).
     mockExecuteApplyAllUseCase.mockResolvedValue({
       matchResult: matchResult(),
       applyResult: { appliedCount: 2, journalEntryCount: 2 },
@@ -309,13 +312,22 @@ describe('S7-11: Enforcement HTTP contract', () => {
     expect(body.status).toBe('BLOCKED');
   });
 
-  it('confirmed:true + UNAVAILABLE returns EXECUTED (conservative fail-open)', async () => {
+  it('confirmed:true + POLICY_UNAVAILABLE returns BLOCKED (fail-closed)', async () => {
+    // S22(a): a CONFIRM flow cannot be honoured when the policy that demanded
+    // the confirmation cannot be evaluated. The use case reports BLOCKED with
+    // policyUnavailable; the route surfaces the block status + reason and never
+    // reports success.
     mockExecuteApplyAllUseCase.mockResolvedValue({
       matchResult: matchResult(),
-      applyResult: { appliedCount: 2, journalEntryCount: 2 },
+      applyResult: { appliedCount: 0, journalEntryCount: 0 },
       enforcement: {
-        status: 'EXECUTED',
+        status: 'BLOCKED',
         policyUnavailable: { errorCode: 'POLICY_PROVIDER_ERROR' },
+        block: {
+          reasonCode: 'POLICY_UNAVAILABLE',
+          summary:
+            'Operational policy could not be evaluated; the confirmed apply is refused until the policy is available again.',
+        },
       },
     });
 
@@ -323,8 +335,10 @@ describe('S7-11: Enforcement HTTP contract', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(body.status).toBe('EXECUTED');
-    expect(body).toHaveProperty('policyUnavailable');
+    expect(body.status).toBe('BLOCKED');
+    expect(body.reasonCode).toBe('POLICY_UNAVAILABLE');
+    expect(body).not.toHaveProperty('success');
+    expect(body).not.toHaveProperty('matched');
   });
 
   // ── Coexistence with legacy fields ───────────────────────────────

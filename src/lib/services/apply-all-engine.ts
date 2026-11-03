@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import crypto from 'crypto';
 import { db } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
@@ -140,6 +144,8 @@ export interface MatchResult {
 export interface ApplyResult {
   appliedCount: number;
   journalEntryCount: number;
+  /** Entries created as DRAFT because the apply policy required review (S22(b)). */
+  draftEntryCount?: number;
   /** Durable apply record id created inside the same transaction, when an apply context was provided. */
   applyRecordId?: string;
 }
@@ -149,6 +155,12 @@ export interface ApplyExecutionContext {
   origin: 'batch' | 'single';
   ruleId?: string | null;
   idempotencyKey?: string;
+  /**
+   * S22(b) — the operational policy required confirmation for this apply. The
+   * classification still runs (the user consented), but the generated journal
+   * entries are written as DRAFT instead of being silently posted.
+   */
+  requiresReview?: boolean;
 }
 
 export interface MatchOptions {
@@ -423,6 +435,94 @@ export async function matchTransactionsWithShadow(
 
 // ─── executeApplyAll — All mutations inside a transaction ──
 
+/**
+ * S22(b) — review-mode journal writer.
+ *
+ * `JournalEntryService.createFromBankTransaction` hardcodes a POSTED entry and
+ * immediately seals it into the JH2 chain, so it cannot express a review
+ * requirement. When the apply policy demands confirmation the generated entry
+ * is written here as a DRAFT with the exact same lines, direction and
+ * description as the canonical writer:
+ *  - no chain append (the JH2 primitive rejects non-posted entries by design);
+ *  - no balance recalculation (draft lines never count in any balance);
+ *  - the BankTransaction IS linked, so the row leaves the classification
+ *    candidate set and the draft cannot be classified twice.
+ * Posting later goes through the existing audited
+ * `POST /api/journal/[id] { action: 'post' }` transition, which appends to the
+ * chain and recalculates the affected GL balances.
+ */
+async function createDraftEntryForReview(
+  tx: any,
+  params: {
+    bankTxId: string;
+    bankTxDate: Date;
+    bankTxAmount: number;
+    bankTxDescription: string;
+    bankGlAccountId: string;
+    counterpartyGlAccountId: string;
+    companyId: string;
+  },
+): Promise<string | null> {
+  const {
+    bankTxId,
+    bankTxDate,
+    bankTxAmount,
+    bankTxDescription,
+    bankGlAccountId,
+    counterpartyGlAccountId,
+    companyId,
+  } = params;
+
+  await assertActiveFiscalPeriod(companyId, bankTxDate, tx);
+
+  const amount = Math.abs(bankTxAmount);
+  if (amount < 0.01) return null;
+
+  const isDeposit = bankTxAmount > 0;
+  const debitAccountId = isDeposit ? bankGlAccountId : counterpartyGlAccountId;
+  const creditAccountId = isDeposit ? counterpartyGlAccountId : bankGlAccountId;
+  const description = `Bank: ${bankTxDescription}`;
+
+  const entry = await tx.journalEntry.create({
+    data: {
+      companyId,
+      date: bankTxDate,
+      description,
+      status: 'draft',
+      lines: {
+        create: [
+          { glAccountId: debitAccountId, description, debit: amount, credit: 0 },
+          { glAccountId: creditAccountId, description, debit: 0, credit: amount },
+        ],
+      },
+    },
+  });
+
+  await tx.bankTransaction.update({
+    where: { id: bankTxId },
+    data: { journalEntryId: entry.id },
+  });
+
+  return entry.id;
+}
+
+/**
+ * Primary rule of an apply batch: the rule that classified the most
+ * transactions, ties broken deterministically by ruleId so the persisted
+ * provenance never depends on iteration order.
+ */
+function selectPrimaryRuleId(appliedByRule: Map<string, number>): string | null {
+  let primary: string | null = null;
+  let primaryCount = -1;
+  for (const [ruleId, count] of appliedByRule) {
+    if (count > primaryCount || (count === primaryCount && primary !== null && ruleId < primary)) {
+      primary = ruleId;
+      primaryCount = count;
+    }
+  }
+  return primary;
+}
+
 export async function executeApplyAll(
   companyId: string,
   tx: any,
@@ -431,6 +531,7 @@ export async function executeApplyAll(
 ): Promise<ApplyResult> {
   let appliedCount = 0;
   const allCandidateIds: string[] = [];
+  const appliedByRule = new Map<string, number>();
   const rulesMap = new Map<string, { debitGlAccountId?: string | null; creditGlAccountId?: string | null; glAccountId?: string | null }>();
 
   const dbRules = await tx.bankRule.findMany({
@@ -502,6 +603,7 @@ export async function executeApplyAll(
         select: { id: true },
       });
       appliedCount += updatedRows.length;
+      appliedByRule.set(rule.id, (appliedByRule.get(rule.id) ?? 0) + updatedRows.length);
       allCandidateIds.push(...updatedRows.map((r: any) => r.id));
     }
 
@@ -512,6 +614,7 @@ export async function executeApplyAll(
         select: { id: true },
       });
       appliedCount += updatedRows.length;
+      appliedByRule.set(rule.id, (appliedByRule.get(rule.id) ?? 0) + updatedRows.length);
       allCandidateIds.push(...updatedRows.map((r: any) => r.id));
     }
   }
@@ -539,44 +642,69 @@ export async function executeApplyAll(
   }
 
   let journalEntryCount = 0;
+  let draftEntryCount = 0;
   const journalEntryByTx = new Map<string, string>();
   const affectedGlAccountIds = new Set<string>();
+  const reviewRequired = ctx?.requiresReview === true;
   for (const bt of matchedTxs) {
     const bankGl = bankGlByStatement.get(bt.statementId);
     if (!bankGl || !bt.glAccountId) continue;
 
-    const entryId = await JournalEntryService.createFromBankTransaction(tx, {
-      bankTxId: bt.id,
-      bankTxDate: bt.date,
-      bankTxAmount: Number(bt.amount),
-      bankTxDescription: bt.description,
-      bankGlAccountId: bankGl,
-      counterpartyGlAccountId: bt.glAccountId,
-      companyId,
-      skipRecalculate: true,
-    });
+    const entryId = reviewRequired
+      ? await createDraftEntryForReview(tx, {
+          bankTxId: bt.id,
+          bankTxDate: bt.date,
+          bankTxAmount: Number(bt.amount),
+          bankTxDescription: bt.description,
+          bankGlAccountId: bankGl,
+          counterpartyGlAccountId: bt.glAccountId,
+          companyId,
+        })
+      : await JournalEntryService.createFromBankTransaction(tx, {
+          bankTxId: bt.id,
+          bankTxDate: bt.date,
+          bankTxAmount: Number(bt.amount),
+          bankTxDescription: bt.description,
+          bankGlAccountId: bankGl,
+          counterpartyGlAccountId: bt.glAccountId,
+          companyId,
+          skipRecalculate: true,
+        });
 
     if (entryId) {
       journalEntryCount++;
+      if (reviewRequired) draftEntryCount++;
       journalEntryByTx.set(bt.id, entryId);
       affectedGlAccountIds.add(bankGl);
       affectedGlAccountIds.add(bt.glAccountId);
     }
   }
-  for (const glAccountId of affectedGlAccountIds) {
-    await JournalEntryService.recalculateBalance(tx, glAccountId);
+  // Draft entries contribute nothing to any balance, so a review-mode batch
+  // skips the recalculation entirely.
+  if (!reviewRequired) {
+    for (const glAccountId of affectedGlAccountIds) {
+      await JournalEntryService.recalculateBalance(tx, glAccountId);
+    }
   }
 
   // Durable anchor: create the RuleApplyRecord and link via FK on affected
   // BankTransactions and generated JournalEntries inside the SAME transaction.
   // Re-apply overwrites FKs; historical audit via AuditLog events.
+  //
+  // S22(e) — provenance: the previous batch record stored ruleId: null. The
+  // record now carries the batch's PRIMARY rule (the one that classified the
+  // most transactions, ties broken by ruleId) so the anchor is self-describing
+  // without splitting the batch into one record per rule — rollback granularity
+  // (one record = one revertible batch) is unchanged, and the exact per-row
+  // provenance lives on BankTransaction.matchedRuleId.
   let applyRecordId: string | undefined;
   if (ctx && allCandidateIds.length > 0) {
+    const recordRuleId = ctx.ruleId ?? selectPrimaryRuleId(appliedByRule);
     const header = await tx.ruleApplyRecord.create({
       data: {
         companyId,
         origin: ctx.origin,
-        ruleId: ctx.ruleId ?? null,
+        ruleId: recordRuleId ?? null,
         userId: ctx.userId,
         state: 'applied',
         idempotencyKey: ctx.idempotencyKey ?? crypto.randomUUID(),
@@ -603,6 +731,7 @@ export async function executeApplyAll(
   return {
     appliedCount,
     journalEntryCount,
+    ...(draftEntryCount > 0 ? { draftEntryCount } : {}),
     applyRecordId,
   };
 }

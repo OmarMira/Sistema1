@@ -88,7 +88,8 @@ describe('BRE-013 3.3 — E2E apply → rollback → re-apply (accountexpress_te
     const txApplied = await db.bankTransaction.findUniqueOrThrow({ where: { id: tx.id } });
     expect(txApplied.ruleApplyRecordId).toBe(record1.id);
     expect(txApplied.glAccountId).toBe(expenseGl.id);
-    expect(journal1.status).toBe('posted');
+    // S22(b): a confirmed apply under a CONFIRM policy is written as DRAFT (review mode).
+    expect(journal1.status).toBe('draft');
 
     const journalId1 = journal1.id;
     const recordId1 = record1.id;
@@ -147,7 +148,8 @@ describe('BRE-013 3.3 — E2E apply → rollback → re-apply (accountexpress_te
     const record2 = await db.ruleApplyRecord.findUniqueOrThrow({ where: { id: recordId2 } });
     const journal2 = await db.journalEntry.findFirstOrThrow({ where: { ruleApplyRecordId: recordId2 } });
     expect(journal2.id).not.toBe(journalId1);
-    expect(journal2.status).toBe('posted');
+    // S22(b): review mode — the re-applied entry is a DRAFT too.
+    expect(journal2.status).toBe('draft');
 
     // Prior record stays reverted; fresh journal ID differs.
     const record1AfterReapply = await db.ruleApplyRecord.findUniqueOrThrow({ where: { id: recordId1 } });
@@ -172,7 +174,7 @@ describe('BRE-013 3.3 — E2E apply → rollback → re-apply (accountexpress_te
     expect(records[1].id).toBe(recordId2);
     expect(records[1].state).toBe('applied');
 
-    // Exactly one posted journal (journal2); journal1 void.
+    // Exactly one non-void journal (journal2, DRAFT under S22(b)); journal1 void.
     const journalStates = await db.journalEntry.findMany({
       where: { ruleApplyRecordId: { in: [recordId1, recordId2] } },
       select: { id: true, status: true },
@@ -180,7 +182,8 @@ describe('BRE-013 3.3 — E2E apply → rollback → re-apply (accountexpress_te
     expect(journalStates).toHaveLength(2);
     const statusById = Object.fromEntries(journalStates.map((j) => [j.id, j.status]));
     expect(statusById[journalId1]).toBe('void');
-    expect(statusById[journal2.id]).toBe('posted');
+    // S22(b): same journal2 status asserted through the state map.
+    expect(statusById[journal2.id]).toBe('draft');
 
     // No orphan journal links: only one transaction, linked to record2 + journal2.
     expect(txReapplied.journalEntryId).toBe(journal2.id);

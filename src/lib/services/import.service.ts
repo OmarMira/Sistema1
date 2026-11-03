@@ -30,7 +30,7 @@ import {
 } from '@/lib/api-error';
 import { trackPDFParseDuration } from '@/lib/metrics';
 import { withTiming } from '@/lib/timing';
-import { generateImportHash } from '@/lib/accounting/import-hash';
+import { generateImportHash, generateLegacyImportHash } from '@/lib/accounting/import-hash';
 import { toStatementMonth, toDateString } from '@/lib/accounting/date-window';
 import type { ParsedTransaction, StatementBalanceInfo, RuleCondition } from '@/lib/types/shared';
 import { resolveImportRule } from '@/lib/services/rule-precedence-import-resolver';
@@ -64,6 +64,22 @@ import {
   type DecisionSource,
 } from '@/lib/final-decision-trace';
 
+/**
+ * One row of an imported file that was NOT persisted, with the reason.
+ * S20.2/S20.3: rejected rows are reported per row instead of aborting the
+ * whole import (in-file duplicates and ambiguous Knowledge-Engine rows).
+ */
+export interface ImportRowRejection {
+  /** 1-based position of the row inside the statement's chronological order. */
+  rowIndex: number;
+  /** "YYYY-MM-DD" */
+  date: string;
+  description: string;
+  amount: number;
+  reason: 'duplicate_in_file' | 'ke_error';
+  message: string;
+}
+
 export interface ImportResult {
   statementId: string;
   transactionCount: number;
@@ -71,6 +87,15 @@ export interface ImportResult {
   duplicatesSkipped: number;
   newAccountCreated: boolean;
   bankAccountName: string;
+  /**
+   * Rows skipped/quarantined with the per-row reason (never silently dropped).
+   *
+   * Emitted ONLY when at least one row was skipped or quarantined — the same
+   * conditional-shape convention `policyObservation` already uses — so a clean
+   * import keeps the exact response shape that is part of the published
+   * contract (pinned by tests/services/shadow-mode-import.test.ts).
+   */
+  rejectedRows?: ImportRowRejection[];
   policyObservation?: PolicyObservationResponse;
 }
 
@@ -714,7 +739,6 @@ export class ImportService {
     const startDate = balanceInfo?.startDate || sorted[0]!.date;
     const endDate = balanceInfo?.endDate || sorted[sorted.length - 1]!.date;
     const openingBalance = balanceInfo?.openingBalance ?? 0;
-    const closingBalance = balanceInfo?.closingBalance ?? 0;
 
     const bankAccount = await db.bankAccount.findFirst({
       where: { id: bankAccountId },
@@ -724,9 +748,24 @@ export class ImportService {
     const statementMonth = toStatementMonth(startDate);
 
     // ─── Deduplicación por importHash (SHA-256) ───────────────────────
-    // Detecta reimportaciones del mismo extracto sin cargar todo en memoria.
-    const hashList = sorted.map((txn) =>
+    // S20.1 — the hash now covers ONLY the normalized row content, so the same
+    // rows are recognized even when the statement range (the old
+    // statementMonth hash input) changes. Rows imported by older builds keep
+    // the legacy month-scoped hash, so the lookup queries BOTH shapes: nothing
+    // that used to be deduplicated stops being deduplicated, and new rows are
+    // stored with the content hash.
+    const contentHashes = sorted.map((txn) =>
       generateImportHash({
+        companyId,
+        accountNumber,
+        txDate: toDateString(txn.date),
+        amount: txn.amount,
+        description: txn.description,
+        reference: txn.reference,
+      }),
+    );
+    const legacyHashes = sorted.map((txn) =>
+      generateLegacyImportHash({
         companyId,
         accountNumber,
         statementMonth,
@@ -737,13 +776,42 @@ export class ImportService {
     );
 
     const existingHashes = await db.bankTransaction.findMany({
-      where: { importHash: { in: hashList } },
+      where: { importHash: { in: [...contentHashes, ...legacyHashes] } },
       select: { importHash: true },
     });
     const existingHashSet = new Set(existingHashes.map((t) => t.importHash));
 
-    const uniqueTransactions = sorted.filter((_txn, idx) => !existingHashSet.has(hashList[idx]!));
-    const uniqueHashes = hashList.filter((_, idx) => !existingHashSet.has(hashList[idx]!));
+    // S20.2 — identical rows WITHIN one file are skipped per row instead of
+    // reaching createMany and violating the importHash unique index (which
+    // aborted the whole import).
+    const rejectedRows: ImportRowRejection[] = [];
+    const rowIndexOfHash = new Map<string, number>();
+    const seenHashes = new Set<string>();
+    const uniqueTransactions: typeof sorted = [];
+    const uniqueHashes: string[] = [];
+
+    for (let idx = 0; idx < sorted.length; idx++) {
+      const txn = sorted[idx]!;
+      const contentHash = contentHashes[idx]!;
+      if (existingHashSet.has(contentHash) || existingHashSet.has(legacyHashes[idx]!)) {
+        continue; // ya importada
+      }
+      if (seenHashes.has(contentHash)) {
+        rejectedRows.push({
+          rowIndex: idx + 1,
+          date: toDateString(txn.date),
+          description: txn.description,
+          amount: txn.amount,
+          reason: 'duplicate_in_file',
+          message: 'Fila duplicada dentro del mismo archivo: ya incluida en este extracto.',
+        });
+        continue;
+      }
+      seenHashes.add(contentHash);
+      rowIndexOfHash.set(contentHash, idx);
+      uniqueTransactions.push(txn);
+      uniqueHashes.push(contentHash);
+    }
 
     const duplicatesSkipped = sorted.length - uniqueTransactions.length;
 
@@ -753,6 +821,7 @@ export class ImportService {
         transactionCount: 0,
         autoCategorizedCount: 0,
         duplicatesSkipped,
+        ...(rejectedRows.length > 0 && { rejectedRows }),
       };
     }
 
@@ -797,7 +866,10 @@ export class ImportService {
           startDate,
           endDate,
           openingBalance,
-          closingBalance: closingBalance || openingBalance + totalCredits - totalDebits,
+          // S20.4 — `|| computed` overwrote a legitimate 0.00 closing balance.
+          // Only fall back to the recomputed balance when the statement did not
+          // report one at all.
+          closingBalance: balanceInfo?.closingBalance ?? openingBalance + totalCredits - totalDebits,
           totalCredits,
           totalDebits,
           format,
@@ -893,13 +965,19 @@ export class ImportService {
         const matchedRuleId = decision.matchedRuleId;
         const glAccountId = decision.glAccountId;
 
-        // KE_ERROR: explicit failure — rollback entire import, do NOT persist unclassified transaction
+        // S20.3 — an ambiguous/incoherent KE classification no longer aborts the
+        // whole file: the row is quarantined (never persisted, never posted)
+        // and reported per row, while the rest of the statement imports.
         if (decision.source === 'ke_error') {
-          throw new AppError(
-            500,
-            `KE_ERROR: Knowledge Engine failed for transaction "${txn.description}". Import rolled back.`,
-            'KE_ERROR',
-          );
+          rejectedRows.push({
+            rowIndex: (rowIndexOfHash.get(uniqueHashes[idx]!) ?? idx) + 1,
+            date: toDateString(txn.date),
+            description: txn.description,
+            amount: txn.amount,
+            reason: 'ke_error',
+            message: `KE_ERROR: Knowledge Engine no pudo clasificar "${txn.description}". Fila omitida.`,
+          });
+          continue;
         }
 
         if (matchedRuleId) autoCategorizedCount++;
@@ -969,6 +1047,46 @@ export class ImportService {
         });
       }
 
+      // Nothing importable (every row was quarantined): keep the fail-closed
+      // contract — refuse the whole statement instead of persisting an empty
+      // one, exactly as before per-row quarantine existed.
+      if (transactionsToInsert.length === 0) {
+        throw new AppError(
+          500,
+          `KE_ERROR: Knowledge Engine failed for every transaction in "${fileName}". Import rolled back.`,
+          'KE_ERROR',
+        );
+      }
+
+      // A quarantined row was never persisted, so it must not inflate the
+      // statement totals either (in-file duplicates are already excluded from
+      // the totals computed above). Only rows that actually reach the DB are
+      // allowed to move the statement's money columns.
+      if (rejectedRows.some((row) => row.reason === 'ke_error')) {
+        const persistedCredits = transactionsToInsert
+          .filter((t) => Number(t.amount) > 0)
+          .reduce((sum, t) => sum.add(new Prisma.Decimal(Number(t.amount))), new Prisma.Decimal(0))
+          .toNumber();
+        const persistedDebits = transactionsToInsert
+          .filter((t) => Number(t.amount) < 0)
+          .reduce(
+            (sum, t) => sum.add(new Prisma.Decimal(Number(t.amount)).abs()),
+            new Prisma.Decimal(0),
+          )
+          .toNumber();
+        await tx.bankStatement.update({
+          where: { id: statement.id },
+          data: {
+            totalCredits: persistedCredits,
+            totalDebits: persistedDebits,
+            // A source-reported closing balance still wins (S20.4).
+            ...(balanceInfo?.closingBalance === undefined && {
+              closingBalance: openingBalance + persistedCredits - persistedDebits,
+            }),
+          },
+        });
+      }
+
       await tx.bankTransaction.createMany({
         data: transactionsToInsert,
       });
@@ -1031,7 +1149,11 @@ export class ImportService {
        
       await ImportService.recalculateBalances(tx as any, bankAccountId);
 
-      return { statementId: statement.id, autoCategorizedCount };
+      return {
+        statementId: statement.id,
+        autoCategorizedCount,
+        insertedCount: transactionsToInsert.length,
+      };
     });
 
     // ─── Persistir resumen shadow post-commit ──────────────────────
@@ -1089,9 +1211,10 @@ export class ImportService {
 
     return {
       statementId: result.statementId,
-      transactionCount: uniqueTransactions.length,
+      transactionCount: result.insertedCount,
       autoCategorizedCount: result.autoCategorizedCount,
       duplicatesSkipped,
+      ...(rejectedRows.length > 0 && { rejectedRows }),
       ...(policyObservation !== undefined && { policyObservation }),
     };
   }

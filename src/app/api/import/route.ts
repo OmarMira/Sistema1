@@ -7,7 +7,11 @@ import { trackAPIResponseTime } from '@/lib/metrics';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { validateFile } from '@/lib/file-validation';
+import { decodeCsvBuffer } from '@/lib/csv-parser';
 import { serverT } from '@/lib/server-i18n';
+
+/** Formats decoded as text (BOM / UTF-16 aware). PDF is binary and excluded. */
+const TEXT_EXTENSIONS = new Set(['csv', 'tsv', 'txt', 'ofx', 'qfx']);
 
 // ─── POST /api/import ─────────────────────────────────────────────────
 // Accepts multipart/form-data with a file field.
@@ -18,6 +22,16 @@ export const POST = apiHandler(async (request: NextRequest) => {
   await requireCompanyRole(companyId, ['company_admin']);
   await requireModuleEntitlement('banking');
 
+  const MAX_SIZE = 10 * 1024 * 1024;
+  // The upload is multipart/form-data, so the declared body length includes the
+  // boundary/part headers. Reject before buffering the body; `file.size` below
+  // stays the authoritative per-file limit.
+  const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
+  const declaredLength = Number(request.headers.get('content-length') ?? '');
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SIZE + MULTIPART_OVERHEAD_BYTES) {
+    throw new ValidationError(serverT(locale, 'apiErrors.import.tooLarge'));
+  }
+
   const formData = await request.formData();
   const file = formData.get('file') as File | null;
   const bankAccountId = formData.get('bankAccountId') as string | null;
@@ -27,7 +41,6 @@ export const POST = apiHandler(async (request: NextRequest) => {
     throw new ValidationError(serverT(locale, 'apiErrors.import.noFile'));
   }
 
-  const MAX_SIZE = 10 * 1024 * 1024;
   if (file.size > MAX_SIZE) {
     throw new ValidationError(serverT(locale, 'apiErrors.import.tooLarge'));
   }
@@ -35,7 +48,13 @@ export const POST = apiHandler(async (request: NextRequest) => {
   const buffer = Buffer.from(await file.arrayBuffer());
   const extension = validateFile(file, buffer);
   const fileName = file.name;
-  const content = buffer.toString('utf-8');
+  // S20.5 — strip/interpret the encoding BEFORE parsing: a UTF-8 BOM would
+  // corrupt the first header and UTF-16 uploads would decode to garbage.
+  // Only delimited text formats are decoded this way: binary formats (PDF) are
+  // parsed from `buffer` and must never be heuristically re-decoded.
+  const content = TEXT_EXTENSIONS.has(extension)
+    ? decodeCsvBuffer(buffer)
+    : buffer.toString('utf-8');
 
   const importStart = performance.now();
   const result = await ImportService.importFile({

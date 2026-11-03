@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
+import { csvCell } from '@/lib/csv-cell';
 
 /**
  * GET /api/export/csv?type=trial_balance|transactions|reconciliation&companyId=xxx&...
@@ -135,9 +136,9 @@ async function generateTrialBalanceCSV(
     if (Math.abs(netBalance) < 0.005) continue;
 
     rows.push([
-      entry.code,
-      `"${entry.name}"`,
-      entry.accountType,
+      csvCell(entry.code),
+      csvCell(entry.name),
+      csvCell(entry.accountType),
       entry.debitTotal.toFixed(2),
       entry.creditTotal.toFixed(2),
       netBalance.toFixed(2),
@@ -205,11 +206,11 @@ async function generateTransactionsCSV(
     for (const line of entry.lines) {
       rows.push([
         entry.date.toISOString().split('T')[0] ?? '',
-        entry.reference || '',
-        `"${entry.description}"`,
-        line.glAccount.code,
-        `"${line.glAccount.name}"`,
-        line.description ? `"${line.description}"` : '',
+        csvCell(entry.reference || ''),
+        csvCell(entry.description),
+        csvCell(line.glAccount.code),
+        csvCell(line.glAccount.name),
+        line.description ? csvCell(line.description) : '',
         (line.debit || 0).toFixed(2),
         (line.credit || 0).toFixed(2),
       ]);
@@ -258,10 +259,10 @@ async function generateReconciliationCSV(
   for (const t of transactions) {
     rows.push([
       t.date.toISOString().split('T')[0] ?? '',
-      `"${t.description}"`,
+      csvCell(t.description),
       t.amount.toFixed(2),
-      t.reference || '',
-      t.glAccount ? `${t.glAccount.code} - ${t.glAccount.name}` : '',
+      csvCell(t.reference || ''),
+      t.glAccount ? csvCell(`${t.glAccount.code} - ${t.glAccount.name}`) : '',
       t.isReconciled ? 'Yes' : 'No',
     ]);
   }
@@ -288,10 +289,10 @@ async function generateChartOfAccountsCSV(
 
   for (const acc of accounts) {
     rows.push([
-      acc.code,
-      `"${acc.name}"`,
-      acc.accountType,
-      acc.normalBalance,
+      csvCell(acc.code),
+      csvCell(acc.name),
+      csvCell(acc.accountType),
+      csvCell(acc.normalBalance),
       acc.isActive ? 'Yes' : 'No',
     ]);
   }

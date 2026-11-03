@@ -1,5 +1,6 @@
 import type { Transaction } from '@/lib/constants/financial-dashboard-types';
 import { buildMonthlyBalances } from '@/lib/financial-dashboard-monthly';
+import { csvCell } from '@/lib/csv-cell';
 export interface BankMovement extends Transaction {
   statementId: string;
   ignored: boolean;
@@ -115,7 +116,6 @@ export function bankMonths(data: BankActivityData, visible: BankMovement[]) {
     };
   });
 }
-const csvCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
 export function bankMovementsCSV(rows: BankMovement[]) {
   // Preserve the published column order, direction and positive-magnitude convention.
   return '\uFEFFfecha,descripcion,monto,tipo,cuenta_contable,conciliado,categoria,mes\n' + rows.map(t => `${t.fecha},${csvCell(t.descripcion || '')},${t.monto},${t.tipo},${csvCell(t.cuenta_contable || '')},${t.conciliado ? 'si' : 'no'},${csvCell(savedCategory(t))},${t.fecha.slice(0, 7)}\n`).join('');

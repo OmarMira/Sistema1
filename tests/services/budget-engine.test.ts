@@ -53,6 +53,12 @@ function makeGroupByResult(overrides: Record<string, any> = {}): any {
   };
 }
 
+// S6: budget files are company-scoped. Flat year-keyed data is legacy/unscoped
+// and is never attributed to a company.
+function scopedBudgets(monthBudgets: Record<string, number>, companyId = 'c1'): string {
+  return JSON.stringify({ companies: { [companyId]: { 2025: { 6: monthBudgets } } } });
+}
+
 // ----- IMPORT (after mocks) -----
 import { getVarianceReport } from '@/lib/budget/engine';
 
@@ -68,14 +74,7 @@ describe('getVarianceReport', () => {
   ];
 
   it('should compute basic variance report', async () => {
-    mockReadFileSync.mockReturnValue(JSON.stringify({
-      2025: {
-        6: {
-          '4000': 100000,
-          '5000': 60000,
-        },
-      },
-    }));
+    mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 100000, '5000': 60000 }));
 
     mockGroupBy.mockResolvedValue([
       makeGroupByResult({
@@ -116,9 +115,7 @@ describe('getVarianceReport', () => {
   });
 
   it('should return empty array when no accounts match budget codes', async () => {
-    mockReadFileSync.mockReturnValue(JSON.stringify({
-      2025: { 6: { '9999': 1000 } },
-    }));
+    mockReadFileSync.mockReturnValue(scopedBudgets({ '9999': 1000 }));
     mockGroupBy.mockResolvedValue([]);
     mockFindMany.mockResolvedValue(baseAccounts);
 
@@ -129,9 +126,7 @@ describe('getVarianceReport', () => {
   });
 
   it('should handle budget with no actuals (all zero)', async () => {
-    mockReadFileSync.mockReturnValue(JSON.stringify({
-      2025: { 6: { '4000': 50000 } },
-    }));
+    mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 50000 }));
     mockGroupBy.mockResolvedValue([]); // no journal lines
     mockFindMany.mockResolvedValue(baseAccounts);
 
@@ -148,9 +143,7 @@ describe('getVarianceReport', () => {
   });
 
   it('should handle actuals with no budget (budget amount 0)', async () => {
-    mockReadFileSync.mockReturnValue(JSON.stringify({
-      2025: { 6: { '5000': 0 } }, // budget 0 for expense
-    }));
+    mockReadFileSync.mockReturnValue(scopedBudgets({ '5000': 0 })); // budget 0 for expense
     mockGroupBy.mockResolvedValue([
       makeGroupByResult({
         glAccountId: 'acc-expense',
@@ -172,9 +165,7 @@ describe('getVarianceReport', () => {
 
   describe('variance percent thresholds', () => {
     it('should mark OK when abs(variancePercent) <= 10', async () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        2025: { 6: { '4000': 1000 } },
-      }));
+      mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 1000 }));
       mockGroupBy.mockResolvedValue([
         makeGroupByResult({
           glAccountId: 'acc-revenue',
@@ -190,9 +181,7 @@ describe('getVarianceReport', () => {
     });
 
     it('should mark WARNING when abs(variancePercent) is between 10 and 25', async () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        2025: { 6: { '4000': 1000 } },
-      }));
+      mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 1000 }));
       mockGroupBy.mockResolvedValue([
         makeGroupByResult({
           glAccountId: 'acc-revenue',
@@ -208,9 +197,7 @@ describe('getVarianceReport', () => {
     });
 
     it('should mark CRITICAL when abs(variancePercent) > 25', async () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        2025: { 6: { '4000': 1000 } },
-      }));
+      mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 1000 }));
       mockGroupBy.mockResolvedValue([
         makeGroupByResult({
           glAccountId: 'acc-revenue',
@@ -226,9 +213,7 @@ describe('getVarianceReport', () => {
     });
 
     it('should handle negative variance percent correctly', async () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        2025: { 6: { '4000': 1000 } },
-      }));
+      mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 1000 }));
       mockGroupBy.mockResolvedValue([
         makeGroupByResult({
           glAccountId: 'acc-revenue',
@@ -246,9 +231,7 @@ describe('getVarianceReport', () => {
 
   describe('sorting', () => {
     it('should sort results by abs(variancePercent) descending', async () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({
-        2025: { 6: { '4000': 1000, '5000': 2000, '6000': 3000 } },
-      }));
+      mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 1000, '5000': 2000, '6000': 3000 }));
       mockGroupBy.mockResolvedValue([
         makeGroupByResult({
           glAccountId: 'acc-revenue',
@@ -277,7 +260,7 @@ describe('getVarianceReport', () => {
 
   describe('DB interaction', () => {
     it('should query journalLine.groupBy with correct parameters', async () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({ 2025: { 6: {} } }));
+      mockReadFileSync.mockReturnValue(scopedBudgets({}));
       mockGroupBy.mockResolvedValue([]);
       mockFindMany.mockResolvedValue([]);
 
@@ -298,7 +281,7 @@ describe('getVarianceReport', () => {
     });
 
     it('should query glAccount.findMany with correct parameters', async () => {
-      mockReadFileSync.mockReturnValue(JSON.stringify({ 2025: { 6: {} } }));
+      mockReadFileSync.mockReturnValue(scopedBudgets({}));
       mockGroupBy.mockResolvedValue([]);
       mockFindMany.mockResolvedValue([]);
 
@@ -308,6 +291,51 @@ describe('getVarianceReport', () => {
         where: { companyId: 'c1', isActive: true },
         select: { id: true, code: true, name: true, normalBalance: true },
       });
+    });
+  });
+
+  describe('legacy unscoped data', () => {
+    it('should not attribute legacy flat budgets to the queried company', async () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ 2025: { 6: { '4000': 1000 } } }));
+      mockGroupBy.mockResolvedValue([
+        makeGroupByResult({
+          glAccountId: 'acc-revenue',
+          _sum: { debit: 0, credit: 1200 },
+        }),
+      ]);
+      mockFindMany.mockResolvedValue(baseAccounts);
+
+      const result = await getVarianceReport('c1', 2025, 6);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].budget).toBe(0);
+      expect(result[0].actual).toBe(1200);
+    });
+
+    it('should not create budget-only rows from legacy flat budgets', async () => {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ 2025: { 6: { '4000': 1000 } } }));
+      mockGroupBy.mockResolvedValue([]);
+      mockFindMany.mockResolvedValue(baseAccounts);
+
+      await expect(getVarianceReport('c1', 2025, 6)).resolves.toEqual([]);
+    });
+
+    it('should not apply an explicit legacy section to the queried company', async () => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ legacy: { 2025: { 6: { '4000': 1000 } } } }),
+      );
+      mockGroupBy.mockResolvedValue([]);
+      mockFindMany.mockResolvedValue(baseAccounts);
+
+      await expect(getVarianceReport('c1', 2025, 6)).resolves.toEqual([]);
+    });
+
+    it('should not apply another company section to the queried company', async () => {
+      mockReadFileSync.mockReturnValue(scopedBudgets({ '4000': 1000 }, 'c2'));
+      mockGroupBy.mockResolvedValue([]);
+      mockFindMany.mockResolvedValue(baseAccounts);
+
+      await expect(getVarianceReport('c1', 2025, 6)).resolves.toEqual([]);
     });
   });
 });

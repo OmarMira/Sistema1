@@ -2,9 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { previewCompanyRestore } from '@/lib/backup-restore';
+import { requireCompanyRole } from '@/lib/rbac';
 
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
+
+  // Preview exposes snapshot contents and counts; require the same role tier
+  // as the restore itself.
+  await requireCompanyRole(companyId, ['company_admin']);
   const body = await request.json();
   const { data } = body;
   if (!data || typeof data !== 'string') return NextResponse.json({ error: 'data required' }, { status: 400 });

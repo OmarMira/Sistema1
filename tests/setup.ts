@@ -13,6 +13,14 @@ if (_dbUrl.includes('accountexpress') && !_dbUrl.includes('test')) {
   );
 }
 
+// A published backup is sealed at rest (AES-256-GCM, PBKDF2-SHA256 over
+// SESSION_SECRET) and the publisher fails closed without a secret. Vitest does not
+// read the ambient .env, so the suite provides a deterministic default. Tests that
+// need a specific secret — or its absence — still set or delete it themselves.
+if (!process.env.SESSION_SECRET) {
+  process.env.SESSION_SECRET = 'test-session-secret-not-for-production';
+}
+
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import path from 'path';
 import { pathToFileURL } from 'url';

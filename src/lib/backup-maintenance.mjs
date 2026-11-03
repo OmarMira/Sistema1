@@ -1,3 +1,6 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('backup-maintenance.mjs requires Node.js runtime (not Edge)');
+}
 import fs from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -171,14 +174,28 @@ export function createMaintenanceGate(storageRoot) {
       if (!inspect(root, true)) return { marked: false, leases: 0 };
       if (!inspect(leasesDir, true)) throw new Error('Missing maintenance lease directory');
       const marked = readRecord(marker, 'maintenance') !== null;
-      let leases = 0;
-      for (const name of fs.readdirSync(leasesDir)) {
-        const id = name.slice(0, -5);
-        if (!name.endsWith('.json') || !uuid.test(id)) throw new Error('Corrupt maintenance lease name');
-        if (readRecord(path.join(leasesDir, name), 'normal', id)) ++leases;
-      }
-      return { marked, leases };
+      return { marked, leases: leaseIds().length };
     });
+  }
+  /** Every live normal-operation lease identity, in directory order. */
+  function leaseIds() {
+    const ids = [];
+    for (const name of fs.readdirSync(leasesDir)) {
+      const id = name.slice(0, -5);
+      if (!name.endsWith('.json') || !uuid.test(id)) throw new Error('Corrupt maintenance lease name');
+      if (readRecord(path.join(leasesDir, name), 'normal', id)) ids.push(id);
+    }
+    return ids;
+  }
+  /**
+   * Leases that still block a transition, i.e. every live lease except the exact
+   * identity of the operation that requested it. Corrupt lease state refuses like
+   * status(): a damaged lease directory must never be read as "drained".
+   */
+  function blockingLeases(excluded) {
+    if (!inspect(root, true)) return 0;
+    if (!inspect(leasesDir, true)) throw new Error('Missing maintenance lease directory');
+    return leaseIds().filter(id => id !== excluded).length;
   }
   function assertUnmarked() {
     if (status().marked) throw new MaintenanceAdmissionError();
@@ -193,6 +210,7 @@ export function createMaintenanceGate(storageRoot) {
       let active = true;
       let running = 0;
       const lease = Object.freeze({
+        id,
         async run(fn) {
           if (!active) throw new MaintenanceAdmissionError('Normal lease owner released');
           ++running;
@@ -250,23 +268,50 @@ export function createMaintenanceGate(storageRoot) {
     if (recovery) return scopedSync({ ...inherited, active: inherited.authority }, fn);
     return lease.runSync(fn, () => { if (!nested) lease.release(); });
   }
-  function beginMaintenance() {
+  /**
+   * Publish the maintenance marker and return its owner capability.
+   *
+   * A transition requested BY an admitted operation passes
+   * `excludeCurrentOperation: true`: the drain, the recovery admission check and
+   * the release then ignore that one lease identity, captured here inside the
+   * caller's own scope. Without it the caller's admission edge would deadlock its
+   * own drain and the marker could never be released by the operation that
+   * published it. Every OTHER live lease still blocks, so ordinary requests stay
+   * fenced (they are refused at acquireNormalOperation while the marker exists)
+   * and an operation cannot widen its own admission. Outside an admitted
+   * operation the flag is inert; `resumeMaintenance` never excludes anything.
+   */
+  function beginMaintenance(options) {
+    if (options !== undefined && options !== null) {
+      if (typeof options !== 'object' || Array.isArray(options) ||
+          Object.keys(options).some(key => key !== 'excludeCurrentOperation')) {
+        throw new TypeError('Invalid maintenance options');
+      }
+    }
     return guarded(() => {
       initialize();
       assertUnmarked(); // Validate corrupt leases before publishing a marker.
       const id = randomUUID();
+      const excluded = options?.excludeCurrentOperation === true ? currentLeaseId() : null;
       writeRecord(marker, { version: 1, kind: 'maintenance', id });
-      return maintenanceOwner(id);
+      return maintenanceOwner(id, excluded);
     });
+  }
+  /** Identity of the lease this call runs under, if any. */
+  function currentLeaseId() {
+    const inherited = normalContext.getStore();
+    return inherited?.root === root && inherited.kind === 'normal' && inherited.active()
+      ? inherited.lease.id
+      : null;
   }
   function resumeMaintenance(id) {
     return guarded(() => {
       if (!uuid.test(id)) throw new Error('Invalid maintenance identity');
       if (!readRecord(marker, 'maintenance', id)) throw new Error('Maintenance owner unavailable');
-      return maintenanceOwner(id);
+      return maintenanceOwner(id, null);
     });
   }
-  function maintenanceOwner(id) {
+  function maintenanceOwner(id, excludedLeaseId = null) {
       let active = true;
       let drained = false;
       let running = false;
@@ -284,13 +329,14 @@ export function createMaintenanceGate(storageRoot) {
       }
       return Object.freeze({
         id,
+        excludedLeaseId,
         async drain({ timeoutMs = 5000 } = {}) {
           if (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 30000) {
             throw new TypeError('Drain timeout must be between 0 and 30000 milliseconds');
           }
           const deadline = performance.now() + timeoutMs;
           while (true) {
-            const done = guarded(() => { owned(); return status().leases === 0; });
+            const done = guarded(() => { owned(); return blockingLeases(excludedLeaseId) === 0; });
             if (done) { drained = true; return; }
             if (performance.now() >= deadline) throw new MaintenanceAdmissionError('Maintenance drain timed out');
             await new Promise(resolve => setTimeout(resolve, Math.min(10, Math.max(1, deadline - performance.now()))));
@@ -299,7 +345,7 @@ export function createMaintenanceGate(storageRoot) {
         async runRecovery(fn) {
           guarded(() => {
             owned();
-            if (!drained || status().leases !== 0) throw new MaintenanceAdmissionError('Maintenance not drained');
+            if (!drained || blockingLeases(excludedLeaseId) !== 0) throw new MaintenanceAdmissionError('Maintenance not drained');
             if (running) throw new MaintenanceAdmissionError('Recovery already running');
             // Exclusive across resumed owner instances and cooperating processes.
             // A crash leaves this lock blocking: never auto-delete a stale owner.
@@ -322,7 +368,7 @@ export function createMaintenanceGate(storageRoot) {
           return guarded(() => {
             owned();
             if (running) throw new MaintenanceAdmissionError('Recovery still running');
-            if (!drained || status().leases !== 0) throw new MaintenanceAdmissionError('Maintenance not drained');
+            if (!drained || blockingLeases(excludedLeaseId) !== 0) throw new MaintenanceAdmissionError('Maintenance not drained');
             lockRecovery();
             try { fs.unlinkSync(marker); active = false; }
             finally { fs.unlinkSync(recoveryLock); }

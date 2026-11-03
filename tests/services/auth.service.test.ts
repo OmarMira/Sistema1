@@ -66,12 +66,18 @@ describe('AuthService', () => {
 
   it('debe iniciar sesión con credenciales correctas', async () => {
     const passwordHash = await bcrypt.hash('password123', 10);
+    // T3 (emailVerifiedAt / PENDING flow): AuthService.login refuses a pending
+    // account before it even verifies the password (login route is the only
+    // caller that passes resumeVerification). A signed-in user is therefore a
+    // verified one; the fixture must model that, not a brand-new pending invite.
     const user = await db.user.create({
       data: {
         email: 'login@example.com',
         passwordHash,
         firstName: 'John',
         lastName: 'Doe',
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
 
@@ -90,12 +96,16 @@ describe('AuthService', () => {
 
   it('debe fallar al iniciar sesión con contraseña incorrecta', async () => {
     const passwordHash = await bcrypt.hash('password123', 10);
+    // Verified on purpose: the rejection below must come from the password
+    // comparison, not from the pending-account guard (same error message).
     await db.user.create({
       data: {
         email: 'wrongpass@example.com',
         passwordHash,
         firstName: 'John',
         lastName: 'Doe',
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
 

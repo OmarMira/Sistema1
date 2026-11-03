@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import crypto from 'node:crypto';
 import path from 'node:path';
 import { RUNTIME_FILES } from './config/paths';
@@ -8,6 +12,7 @@ import { planCompanyLogo, validateCompanyLogo, companyLogoRecoveryTarget } from 
 import { recoveryReceiptEvidence } from './backup-recovery-receipt.mjs';
 import { Prisma } from '@prisma/client';
 import { withCompanyBackupTransaction } from '@/lib/db';
+import { ValidationError } from './api-error';
 import { captureCompanySnapshot, type BackupData, type BackupManifest, type CompanySnapshotClient } from './backup';
 import { sealSnapshot } from './backup-format';
 import { publishBackup, readCompanyConfig } from './backup-storage';
@@ -32,6 +37,24 @@ export interface CompanyRestoreResult {
   counts?: BackupManifest['recordCounts'];
   /** A transaction transport failure may mean COMMIT succeeded. Never auto-retry. */
   error?: string;
+}
+
+/**
+ * Payload/destination admission checks reject the call, they do not fail the
+ * server: the HTTP routes map AppError to its status code, so a refused backup
+ * must answer 4xx instead of a generic 500. The original message is preserved
+ * verbatim so the RESTORE_/BACKUP_ASSET_ contracts (and their logs) are stable.
+ * Only the validator call sites use this; the self-generated safety snapshot
+ * check right before publication stays a plain error (that one is a server bug).
+ */
+function validated<T>(run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (/^(RESTORE|BACKUP_ASSET)[A-Z_]*:/.test(message)) throw new ValidationError(message);
+    throw error;
+  }
 }
 
 async function readDestination(tx: CompanySnapshotClient): Promise<Tables> {
@@ -68,10 +91,11 @@ function blockers(snapshot: ReturnType<typeof validateRestoreSource>['snapshot']
  * authorize the exact company; this module does not establish sessions/RBAC.
  */
 export async function previewCompanyRestore(companyId: string, text: string): Promise<CompanyRestorePreview> {
-  const source = validateRestoreSource(companyId, text);
-  const destination = await withCompanyBackupTransaction(async tx =>
-    validateRestoreDestination(source.tables, await readDestination(tx), companyId),
-  { isolationLevel: 'RepeatableRead' });
+  const source = validated(() => validateRestoreSource(companyId, text));
+  const destination = await withCompanyBackupTransaction(async tx => {
+    const current = await readDestination(tx);
+    return validated(() => validateRestoreDestination(source.tables, current, companyId));
+  }, { isolationLevel: 'RepeatableRead' });
   return frozen({ companyId, checksum: source.snapshot.manifest.integrity!.digest,
     counts: source.snapshot.manifest.recordCounts,
     ids: Object.fromEntries(Object.entries(RESTORE_MODELS).map(([section, model]) => [section, source.tables[model].map(identity)])),
@@ -97,7 +121,7 @@ export async function restoreCompanyBackup(companyId: string, text: string): Pro
 
 type PrepareConfiguration = (operationId: string, checksum: string, safetyFilename: string) => void | Promise<void>;
 async function restoreDatabase(companyId: string, text: string, prepareConfiguration?: PrepareConfiguration): Promise<CompanyRestoreResult> {
-  const source = validateRestoreSource(companyId, text);
+  const source = validated(() => validateRestoreSource(companyId, text));
   const operationId = crypto.randomUUID();
   let safetyFilename = '';
   let mutationStarted = false;
@@ -108,7 +132,7 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       const companies = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM "Company" WHERE id = ${companyId} FOR UPDATE`);
       if (companies.length !== 1) throw new Error('RESTORE_IDENTITY: destination company missing');
       const current = await readDestination(tx);
-      const owned = validateRestoreDestination(source.tables, current, companyId);
+      const owned = validated(() => validateRestoreDestination(source.tables, current, companyId));
       const config = readCompanyConfig(companyId);
       const refused = blockers(source.snapshot, config, owned).filter(() => !prepareConfiguration);
       if (prepareConfiguration) {
@@ -161,12 +185,16 @@ export interface CoordinatedRestoreResult extends Omit<CompanyRestoreResult, 'st
  * bytes and a trusted installed target mapping; legacy missing bytes fail closed.
  */
 export async function restoreCompanyBackupCoordinated(companyId: string, text: string): Promise<CoordinatedRestoreResult> {
-  const source = validateRestoreSource(companyId, text);
-  validateCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo);
+  const source = validated(() => validateRestoreSource(companyId, text));
+  validated(() => validateCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo));
   const runtime = path.dirname(RUNTIME_FILES.companyConfig);
   const journalRoot = path.join(runtime, 'backup-recovery');
   const gate = createMaintenanceGate(path.join(runtime, 'backup-maintenance'));
-  const owner = gate.beginMaintenance();
+  // This transition is requested BY an admitted operation, so its own
+  // normal-operation lease must not deadlock the drain it is starting. Only that
+  // one lease identity is excluded; every other request stays fenced while the
+  // marker is up (they are refused at admission long before reaching here).
+  const owner = gate.beginMaintenance({ excludeCurrentOperation: true });
   let journalStarted = false;
   let intentOperationId = '';
   let intentSafetyFilename = '';
@@ -201,8 +229,17 @@ export async function restoreCompanyBackupCoordinated(companyId: string, text: s
     });
   } catch (error) {
     if (!journalStarted) {
-      // A failed drain remains fenced: release refuses while leases are live.
-      if (gate.status().leases === 0) { await owner.drain({ timeoutMs: 0 }); owner.release(); }
+      // No recovery intent exists, so the marker this operation published must not
+      // fence the application. Release exactly that marker: the owner refuses if
+      // its identity is no longer the published one, and any other live lease
+      // keeps the fence up. A crash leaves no owner at all and therefore always
+      // stays closed for the operator. Nothing is auto-recovered by guessing.
+      try {
+        await owner.drain({ timeoutMs: 5000 });
+        owner.release();
+      } catch {
+        // Ambiguity stays blocking: the marker is never removed speculatively.
+      }
       throw error;
     }
     return { status: 'reconciliation_required', scope: 'database-and-company-config',

@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { db, withCompanyBackupTransaction } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
@@ -6,7 +10,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { RUNTIME_FILES } from '@/lib/config/paths';
-import { COMPANY_BACKUP_VERSION, sealSnapshot, canonicalizeSnapshotMoney, captureSnapshotFidelity, type SnapshotIntegrity, type SnapshotFidelity } from './backup-format';
+import { COMPANY_BACKUP_VERSION, isCompanyFormat, sealSnapshot, canonicalizeSnapshotMoney, captureSnapshotFidelity, type SnapshotIntegrity, type SnapshotFidelity } from './backup-format';
 import { readCatalog, writeCatalog, publishBackup, readBackupText, removeBackupFile, readCompanyConfig, validBackupFilename } from './backup-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
@@ -281,7 +285,7 @@ export function filterSensitiveSystemConfig(
  * Export a versioned company database snapshot and its runtime configuration.
  * Returns identical saved/download bytes; v2 recovery is deliberately gated.
  */
-export async function createBackup(companyId: string): Promise<{
+export async function createBackup(companyId: string, createdByUserId?: string): Promise<{
   id: string;
   filename: string;
   size: number;
@@ -299,6 +303,12 @@ export async function createBackup(companyId: string): Promise<{
     throw new Error('Company configuration changed during snapshot');
   }
   const { backupData, backupId, filename, recordCounts, createdAt } = snapshot;
+  // Inyectar creador y destino para historial
+  if (backupData.manifest) {
+    const m = backupData.manifest as unknown as Record<string, unknown>;
+    m.createdBy = createdByUserId ? createdByUserId : (m.createdBy as string | undefined || 'system');
+    m.destination = 'db/backups/';
+  }
   sealSnapshot(backupData);
   const jsonString = JSON.stringify(backupData, null, 2);
   const size = Buffer.byteLength(jsonString, 'utf-8');
@@ -651,6 +661,8 @@ export function listBackups(companyId: string): BackupRecord[] {
       filename: b.filename,
       size: b.size,
       createdAt: b.createdAt,
+      createdBy: (b as Record<string, unknown>).createdBy as string | undefined,
+      destination: (b as Record<string, unknown>).destination as string | undefined,
       companyInfo: {
         id: b.companyId,
         legalName: b.companyLegalName,
@@ -702,6 +714,21 @@ export function deleteBackup(filename: string, companyId: string): DeleteBackupR
   writeManifest(manifest);
 
   return { status: 'deleted' };
+}
+
+/**
+ * Structural gate for the coordinated company restore path. Company-format
+ * snapshots (2.x) are validated in depth by parseSnapshot inside the
+ * coordinated restore, so this gate admits them; every other version still
+ * goes through the full legacy structural validator. The legacy/bootstrap
+ * restore keeps calling validateBackup directly and therefore stays fenced
+ * away from v2 payloads.
+ */
+export function validateBackupForCoordinatedRestore(backupData: BackupData): { valid: boolean; errors: string[] } {
+  if (backupData?.manifest && isCompanyFormat(backupData.manifest.version)) {
+    return { valid: true, errors: [] };
+  }
+  return validateBackup(backupData);
 }
 
 /**

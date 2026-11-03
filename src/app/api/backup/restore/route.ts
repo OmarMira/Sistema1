@@ -4,7 +4,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
 import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
-import { validateBackup, type BackupData } from '@/lib/backup';
+import { validateBackupForCoordinatedRestore, type BackupData } from '@/lib/backup';
 
 /**
  * POST /api/backup/restore — Restore from backup
@@ -77,8 +77,10 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     }
   }
 
-  // Validate backup structure
-  const validation = validateBackup(backupData);
+  // Validate backup structure. Company-format snapshots (2.x) are admitted here
+  // and validated in depth by parseSnapshot inside the coordinated restore;
+  // legacy versions still pass the full structural validator.
+  const validation = validateBackupForCoordinatedRestore(backupData);
   if (!validation.valid) {
     return NextResponse.json(
       { error: `Invalid backup: ${validation.errors.join(', ')}` },

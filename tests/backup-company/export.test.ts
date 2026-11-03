@@ -39,7 +39,7 @@ const database = vi.hoisted(() => new Proxy({}, {
 vi.mock('@/lib/db', () => ({ db: database, withCompanyBackupTransaction: (callback: any, options: any) => state.transaction(callback, options) }));
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth must not run'); }) }));
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
-import { createBackup, listBackups, getBackupFile, deleteBackup, validateBackup } from '@/lib/backup';
+import { createBackup, listBackups, getBackupFile, deleteBackup, validateBackup, validateBackupForCoordinatedRestore } from '@/lib/backup';
 
 const dir = path.join(state.root, 'backups');
 const config = path.join(state.root, 'company-config.json');
@@ -177,6 +177,17 @@ describe('company snapshot and publication', () => {
   it('does not make mandatory v2 data silently restorable by the old restore', async () => {
     const body = payload(await createBackup('tenant'));
     expect(validateBackup(body)).toEqual({ valid: false, errors: ['Backup format 2.1.0 requires the company recovery implementation; legacy restore is not supported'] });
+  });
+
+  it('admits the company format through the coordinated restore gate while the legacy validator stays fenced', async () => {
+    const body = payload(await createBackup('tenant'));
+    expect(validateBackupForCoordinatedRestore(body)).toEqual({ valid: true, errors: [] });
+    expect(validateBackup(body).valid).toBe(false);
+  });
+
+  it('sends legacy versions through the full structural validator in the coordinated gate', () => {
+    const legacy = { manifest: null };
+    expect(validateBackupForCoordinatedRestore(legacy as never)).toEqual({ valid: false, errors: ['Missing manifest'] });
   });
 
   it('creates unique names under an identical clock and preserves the first bytes', async () => {

@@ -1,0 +1,34 @@
+# Sale-readiness hardening — AccountExpress
+Objective: fix the top-priority defects found in the 12-part system analysis so the system can be sold. Branch: `feat/sale-readiness-hardening` (from HEAD of feat/company-backup-reliability, 783fd7d). Delivery: `ask-on-risk`, cached `chain_strategy=feature-branch-chain`. Test runners: focused vitest (company-backup config for backup units), node --test for installer-style cjs, global `npm run typecheck` at the end of each unit; never run DB-mutating suites against the ambient database. 159 pre-existing uncommitted installer/onboarding files in the tree are OUT OF SCOPE: never stage them.
+
+## Specs
+S1. User authorization (verbatim): "hacelo porque necesito sacar a la venta a este sistema". Fix the top-10 weaknesses from the analysis report delivered in this conversation, prioritized for market readiness. Each fix keeps existing public behavior otherwise intact; every behavior change is pinned by a test.
+S2. Backup version compatibility: `validateBackup` (src/lib/backup.ts ~:732) accepts only ['1.0.0','1.1.0'] while `createBackup` stamps COMPANY_BACKUP_VERSION='2.1.0' (src/lib/backup-format.ts:10). Both restore paths (`/api/backup/restore`, `/api/bootstrap/restore`) must accept a backup the running app itself produces. Legacy versions keep being accepted.
+S3. Cross-tenant write fix: `entity-context-crud-service.ts:182-186` runs `bankRule.updateMany({ where: { entityContextId: { in: ids } } })` with no companyId filter on client-supplied ids. The bulk unlink/delete flow must only touch rules belonging to the caller's company, proven by a test that a foreign id is ignored.
+S4. Backup download authorization: `GET /api/backup/[filename]` (src/app/api/backup/[filename]/route.ts:11-16) has no role check; it must require the same role tier as POST/DELETE (`company_admin`, per src/app/api/backup/route.ts:16,64). Response body/format otherwise unchanged.
+S5. AI masked-key overwrite: saving AI settings from `AiConfigTab.tsx` can POST the masked key (e.g. `sk-1...wxyz`) back; when `/api/config/ai/verify` returns success:true with warning on HTTP 429 (verify/route.ts:80-88) the real key is destroyed. A masked/unchanged key must never overwrite the stored key, and a 429 verify response must not authorize overwriting with an unverified value. UI must keep working for a genuinely new key.
+S6. Budget company scoping: `src/lib/budget/engine.ts:21-22` reads `data/budgets.json` keyed by [year][month][accountCode] with no companyId; budgets must be per-company (company A budget must not drive company B variance), with backward-compatible read of legacy unscoped entries (treated as no-company/legacy data, not silently attributed to company A). Missing file must not throw 500.
+S7. Double-entry exactness: posted-entry validation must require debits === credits in exact cents (no ±0.005 tolerance, src/app/api/journal/[id]/route.ts:143-152), while UI rounding of individual lines remains allowed only if the entry balances exactly. A 0.004-off entry must be rejected with a clear error.
+S8. Balance aggregation posted-only: account balance aggregation (src/app/api/accounts/route.ts:52-71) must count only `posted` journal entries, matching recalculateBalance. Draft/void lines must not change reported balances. Test pins the difference.
+S9. Fiscal guard fail-closed on invalid dates: `fiscal-period-guard.ts:17-19` returns silently on NaN dates. Invalid dates must be rejected (throw/block), not silently allowed. Gap-between-periods behavior and no-periods companies stay as-is this unit (documented limitation).
+S10. First-admin bootstrap hardening: first confirmed registration becomes super_admin by race (auth.service.ts:109,115). When `BOOTSTRAP_SETUP_TOKEN` is set, promotion must require it; without the token the advisory-lock race protection stays plus the promotion must be logged as a security-relevant audit event. No breaking change for single-user local installs.
+S11. Legacy rule tiebreak determinism: legacy engine winner selection (rule-matching-engine.ts:350-356) must add a deterministic final tiebreak on ruleId (matching canonical-ranking.ts:25-35) so equal-priority rules classify identically across runs. Mode default (`legacy`) unchanged.
+S12. Chain verification activation: expose journal/audit chain verification so tampering is detectable at runtime (endpoint or scheduled check), and `createAuditLogWithRetry` (src/lib/audit.ts:30-40) begins writing hash/previousHash for new rows, with verifyAuditChain tolerating mixed hashed/unhashed rows during transition.
+
+## Tasks
+T1 | S2 | inline | RED+GREEN | fix validateBackup version gate to accept the current writer version + legacy; test in tests/backup-company
+T2 | S3 | inline | RED+GREEN | add companyId guard to entity-context bulk unlink; regression test
+T3 | S4 | inline | RED+GREEN | add company_admin role check to GET /api/backup/[filename]
+T4 | S5 | delegated writer | AI masked-key overwrite guard (client + verify route)
+T5 | S6 | delegated writer | budget per-company scoping with legacy read
+T6 | S7+S8 | inline | exact double-entry + posted-only balances
+T7 | S9 | inline | fiscal guard NaN fail-closed
+T8 | S10 | inline | first-admin promotion hardening
+T9 | S11 | inline | legacy tiebreak on ruleId
+T10 | S12 | inline | audit hash chain writing + verification exposure
+T11 | — | parent | full typecheck + affected suites + final report per S#
+
+## Log
+L1. User request (verbatim): "hacelo porque necesito sacar a la venta a este sistema". Scope: top-10 weak points from the delivered analysis (S2-S12 above map to them). Pre-existing uncommitted installer work (~159 files) is preserved untouched; sale-hardening commits stage only their own files. Branch created from 783fd7d.
+L2. Analysis report basis: 6 read-only explorers (tasks mw00ez1h/1l/1q/1u/1x/21) produced the findings quoted in the Specs; file:line evidence in this document comes from those reports. Static analysis only — dynamic verification happens via tests in each task.
+L3. T1 design discovery: the 2.x-exclusion in validateBackup is an INTENTIONAL fence pinned by tests (export.test.ts:176-180 'does not make mandatory v2 data silently restorable by the old restore'; restore.test.ts:444-448 'keeps v2 out of legacy/bootstrap restore'). The actual defect is narrower than the analysis finding: /api/backup/restore calls the legacy validateBackup gate BEFORE dispatching to restoreCompanyBackupCoordinated, which validates v2 via parseSnapshot. S2 refined: the coordinated restore path must accept 2.x (v2 validated by parseSnapshot); /api/bootstrap/restore (legacy first-install restore) keeps rejecting 2.x with its clear message — first-install ingestion of a 2.x backup is a separate future task, not silently enabled. Existing fence tests stay green and unchanged.

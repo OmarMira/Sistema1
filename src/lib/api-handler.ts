@@ -133,12 +133,16 @@ function admittedApiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}
 
       // 5. Validar acceso tenant (empresa activa + membresía, con bypass super_admin)
       //    Delegado a requireActiveTenantAccess: única fuente de verdad.
+      let tenantVerified = false;
       if (requireMembership && userId) {
         if (!companyId) {
           throw new ValidationError('companyId is required');
         }
 
         await requireActiveTenantAccess(companyId, { userId, role: userRole ?? '' });
+        // super_admin bypasses the membership lookup, so its companyId is not
+        // proven to exist; only a verified membership makes the pair DB-backed.
+        tenantVerified = userRole !== 'super_admin';
       }
 
       // 5. Ejecutar validación de rate limit
@@ -154,10 +158,16 @@ function admittedApiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}
       let resetAt = '';
 
       if (rateLimitKey !== null) {
+        // S23e: only a session user id plus an already-verified tenant may be
+        // written to the audit trail. An IP bucket or the 'global' placeholder
+        // is logged instead (those rows used to violate AuditLog foreign keys).
+        const auditSubject =
+          userId && companyId && tenantVerified ? { userId, companyId } : null;
         const rl = checkRateLimit(
           rateLimitKey,
           companyId || 'global',
           request.nextUrl.pathname,
+          auditSubject,
         );
         limit = rl.limit;
         remaining = rl.remaining;

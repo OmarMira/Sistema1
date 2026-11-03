@@ -74,7 +74,8 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
             {t('reports.exportModalTitle')}
           </DialogTitle>
           <DialogDescription>
-            Genera y descarga balances contables auditados en formato CSV o PDF firmado.
+            Genera balances contables con huella de integridad en CSV, o abrí la vista de
+            impresión del navegador para guardarlos como PDF.
           </DialogDescription>
         </DialogHeader>
 
@@ -109,8 +110,8 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
                   <SelectValue placeholder="Seleccionar formato" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="csv">CSV (Con Hash SHA-256)</SelectItem>
-                  <SelectItem value="pdf">PDF Firmado (Uso Interno)</SelectItem>
+                  <SelectItem value="csv">CSV (Con hash SHA-256)</SelectItem>
+                  <SelectItem value="print">Imprimir / Guardar como PDF</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -150,8 +151,8 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
               USO INTERNO ÚNICAMENTE
             </AlertTitle>
             <AlertDescription className="text-amber-700 text-xxs leading-tight mt-1">
-              Documento de borrador interno. No válido para presentación oficial ante entidades de
-              impuestos o gubernamentales.
+              Documento de borrador interno. No está firmado digitalmente y no es válido para
+              presentación oficial ante entidades de impuestos o gubernamentales.
             </AlertDescription>
           </Alert>
         </div>

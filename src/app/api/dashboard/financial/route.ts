@@ -56,19 +56,38 @@ export const GET = apiHandler(async (req: NextRequest) => {
       ? Prisma.sql`AND je.id NOT IN (${Prisma.join(yearCloseEntryIds)})`
       : Prisma.empty;
 
+  // S23d — KPI honesty. The panel and `monthlyTrend` describe ONE fiscal year,
+  // so every figure states its own basis explicitly:
+  //   * balance-sheet KPIs (assets/liabilities/equity) are the position as of
+  //     the fiscal year end: cumulative through `fiscalEnd`;
+  //   * P&L KPIs (revenue/expenses) are the fiscal year itself (YTD), the same
+  //     window as `trendRows` — they used to be cumulative with no date bound
+  //     while the trend was fiscal-year, so the same payload mixed two periods;
+  //   * the accounting-equation check uses the cumulative P&L (the same slice as
+  //     assets/liabilities/equity), otherwise it could never balance.
   const totalsRows = await db.$queryRaw<
-    Array<{ accountType: string; normalBalance: string; totalDebit: bigint; totalCredit: bigint }>
+    Array<{
+      accountType: string;
+      normalBalance: string;
+      totalDebit: bigint;
+      totalCredit: bigint;
+      periodDebit: bigint;
+      periodCredit: bigint;
+    }>
   >`
     SELECT
       ga."accountType" AS "accountType",
       ga."normalBalance" AS "normalBalance",
       COALESCE(SUM(jl."debit"), 0) AS "totalDebit",
-      COALESCE(SUM(jl."credit"), 0) AS "totalCredit"
+      COALESCE(SUM(jl."credit"), 0) AS "totalCredit",
+      COALESCE(SUM(CASE WHEN je."date" >= ${fiscalStart} AND je."date" <= ${fiscalEnd} THEN jl."debit" ELSE 0 END), 0) AS "periodDebit",
+      COALESCE(SUM(CASE WHEN je."date" >= ${fiscalStart} AND je."date" <= ${fiscalEnd} THEN jl."credit" ELSE 0 END), 0) AS "periodCredit"
     FROM "JournalLine" jl
     JOIN "JournalEntry" je ON jl."entryId" = je.id
     JOIN "GlAccount" ga ON jl."glAccountId" = ga.id
     WHERE je."companyId" = ${companyId}
       AND je."status" = 'posted'
+      AND je."date" <= ${fiscalEnd}
       ${yearCloseClause}
     GROUP BY ga."accountType", ga."normalBalance"
   `;
@@ -77,6 +96,10 @@ export const GET = apiHandler(async (req: NextRequest) => {
     asset: 0,
     liability: 0,
     equity: 0,
+    revenue: 0,
+    expense: 0,
+  };
+  const periodTotals = {
     revenue: 0,
     expense: 0,
   };
@@ -91,6 +114,15 @@ export const GET = apiHandler(async (req: NextRequest) => {
         totals[type] += net;
       } else {
         totals[type] -= net;
+      }
+    }
+
+    if (type === 'revenue' || type === 'expense') {
+      const periodNet = Number(row.periodDebit) - Number(row.periodCredit);
+      if (row.normalBalance === 'debit') {
+        periodTotals[type] += periodNet;
+      } else {
+        periodTotals[type] -= periodNet;
       }
     }
   }
@@ -143,9 +175,19 @@ export const GET = apiHandler(async (req: NextRequest) => {
     assets: Math.round(totals.asset * 100) / 100,
     liabilities: Math.round(totals.liability * 100) / 100,
     equity: Math.round((totals.equity + (totals.revenue - totals.expense)) * 100) / 100, // Patrimonio integrado con P&L
-    revenue: Math.round(totals.revenue * 100) / 100,
-    expenses: Math.round(totals.expense * 100) / 100,
+    // Fiscal-year (YTD) P&L — same window as monthlyTrend, never cumulative.
+    revenue: Math.round(periodTotals.revenue * 100) / 100,
+    expenses: Math.round(periodTotals.expense * 100) / 100,
     accountingEquationCheck: isEquationBalanced ? 'PASS' : 'FAIL',
+  };
+
+  // Explicit basis for the client: balance-sheet KPIs are a position at
+  // fiscalEnd, P&L KPIs cover [fiscalStart, fiscalEnd].
+  const kpiPeriod = {
+    start: fiscalStart.toISOString(),
+    end: fiscalEnd.toISOString(),
+    year: fiscalYear,
+    basis: 'assets/liabilities/equity: cumulative through period end; revenue/expenses: fiscal year to date',
   };
 
   // 2. Alertas en tiempo real (Read-Only)
@@ -268,6 +310,7 @@ export const GET = apiHandler(async (req: NextRequest) => {
 
   return NextResponse.json({
     kpi,
+    kpiPeriod,
     alerts,
     monthlyTrend,
     fiscalYear,

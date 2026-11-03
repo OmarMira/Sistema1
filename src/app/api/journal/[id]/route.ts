@@ -161,6 +161,13 @@ export const PUT = apiHandler(
       }
     }
 
+    const changedFields = [
+      ...(date !== undefined ? ['date'] : []),
+      ...(description !== undefined ? ['description'] : []),
+      ...(reference !== undefined ? ['reference'] : []),
+      ...(lines !== undefined ? ['lines'] : []),
+    ];
+
     // Update in a transaction — atomic: deleteMany + create inside a single update
     const updated = await db.$transaction(async (tx) => {
       if (date !== undefined) {
@@ -210,6 +217,21 @@ export const PUT = apiHandler(
           },
         },
       });
+
+      // S23h: a draft edit is a bookkeeping event. Record it in the chained
+      // audit log (same writer as post/void) inside the same transaction, so a
+      // failed update never leaves an orphan audit row and vice versa.
+      await createAuditLogWithRetry(
+        {
+          companyId: existing.companyId,
+          userId,
+          action: 'JOURNAL_DRAFT_UPDATED',
+          entity: 'JournalEntry',
+          entityId: id,
+          details: JSON.stringify({ changedFields }),
+        },
+        tx as any,
+      );
 
       return entry;
     });

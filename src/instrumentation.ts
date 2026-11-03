@@ -59,20 +59,40 @@ async function registerNodeRuntime() {
   const { optimizeDatabase } = await import('./lib/db-optimizer');
   const { resetMetrics } = await import('./lib/metrics');
   const { startSessionCleanupInterval } = await import('./lib/maintenance/cleanupSessions');
-  const { decrypt } = await import('./lib/crypto');
 
   initRuntimeData();
   await optimizeDatabase();
   resetMetrics();
   startSessionCleanupInterval();
 
-  // Auto-decrypt API key at startup if encrypted variant exists
-  if (process.env.AI_API_KEY_ENCRYPTED && !process.env.AI_API_KEY) {
-    try {
-      process.env.AI_API_KEY = decrypt(process.env.AI_API_KEY_ENCRYPTED);
-    } catch {
-      // encrypted key exists but decryption failed (e.g. SESSION_SECRET changed)
-    }
+  await decryptAiApiKeyAtStartup();
+}
+
+/**
+ * Auto-decrypt the encrypted AI API key at startup when only the sealed variant
+ * is present.
+ *
+ * S23f: the failure path used to be swallowed, so a rotated SESSION_SECRET (or a
+ * corrupted value) silently left the assistant without a key and no diagnostic.
+ * A failure is now logged as an ERROR with the actionable cause.
+ *
+ * @returns true when AI_API_KEY was populated.
+ */
+export async function decryptAiApiKeyAtStartup(): Promise<boolean> {
+  if (!process.env.AI_API_KEY_ENCRYPTED || process.env.AI_API_KEY) return false;
+
+  const { decrypt } = await import('./lib/crypto');
+  try {
+    process.env.AI_API_KEY = await decrypt(process.env.AI_API_KEY_ENCRYPTED);
+    return true;
+  } catch (error) {
+    const { logger } = await import('./lib/logger');
+    logger.error(
+      '[INSTRUMENTATION] Failed to decrypt AI_API_KEY_ENCRYPTED — the AI assistant will run without a key. ' +
+        'Most common cause: SESSION_SECRET changed since the key was saved. Re-save the AI key from Settings.',
+      { error: String(error) },
+    );
+    return false;
   }
 }
 

@@ -8,6 +8,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { validateRequest } from '@/lib/validate-request';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 
 const adjustmentSchema = z.object({
   bankAccountId: z.string().min(1),
@@ -99,6 +100,12 @@ export const POST = apiHandler(async (request: NextRequest) => {
     });
 
     await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
+
+    // S23h: the adjustment entry is POSTED, so both affected accounts must be
+    // re-aggregated in the same transaction (same contract as journal post/void).
+    for (const glAccountId of new Set([debitAccountId, creditAccountId])) {
+      await JournalEntryService.recalculateBalance(tx as any, glAccountId);
+    }
 
     // Audit log
     await tx.auditLog.create({

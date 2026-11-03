@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';
 import { FiscalYearConfig } from '@/lib/fiscal-period/types';
 
@@ -83,6 +84,13 @@ export async function executeYearClose(companyId: string, year: number, config: 
     });
     // JH2 writer: closing entry is POSTED at creation.
     await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
+
+    // S23h: a POSTED entry changes GlAccount.balance, and every other posting
+    // path (post, void, bank flows) refreshes it in the same transaction. The
+    // closing entry must not leave balances stale.
+    for (const glAccountId of new Set(lines.map((l) => l.glAccountId))) {
+      await JournalEntryService.recalculateBalance(tx as any, glAccountId);
+    }
     await createAuditLogWithRetry(
       {
         companyId,

@@ -299,8 +299,18 @@ export async function findMatchingRule(
 }
 
 /**
+ * Ordinal (code-unit) string compare for rule ids — the deterministic final
+ * tiebreak of the Legacy winner selector, mirroring canonical-ranking.ts.
+ */
+function compareRuleIdOrdinal(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/**
  * Previous Legacy winner selector (BRE-012 D2 fallback): orders candidates by
- * `rolePriority → dbPriority → stable input order`. Retained temporarily behind
+ * `rolePriority → dbPriority → ruleId (ascending ordinal)`. Retained temporarily behind
  * the existing `RULE_ENGINE_V2_ENABLED` flag so production behavior is unchanged
  * until the canonical cutover is enabled. Removable in a later change.
  */
@@ -349,7 +359,10 @@ function selectLegacyWinner(
 
   scored.sort((a, b) => {
     if (a.rolePriority !== b.rolePriority) return a.rolePriority - b.rolePriority;
-    return a.dbPriority - b.dbPriority;
+    if (a.dbPriority !== b.dbPriority) return a.dbPriority - b.dbPriority;
+    // Deterministic final tiebreak (same intent as canonical-ranking.ts): equal
+    // role/db priority must not depend on rule input order.
+    return compareRuleIdOrdinal(a.rule.id, b.rule.id);
   });
 
   return scored[0]!.rule;
@@ -368,9 +381,9 @@ export function evaluateWinningRule(
   // BRE-012 (D2): the Legacy winner cutover to the shared canonical comparator is
   // gated behind the EXISTING `RULE_ENGINE_V2_ENABLED` flag — no new flag is
   // introduced and `BANK_RULE_ENGINE` (global engine mode selector) is not reused
-  // for this internal branch. Flag OFF preserves the previous Legacy ordering
-  // (rolePriority → dbPriority → input order); flag ON uses the canonical
-  // comparator.
+  // for this internal branch. Flag OFF keeps the Legacy ordering
+  // (rolePriority → dbPriority → ruleId ascending; S11 deterministic tiebreak);
+  // flag ON uses the canonical comparator.
   if (!isRuleEngineV2Enabled()) {
     return selectLegacyWinner(matchingRules, tx, rolePriorities, contexts);
   }

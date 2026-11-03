@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { db } from '@/lib/db';
 import { verifyPassword, hashPassword } from '@/lib/auth';
 import { AppError, AuthError, ValidationError } from '@/lib/api-error';
@@ -6,6 +7,70 @@ import { LoginInput, RegisterInput } from '@/lib/validations/auth';
 import { withTiming } from '@/lib/timing';
 import { seedChartOfAccounts } from '@/lib/chart-of-accounts';
 import { initializeDefaultCompanyModuleEntitlements } from '@/lib/services/module-entitlement-initialization';
+import { createAuditLogWithRetry } from '@/lib/audit';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// S10 — first-admin bootstrap hardening
+//
+// The first confirmed registration is still promoted to platform super_admin,
+// but when the operator sets BOOTSTRAP_SETUP_TOKEN the promotion additionally
+// requires that token. Registration (the challenge request) is the only place
+// the operator token is presented, while the promotion happens later at
+// verification, so the accepted token is recorded as one short-lived, single-use
+// grant bound to the registering email and consumed inside the confirmation
+// transaction. Without BOOTSTRAP_SETUP_TOKEN nothing changes for single-user
+// local installs and the promotion is recorded as a security audit event.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** How long a token-accepted registration may take to be confirmed. */
+export const FIRST_ADMIN_BOOTSTRAP_GRANT_TTL_MS = 30 * 60 * 1000;
+
+/** SystemConfig key of the bootstrap grant (no secret material is stored). */
+export function firstAdminBootstrapGrantKey(email: string): string {
+  return `auth:first-admin-bootstrap:${email.toLowerCase().trim()}`;
+}
+
+/**
+ * Compares the presented setup token with the configured one exactly like
+ * /api/bootstrap/restore: SHA-256 digests + timingSafeEqual.
+ */
+export function setupTokenMatches(received: string): boolean {
+  const expected = process.env.BOOTSTRAP_SETUP_TOKEN;
+  if (!expected || !received) return false;
+  const expectedHash = createHash('sha256').update(expected).digest();
+  const receivedHash = createHash('sha256').update(received).digest();
+  return expectedHash.length === receivedHash.length && timingSafeEqual(expectedHash, receivedHash);
+}
+
+/** Records that an operator who knew the setup token authorized this email's promotion. */
+export async function grantFirstAdminBootstrap(email: string, now: Date = new Date()): Promise<void> {
+  const key = firstAdminBootstrapGrantKey(email);
+  const value = JSON.stringify({
+    issuedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + FIRST_ADMIN_BOOTSTRAP_GRANT_TTL_MS).toISOString(),
+  });
+  await db.systemConfig.upsert({ where: { key }, create: { key, value }, update: { value } });
+}
+
+/**
+ * Consumes the grant inside the confirmation transaction. The caller already
+ * holds the first-registration advisory lock, so the grant can never be used
+ * twice. Returns true only for a present, unexpired grant.
+ */
+async function consumeFirstAdminBootstrapGrant(
+  tx: Prisma.TransactionClient, email: string, now: Date,
+): Promise<boolean> {
+  const key = firstAdminBootstrapGrantKey(email);
+  const row = await tx.systemConfig.findUnique({ where: { key } });
+  if (!row) return false;
+  await tx.systemConfig.delete({ where: { key } });
+  try {
+    const grant = JSON.parse(row.value) as { expiresAt?: string };
+    return typeof grant.expiresAt === 'string' && new Date(grant.expiresAt).getTime() > now.getTime();
+  } catch {
+    return false;
+  }
+}
 
 export class AuthService {
   static login = withTiming(async (input: LoginInput, options?: { resumeVerification: boolean }) => {
@@ -101,19 +166,44 @@ export class AuthService {
     const established = await tx.user.count({ where: { OR: [
       { emailVerifiedAt: { not: null } }, { legacyUser: true }, { platformRole: 'super_admin' },
     ] } });
+    // S10: the promotion is still advisory-lock serialized; with an operator
+    // token configured it additionally requires the matching single-use grant.
+    const bootstrapTokenRequired = Boolean(process.env.BOOTSTRAP_SETUP_TOKEN);
+    let bootstrapGrantConsumed = false;
+    let firstAdmin = established === 0;
+    if (firstAdmin && bootstrapTokenRequired) {
+      bootstrapGrantConsumed = await consumeFirstAdminBootstrapGrant(tx, email, now);
+      firstAdmin = bootstrapGrantConsumed;
+    }
     let id: string;
     if (existing) {
       // Only confirmation and the first-account role may change: keep password/business data.
       const user = await tx.user.update({ where: { id: existing.id }, data: {
         emailVerifiedAt: now,
-        platformRole: established === 0 ? 'super_admin' : existing.platformRole,
+        platformRole: firstAdmin ? 'super_admin' : existing.platformRole,
       } });
       id = user.id;
     } else {
       if (!input) throw new ValidationError('Completa los datos del registro para confirmar tu cuenta.');
       const passwordHash = await hashPassword(input.password);
-      const result = await AuthService.createAccount(tx, input, passwordHash, now, established === 0 ? 'super_admin' : 'user');
+      const result = await AuthService.createAccount(tx, input, passwordHash, now, firstAdmin ? 'super_admin' : 'user');
       id = result.user.id;
+    }
+    if (firstAdmin) {
+      // SecurityEvent: the platform-wide role is granted here and nowhere else.
+      await createAuditLogWithRetry({
+        companyId: null,
+        userId: id,
+        action: 'SECURITY_FIRST_ADMIN_PROMOTED',
+        entity: 'User',
+        entityId: id,
+        details: JSON.stringify({
+          contractVersion: 1,
+          reason: 'first-confirmed-registration',
+          bootstrapTokenRequired,
+          bootstrapGrantConsumed,
+        }),
+      }, tx);
     }
     return tx.user.findUniqueOrThrow({ where: { id }, include: {
       companyMemberships: { where: { company: { isActive: true } }, include: { company: { select: {

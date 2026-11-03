@@ -5,6 +5,7 @@ import { registerSchema } from '@/lib/validations/auth';
 import { createIdentityService } from '@/lib/identity/runtime';
 import { authRateLimiter } from '@/lib/rate-limiter';
 import { getClientIp } from '@/lib/security/client-ip';
+import { grantFirstAdminBootstrap, setupTokenMatches } from '@/lib/services/auth.service';
 
 export const POST = apiHandler(
   async (request: NextRequest) => {
@@ -23,8 +24,33 @@ export const POST = apiHandler(
       );
     }
 
+    // S10: when the operator configured a bootstrap token, the registration that
+    // may later become the first super_admin must present it. Same comparison as
+    // /api/bootstrap/restore (SHA-256 + timingSafeEqual); the token is accepted
+    // from the x-bootstrap-token header or the `setupToken` body field and is
+    // never echoed or logged.
+    const bootstrapTokenRequired = Boolean(process.env.BOOTSTRAP_SETUP_TOKEN);
+    const presentedSetupToken = request.headers.get('x-bootstrap-token')
+      ?? (typeof raw?.setupToken === 'string' ? raw.setupToken : '');
+    if (bootstrapTokenRequired) {
+      if (!presentedSetupToken) {
+        authRateLimiter.increment(ip, email);
+        return NextResponse.json({ error: 'Se requiere un token de inicialización.' }, { status: 403 });
+      }
+      if (!setupTokenMatches(presentedSetupToken)) {
+        authRateLimiter.increment(ip, email);
+        return NextResponse.json({ error: 'Token de inicialización inválido.' }, { status: 403 });
+      }
+    }
+
     const body = await validateRequest(request, registerSchema);
     if (body instanceof NextResponse) return body;
+
+    // The challenge request and the confirmation are separate requests: record
+    // the operator authorization as a single-use grant bound to this email.
+    if (bootstrapTokenRequired) {
+      await grantFirstAdminBootstrap(body.email);
+    }
 
     try {
       const identity = createIdentityService();

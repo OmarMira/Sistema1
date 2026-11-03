@@ -1,44 +1,30 @@
 import { Prisma } from '@prisma/client';
-import { db } from '@/lib/db';
 import { JournalEntryService } from './journal-entry.service';
 import { appendEntryToJournalChain } from '../journal-chain';
 import { assertActiveFiscalPeriod } from '../fiscal-period-guard';
 
 /**
- * Correction link records (original -> counter + replacement).
+ * JournalCorrection (S24) — the accounting-critical correction flow.
  *
- * The `JournalCorrection` table exists in the migrations
- * (prisma/migrations/20261026142303_journal_correction), but `model JournalCorrection` is
- * missing from prisma/schema.prisma, so the generated client exposes no such delegate:
- * the previous `tx.journalEntries` (plural, JournalEntry) reference never existed either
- * and would have thrown a TypeError. POST /api/journal/[id]/corregir is intentionally
- * held at 503 ("Correction unavailable until isolated accounting integrity tests are
- * approved"), so this service is unreachable through the public API. The delegate is
- * typed structurally to keep the module type-correct without inventing schema columns
- * or changing any runtime behavior.
+ * Disposition: ENABLED behind `company_admin` at the HTTP boundary
+ * (POST /api/journal/[id]/corregir). The `JournalCorrection` model exists in
+ * prisma/schema.prisma and pins migration 20261026142303, so the delegate is
+ * used directly (no structural cast).
+ *
+ * Contract, executed inside the caller's transaction:
+ *  1. the original posting is never edited or deleted (`posted` only);
+ *  2. a real counter-entry reverses the original lines (debit <-> credit);
+ *  3. a replacement entry carries the corrected figures;
+ *  4. both new entries are sealed into the per-company journal hash chain
+ *     through the shared `appendEntryToJournalChain` primitive;
+ *  5. affected GL account balances are recalculated from posted lines;
+ *  6. a link record is created; a second correction of the same original is
+ *     refused with CORRECTION_DUPLICATE (pre-check + DB unique constraint).
+ *
+ * The replacement lines are validated here too (defense in depth: the HTTP
+ * route returns the user-facing 400s, this is the last line before writing an
+ * unbalanced entry into the ledger).
  */
-type CorrectionLinkRecord = { id: string };
-
-type CorrectionLinkDelegate = {
-  findFirst(args: {
-    where: { companyId: string; originalEntryId: string };
-  }): Promise<CorrectionLinkRecord | null>;
-  create(args: {
-    data: {
-      companyId: string;
-      originalEntryId: string;
-      counterEntryId: string;
-      replacementEntryId: string;
-      reason: string;
-      correctedByUserId: string;
-    };
-  }): Promise<CorrectionLinkRecord>;
-};
-
-function correctionLinks(tx: Prisma.TransactionClient): CorrectionLinkDelegate {
-  return (tx as unknown as { journalCorrection: CorrectionLinkDelegate }).journalCorrection;
-}
-
 export class JournalCorrectionService {
   static async applyCorrection(
     tx: Prisma.TransactionClient,
@@ -51,6 +37,8 @@ export class JournalCorrectionService {
       correctionDate: Date; // Explicit correction date (must be in open fiscal period)
     }
   ) {
+    assertBalancedCorrectionLines(params.correctedLines);
+
     const original = await tx.journalEntry.findUnique({
       where: { id: params.originalEntryId, companyId: params.companyId },
       include: { lines: true },
@@ -59,14 +47,14 @@ export class JournalCorrectionService {
     if (original.status !== 'posted') throw new Error('Only posted entries can be corrected');
 
     // Duplicate-guard: determinism + DB unique enforcement together.
-    const existing = await correctionLinks(tx).findFirst({
+    const existing = await tx.journalCorrection.findFirst({
       where: { companyId: params.companyId, originalEntryId: params.originalEntryId },
     });
     if (existing) throw new Error('CORRECTION_DUPLICATE');
 
     // Fiscal period validated on the EXPLICIT correction date (NOT original.date)
     await assertActiveFiscalPeriod(params.companyId, params.correctionDate, tx as any);
-    
+
     // Use explicit correction date for new entries
     const correctionDate = params.correctionDate;
 
@@ -111,16 +99,18 @@ export class JournalCorrectionService {
     // Seal counter asiento into the journal hash chain FIRST
     await appendEntryToJournalChain(tx, { companyId: params.companyId, entryId: counterEntry.id });
 
-    // 3) Link record: original kept intact; counter and replacement linked
-    const correction = await correctionLinks(tx).create({
-      data: {
-        companyId: params.companyId,
-        originalEntryId: original.id,
-        counterEntryId: counterEntry.id,
-        replacementEntryId: replacementEntry.id,
-        reason: params.reason,
-        correctedByUserId: params.correctedByUserId,
-      },
+    // 3) Link record: original kept intact; counter and replacement linked.
+    // The pre-check above is TOCTOU-exposed; the @@unique([companyId,
+    // originalEntryId]) constraint is the real guard, so a concurrent duplicate
+    // is translated into the same CORRECTION_DUPLICATE contract instead of
+    // leaking a raw Prisma error.
+    const correction = await createCorrectionLink(tx, {
+      companyId: params.companyId,
+      originalEntryId: original.id,
+      counterEntryId: counterEntry.id,
+      replacementEntryId: replacementEntry.id,
+      reason: params.reason,
+      correctedByUserId: params.correctedByUserId,
     });
 
     // Seal replacement asiento into the journal hash chain AFTER counter
@@ -137,5 +127,65 @@ export class JournalCorrectionService {
     }
 
     return { counterEntry, replacementEntry, correctionId: correction.id };
+  }
+}
+
+/**
+ * Creates the correction link, mapping the unique-constraint violation to the
+ * public CORRECTION_DUPLICATE contract.
+ */
+async function createCorrectionLink(
+  tx: Prisma.TransactionClient,
+  data: {
+    companyId: string;
+    originalEntryId: string;
+    counterEntryId: string;
+    replacementEntryId: string;
+    reason: string;
+    correctedByUserId: string;
+  },
+) {
+  try {
+    return await tx.journalCorrection.create({ data });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+      throw new Error('CORRECTION_DUPLICATE');
+    }
+    throw err;
+  }
+}
+
+/**
+ * Exact-cents invariant for the replacement entry: debits === credits (no
+ * tolerance, same contract as GET/PUT/POST /api/journal/[id]) and single lines
+ * carry a real GL account with finite, non-negative amounts.
+ */
+function assertBalancedCorrectionLines(
+  lines: Array<{ glAccountId: string; debit: number; credit: number }>,
+): void {
+  if (!Array.isArray(lines) || lines.length < 2) {
+    throw new Error('CORRECTION_INVALID: at least 2 corrected journal lines are required');
+  }
+  let debitCents = 0;
+  let creditCents = 0;
+  for (const line of lines) {
+    if (!line || typeof line.glAccountId !== 'string' || line.glAccountId.length === 0) {
+      throw new Error('CORRECTION_INVALID: each corrected line must have a glAccountId');
+    }
+    const debit = Number(line.debit);
+    const credit = Number(line.credit);
+    if (!Number.isFinite(debit) || !Number.isFinite(credit)) {
+      throw new Error('CORRECTION_INVALID: debit and credit must be numeric');
+    }
+    if (debit < 0 || credit < 0) {
+      throw new Error('CORRECTION_INVALID: debit and credit must be non-negative');
+    }
+    debitCents += Math.round(debit * 100);
+    creditCents += Math.round(credit * 100);
+  }
+  if (debitCents !== creditCents) {
+    throw new Error(
+      `Correction entry must balance. Total debits (${(debitCents / 100).toFixed(2)}) must equal total credits (${(creditCents / 100).toFixed(2)})`,
+    );
   }
 }

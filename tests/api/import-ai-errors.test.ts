@@ -68,19 +68,17 @@ describe('AI failures survive the public import endpoints without financial writ
     expect(mocks.writes).not.toHaveBeenCalled();
   });
 
-  // Current contract of POST /api/import: the single-file route lets the
-  // ImportService wrap the AI failure as a 400 ValidationError. The safe AI
-  // message still reaches the client, but the typed ImportAiError code and the
-  // 503 status do not survive the service boundary (reported as a defect, not
-  // silently asserted as desirable).
-  it('surfaces the missing configuration message from import and performs no financial writes', async () => {
+  // Contract of POST /api/import since the ImportAiError rethrow fix: the
+  // typed 503 (code + safe provider message) survives the service boundary —
+  // a provider outage is not a client validation error. No financial writes.
+  it('surfaces the typed 503 with its safe code from import and performs no financial writes', async () => {
     const failure = new ImportAiError('AI_CONFIG_MISSING');
     mocks.parse.mockRejectedValue(failure);
     const response = await importFile(request(''), context);
-    expect(response.status).toBe(400);
+    expect(response.status).toBe(503);
     expect(await response.json()).toEqual({
       error: failure.message,
-      code: 'VALIDATION_ERROR',
+      code: 'AI_CONFIG_MISSING',
     });
     expect(mocks.company).not.toHaveBeenCalled();
     expect(mocks.writes).not.toHaveBeenCalled();

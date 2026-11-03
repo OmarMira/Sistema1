@@ -15,6 +15,7 @@ import {
 import { findByCompanyAndFingerprint, persistSuccessfulMapping } from '@/lib/csv-layout-profile-service';
 import { parseOFX } from '@/lib/ofx-parser';
 import { parsePDFAsync } from '@/lib/pdf-processor';
+import { ImportAiError } from '@/lib/ai-import-error';
 import {
   validateAccountHolder,
   isStrictModeEnabled,
@@ -419,6 +420,10 @@ export class ImportService {
         if (parseError instanceof MathMismatchError) {
           throw parseError;
         }
+        if (parseError instanceof ImportAiError) {
+          // A provider outage/config problem is a 503 with a typed code, not a client validation error.
+          throw parseError;
+        }
         throw new ValidationError(
           parseError instanceof Error ? parseError.message : 'Error al parsear el archivo PDF',
         );
@@ -594,6 +599,10 @@ export class ImportService {
 
         bankName = this.extractBankNameFromFilename(fileName);
       } catch (parseError) {
+        if (parseError instanceof ImportAiError) {
+          // A provider outage/config problem is a 503 with a typed code, not a client validation error.
+          throw parseError;
+        }
         throw new ValidationError(
           parseError instanceof Error ? parseError.message : 'Error al parsear el archivo CSV',
         );
@@ -627,6 +636,10 @@ export class ImportService {
       try {
         parsed = parseOFX(content);
       } catch (parseError) {
+        if (parseError instanceof ImportAiError) {
+          // A provider outage/config problem is a 503 with a typed code, not a client validation error.
+          throw parseError;
+        }
         throw new ValidationError(
           parseError instanceof Error ? parseError.message : 'Error al parsear el archivo OFX/QFX',
         );

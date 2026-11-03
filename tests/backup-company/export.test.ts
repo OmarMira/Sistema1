@@ -101,14 +101,21 @@ describe('company snapshot and publication', () => {
     expect(body.data.systemConfig).toEqual([]);
     expect(state.reads).not.toContain('systemConfig');
     const raw = fs.readFileSync(path.join(dir, result.filename));
-    expect(raw.equals(Buffer.from(result.data, 'base64'))).toBe(true);
-    expect(raw.toString('utf8')).toContain('Ñandú 日本 🦜');
-    expect(result.size).toBe(raw.length);
+    const stored = raw.toString('utf8');
+    // S15: the file is sealed at rest; payload fidelity and size are asserted
+    // through the read path, and the disk bytes must carry no plaintext.
+    expect(stored.startsWith('{')).toBe(false);
+    expect(stored).not.toContain('Ñandú 日本 🦜');
+    expect(stored).toMatch(/AES-256-GCM/);
+    const payloadText = getBackupFile(result.filename)!.data;
+    expect(payloadText).toBe(Buffer.from(result.data, 'base64').toString('utf8'));
+    expect(payloadText).toContain('Ñandú 日本 🦜');
+    expect(result.size).toBe(Buffer.byteLength(payloadText));
     expect(body.manifest.version).toBe('2.1.0');
     expect(body.manifest.fidelity).toEqual({ monetary: 'decimal-18,2', jsonNulls: [] });
     expect(body.manifest.integrity.authenticated).toBe(false);
     expect(body.manifest.integrity.digest).toBe(crypto.createHash('sha256').update(JSON.stringify({ manifest: { ...body.manifest, integrity: undefined }, data: body.data }), 'utf8').digest('hex'));
-    expect(listBackups('tenant')[0]).toMatchObject({ id: result.id, filename: result.filename, size: raw.length });
+    expect(listBackups('tenant')[0]).toMatchObject({ id: result.id, filename: result.filename, size: result.size });
     expect(files()).toEqual([result.filename, 'manifest.json'].sort());
   });
 

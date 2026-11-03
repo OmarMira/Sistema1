@@ -8,6 +8,9 @@ export default defineConfig({
   test: {
     include: ['tests/backup-company/**/*.test.ts'],
     environment: 'node',
+    // envDir is disabled so no ambient .env (and no ambient database) leaks in;
+    // backup files are sealed at rest, so this runner needs its own test-only key.
+    env: { SESSION_SECRET: 'company-backup-test-secret-not-for-production' },
     setupFiles: [],
     globalSetup: [],
     cache: false,

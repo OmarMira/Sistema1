@@ -66,7 +66,7 @@ vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 import { sealSnapshot, SNAPSHOT_SECTIONS } from '@/lib/backup-format';
 import { previewCompanyRestore, restoreCompanyBackup, restoreCompanyBackupCoordinated, reconcileCompanyBackupRecovery } from '@/lib/backup-restore';
-import { validateBackup } from '@/lib/backup';
+import { validateBackup, getBackupFile } from '@/lib/backup';
 import { computeEntryHashV2, computeAuditHash } from '@/lib/journal-hash';
 
 const models: Record<string, string> = {
@@ -195,7 +195,7 @@ describe('coordinated company configuration recovery', () => {
     expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({ marker: 'global', companies: { other: { currency: 'USD' }, tenant: { currency: 'ARS' } } });
     const journal = JSON.parse(fs.readFileSync(path.join(state.root, 'backup-recovery', result.operationId + '.json'), 'utf8')).payload;
     expect(journal.files[0].before).toBe(before.toString('base64'));
-    const safety = JSON.parse(fs.readFileSync(path.join(state.root, 'backups', result.safetyFilename), 'utf8'));
+    const safety = JSON.parse(getBackupFile(result.safetyFilename)!.data);
     expect(safety.data.companyConfig).toBe(null);
     expect(fs.existsSync(path.join(state.root, 'backup-maintenance', 'maintenance.json'))).toBe(false);
   });
@@ -265,7 +265,7 @@ describe('public company recovery core', () => {
     expect({ user: state.rows.user, config: state.rows.systemConfig, bank: state.rows.bankProfile,
       company: state.rows.company.find(r => r.id === 'other'), gl: state.rows.glAccount.find(r => r.id === 'foreign-gl') }).toEqual(shared);
     expect(fs.readFileSync(path.join(state.root, 'company-config.json'), 'utf8')).toBe(config);
-    const safety = JSON.parse(fs.readFileSync(path.join(state.root, 'backups', result.safetyFilename), 'utf8'));
+    const safety = JSON.parse(getBackupFile(result.safetyFilename)!.data);
     expect(safety.data.company[0].legalName).toBe('Before recovery');
     expect(safety.data.bankTransactions[0].journalLineId).toBe('journalLines');
     expect(state.queries.some(q => q.includes('pg_advisory_xact_lock'))).toBe(true);

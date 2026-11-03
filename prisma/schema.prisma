@@ -95,7 +95,6 @@ model Company {
   maxApplyTransactions  Int?
   createdAt             DateTime                   @default(now())
   updatedAt             DateTime                   @updatedAt
-  auditLogs             AuditLog[]
   bankAccounts          BankAccount[]
   bankRules             BankRule[]
   statements            BankStatement[]
@@ -260,6 +259,12 @@ model BankStatement {
 model BankTransaction {
   id                     String                @id @default(cuid())
   statementId            String
+  /// S19(f) — denormalized tenant key, defense in depth. Backfilled from the
+  /// statement's account during migration 20261105000001; written by the
+  /// import path on insert. Hot queries (review queue, dashboards) still
+  /// traverse statement → account → company today; this column lets a later
+  /// optimization filter without that join, and is not an authority yet.
+  companyId              String?
   date                   DateTime
   description            String
   amount                 Decimal               @db.Decimal(18, 2)
@@ -296,6 +301,10 @@ model BankTransaction {
   @@index([importHash])
   @@index([isReconciled, journalEntryId, date])
   @@index([ruleApplyRecordId])
+  /// S19(f) — tenant scope without the statement join.
+  @@index([companyId])
+  /// S19(d) — review-queue path: tenant + GL account + date range.
+  @@index([companyId, glAccountId, date])
 }
 
 model ReconciliationPeriod {
@@ -429,7 +438,10 @@ model RuleApplyRecord {
   userId         String
   state          String            @default("applied")
   appliedAt      DateTime          @default(now())
-  idempotencyKey String            @unique
+  /// S19(e) — uniqueness is per company: the same caller-supplied key in two
+  /// different tenants must not collide globally (idempotency is a tenant
+  /// concern). Repeats inside one company still fail with P2002.
+  idempotencyKey String
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -438,6 +450,8 @@ model RuleApplyRecord {
   transactions   BankTransaction[]
   journalEntries JournalEntry[]
 
+  /// S19(e) — replaces the former global unique index on idempotencyKey.
+  @@unique([companyId, idempotencyKey])
   @@index([companyId])
   @@index([ruleId])
   @@index([state])
@@ -470,7 +484,13 @@ model AuditLog {
   previousHash String?
   createdAt    DateTime @default(now())
   user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  company      Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  /// S19(c) — evidence rule: audit rows OUTLIVE their company. 'companyId' is a
+  /// historical scope, NOT a foreign key: the former AuditLog_companyId_fkey
+  /// (ON DELETE SET NULL) was dropped in migration 20261105000000. Nulling the
+  /// column on tenant deletion invalidated every stored hash (companyId is part
+  /// of the audit hash payload) and destroyed the global chain, so cleanup is
+  /// explicit in application code and never a cascade — the same shape
+  /// RuleExecutionAudit already uses.
 
   @@index([companyId])
   @@index([createdAt])
@@ -492,6 +512,8 @@ model Session {
   @@index([userId])
   @@index([token])
   @@index([userId, expiresAt])
+  /// S19(d) — session expiry sweeps/cleanup read the raw expiry column.
+  @@index([expiresAt])
 }
 
 model EntityContext {

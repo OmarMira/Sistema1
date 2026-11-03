@@ -1036,6 +1036,10 @@ export class ImportService {
 
         transactionsToInsert.push({
           statementId: statement.id,
+          // S19(f) — denormalized tenant key (defense in depth). The statement
+          // already carries it, but keeping it on the row lets hot queries
+          // filter by tenant without traversing statement → account.
+          companyId,
           date: txn.date,
           description: txn.description,
           amount: txn.amount,

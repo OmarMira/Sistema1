@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
-import { readFileSync, existsSync } from 'fs';
+import { getCompanyMonthBudgets } from '@/lib/budget/engine';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 
 export type Insight = {
@@ -73,46 +74,44 @@ export async function generateInsights(companyId: string): Promise<Insight[]> {
 
   // 2. Alertas de presupuesto (V2.1)
   if (config.healthChecks.budgetVarianceAlert.enabled) {
-    const budgetsPath = join(process.cwd(), 'data/budgets.json');
-    if (existsSync(budgetsPath)) {
-      const budgets = JSON.parse(readFileSync(budgetsPath, 'utf-8'));
-      const activeYear = year;
-      const activeMonth = month;
+    const activeYear = year;
+    const activeMonth = month;
 
-      const monthBudgets = budgets[activeYear]?.[activeMonth] || {};
-      const start = new Date(Date.UTC(activeYear, activeMonth - 1, 1));
-      const end = new Date(Date.UTC(activeYear, activeMonth, 0, 23, 59, 59, 999));
+    // Presupuestos por empresa (S6): legacy unscoped entries belong to no company,
+    // so a missing/malformed/legacy-only file simply means "no budgets for this company".
+    const monthBudgets = getCompanyMonthBudgets(companyId, activeYear, activeMonth);
 
-      for (const [code, budgetVal] of Object.entries(monthBudgets)) {
-        const actual = await db.journalLine.aggregate({
-          _sum: { debit: true, credit: true },
-          where: {
-            entry: { companyId, status: 'posted', date: { gte: start, lte: end } },
-            glAccount: { code },
+    const start = new Date(Date.UTC(activeYear, activeMonth - 1, 1));
+    const end = new Date(Date.UTC(activeYear, activeMonth, 0, 23, 59, 59, 999));
+
+    for (const [code, budgetVal] of Object.entries(monthBudgets)) {
+      const actual = await db.journalLine.aggregate({
+        _sum: { debit: true, credit: true },
+        where: {
+          entry: { companyId, status: 'posted', date: { gte: start, lte: end } },
+          glAccount: { code },
+        },
+      });
+
+      const actualVal = (actual._sum.debit ?? 0) - (actual._sum.credit ?? 0);
+      const variance = Math.abs(actualVal - budgetVal) / Math.max(1, Math.abs(budgetVal));
+
+      if (variance > config.healthChecks.budgetVarianceAlert.thresholdPercent / 100) {
+        insights.push({
+          id: `budget_${code}`,
+          type: 'budget_alert',
+          severity: 'warning',
+          message: config.templates.anomalyAlert.replace(
+            '{issue}',
+            `Desviación del ${(variance * 100).toFixed(0)}% respecto al presupuesto en cuenta ${code}`,
+          ),
+          context: {
+            code,
+            budget: budgetVal,
+            actual: actualVal,
+            variance: Math.round(variance * 100) / 100,
           },
         });
-
-        const actualVal = (actual._sum.debit ?? 0) - (actual._sum.credit ?? 0);
-        const variance =
-          Math.abs(actualVal - (budgetVal as number)) / Math.max(1, Math.abs(budgetVal as number));
-
-        if (variance > config.healthChecks.budgetVarianceAlert.thresholdPercent / 100) {
-          insights.push({
-            id: `budget_${code}`,
-            type: 'budget_alert',
-            severity: 'warning',
-            message: config.templates.anomalyAlert.replace(
-              '{issue}',
-              `Desviación del ${(variance * 100).toFixed(0)}% respecto al presupuesto en cuenta ${code}`,
-            ),
-            context: {
-              code,
-              budget: budgetVal,
-              actual: actualVal,
-              variance: Math.round(variance * 100) / 100,
-            },
-          });
-        }
       }
     }
   }

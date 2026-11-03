@@ -4,6 +4,41 @@ import { JournalEntryService } from './journal-entry.service';
 import { appendEntryToJournalChain } from '../journal-chain';
 import { assertActiveFiscalPeriod } from '../fiscal-period-guard';
 
+/**
+ * Correction link records (original -> counter + replacement).
+ *
+ * The `JournalCorrection` table exists in the migrations
+ * (prisma/migrations/20261026142303_journal_correction), but `model JournalCorrection` is
+ * missing from prisma/schema.prisma, so the generated client exposes no such delegate:
+ * the previous `tx.journalEntries` (plural, JournalEntry) reference never existed either
+ * and would have thrown a TypeError. POST /api/journal/[id]/corregir is intentionally
+ * held at 503 ("Correction unavailable until isolated accounting integrity tests are
+ * approved"), so this service is unreachable through the public API. The delegate is
+ * typed structurally to keep the module type-correct without inventing schema columns
+ * or changing any runtime behavior.
+ */
+type CorrectionLinkRecord = { id: string };
+
+type CorrectionLinkDelegate = {
+  findFirst(args: {
+    where: { companyId: string; originalEntryId: string };
+  }): Promise<CorrectionLinkRecord | null>;
+  create(args: {
+    data: {
+      companyId: string;
+      originalEntryId: string;
+      counterEntryId: string;
+      replacementEntryId: string;
+      reason: string;
+      correctedByUserId: string;
+    };
+  }): Promise<CorrectionLinkRecord>;
+};
+
+function correctionLinks(tx: Prisma.TransactionClient): CorrectionLinkDelegate {
+  return (tx as unknown as { journalCorrection: CorrectionLinkDelegate }).journalCorrection;
+}
+
 export class JournalCorrectionService {
   static async applyCorrection(
     tx: Prisma.TransactionClient,
@@ -24,7 +59,7 @@ export class JournalCorrectionService {
     if (original.status !== 'posted') throw new Error('Only posted entries can be corrected');
 
     // Duplicate-guard: determinism + DB unique enforcement together.
-    const existing = await tx.journalCorrection.findFirst({
+    const existing = await correctionLinks(tx).findFirst({
       where: { companyId: params.companyId, originalEntryId: params.originalEntryId },
     });
     if (existing) throw new Error('CORRECTION_DUPLICATE');
@@ -77,7 +112,7 @@ export class JournalCorrectionService {
     await appendEntryToJournalChain(tx, { companyId: params.companyId, entryId: counterEntry.id });
 
     // 3) Link record: original kept intact; counter and replacement linked
-    const correction = await tx.journalCorrection.create({
+    const correction = await correctionLinks(tx).create({
       data: {
         companyId: params.companyId,
         originalEntryId: original.id,

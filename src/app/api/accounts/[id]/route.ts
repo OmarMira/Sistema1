@@ -142,6 +142,17 @@ export const PUT = apiHandler(
             { status: 400 },
           );
         }
+        // S19a: reject cycles that are not the trivial self-parent case — the
+        // candidate parent may not be one of this account's own descendants.
+        if (await isDescendantInHierarchy(id, parentId, existing.companyId)) {
+          return NextResponse.json(
+            {
+              error:
+                'Cannot set a descendant account as the parent: it would create a circular account hierarchy.',
+            },
+            { status: 400 },
+          );
+        }
         updateData.parentId = parentId;
       }
     }
@@ -182,16 +193,55 @@ export const PUT = apiHandler(
   },
 );
 
+// ─── Ancestor-chain walk (company-scoped, cycle-safe) ─────────────────
+/**
+ * S19a: true when `candidateParentId` is the account itself or sits BELOW it in
+ * the same company's hierarchy, so re-parenting under it would close a cycle.
+ *
+ * Walks the candidate parent's ancestor chain inside the company with a visited
+ * set: pre-existing corrupted cycles stop the walk instead of looping.
+ */
+async function isDescendantInHierarchy(
+  accountId: string,
+  candidateParentId: string,
+  companyId: string,
+): Promise<boolean> {
+  const visited = new Set<string>();
+  let cursor: string | null = candidateParentId;
+
+  while (cursor) {
+    if (cursor === accountId) return true;
+    if (visited.has(cursor)) return false; // pre-existing cycle: stop, no loop
+    visited.add(cursor);
+
+    const row: { parentId: string | null } | null = await db.glAccount.findFirst({
+      where: { id: cursor, companyId },
+      select: { parentId: true },
+    });
+    if (!row) return false; // chain left the company / account no longer exists
+    cursor = row.parentId;
+  }
+
+  return false;
+}
+
 // ─── Recursively collect descendant account IDs ──────────────────────
-async function collectDescendantIds(parentId: string): Promise<string[]> {
+async function collectDescendantIds(
+  parentId: string,
+  companyId: string,
+  visited: Set<string> = new Set<string>([parentId]),
+): Promise<string[]> {
   const children = await db.glAccount.findMany({
-    where: { parentId },
+    // S19a: stay inside the caller's company and never revisit a node.
+    where: { parentId, companyId },
     select: { id: true },
   });
   const ids: string[] = [];
   for (const child of children) {
+    if (visited.has(child.id)) continue; // pre-existing cycle: stop, no loop
+    visited.add(child.id);
     ids.push(child.id);
-    const grandchildIds = await collectDescendantIds(child.id);
+    const grandchildIds = await collectDescendantIds(child.id, companyId, visited);
     ids.push(...grandchildIds);
   }
   return ids;
@@ -229,7 +279,7 @@ export const DELETE = apiHandler(
 
     // Check journal lines in THIS account OR any descendant
     // (this is the only hard blocker — real financial data)
-    const descendantIds = await collectDescendantIds(id);
+    const descendantIds = await collectDescendantIds(id, companyId);
     const allAffectedIds = [id, ...descendantIds];
     const totalJournalLines = await db.journalLine.count({
       where: { glAccountId: { in: allAffectedIds } },

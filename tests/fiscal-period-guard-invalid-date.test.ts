@@ -86,6 +86,12 @@ describe('assertActiveFiscalPeriod — invalid date is fail-closed (S9)', () => 
 
   it('still allows a valid date with no locked period (open period / gap limitation)', async () => {
     await expect(assertActiveFiscalPeriod('company-1', '2026-06-15')).resolves.toBeUndefined();
-    expect(findFirst).toHaveBeenCalledTimes(1);
+    // S19b added the positive period check, so the guard performs more than one
+    // fiscalPeriod read (locked coverage → coverage → any-period). Assert the
+    // reads stay company-scoped instead of pinning an internal call count.
+    expect(findFirst).toHaveBeenCalled();
+    for (const [args] of findFirst.mock.calls) {
+      expect(args.where.companyId).toBe('company-1');
+    }
   });
 });

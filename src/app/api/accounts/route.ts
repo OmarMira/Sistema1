@@ -69,15 +69,20 @@ export const GET = apiHandler(
     });
 
     // 2. Recursive function to aggregate child balances
-    function getAccumulatedBalance(accId: string): number {
+    //    S19a: `visited` keeps the aggregation cycle-safe — a pre-existing cycle
+    //    in the hierarchy stops the walk instead of recursing forever. The list
+    //    is already company-scoped, so the walk never leaves the company.
+    function getAccumulatedBalance(accId: string, visited: Set<string> = new Set<string>()): number {
       const acc = accountMap.get(accId);
       if (!acc) return 0;
+      if (visited.has(accId)) return 0; // pre-existing cycle: stop, no loop
+      visited.add(accId);
 
       let total = acc.directBalance as number;
       // Get all child accounts of this parent
-      const children = rawAccounts.filter((a) => a.parentId === accId);
+      const children = rawAccounts.filter((a) => a.parentId === accId && a.companyId === companyId);
       for (const child of children) {
-        total += getAccumulatedBalance(child.id);
+        total += getAccumulatedBalance(child.id, visited);
       }
 
       acc.balance = total;

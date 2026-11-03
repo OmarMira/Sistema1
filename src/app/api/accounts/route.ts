@@ -40,6 +40,9 @@ export const GET = apiHandler(
           select: { children: true, journalLines: true },
         },
         journalLines: {
+          // S8: posted-only, matching JournalEntryService.recalculateBalance.
+          // Draft/void lines must never move a reported balance.
+          where: { entry: { status: 'posted' } },
           select: { debit: true, credit: true },
         },
       },

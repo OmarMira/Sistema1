@@ -133,7 +133,13 @@ export const PUT = apiHandler(
       const totalDebits = lines.reduce((sum: number, l: { debit: number }) => sum + l.debit, 0);
       const totalCredits = lines.reduce((sum: number, l: { credit: number }) => sum + l.credit, 0);
 
-      if (Math.abs(totalDebits - totalCredits) > 0.005) {
+      // S7: exact-cents comparison, mirroring JournalService.create. A ±0.005
+      // tolerance let an entry off by up to half a cent pass this gate and then
+      // be rounded into Decimal(18,2) on save, leaving an unbalanced entry.
+      const totalDebitCents = Math.round(totalDebits * 100);
+      const totalCreditCents = Math.round(totalCredits * 100);
+
+      if (totalDebitCents !== totalCreditCents) {
         return NextResponse.json(
           {
             error: `Entry must balance. Total debits (${totalDebits.toFixed(2)}) must equal total credits (${totalCredits.toFixed(2)})`,

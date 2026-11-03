@@ -114,6 +114,8 @@ export function BackupTab() {
         if (data.data) {
           downloadBackup(data.data, backup.filename);
         }
+      } else {
+        toast.error(t('common.error'));
       }
     } catch {
       toast.error(t('common.error'));

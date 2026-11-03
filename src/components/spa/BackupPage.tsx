@@ -129,6 +129,8 @@ export function BackupPage() {
         if (data.data) {
           downloadBackup(data.data, backup.filename);
         }
+      } else {
+        toast.error(t('common.error'));
       }
     } catch {
       toast.error(t('common.error'));
@@ -236,6 +238,7 @@ export function BackupPage() {
         });
         setRestoreFile(null);
         await fetchBackups();
+        window.location.href = '/';
       } else {
         toast.error(t('settings.backup.restoreFailed'), {
           description: result.error,

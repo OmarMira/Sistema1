@@ -143,7 +143,7 @@ export async function removeEntityContext(companyId: string, id: string): Promis
 
   if (linkedRules.length > 0) {
     await db.bankRule.updateMany({
-      where: { entityContextId: id },
+      where: { entityContextId: id, companyId },
       data: { entityContextId: null },
     });
   }
@@ -180,7 +180,7 @@ export async function bulkRemoveEntityContexts(companyId: string, ids: string[])
 
   if (affectedRules.length > 0) {
     await db.bankRule.updateMany({
-      where: { entityContextId: { in: ids } },
+      where: { entityContextId: { in: ids }, companyId },
       data: { entityContextId: null },
     });
   }

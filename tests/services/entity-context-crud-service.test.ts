@@ -346,4 +346,38 @@ describe('bulkRemoveEntityContexts()', () => {
     const count = await bulkRemoveEntityContexts(companyId, [...ids, 'non-existent-1', 'non-existent-2']);
     expect(count).toBe(3);
   });
+
+  it('does not unlink bank rules belonging to another company', async () => {
+    const otherCtx = await saveContext({ companyId: otherCompanyId, pattern: 'OTHER_RULED', role: 'OTRO' });
+    const otherRule = await db.bankRule.create({
+      data: {
+        companyId: otherCompanyId,
+        name: 'OTHER RULE',
+        conditionType: 'description_contains',
+        conditionValue: 'OTHER',
+        entityContextId: otherCtx.id,
+      },
+    });
+    // A rule of the caller's company makes the bulk-unlink branch execute;
+    // the foreign id in the same payload must still not affect other tenants.
+    const ownRule = await db.bankRule.create({
+      data: {
+        companyId,
+        name: 'OWN RULE',
+        conditionType: 'description_contains',
+        conditionValue: 'ENT_1',
+        entityContextId: ids[0],
+      },
+    });
+
+    const count = await bulkRemoveEntityContexts(companyId, [ids[0], otherCtx.id]);
+    expect(count).toBe(1);
+
+    const surviving = await db.bankRule.findUnique({ where: { id: otherRule.id } });
+    expect(surviving).not.toBeNull();
+    expect(surviving?.entityContextId).toBe(otherCtx.id);
+
+    const own = await db.bankRule.findUnique({ where: { id: ownRule.id } });
+    expect(own?.entityContextId).toBeNull();
+  });
 });

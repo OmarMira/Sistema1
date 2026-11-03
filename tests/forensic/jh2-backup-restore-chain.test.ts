@@ -1,16 +1,26 @@
 /**
  * JH2.12 — Backup / Restore chain continuity (BR1–BR12).
  *
- * Real DB, real createBackup/restoreBackup. No mocks.
+ * Real DB, real createBackup + the CURRENT company recovery restore. No mocks.
  * Warranty under test: the authoritative JournalChainHead travels in the
- * backup, is VALIDATED against the restored members inside the restore tx,
- * and a new append continues the RESTORED chain without inventing roots.
+ * backup, is VALIDATED against the restored members, and a new append continues
+ * the RESTORED chain without inventing roots.
+ *
+ * Contract note (S2 / T1, pinned in tests/backup-company/restore.test.ts:444-448):
+ * the legacy/bootstrap `restoreBackup` refuses 2.x snapshots on purpose — first
+ * install ingestion of company archives is not enabled. Commerce with a
+ * CURRENT backup therefore goes through the coordinated company recovery path
+ * (`restoreCompanyBackup`), which admits only v2 snapshots, requires the
+ * destination company to already exist, and certifies the journal chain
+ * against the destination signing key (`RESTORE_CHAIN`, no re-signing).
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { db } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import type { BackupData } from '@/lib/backup';
-import { createBackup, restoreBackup } from '@/lib/backup';
+import { createBackup } from '@/lib/backup';
+import { sealSnapshot } from '@/lib/backup-format';
+import { restoreCompanyBackup } from '@/lib/backup-restore';
 import { appendEntryToJournalChain, type ChainTx } from '@/lib/journal-chain';
 import { verifyJournalChain } from '@/lib/journal-hash';
 import {
@@ -81,25 +91,33 @@ async function buildBackup(p: Seeded): Promise<BackupData> {
   return JSON.parse(Buffer.from(result.data, 'base64').toString('utf-8')) as BackupData;
 }
 
-async function restoreFrom(p: Seeded, backupData: BackupData, targetId?: string) {
-  // Bootstrap-mode restore requires an EMPTY database: wipe the seeded
-  // company first (company row + all children incl. chain head via cascade).
-  const id = targetId ?? p.companyId;
-  await db.journalChainHead.deleteMany({ where: { companyId: id } });
-  await db.bankTransaction.deleteMany({ where: { statement: { bankAccount: { companyId: id } } } });
-  await db.bankStatement.deleteMany({ where: { bankAccount: { companyId: id } } });
-  await db.journalLine.deleteMany({ where: { entry: { companyId: id } } });
-  await db.journalEntry.deleteMany({ where: { companyId: id } });
-  await db.bankAccount.deleteMany({ where: { companyId: id } });
-  await db.bankStatement.deleteMany({ where: { companyId: id } });
-  await db.glAccount.deleteMany({ where: { companyId: id } });
-  await db.companyMember.deleteMany({ where: { companyId: id } });
-  await db.company.delete({ where: { id: id } }).catch(() => {});
-  return restoreBackup(id, backupData, p.userId, { bootstrap: true });
+/**
+ * Company recovery restore of a v2 snapshot. The payload is re-sealed right
+ * before use so edited fixtures still carry a consistent integrity digest
+ * (the digest is a fidelity check, not an authenticity proof: it is
+ * `authenticated: false`).
+ */
+async function restoreFrom(p: Seeded, backupData: BackupData) {
+  sealSnapshot(backupData);
+  return restoreCompanyBackup(p.companyId, JSON.stringify(backupData));
+}
+
+/** Refused payloads must not be observable as a partial restore. */
+async function rejectedRestore(p: Seeded, backupData: BackupData, expected: RegExp) {
+  sealSnapshot(backupData);
+  await expect(restoreCompanyBackup(p.companyId, JSON.stringify(backupData))).rejects.toThrow(expected);
 }
 
 async function headOf(companyId: string) {
   return db.journalChainHead.findUnique({ where: { companyId } });
+}
+
+async function sealedMembers(companyId: string) {
+  return db.journalEntry.findMany({
+    where: { companyId },
+    select: { id: true, hash: true, previousHash: true, hashVersion: true },
+    orderBy: { createdAt: 'asc' },
+  });
 }
 
 describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
@@ -126,21 +144,15 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
     const first = await appendViaTx(p, 'A');
     const second = await appendViaTx(p, 'B');
     const data = await buildBackup(p);
-    const before = await db.journalEntry.findMany({
-      where: { companyId: p.companyId },
-      select: { hash: true, previousHash: true, hashVersion: true, id: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const before = await sealedMembers(p.companyId);
 
-    // Wipe and restore the SAME company id (bootstrap: no prior data).
     const res = await restoreFrom(p, data);
-    expect(res.success).toBe(true);
+    expect(res.status).toBe('committed');
+    // The committed receipt proves the replacement, not just the call.
+    const receipt = await db.auditLog.findUnique({ where: { id: res.operationId } });
+    expect(receipt?.action).toBe('COMPANY_RESTORE_COMMITTED');
 
-    const restored = await db.journalEntry.findMany({
-      where: { companyId: p.companyId },
-      select: { hash: true, previousHash: true, hashVersion: true, id: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const restored = await sealedMembers(p.companyId);
     expect(restored.map((r) => r.hash)).toEqual(before.map((b) => b.hash));
     expect(restored.map((r) => r.previousHash)).toEqual(before.map((b) => b.previousHash));
     expect(restored.every((r) => r.hashVersion === 'v2')).toBe(true);
@@ -148,12 +160,13 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
     expect(restored.find((r) => r.id === second)!.previousHash).toBe(restored.find((r) => r.id === first)!.hash);
 
     const head = await headOf(p.companyId);
-    expect(head!.lastHash).toBe(second && restored.find((r) => r.id === second)!.hash);
+    expect(head!.lastHash).toBe(restored.find((r) => r.id === second)!.hash);
     expect(head!.lastEntryId).toBe(second);
 
     const verify = await verifyJournalChain(p.companyId);
     expect(verify.valid).toBe(true);
     expect(verify.totalChecked).toBe(2);
+    expect(verify.headConsistent).toBe(true);
   });
 
   it('BR5..BR7: new POSTED after restore continues the RESTORED tail (no second ROOT); head advances; verify PASS', async () => {
@@ -162,7 +175,7 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
     const data = await buildBackup(p);
     const backupHead = (data.data.journalChainHead!);
     const res = await restoreFrom(p, data);
-    expect(res.success).toBe(true);
+    expect(res.status).toBe('committed');
 
     const newEntry = await db.$transaction(async (tx: Prisma.TransactionClient) => {
       const entry = await tx.journalEntry.create({
@@ -201,71 +214,46 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
     expect(verify.headConsistent).toBe(true);
   });
 
-  it('BR8: OLD backup without head + valid V2 chain → head derived safely (verify + continuation PASS)', async () => {
+  it('BR8: v2 payload that omits the chain anchor is refused (never restores without chain evidence)', async () => {
     const p = await seedCompany('br8');
     await appendViaTx(p, 'A');
     await appendViaTx(p, 'B');
     const data = await buildBackup(p);
-    // Simulate a legacy backup: strip the head.
+    const before = await sealedMembers(p.companyId);
+    // A v2 snapshot must STATE its chain anchor (null when the chain is empty).
+    // The retired legacy path derived a head for pre-anchor 1.x files; v2 has
+    // no derivation branch, so an absent anchor is inadmissible rather than
+    // silently inferred.
     delete (data.data as { journalChainHead?: unknown }).journalChainHead;
 
-    const res = await restoreFrom(p, data);
-    expect(res.success).toBe(true);
+    await rejectedRestore(p, data, /RESTORE_CHAIN: invalid\/missing head/);
 
+    // The live chain (evidence + anchor) is untouched and still verifies.
+    expect(await sealedMembers(p.companyId)).toEqual(before);
+    expect(await headOf(p.companyId)).not.toBeNull();
     const verify = await verifyJournalChain(p.companyId);
     expect(verify.valid).toBe(true);
     expect(verify.totalChecked).toBe(2);
-
-    const head = await headOf(p.companyId);
-    expect(head).not.toBeNull();
-    expect(head!.lastHash).not.toBeNull(); // derived from the certified tail
-
-    // Continuation works.
-    const cont = await db.$transaction(async (tx: Prisma.TransactionClient) => {
-      const entry = await tx.journalEntry.create({
-        data: {
-          companyId: p.companyId,
-          date: new Date('2026-03-21T10:00:00.000Z'),
-          description: 'Continue',
-          status: 'posted',
-          lines: {
-            create: [
-              { glAccountId: p.gl1.id, debit: 7, credit: 0 },
-              { glAccountId: p.gl2.id, debit: 0, credit: 7 },
-            ],
-          },
-        },
-      });
-      await appendEntryToJournalChain(tx as unknown as ChainTx, {
-        companyId: p.companyId,
-        entryId: entry.id,
-      });
-    });
-    expect(cont).toBeUndefined();
-    const verify2 = await verifyJournalChain(p.companyId);
-    expect(verify2.valid).toBe(true);
-    expect(verify2.totalChecked).toBe(3);
+    expect(verify.headConsistent).toBe(true);
   });
 
-  it('BR9: OLD backup without head + corrupt V2 topology → restore FAIL (rollback)', async () => {
+  it('BR9: corrupt V2 topology (anchored head, dangling previousHash) → restore FAIL (nothing written)', async () => {
     const p = await seedCompany('br9');
     await appendViaTx(p, 'A');
     await appendViaTx(p, 'B');
     const data = await buildBackup(p);
-    delete (data.data as { journalChainHead?: unknown }).journalChainHead;
     // Real corruption: point B at a nonexistent ROOT (chain unverifiable).
     const bEntry = data.data.journalEntries.find((e) => (e.description as string) === 'B');
     if (bEntry) bEntry.previousHash = 'ee'.repeat(32);
 
-    const membersBefore = await db.journalEntry.count({ where: { companyId: p.companyId } });
-    const res = await restoreFrom(p, data);
-    expect(res.success).toBe(false);
-    expect(res.message).toMatch(/JH2_RESTORE_CHAIN_INVALID/);
-    // rollback: no partial state (bootstrap mode keeps company but no entries)
-    const membersAfter = await db.journalEntry.findMany({
-      where: { companyId: p.companyId, hash: { not: null } },
-    });
-    expect(membersAfter.length).toBeLessThanOrEqual(membersBefore + 1);
+    const membersBefore = await sealedMembers(p.companyId);
+    await rejectedRestore(p, data, /RESTORE_CHAIN: CHAIN_ORPHAN/);
+
+    // No partial state: the live chain is untouched and still verifies.
+    expect(await sealedMembers(p.companyId)).toEqual(membersBefore);
+    const verify = await verifyJournalChain(p.companyId);
+    expect(verify.valid).toBe(true);
+    expect(verify.totalChecked).toBe(2);
   });
 
   it('BR10: backup with head.lastHash mismatch → restore FAIL', async () => {
@@ -273,9 +261,9 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
     await appendViaTx(p, 'A');
     const data = await buildBackup(p);
     data.data.journalChainHead!.lastHash = 'ab'.repeat(32);
-    const res = await restoreFrom(p, data);
-    expect(res.success).toBe(false);
-    expect(res.message).toMatch(/JH2_RESTORE_CHAIN_HEAD_MISMATCH/);
+    await rejectedRestore(p, data, /RESTORE_CHAIN: CHAIN_HEAD_MISMATCH/);
+    const head = await headOf(p.companyId);
+    expect(head!.lastHash).not.toBe('ab'.repeat(32));
   });
 
   it('BR11: backup with head.lastEntryId incorrect → restore FAIL', async () => {
@@ -283,9 +271,9 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
     await appendViaTx(p, 'A');
     const data = await buildBackup(p);
     data.data.journalChainHead!.lastEntryId = 'wrong-entry-id';
-    const res = await restoreFrom(p, data);
-    expect(res.success).toBe(false);
-    expect(res.message).toMatch(/JH2_RESTORE_CHAIN_HEAD_MISMATCH/);
+    await rejectedRestore(p, data, /RESTORE_CHAIN: CHAIN_HEAD_MISMATCH/);
+    expect(await headOf(p.companyId)).not.toBeNull();
+    expect(await headOf(p.companyId).then((h) => h!.lastEntryId)).not.toBe('wrong-entry-id');
   });
 
   it('BR12: zero members + stale (non-null) head → restore FAIL, coherent with verifier', async () => {
@@ -297,12 +285,11 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
       lastHash: 'cd'.repeat(32),
       lastEntryId: 'gone-entry',
     };
-    const res = await restoreFrom(p, data);
-    expect(res.success).toBe(false);
-    expect(res.message).toMatch(/JH2_CHAIN_HEAD_WITHOUT_MEMBERS/);
+    await rejectedRestore(p, data, /RESTORE_CHAIN: CHAIN_HEAD_WITHOUT_MEMBERS/);
+    expect(await headOf(p.companyId)).toBeNull();
   });
 
-  it('OLD_BACKUP_NO_HEAD_NO_HASH (legacy case B): backup without head and zero hashed members restores with no head row', async () => {
+  it('a v2 snapshot carrying an unsealed POSTED member is refused (MEMBER_HASH_NULL), never restored', async () => {
     const p = await seedCompany('old-nohash');
     await db.journalEntry.create({
       data: {
@@ -313,16 +300,16 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
       },
     });
     const data = await buildBackup(p);
-    delete (data.data as { journalChainHead?: unknown }).journalChainHead;
-    // zero hashed members → head was null; strip it defensively
+    // zero hashed members → head null in the snapshot; keep it explicit
     data.data.journalChainHead = null;
-    const res = await restoreFrom(p, data);
-    expect(res.success).toBe(true);
+
+    await rejectedRestore(p, data, /RESTORE_CHAIN: MEMBER_HASH_NULL/);
+
+    // Nothing was replaced: the unsealed row is still the live state.
     expect(await headOf(p.companyId)).toBeNull();
     // High-water contract (JH2.6, frozen): posted rows without a seal make the
-    // chain UNVERIFIABLE (MEMBER_HASH_NULL) — the dataset is not a chain
-    // member universe; the verifier surfaces that explicitly, never covering
-    // it with an empty PASS.
+    // chain UNVERIFIABLE (MEMBER_HASH_NULL) — the dataset is not a chain member
+    // universe; the verifier surfaces that explicitly, never an empty PASS.
     const verify = await verifyJournalChain(p.companyId);
     expect(verify.valid).toBe(false);
     expect(verify.reasonCode).toBe('MEMBER_HASH_NULL');

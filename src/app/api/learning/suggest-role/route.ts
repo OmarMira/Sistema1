@@ -11,6 +11,7 @@ import { requireCompanyContext } from '@/lib/context-storage';
 import { roleIsValidForDirection } from '@/lib/services/direction-filter';
 import { searchEntity } from '@/lib/services/web-search-service';
 import { getAiConfig } from '@/lib/ai-config';
+import { assertAiCallAllowed, extractTotalTokens, recordAiTokenUsage } from '@/lib/ai-quota';
 import { safeFetch } from '@/lib/security/safe-fetch';
 import { resolveAccountGuidance, type AccountGuidanceInput, type GuidanceAccount } from '@/lib/services/entity-account-guidance';
 
@@ -175,7 +176,9 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       }
     }
 
-    // Fetch company profile for richer AI context
+    // Fetch company profile for richer AI context.
+    // PII NOTE: the legal name (and entity type) below is sent to the external AI
+    // provider as unavoidable classification context; the tax id is NOT egressed (S21f).
     let companyProfile: string | null = null;
     try {
       const company = await db.company.findUnique({
@@ -187,9 +190,8 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
         if (company.entityType) {
           parts.push(`Entity type: ${company.entityType}`);
         }
-        if (company.taxId) {
-          parts.push(`Tax ID: ${company.taxId}`);
-        }
+        // taxId is kept in the local read (matching/audit) but deliberately
+        // redacted from the outbound prompt: it never leaves the process.
         companyProfile = parts.join(' | ');
         logger.info('[SUGGEST_ROLE COMPANY_PROFILE]', { companyId, legalName: company.legalName });
       }
@@ -314,6 +316,10 @@ ${freshRequest ? 'Also include: "accountCode" (existing catalog code or null), "
     let aiResult: ({ role: string; confidence: number; explanation: string } & AccountGuidanceInput) | null = null;
     let lastError: string | null = null;
 
+    // S21d: the kill switch and the per-company daily token budget are checked
+    // immediately before the provider call site.
+    await assertAiCallAllowed(companyId);
+
     let modelsToTry = [model];
     if (model === 'openrouter/free') {
       modelsToTry = ['google/gemma-4-31b-it:free', 'openrouter/free'];
@@ -350,6 +356,8 @@ ${freshRequest ? 'Also include: "accountCode" (existing catalog code or null), "
         }
 
         const resData = await response.json();
+        // S21d: accumulate the provider-reported usage for this company/day.
+        await recordAiTokenUsage(companyId, extractTotalTokens(resData));
         const content: string | undefined = resData.choices?.[0]?.message?.content;
         if (!content) {
           throw new Error('AI response missing content');
@@ -426,6 +434,7 @@ Based on this additional context, re-evaluate the role.`;
 
             if (reResponse.ok) {
               const reData = await reResponse.json();
+              await recordAiTokenUsage(companyId, extractTotalTokens(reData));
               const reContent: string | undefined = reData.choices?.[0]?.message?.content;
 
               if (reContent) {

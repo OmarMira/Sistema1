@@ -36,6 +36,12 @@ export interface ConfirmCreateInput {
   pendingApprovalId: string;
   companyId: string;
   reason?: string;
+  /**
+   * Four-eyes (S21): when true the confirmer must not be the proposer of this
+   * same pending item. Opt-in so non-interactive/internal callers keep their
+   * existing contract; the HTTP approval routes always enable it.
+   */
+  requireDistinctApprover?: boolean;
 }
 
 export interface ProposeUpdateInput {
@@ -54,6 +60,8 @@ export interface ConfirmUpdateInput {
   pendingApprovalId: string;
   companyId: string;
   reason?: string;
+  /** See ConfirmCreateInput.requireDistinctApprover. */
+  requireDistinctApprover?: boolean;
 }
 
 export interface ArchiveInput {
@@ -222,6 +230,28 @@ async function acquireCompanyLock(
 }
 
 /**
+ * S21 four-eyes guard — the confirmer must not be the proposer of the very
+ * same pending item. Runs inside the confirm transaction, before any write and
+ * before the once-only CAS, so a refused self-approval leaves the pending item
+ * untouched. Opt-in: only callers that pass requireDistinctApprover enforce it.
+ */
+function assertDistinctApprover(params: {
+  requireDistinctApprover?: boolean;
+  requestedBy?: string | null;
+}): void {
+  if (!params.requireDistinctApprover) return;
+  const requestedBy = params.requestedBy ?? '';
+  if (!requestedBy || requestedBy === 'system') return;
+
+  const approverId = requireCurrentUserId();
+  if (approverId === requestedBy) {
+    throw new ForbiddenError(
+      'Four-eyes violation: the proposer of a pending approval cannot confirm it',
+    );
+  }
+}
+
+/**
  * G8-2 identity disjointness precheck — reject identity collisions with
  * 409 BEFORE any write. Candidate canonicalName + aliases are compared
  * against canonicalName + aliases of other ACTIVE entities of the same
@@ -347,6 +377,12 @@ export async function confirmCreate(
     if (pending.action !== 'create') {
       throw new Error('PendingApproval action must be "create"');
     }
+
+    // Four-eyes (S21): the same human cannot approve their own proposal.
+    assertDistinctApprover({
+      requireDistinctApprover: input.requireDistinctApprover,
+      requestedBy: pending.requestedBy,
+    });
 
     const payload = pending.payload as Record<string, unknown>;
 
@@ -512,6 +548,12 @@ export async function confirmUpdate(
     if (pending.action !== 'update') {
       throw new Error('PendingApproval action must be "update"');
     }
+
+    // Four-eyes (S21): the same human cannot approve their own proposal.
+    assertDistinctApprover({
+      requireDistinctApprover: input.requireDistinctApprover,
+      requestedBy: pending.requestedBy,
+    });
 
     const payload = pending.payload as Record<string, unknown>;
     const updates = payload.updates as Record<string, unknown>;

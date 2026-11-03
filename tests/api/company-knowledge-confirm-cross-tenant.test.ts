@@ -115,11 +115,15 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
     expect(afterB?.canonicalName).toBe('John Doe B');
   });
 
-  it('permite que el usuario de A confirme un update de conocimiento propio (200, aplicado)', async () => {
+  it('permite que un admin de A confirme un update propuesto por otro usuario de A (200, aplicado)', async () => {
     const userA = await createTestUser('p13-c@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
-    const tokenA = await createSession(userA.id);
+    // S21a four-eyes: the proposer can never approve their own pending item, so
+    // the confirmer is a second company_admin of the SAME company A.
+    const approverA = await createTestUser('p13-c-approver@example.com');
+    await createTestCompanyMember(approverA.id, companyA.id);
+    const tokenApproverA = await createSession(approverA.id);
 
     const knowledgeA = await createKnowledge(companyA.id, 'John Doe A');
     const pendingA = await createPendingUpdateApproval(companyA.id, knowledgeA.id, userA.id, 'John Doe A');
@@ -127,7 +131,7 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
     const res = await confirmUpdateRoute(
       new NextRequest(`http://localhost/api/company-knowledge/${knowledgeA.id}/confirm-update?companyId=${companyA.id}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenA}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${tokenApproverA}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ pendingApprovalId: pendingA.id }),
       }),
       { params: Promise.resolve({ id: knowledgeA.id }) },
@@ -166,18 +170,21 @@ describe('P13 — confirm/confirm-update company-knowledge (aislamiento de tenan
     expect(intruder).toBeNull();
   });
 
-  it('permite que el usuario de A confirme un create de conocimiento propio (200, creado en A)', async () => {
+  it('permite que un admin de A confirme un create propuesto por otro usuario de A (200, creado en A)', async () => {
     const userA = await createTestUser('p13-f@example.com');
     const companyA = await createTestCompany('Company A');
     await createTestCompanyMember(userA.id, companyA.id);
-    const tokenA = await createSession(userA.id);
+    // S21a four-eyes: distinct proposer and approver, both company_admin of A.
+    const approverA = await createTestUser('p13-f-approver@example.com');
+    await createTestCompanyMember(approverA.id, companyA.id);
+    const tokenApproverA = await createSession(approverA.id);
 
     const pendingA = await createPendingCreateApproval(companyA.id, userA.id);
 
     const res = await confirmCreateRoute(
       new NextRequest(`http://localhost/api/company-knowledge/confirm?companyId=${companyA.id}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${tokenA}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${tokenApproverA}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ pendingApprovalId: pendingA.id }),
       }),
       { params: Promise.resolve({}) },

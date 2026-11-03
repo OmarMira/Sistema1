@@ -113,6 +113,30 @@ model Company {
   journalChainHead      JournalChainHead?
   csvLayoutProfiles     CsvLayoutProfile[]
   moduleEntitlements    CompanyModuleEntitlement[]
+  journalCorrections    JournalCorrection[]
+}
+
+/// Correction link record (original -> counter + replacement). The table itself
+/// was created by prisma/migrations/20261026142303_journal_correction; this model
+/// pins the Prisma schema to that SQL exactly. Correction execution stays
+/// disabled: POST /api/journal/[id]/corregir answers 503 until a product
+/// decision authorizes it.
+model JournalCorrection {
+  id                 String   @id @default(cuid())
+  companyId          String
+  originalEntryId    String
+  counterEntryId     String
+  replacementEntryId String
+  reason             String?
+  correctedByUserId  String?
+  createdAt          DateTime @default(now())
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  originalEntry      JournalEntry @relation("JournalCorrectionOriginalEntry", fields: [originalEntryId], references: [id], onDelete: Cascade)
+  counterEntry       JournalEntry @relation("JournalCorrectionCounterEntry", fields: [counterEntryId], references: [id], onDelete: Cascade)
+  replacementEntry   JournalEntry @relation("JournalCorrectionReplacementEntry", fields: [replacementEntryId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, originalEntryId])
+  @@index([originalEntryId])
 }
 
 /// Serialize the per-company journal hash chain (JH2).
@@ -367,6 +391,9 @@ model JournalEntry {
   lines                  JournalLine[]
   transactions           BankTransaction[]
   ruleApplyRecord        RuleApplyRecord?  @relation(fields: [ruleApplyRecordId], references: [id], onDelete: SetNull)
+  correctionsAsOriginal  JournalCorrection[] @relation("JournalCorrectionOriginalEntry")
+  correctionsAsCounter   JournalCorrection[] @relation("JournalCorrectionCounterEntry")
+  correctionsAsReplacement JournalCorrection[] @relation("JournalCorrectionReplacementEntry")
 
   @@unique([companyId, idempotencyKey])
   @@index([companyId, date])
@@ -449,6 +476,9 @@ model AuditLog {
   @@index([createdAt])
   @@index([companyId, createdAt])
   @@index([userId, createdAt])
+  /// S17c: the chain tail is the member no other row links to, selected with a
+  /// NOT EXISTS membership test on `previousHash` (src/lib/audit.ts).
+  @@index([previousHash])
 }
 
 model Session {

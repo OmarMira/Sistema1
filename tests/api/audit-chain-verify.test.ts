@@ -20,6 +20,8 @@ import { createSession } from '@/lib/sessions';
 import { createTestUser, createTestCompany, clearDatabase } from '../helpers/factories';
 import { GET as chainVerifyGET } from '../../src/app/api/audit/chain-verify/route';
 import { POST as registerPOST } from '../../src/app/api/auth/register/route';
+import { POST as adminUsersPOST } from '../../src/app/api/admin/users/route';
+import { POST as fiscalPeriodsPOST } from '../../src/app/api/fiscal-periods/route';
 
 const SETUP_TOKEN = 'test-bootstrap-setup-token';
 const GRANT_PREFIX = 'auth:first-admin-bootstrap:';
@@ -362,5 +364,89 @@ describe('S10 — first-admin promotion with BOOTSTRAP_SETUP_TOKEN', () => {
     const secondEmail = 'after-grant@example.com';
     const second = await finalizeRegistration(secondEmail, registrationInput(secondEmail));
     expect(second.platformRole).toBe('user');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────
+// S17b — the remaining direct audit writers go through the chained writer
+// ─────────────────────────────────────────────────────────────────────
+describe('S17b — direct audit writers are sealed into the audit chain', () => {
+  it('POST /api/admin/users writes its audit row with hash + previousHash', async () => {
+    const admin = await createTestUser('s17b-admin-users@example.com');
+    await db.user.update({ where: { id: admin.id }, data: { platformRole: 'super_admin' } });
+    const token = await createSession(admin.id);
+
+    const res = await adminUsersPOST(
+      new NextRequest('http://localhost/api/admin/users', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          email: 's17b-created@example.com',
+          firstName: 'Sealed',
+          lastName: 'User',
+          password: 'password123',
+          role: 'user',
+        }),
+      }),
+      ROUTE_CONTEXT,
+    );
+    expect(res.status).toBe(201);
+
+    const created = await db.user.findUniqueOrThrow({ where: { email: 's17b-created@example.com' } });
+    const rows = await db.auditLog.findMany({
+      where: { action: 'create_user', entity: 'User', entityId: created.id },
+    });
+    expect(rows).toHaveLength(1);
+    // Payload preserved exactly as before the chaining change.
+    expect(rows[0].userId).toBe(admin.id);
+    expect(rows[0].companyId).toBeNull();
+    expect(rows[0].details).toBe('Created user s17b-created@example.com');
+    // ...and now sealed into the chain instead of being persisted unhashed.
+    expect(rows[0].hash).toBeTruthy();
+    expect(rows[0].previousHash).toBeNull();
+
+    const verdict = await verifyAuditChain();
+    expect(verdict.valid).toBe(true);
+    expect(verdict.members).toBe(1);
+    expect(verdict.legacyRows).toBe(0);
+  });
+
+  it('POST /api/fiscal-periods writes its audit row with hash + previousHash', async () => {
+    const admin = await createTestUser('s17b-periods@example.com');
+    const company = await createTestCompany('S17b Periods Co');
+    await db.companyMember.create({
+      data: { userId: admin.id, companyId: company.id, role: 'company_admin' },
+    });
+    const token = await createSession(admin.id);
+
+    const res = await fiscalPeriodsPOST(
+      new NextRequest(`http://localhost/api/fiscal-periods?companyId=${company.id}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name: 'S17b 2026', startDate: '2026-01-01', endDate: '2026-12-31' }),
+      }),
+      ROUTE_CONTEXT,
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    const rows = await db.auditLog.findMany({
+      where: { companyId: company.id, action: 'PERIOD_CREATED', entity: 'FiscalPeriod' },
+    });
+    expect(rows).toHaveLength(1);
+    // Payload preserved exactly as before the chaining change.
+    expect(rows[0].entityId).toBe(body.period.id);
+    expect(rows[0].details).toBe(
+      JSON.stringify({ name: 'S17b 2026', startDate: '2026-01-01', endDate: '2026-12-31' }),
+    );
+    expect(rows[0].userId).toBeNull();
+    // ...and now sealed into the chain instead of being persisted unhashed.
+    expect(rows[0].hash).toBeTruthy();
+    expect(rows[0].previousHash).toBeNull();
+
+    const verdict = await verifyAuditChain();
+    expect(verdict.valid).toBe(true);
+    expect(verdict.members).toBe(1);
+    expect(verdict.legacyRows).toBe(0);
   });
 });

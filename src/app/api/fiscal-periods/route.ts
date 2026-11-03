@@ -9,6 +9,7 @@ import { requireCompanyRole } from '@/lib/rbac';
 import { companySettingsCache } from '@/lib/cache';
 import { serverT } from '@/lib/server-i18n';
 import { validateRequest } from '@/lib/validate-request';
+import { createAuditLogWithRetry } from '@/lib/audit';
 
 const CreateFiscalPeriodSchema = z.object({
   name: z.string().min(1),
@@ -68,15 +69,9 @@ export const POST = apiHandler(async (req: NextRequest) => {
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          companyId: companyId,
-          action: 'PERIOD_CREATED',
-          entity: 'FiscalPeriod',
-          entityId: result.id,
-          details: JSON.stringify({ name, startDate, endDate }),
-        },
-      });
+      // S17b: the audit row is written with the chained writer after this
+      // transaction commits (see below) — reading the chain tail inside the
+      // serializable boundary made concurrent period creations fail to serialize.
 
       return result;
     }, {
@@ -115,6 +110,16 @@ export const POST = apiHandler(async (req: NextRequest) => {
   }
 
   companySettingsCache.invalidate(companyId);
+
+  // S17b: routed through the chained writer so the row is sealed into the audit
+  // hash chain instead of being persisted unhashed. Payload unchanged.
+  await createAuditLogWithRetry({
+    companyId: companyId,
+    action: 'PERIOD_CREATED',
+    entity: 'FiscalPeriod',
+    entityId: period!.id,
+    details: JSON.stringify({ name, startDate, endDate }),
+  });
 
   return NextResponse.json({ period });
 });

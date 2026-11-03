@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { db } from '@/lib/db';
 import { decrypt, encrypt } from '@/lib/crypto';
 import {
@@ -16,6 +20,35 @@ export interface AiConfig {
   model: string;
   baseUrl: string;
   providerId: ProviderId;
+}
+
+// ─── Masking (shared with GET /api/config/ai) ────────────────────────────────
+// The settings UI echoes the masked key back on save. A masked placeholder must
+// never be persisted as if it were a key: encrypting it over the stored value
+// destroys the real key permanently.
+
+const MASK_ELLIPSIS = '...';
+
+/** Masked placeholder shown to the client for a stored API key. */
+export function maskAiApiKey(apiKey: string): string {
+  if (!apiKey || apiKey.length <= 8) return MASK_ELLIPSIS;
+  return apiKey.slice(0, 4) + MASK_ELLIPSIS + apiKey.slice(-4);
+}
+
+/**
+ * True when the value is a masked placeholder (what GET returns) rather than a
+ * key the user typed. Real API keys never contain an ellipsis, so any value of
+ * the `abcd...wxyz` shape is treated as "the key was not changed".
+ */
+export function isMaskedKeyPayload(candidate: unknown): boolean {
+  if (typeof candidate !== 'string') return false;
+  const value = candidate.trim();
+  if (!value) return false;
+  if (value === MASK_ELLIPSIS || value === '…') return true;
+  const parts = value.split(/\.\.\.|…/);
+  if (parts.length !== 2) return false;
+  const [prefix, suffix] = parts;
+  return prefix.length > 0 && prefix.length <= 4 && suffix.length > 0 && suffix.length <= 4;
 }
 
 // ─── In-memory cache ─────────────────────────────────────────────────────────
@@ -81,7 +114,7 @@ export async function getAiConfig(): Promise<AiConfig> {
   // If all three are in DB, decrypt and cache
   if (encryptedKey && model && baseUrl) {
     try {
-      const apiKey = decrypt(encryptedKey);
+      const apiKey = await decrypt(encryptedKey);
       const providerId = providerIdForCanonicalBaseUrl(baseUrl);
       if (!providerId) {
         // Legacy/custom baseUrl stored before the provider allowlist: fail closed.
@@ -120,7 +153,7 @@ export async function getAiConfig(): Promise<AiConfig> {
 
     // Seed DB so future reads don't depend on env
     try {
-      const reEncrypted = encrypt(envApiKey);
+      const reEncrypted = await encrypt(envApiKey);
       await Promise.all([
         setDbValue(KEY_ENCRYPTED_KEY, reEncrypted),
         setDbValue(KEY_MODEL, envModel),
@@ -158,7 +191,7 @@ export async function setAiConfig(config: {
   if (!isCanonicalAiBaseUrl(baseUrl)) {
     throw new AiProviderReconfigurationError();
   }
-  const encryptedKey = encrypt(config.apiKey);
+  const encryptedKey = await encrypt(config.apiKey);
   const model = config.model || AI_CONFIG.DEFAULT_MODEL;
 
   await Promise.all([
@@ -166,6 +199,26 @@ export async function setAiConfig(config: {
     setDbValue(KEY_MODEL, model),
     setDbValue(KEY_BASE_URL, baseUrl),
   ]);
+
+  clearAiConfigCache();
+}
+
+/**
+ * Persist model/baseUrl without touching the stored encrypted key.
+ * Used when the client submits the masked placeholder ("key unchanged"):
+ * re-encrypting the placeholder would destroy the real key.
+ */
+export async function setAiConfigMetadata(config: {
+  model?: string;
+  baseUrl?: string;
+}): Promise<void> {
+  const baseUrl = config.baseUrl || AI_CONFIG.BASE_URL;
+  if (!isCanonicalAiBaseUrl(baseUrl)) {
+    throw new AiProviderReconfigurationError();
+  }
+  const model = config.model || AI_CONFIG.DEFAULT_MODEL;
+
+  await Promise.all([setDbValue(KEY_MODEL, model), setDbValue(KEY_BASE_URL, baseUrl)]);
 
   clearAiConfigCache();
 }

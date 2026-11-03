@@ -96,6 +96,10 @@ export default function AiConfigTab() {
 
   const [provider, setProvider] = useState<ProviderId>('openrouter');
   const [apiKey, setApiKey] = useState('');
+  // Exactly what GET /api/config/ai returned for the stored key (a masked
+  // placeholder such as 'sk-1...wxyz'). While the field still holds it, the
+  // stored key is unchanged and must never be re-sent to verify/save as a key.
+  const [savedKeyDisplay, setSavedKeyDisplay] = useState<string | null>(null);
   const [model, setModel] = useState('');
   const [status, setStatus] = useState('');
   const [loading, setLoading] = useState(false);
@@ -118,7 +122,10 @@ export default function AiConfigTab() {
         } else if (data.isSaved) {
           setIsSaved(true);
           setAiAlive(data.aiAlive ?? false);
-          if (data.apiKey) setApiKey(data.apiKey);
+          if (data.apiKey) {
+            setApiKey(data.apiKey);
+            setSavedKeyDisplay(data.apiKey);
+          }
           if (data.providerId && AI_PROVIDERS.some((p) => p.id === data.providerId)) {
             setProvider(data.providerId);
           }
@@ -144,6 +151,8 @@ export default function AiConfigTab() {
     }
   };
 
+  const keyUnchanged = savedKeyDisplay !== null && apiKey.trim() === savedKeyDisplay;
+
   const handleSave = async () => {
     setStatus('');
     setLoading(true);
@@ -155,17 +164,22 @@ export default function AiConfigTab() {
     }
 
     try {
-      const verifyRes = await fetch('/api/config/ai/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apiKey, model: activeModel, providerId: provider }),
-      });
-      const verifyData = await verifyRes.json();
+      let verifyWarning: string | undefined;
 
-      if (!verifyRes.ok && !verifyData.warning) {
-        setStatus(`❌ ${t('aiAssistant.verificationFailed')}` + (verifyData.error || t('aiAssistant.invalidKeyNoSave')));
-        setLoading(false);
-        return;
+      if (!keyUnchanged) {
+        const verifyRes = await fetch('/api/config/ai/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey, model: activeModel, providerId: provider }),
+        });
+        const verifyData = await verifyRes.json();
+
+        if (!verifyRes.ok && !verifyData.warning) {
+          setStatus(`❌ ${t('aiAssistant.verificationFailed')}` + (verifyData.error || t('aiAssistant.invalidKeyNoSave')));
+          setLoading(false);
+          return;
+        }
+        verifyWarning = verifyData.warning;
       }
 
       const res = await fetch('/api/config/ai', {
@@ -176,9 +190,17 @@ export default function AiConfigTab() {
       const data = await res.json();
       if (res.ok) {
         localStorage.setItem('ai_key_saved', 'true');
-        setStatus(verifyData.warning
-          ? `⚠️ ${verifyData.warning}`
-          : `✅ ${t('aiAssistant.configSaveSuccess')}`);
+        setStatus(
+          data.keyUnchanged
+            ? `✅ ${
+                isEn
+                  ? 'Settings saved. Your API key stays the same.'
+                  : 'Configuración guardada. Tu clave de API no cambió.'
+              }`
+            : verifyWarning
+              ? `⚠️ ${verifyWarning}`
+              : `✅ ${t('aiAssistant.configSaveSuccess')}`,
+        );
         setIsSaved(true);
         setNeedsReconfiguration(false);
       } else {
@@ -197,6 +219,20 @@ export default function AiConfigTab() {
 
     if (!apiKey.trim()) {
       setStatus('❌ Ingresá tu clave de API.');
+      setLoading(false);
+      return;
+    }
+
+    // The stored key is already displayed masked: there is nothing to verify
+    // (and sending a placeholder would only produce a misleading result).
+    if (keyUnchanged) {
+      setStatus(
+        `⚠️ ${
+          isEn
+            ? 'This key is already saved. Enter a new key to verify it.'
+            : 'Esta clave ya está guardada. Ingresá una clave nueva para verificarla.'
+        }`,
+      );
       setLoading(false);
       return;
     }

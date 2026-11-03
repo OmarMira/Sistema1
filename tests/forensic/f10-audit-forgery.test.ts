@@ -255,14 +255,12 @@ describe('F-10 — KnowledgeAudit identity must come from the session (RED)', ()
   });
 
   it('R9: a super_admin actor is recorded with their real userId (RED)', async () => {
-    const superAdmin = await db.user.create({
-      data: {
-        email: 'f10-r9-super@example.com',
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'F10',
-        lastName: 'Super',
-        platformRole: 'super_admin',
-      },
+    // Session guard (86efc5d) rejects unverified users, so the actor must come
+    // from the verified-user factory; only the platform role is elevated here.
+    const createdUser = await createTestUser('f10-r9-super@example.com');
+    const superAdmin = await db.user.update({
+      where: { id: createdUser.id },
+      data: { platformRole: 'super_admin' },
     });
     const company = await createTestCompany('F10 R9 Co');
     createdCompanyIds.add(company.id);

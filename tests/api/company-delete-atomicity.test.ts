@@ -12,14 +12,12 @@ describe('D11-A: Company deletion atomicity', () => {
   });
 
   async function createSuperAdmin() {
-    const user = await db.user.create({
-      data: {
-        email: `d11a-admin-${Date.now()}@example.com`,
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'Super',
-        lastName: 'Admin',
-        platformRole: 'super_admin',
-      },
+    // Session guard (86efc5d) only admits verified users, so the harness uses
+    // the verified-user factory and elevates only the platform role.
+    const createdUser = await createTestUser(`d11a-admin-${Date.now()}@example.com`);
+    const user = await db.user.update({
+      where: { id: createdUser.id },
+      data: { platformRole: 'super_admin' },
     });
     const token = await createSession(user.id);
     return { user, token };

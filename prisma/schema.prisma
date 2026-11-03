@@ -117,9 +117,10 @@ model Company {
 
 /// Correction link record (original -> counter + replacement). The table itself
 /// was created by prisma/migrations/20261026142303_journal_correction; this model
-/// pins the Prisma schema to that SQL exactly. Correction execution stays
-/// disabled: POST /api/journal/[id]/corregir answers 503 until a product
-/// decision authorizes it.
+/// pins the Prisma schema to that SQL exactly. S24 — the correction flow is
+/// ENABLED end to end behind company_admin: POST /api/journal/[id]/corregir
+/// writes the counter-entry plus replacement entry, recalculates balances and
+/// seals the new entries into the company journal hash chain.
 model JournalCorrection {
   id                 String   @id @default(cuid())
   companyId          String

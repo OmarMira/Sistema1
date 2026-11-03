@@ -2,7 +2,9 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/db';
-import { createBackup, restoreBackup } from '@/lib/backup';
+import { createBackup } from '@/lib/backup';
+import { restoreCompanyBackup } from '@/lib/backup-restore';
+import { sealSnapshot } from '@/lib/backup-format';
 import {
   createTestUser,
   createTestCompany,
@@ -86,7 +88,7 @@ describe('C3 — Restore FK integrity with auto-classification artifacts (dynami
     cleanupDiskArtifacts();
   });
 
-  it('Case A: backup with JournalEntry.ruleApplyRecordId fails with FK violation when the anchor is absent', async () => {
+  it('Case A: a backup carrying JournalEntry.ruleApplyRecordId without its anchor is refused, never half-restored', async () => {
     // Setup: company with a RuleApplyRecord-driven journal entry (auto-classification)
     const user = await createTestUser('c3a@example.com');
     const company = await createTestCompany('Acme Corp');
@@ -114,13 +116,23 @@ describe('C3 — Restore FK integrity with auto-classification artifacts (dynami
     const backup = await createBackup(company.id);
     const backupData = JSON.parse(Buffer.from(backup.data, 'base64').toString('utf-8'));
 
-    // 2. Static check: does the payload carry the FK but NOT the anchor entity?
+    // 2. Current 2.x contract: the FK and its anchor travel together, so a
+    // backup the running app produces can never carry a dangling FK.
     const payloadEntry = backupData.data.journalEntries.find((e: { id: string }) => e.id === entry.id);
     expect(payloadEntry.ruleApplyRecordId).toBe(rar.id);
-    expect(backupData.data.ruleApplyRecords).toBeUndefined();
-    log('PAYLOAD: journalEntry.ruleApplyRecordId =', payloadEntry.ruleApplyRecordId, '| data.ruleApplyRecords section =', backupData.data.ruleApplyRecords);
+    const payloadRecords = backupData.data.ruleApplyRecords as Array<{ id: string }>;
+    expect(payloadRecords.map((r) => r.id)).toContain(rar.id);
+    log('PAYLOAD: journalEntry.ruleApplyRecordId =', payloadEntry.ruleApplyRecordId, '| anchor in ruleApplyRecords =', payloadRecords.some((r) => r.id === rar.id));
 
-    // 3. Simulate the anchor being absent at restore time (fresh DB / disaster recovery)
+    // 3. The FK-break artifact this PoC exists for: a payload that carries the
+    // FK but NOT the anchor (the legacy shape). The document stays otherwise
+    // self-consistent — row count and seal are recomputed — so the dangling
+    // reference is the ONLY defect left for restore admission to catch.
+    backupData.data.ruleApplyRecords = payloadRecords.filter((r) => r.id !== rar.id);
+    backupData.manifest.recordCounts.ruleApplyRecords = backupData.data.ruleApplyRecords.length;
+    sealSnapshot(backupData);
+
+    // 4. Simulate the anchor being absent at restore time (fresh DB / disaster recovery)
     const deleted = await db.ruleApplyRecord.delete({ where: { id: rar.id } });
     log('REMOVED anchor (simulates fresh DB): ruleApplyRecord', deleted.id, 'deleted');
     const dbBefore = await db.journalEntry.count({ where: { companyId: company.id } });
@@ -128,24 +140,23 @@ describe('C3 — Restore FK integrity with auto-classification artifacts (dynami
     const memBefore = await db.companyMember.count({ where: { companyId: company.id } });
     log('DB BEFORE RESTORE: journalEntries =', dbBefore, '| journalLines =', linesBefore, '| companyMembers =', memBefore);
 
-    // 4. Restore it
-    const result = await restoreBackup(company.id, backupData, user.id);
-    log('RESTORE result: success =', result.success, '| message =', result.message);
-    expect(result.success).toBe(false);
-    expect(result.message).toMatch(/rollback|rolled back/i);
+    // 5. Restore it: the dangling FK is rejected at admission.
+    await expect(
+      restoreCompanyBackup(company.id, JSON.stringify(backupData)),
+    ).rejects.toThrow(/RESTORE_REFERENCE: JournalEntry\.ruleApplyRecordId/);
 
-    // 5. Transaction state after failure: no partial data
+    // 6. Transaction state after the refusal: no partial data
     const dbAfter = await db.journalEntry.count({ where: { companyId: company.id } });
     const linesAfter = await db.journalLine.count({ where: { entry: { companyId: company.id } } });
     const memAfter = await db.companyMember.count({ where: { companyId: company.id } });
     const glAfter = await db.glAccount.count({ where: { companyId: company.id } });
-    log('DB AFTER FAILED RESTORE: journalEntries =', dbAfter, '| journalLines =', linesAfter, '| companyMembers =', memAfter, '| glAccounts =', glAfter);
+    log('DB AFTER REFUSED RESTORE: journalEntries =', dbAfter, '| journalLines =', linesAfter, '| companyMembers =', memAfter, '| glAccounts =', glAfter);
     expect(dbAfter).toBe(dbBefore);
     expect(linesAfter).toBe(linesBefore);
     expect(memAfter).toBe(memBefore);
   });
 
-  it('Case B: backup with BankRule.entityContextId fails with FK violation when the anchor is absent', async () => {
+  it('Case B: a backup carrying BankRule.entityContextId without its anchor is refused, never half-restored', async () => {
     const user = await createTestUser('c3b@example.com');
     const company = await createTestCompany('Acme Corp');
     await createTestCompanyMember(user.id, company.id);
@@ -171,10 +182,19 @@ describe('C3 — Restore FK integrity with auto-classification artifacts (dynami
     const backup = await createBackup(company.id);
     const backupData = JSON.parse(Buffer.from(backup.data, 'base64').toString('utf-8'));
 
+    // Current 2.x contract: entityContexts is a RESTORE_MODELS section, so the
+    // referenced anchor is part of the same payload as the referencing rule.
     const payloadRule = backupData.data.bankRules.find((r: { id: string }) => r.id === rule.id);
     expect(payloadRule.entityContextId).toBe(ec.id);
-    expect(backupData.data.entityContexts).toBeUndefined();
-    log('PAYLOAD: bankRule.entityContextId =', payloadRule.entityContextId, '| data.entityContexts section =', backupData.data.entityContexts);
+    const payloadContexts = backupData.data.entityContexts as Array<{ id: string }>;
+    expect(payloadContexts.map((c) => c.id)).toContain(ec.id);
+    log('PAYLOAD: bankRule.entityContextId =', payloadRule.entityContextId, '| anchor in entityContexts =', payloadContexts.some((c) => c.id === ec.id));
+
+    // The FK-break artifact: the FK travels without its anchor (count and seal
+    // recomputed, so the dangling reference is the only defect).
+    backupData.data.entityContexts = payloadContexts.filter((c) => c.id !== ec.id);
+    backupData.manifest.recordCounts.entityContexts = backupData.data.entityContexts.length;
+    sealSnapshot(backupData);
 
     const deleted = await db.entityContext.delete({ where: { id: ec.id } });
     log('REMOVED anchor (simulates fresh DB): entityContext', deleted.id, 'deleted');
@@ -182,15 +202,15 @@ describe('C3 — Restore FK integrity with auto-classification artifacts (dynami
     const glBefore = await db.glAccount.count({ where: { companyId: company.id } });
     const memBefore = await db.companyMember.count({ where: { companyId: company.id } });
 
-    const result = await restoreBackup(company.id, backupData, user.id);
-    log('RESTORE result: success =', result.success, '| message =', result.message);
-    expect(result.success).toBe(false);
-    expect(result.message).toMatch(/rollback|rolled back/i);
+    // Dangling reference refused before any write.
+    await expect(
+      restoreCompanyBackup(company.id, JSON.stringify(backupData)),
+    ).rejects.toThrow(/RESTORE_REFERENCE: BankRule\.entityContextId/);
 
     const rulesAfter = await db.bankRule.count({ where: { companyId: company.id } });
     const glAfter = await db.glAccount.count({ where: { companyId: company.id } });
     const memAfter = await db.companyMember.count({ where: { companyId: company.id } });
-    log('DB AFTER FAILED RESTORE: bankRules =', rulesAfter, '| glAccounts =', glAfter, '| companyMembers =', memAfter);
+    log('DB AFTER REFUSED RESTORE: bankRules =', rulesAfter, '| glAccounts =', glAfter, '| companyMembers =', memAfter);
     expect(rulesAfter).toBe(rulesBefore);
     expect(glAfter).toBe(glBefore);
     expect(memAfter).toBe(memBefore);

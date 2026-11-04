@@ -1,6 +1,0 @@
-{
-  "extends": "../../../tsconfig.json",
-  "compilerOptions": { "noEmit": true, "incremental": false, "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler" },
-  "include": ["../../../src/lib/db.ts", "../../../src/lib/backup.ts", "../../../src/lib/backup-format.ts", "../../../src/lib/backup-validation.ts", "../../../src/lib/backup-restore.ts", "../../../src/lib/backup-storage.ts", "../fidelity.test.ts", "../helpers.ts", "../export.test.ts", "../restore.test.ts"],
-  "exclude": []
-}

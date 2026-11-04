@@ -71,7 +71,7 @@ export function SidebarNav({
       {/* Nav links */}
       <TooltipProvider delayDuration={400}>
         <ScrollArea className="flex-1 py-2">
-          <nav className="space-y-1 px-3">
+          <nav aria-label="Navegación principal" className="space-y-1 px-3">
             {navItems.map((item) => {
               const decision = resolveNavRenderDecision(item.view, rows, { isLoading, error });
               if (decision === 'HIDE') return null;
@@ -87,6 +87,7 @@ export function SidebarNav({
                       onClick={itemDisabled ? undefined : () => handleNav(item.view)}
                       disabled={itemDisabled}
                       aria-disabled={itemDisabled}
+                      aria-current={isActive ? 'page' : undefined}
                       className={cn(
                         'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                         isActive
@@ -94,7 +95,7 @@ export function SidebarNav({
                           : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                       )}
                     >
-                      <item.icon className="size-4 shrink-0" />
+                      <item.icon aria-hidden="true" className="size-4 shrink-0" />
                       {t(item.labelKey)}
                     </button>
                   </TooltipTrigger>
@@ -117,7 +118,7 @@ export function SidebarNav({
                 onClick={() => useAuthStore.getState().setAiAssistantOpen(true)}
                 className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 transition-colors"
               >
-                <Sparkles className="size-4 shrink-0" />
+                <Sparkles aria-hidden="true" className="size-4 shrink-0" />
                 {t('aiAssistant.title')}
               </button>
             </TooltipTrigger>
@@ -129,6 +130,7 @@ export function SidebarNav({
             <TooltipTrigger asChild>
               <button
                 onClick={() => handleNav('settings')}
+                aria-current={pathname === '/' && currentView === 'settings' ? 'page' : undefined}
                 className={cn(
                   'flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   pathname === '/' && currentView === 'settings'
@@ -136,7 +138,7 @@ export function SidebarNav({
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                 )}
               >
-                <settingsItem.icon className="size-4 shrink-0" />
+                <settingsItem.icon aria-hidden="true" className="size-4 shrink-0" />
                 {t(settingsItem.labelKey)}
               </button>
             </TooltipTrigger>
@@ -153,7 +155,7 @@ export function SidebarNav({
                 }}
                 className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500 transition-colors"
               >
-                <LogOut className="size-4 shrink-0" />
+                <LogOut aria-hidden="true" className="size-4 shrink-0" />
                 {t('auth.logout')}
               </button>
             </TooltipTrigger>

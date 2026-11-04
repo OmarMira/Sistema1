@@ -239,7 +239,12 @@ export function BalanceChartCard({ t, loading, accountBalances }: BalanceChartPr
           {loading ? (
             <Skeleton className="h-[280px] w-full" />
           ) : (
-            <ChartContainer config={balanceChartConfig(t)} className="h-[280px] w-full">
+            <ChartContainer
+              config={balanceChartConfig(t)}
+              className="h-[280px] w-full"
+              role="img"
+              aria-label={t('dashboard.accountBalance')}
+            >
               <BarChart data={chartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="type" tickLine={false} axisLine={false} fontSize={12} />
@@ -292,7 +297,12 @@ export function MonthlyTrendChartCard({ t, loading, data }: MonthlyTrendChartPro
           {loading ? (
             <Skeleton className="h-[280px] w-full" />
           ) : data && data.length > 0 ? (
-            <ChartContainer config={cashFlowChartConfig(t)} className="h-[280px] w-full">
+            <ChartContainer
+              config={cashFlowChartConfig(t)}
+              className="h-[280px] w-full"
+              role="img"
+              aria-label={t('dashboard.monthlyTrend')}
+            >
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={data} margin={{ top: 5, right: 10, left: 0, bottom: 0 }}>
                   <defs>
@@ -359,10 +369,10 @@ export function RecentTransactionsTable({ t, loading, transactions }: RecentTran
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t('common.date')}</TableHead>
-                <TableHead>{t('common.description')}</TableHead>
-                <TableHead className="text-right">{t('common.amount')}</TableHead>
-                <TableHead className="text-center">{t('common.status')}</TableHead>
+                <TableHead scope="col">{t('common.date')}</TableHead>
+                <TableHead scope="col">{t('common.description')}</TableHead>
+                <TableHead scope="col" className="text-right">{t('common.amount')}</TableHead>
+                <TableHead scope="col" className="text-center">{t('common.status')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -424,7 +434,7 @@ export function BankAccountsCard({ t, loading, accounts }: BankAccountsCardProps
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Landmark className="size-4" />
+          <Landmark aria-hidden="true" className="size-4" />
           {t('banks.title')}
         </CardTitle>
       </CardHeader>
@@ -464,15 +474,15 @@ export function QuickActionsCard({ t, onNewEntry, onImportStatement, onRunReport
       </CardHeader>
       <CardContent className="space-y-2">
         <Button className="w-full justify-start gap-2" onClick={onNewEntry}>
-          <FileText className="size-4" />
+          <FileText aria-hidden="true" className="size-4" />
           {t('journal.newEntry')}
         </Button>
         <Button variant="outline" className="w-full justify-start gap-2" onClick={onImportStatement}>
-          <Upload className="size-4" />
+          <Upload aria-hidden="true" className="size-4" />
           {t('banks.uploadStatement')}
         </Button>
         <Button variant="outline" className="w-full justify-start gap-2" onClick={onRunReports}>
-          <BarChart3 className="size-4" />
+          <BarChart3 aria-hidden="true" className="size-4" />
           {t('reports.title')}
         </Button>
       </CardContent>
@@ -502,10 +512,34 @@ interface AdminQuickActionsProps {
   onNavigate: (view: string) => void;
 }
 
+/**
+ * S11 — these stat cards act as navigation buttons (they are `<div>`s with an
+ * onClick). A screen reader and the keyboard must be able to reach and trigger
+ * them like the buttons they behave as, and the card needs an explicit name
+ * because its content is a mix of numbers and labels.
+ */
+function statCardActivation(label: string, onActivate: () => void) {
+  return {
+    role: 'button' as const,
+    tabIndex: 0,
+    'aria-label': label,
+    onClick: onActivate,
+    onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+        event.preventDefault();
+        onActivate();
+      }
+    },
+  };
+}
+
 export function AdminStatCards({ t, stats, loading, onNavigate }: AdminStatCardsProps) {
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-      <Card className="cursor-pointer hover:shadow-md hover:border-indigo-500/50 transition-all duration-200 group" onClick={() => onNavigate('admin-companies')}>
+      <Card
+        className="cursor-pointer hover:shadow-md hover:border-indigo-500/50 transition-all duration-200 group"
+        {...statCardActivation(t('superAdmin.totalCompanies'), () => onNavigate('admin-companies'))}
+      >
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-semibold text-muted-foreground">{t('superAdmin.totalCompanies')}</CardTitle>
           <div className="rounded-xl bg-indigo-500/10 p-2 text-indigo-600 dark:text-indigo-400 group-hover:scale-110 transition-transform">
@@ -522,7 +556,10 @@ export function AdminStatCards({ t, stats, loading, onNavigate }: AdminStatCards
         </CardContent>
       </Card>
 
-      <Card className="cursor-pointer hover:shadow-md hover:border-indigo-500/50 transition-all duration-200 group" onClick={() => onNavigate('admin-users')}>
+      <Card
+        className="cursor-pointer hover:shadow-md hover:border-indigo-500/50 transition-all duration-200 group"
+        {...statCardActivation(t('superAdmin.globalUsers'), () => onNavigate('admin-users'))}
+      >
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-semibold text-muted-foreground">{t('superAdmin.globalUsers')}</CardTitle>
           <div className="rounded-xl bg-violet-500/10 p-2 text-violet-600 dark:text-violet-400 group-hover:scale-110 transition-transform">
@@ -539,7 +576,10 @@ export function AdminStatCards({ t, stats, loading, onNavigate }: AdminStatCards
         </CardContent>
       </Card>
 
-      <Card className="cursor-pointer hover:shadow-md hover:border-indigo-500/50 transition-all duration-200 group" onClick={() => onNavigate('admin-audit-logs')}>
+      <Card
+        className="cursor-pointer hover:shadow-md hover:border-indigo-500/50 transition-all duration-200 group"
+        {...statCardActivation(t('superAdmin.auditLogs'), () => onNavigate('admin-audit-logs'))}
+      >
         <CardHeader className="flex flex-row items-center justify-between pb-2">
           <CardTitle className="text-sm font-semibold text-muted-foreground">{t('superAdmin.auditLogs')}</CardTitle>
           <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-600 dark:text-emerald-400 group-hover:scale-110 transition-transform">

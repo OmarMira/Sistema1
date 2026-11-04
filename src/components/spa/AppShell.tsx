@@ -84,9 +84,22 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      {/* S11 — keyboard and screen-reader users land on the shell chrome first;
+          the skip link jumps straight into the view content. */}
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-[10000] focus:rounded-md focus:border focus:bg-background focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:shadow"
+      >
+        Saltar al contenido principal
+      </a>
       {/* Global Processing Loader Overlay */}
       {isProcessing && (
-        <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background/40 backdrop-blur-sm transition-all duration-300 animate-in fade-in">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+          className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background/40 backdrop-blur-sm transition-all duration-300 animate-in fade-in"
+        >
           <div className="flex flex-col items-center gap-5 rounded-2xl border bg-card/85 p-8 shadow-2xl backdrop-blur-xl border-border/50 max-w-sm text-center">
             <div className="relative flex items-center justify-center size-20">
               {/* Outer glow ring */}
@@ -95,7 +108,7 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
               <div className="absolute inset-2 rounded-full border-b-2 border-l-2 border-indigo-500 animate-spin [animation-direction:reverse]" />
               {/* Inner core spinner icon */}
               <div className="flex size-10 items-center justify-center rounded-full bg-primary/10">
-                <Loader2 className="size-5 animate-spin text-primary" />
+                <Loader2 aria-hidden="true" className="size-5 animate-spin text-primary" />
               </div>
             </div>
             <div className="space-y-1">
@@ -130,8 +143,13 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
           {/* Mobile hamburger */}
           <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
             <SheetTrigger asChild>
-              <Button variant="ghost" size="icon" className="lg:hidden">
-                <Menu className="size-5" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="lg:hidden"
+                aria-label="Abrir menú de navegación"
+              >
+                <Menu aria-hidden="true" className="size-5" />
                 <span className="sr-only">Menu</span>
               </Button>
             </SheetTrigger>
@@ -178,7 +196,7 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
 
           {/* AES Encryption Badge */}
           <div className="hidden lg:flex items-center gap-1.5 rounded-md border px-2.5 py-1">
-            <ShieldCheck className="size-3.5 text-emerald-600" />
+            <ShieldCheck aria-hidden="true" className="size-3.5 text-emerald-600" />
             <span className="text-[11px] font-medium text-muted-foreground">AES</span>
           </div>
 
@@ -190,7 +208,12 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
             {/* User menu */}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-full"
+                  aria-label="Menú de usuario"
+                >
                   <Avatar className="size-7">
                     <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
                       {initials}
@@ -213,12 +236,12 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
                   onClick={() => useAuthStore.getState().setCurrentView('settings')}
                   className="gap-2"
                 >
-                  <Settings className="size-4" />
+                  <Settings aria-hidden="true" className="size-4" />
                   {t('settings.title')}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} variant="destructive" className="gap-2">
-                  <LogOut className="size-4" />
+                  <LogOut aria-hidden="true" className="size-4" />
                   {t('auth.logout')}
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -227,7 +250,7 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
         </header>
 
         {/* ── Main Content Area ── */}
-        <main className="flex-1 overflow-auto p-4 lg:p-6">
+        <main id="main-content" tabIndex={-1} className="flex-1 overflow-auto p-4 lg:p-6">
           <div className="mx-auto max-w-7xl">
             {children ? children : (
               <ViewErrorBoundary key={currentView}>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, type ReactNode } from 'react';
+import { useId, useMemo, type ReactNode } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { bankCategories, cents, savedCategory, statementContext, type BankActivityData, type BankMovement } from '@/lib/dashboard/bank-activity';
@@ -126,6 +126,7 @@ export function BankActivityCharts({
   money
 }: Props) {
   const copy = translations[language];
+  const titleId = useId();
   const expenses = bankCategories(visible, 'debito');
   const income = bankCategories(visible, 'credito');
   const category = (name: string) => name === 'Sin asignar' ? copy.unassigned : name;
@@ -169,8 +170,8 @@ export function BankActivityCharts({
             backgroundColor: row.name === 'Sin asignar' ? '#64748b' : colors[i % colors.length]
           }} />{category(row.name)}</span><span className="tabular-nums">{money(row.value)} · {row.percentage.toFixed(1)}%</span></li>)}</ul>
   </>;
-  return <section aria-label={copy.title} className="space-y-4">
-    <header><h2 className="text-xl font-semibold">{copy.title}</h2><p className="mt-2 max-w-4xl text-sm text-muted-foreground">{copy.scope}</p></header>
+  return <section aria-labelledby={titleId} className="space-y-4">
+    <header><h2 id={titleId} className="text-xl font-semibold">{copy.title}</h2><p className="mt-2 max-w-4xl text-sm text-muted-foreground">{copy.scope}</p></header>
     <div className="grid min-w-0 gap-6 xl:grid-cols-2">
       <ChartBox title={copy.flow} description={copy.filtered}>{plot(<BarChart data={series}>{axis}<Bar dataKey="incoming" name={copy.incoming} fill={colors[0]} radius={[4, 4, 0, 0]} isAnimationActive={false} /><Bar dataKey="outgoing" name={copy.outgoing} fill={colors[2]} radius={[4, 4, 0, 0]} isAnimationActive={false} /></BarChart>)}</ChartBox>
       <ChartBox title={copy.balanceTitle} description={copy.source}>{series.some(m => m.closing !== null) ? plot(<AreaChart data={series}>{axis}<Area dataKey="closing" name={copy.balance} stroke={colors[1]} fill={colors[1]} fillOpacity={0.12} connectNulls={false} isAnimationActive={false} /></AreaChart>) : <p className="py-12 text-sm">{copy.unavailable}</p>}</ChartBox>

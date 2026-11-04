@@ -27,6 +27,8 @@ vi.mock('@/lib/bank-profile-service', () => ({
 }));
 
 const apiKey = 'synthetic-customer-api-key-never-real';
+// S1 (Wave 5): learning is company-scoped, so every call site states the tenant.
+const companyId = 'synthetic-company-scope';
 const analysis = {
   fullText: 'Synthetic Bank Statement', pageWidth: 600,
   firstPageSample: 'Synthetic Bank',
@@ -57,7 +59,7 @@ describe('PDF learning uses customer configuration', () => {
       ? { content: [{ type: 'text', text: JSON.stringify(generated) }] }
       : { choices: [{ message: { content: JSON.stringify(generated) } }] }), { status: 200 }));
 
-    const result = await createProfileFromPdf(analysis);
+    const result = await createProfileFromPdf(analysis, companyId);
     expect(result.bankName).toBe('Synthetic Bank');
     expect(mocks.sdk).not.toHaveBeenCalled();
     expect(mockFetch).toHaveBeenCalledTimes(1);
@@ -72,7 +74,7 @@ describe('PDF learning uses customer configuration', () => {
   });
 
   it('reports missing configuration before any request or learned-profile write', async () => {
-    await expect(createProfileFromPdf(analysis)).rejects.toMatchObject({
+    await expect(createProfileFromPdf(analysis, companyId)).rejects.toMatchObject({
       statusCode: 503, code: 'AI_CONFIG_MISSING',
     });
     expect(mockFetch).not.toHaveBeenCalled();
@@ -83,7 +85,7 @@ describe('PDF learning uses customer configuration', () => {
   it('rejects an unsupported destination without sending credentials or learning a profile', async () => {
     vi.stubEnv('AI_API_KEY', apiKey);
     vi.stubEnv('AI_BASE_URL', 'https://unapproved.example/v1');
-    await expect(createProfileFromPdf(analysis)).rejects.toMatchObject({
+    await expect(createProfileFromPdf(analysis, companyId)).rejects.toMatchObject({
       statusCode: 503, code: 'AI_PROVIDER_RECONFIGURATION_REQUIRED',
     });
     expect(mockFetch).not.toHaveBeenCalled();
@@ -94,7 +96,7 @@ describe('PDF learning uses customer configuration', () => {
     await setAiConfig({ apiKey });
     mockFetch.mockResolvedValue(new Response(`rejected ${apiKey}`, { status: 429 }));
     let failure: unknown;
-    try { await createProfileFromPdf(analysis); } catch (err) { failure = err; }
+    try { await createProfileFromPdf(analysis, companyId); } catch (err) { failure = err; }
     expect(failure).toMatchObject({ statusCode: 503, code: 'AI_PROVIDER_UNAVAILABLE' });
     expect(String(failure)).not.toContain(apiKey);
     expect(JSON.stringify(mocks.logger.warn.mock.calls)).not.toContain(apiKey);
@@ -106,7 +108,7 @@ describe('PDF learning uses customer configuration', () => {
     mockFetch.mockResolvedValue(new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(generated) } }] })));
     const timeout = vi.spyOn(AbortSignal, 'timeout');
     try {
-      await createProfileFromPdf(analysis);
+      await createProfileFromPdf(analysis, companyId);
       expect(timeout).toHaveBeenCalledWith(60000);
     } finally { timeout.mockRestore(); }
   });

@@ -3,6 +3,7 @@ if (typeof process === 'undefined' || !process.versions?.node) {
 }
 
 import { db } from '@/lib/db';
+import { AiConfigMissingError } from '@/lib/ai-import-error';
 import { decrypt, encrypt } from '@/lib/crypto';
 import {
   AI_CONFIG,
@@ -169,9 +170,10 @@ export async function getAiConfig(): Promise<AiConfig> {
   }
 
   logger.error('[AI CONFIG] No config found — neither DB nor env');
-  throw new Error(
-    'AI configuration missing. Set AI_API_KEY in .env or save via /api/config/ai.',
-  );
+  // A typed missing-config error lets the import client report the stable
+  // AI_CONFIG_MISSING code while the message stays byte-identical for every
+  // other consumer of this resolver.
+  throw new AiConfigMissingError();
 }
 
 /**

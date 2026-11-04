@@ -3,7 +3,6 @@ if (typeof process === 'undefined' || !process.versions?.node) {
 }
 
 import { logger } from '@/lib/logger';
-import ZAI from 'z-ai-web-dev-sdk';
 import crypto from 'crypto';
 import {
   BankProfileConfigSchema,
@@ -11,7 +10,8 @@ import {
   BankProfileConfig,
 } from './bank-profile-schema';
 import { getAllActiveProfiles, upsertBankProfile } from './bank-profile-service';
-import { getAiConfig } from '@/lib/ai-config';
+import { requestImportProfile } from '@/lib/import-ai-client';
+import { ImportAiError } from '@/lib/ai-import-error';
 
 export interface PdfAnalysisData {
   fullText: string;
@@ -111,7 +111,11 @@ export async function findExistingProfile(
   return null;
 }
 
-const LLM_TIMEOUT_MS = 15000;
+/**
+ * First-format learning is one structured generation (up to ~4k tokens), so it
+ * gets a bounded minute instead of a chat-sized deadline.
+ */
+const PROFILE_LEARNING_TIMEOUT_MS = 60000;
 
 type CoordinateBlock = PdfAnalysisData['blocksWithCoordinates'][number];
 
@@ -298,8 +302,6 @@ export async function createProfileFromPdf(
   analysisData: PdfAnalysisData,
   companyId?: string | null,
 ): Promise<BankProfileTyped> {
-  const zai = await ZAI.create();
-
   const coordinateSample = buildCoordinateSample(
     analysisData.blocksWithCoordinates,
     analysisData.pageWidth,
@@ -517,36 +519,16 @@ CRITICAL: Do NOT invent or fabricate data. Only use patterns you can clearly ide
 
   logger.info('LLM inference for bank profile creation', { temperature: 0 });
 
-  let aiModel = 'google/gemini-2.5-flash';
   try {
-    const aiConfig = await getAiConfig();
-    if (aiConfig.model && aiConfig.model !== 'openrouter/free') {
-      aiModel = aiConfig.model;
-    }
-  } catch {
-    // Use default model
-  }
-
-  try {
-    const response = await Promise.race([
-      zai.chat.completions.create({
-        model: aiModel,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        max_tokens: 1500,
-        temperature: 0,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('LLM call timed out')), LLM_TIMEOUT_MS),
-      ),
-    ]);
-
-    const content = response.choices?.[0]?.message?.content || '';
-    if (!content) {
-      throw new Error('AI returned an empty response.');
-    }
+    // Inference goes through the installation's saved configuration. The import
+    // client enforces the canonical-destination allowlist, the customer's key and
+    // exact model, an abort timeout and typed ImportAiError failures, so format
+    // learning can never fall back to implicit SDK credentials.
+    const content = await requestImportProfile(
+      systemPrompt,
+      userPrompt,
+      PROFILE_LEARNING_TIMEOUT_MS,
+    );
 
     // Clean markdown code blocks
     let cleanJson = content.trim();
@@ -657,6 +639,9 @@ CRITICAL: Do NOT invent or fabricate data. Only use patterns you can clearly ide
       return profile;
     }
   } catch (err) {
+    // Actionable AI failures keep their code and status for the caller (the
+    // per-file import pipeline reports them); never re-wrap them as opaque text.
+    if (err instanceof ImportAiError) throw err;
     logger.warn('Single LLM inference attempt failed', { error: err });
     lastError = err;
   }

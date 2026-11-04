@@ -14,7 +14,8 @@ import { clearDatabase } from '../helpers/factories';
  * Block 5 — Phase 1H.1: coordinate sampling repair, verified causally
  * against the physical statement fixture.
  *
- * Only the external inference boundary (z-ai-web-dev-sdk) is substituted; the
+ * Only the external inference boundary (the import AI client that talks to the
+ * installation's configured provider) is substituted; the
  * captured provider prompt is the product's real output. Ground truth (raw
  * blocks, pages, line geometry) is re-extracted independently with pdfjs in
  * this test, so every expectation is measured from the fixture — no block
@@ -24,16 +25,9 @@ import { clearDatabase } from '../helpers/factories';
 // ── External boundary: inference provider only ──────────────────────────────
 const llmCreate = vi.hoisted(() => vi.fn());
 
-vi.mock('z-ai-web-dev-sdk', () => ({
-  default: {
-    create: async () => ({
-      chat: {
-        completions: {
-          create: (args: unknown) => llmCreate(args),
-        },
-      },
-    }),
-  },
+vi.mock('@/lib/import-ai-client', () => ({
+  requestImportProfile: (systemPrompt: string, userPrompt: string, timeoutMs: number) =>
+    llmCreate(systemPrompt, userPrompt, timeoutMs),
 }));
 
 // ── Fixture ─────────────────────────────────────────────────────────────────
@@ -187,11 +181,46 @@ async function resetFormatState(): Promise<void> {
   invalidateAllProfilesCache();
 }
 
+/**
+ * The product ships one packaged format definition (`boa-standard`) that is
+ * always available in memory, so this fixture would be parsed by it and the
+ * onboarding path (the subject under test) would never run.
+ * `getAllActiveProfiles` suppresses a packaged definition when any stored row
+ * shares its bankId, so an inactive row is the documented way to start with no
+ * usable format knowledge.
+ */
+async function suppressPackagedProfiles(): Promise<void> {
+  await db.bankProfile.create({
+    data: {
+      bankId: 'boa-standard',
+      companyId: null,
+      bankName: 'Bank of America',
+      fingerprints: JSON.stringify(['Bank of America', 'Business Advantage Relationship Banking']),
+      config: JSON.stringify({
+        layoutType: 'SINGLE_AMOUNT_COLUMN',
+        lineGroupingTolerancePx: 5,
+        numberFormat: {
+          decimalSeparator: '.',
+          thousandsSeparator: ',',
+          negativeIndicator: 'MINUS_SIGN',
+          negativePosition: 'PREFIX',
+        },
+        rules: {
+          anchor: { regex: '^\\d{2}/\\d{2}/\\d{2}$', columnRange: [0, 0.18] },
+          columns: { date: [0, 0.18], description: [0.18, 0.8], amount: [0.8, 1] },
+          metadata: { accountNumber: [], initialBalance: [], finalBalance: [] },
+        },
+      }),
+      isActive: false,
+      requiresReview: false,
+    },
+  });
+  invalidateAllProfilesCache();
+}
+
 function installProviderDouble(): void {
   llmCreate.mockReset();
-  llmCreate.mockImplementation(async () => ({
-    choices: [{ message: { content: JSON.stringify(PROVIDER_RESPONSE) } }],
-  }));
+  llmCreate.mockImplementation(async () => JSON.stringify(PROVIDER_RESPONSE));
 }
 
 /** Runs the real parsePDF onboarding path and returns the captured prompt. */
@@ -199,9 +228,10 @@ async function runOnboarding(): Promise<{ systemPrompt: string; userPrompt: stri
   const pdfBuffer = readFileSync(join(FIXTURE_DIR, FIXTURE_NAME));
   await parsePDF(pdfBuffer, { fileName: FIXTURE_NAME });
   expect(llmCreate).toHaveBeenCalledTimes(1);
-  const args = llmCreate.mock.calls[0][0] as { messages: Array<{ role: string; content: string }> };
-  const systemPrompt = args.messages.find((m) => m.role === 'system')?.content ?? '';
-  const userPrompt = args.messages.find((m) => m.role === 'user')?.content ?? '';
+  // The learning call is the import client's structured-generation entry point:
+  // (systemPrompt, userPrompt, timeoutMs).
+  const [systemPrompt, userPrompt, timeoutMs] = llmCreate.mock.calls[0] as [string, string, number];
+  expect(timeoutMs).toBe(60000);
   expect(systemPrompt.length).toBeGreaterThan(0);
   expect(userPrompt.length).toBeGreaterThan(0);
   return { systemPrompt, userPrompt };
@@ -219,6 +249,7 @@ describe('Block 5 — Phase 1H.1 coordinate sampling (physical fixture)', () => 
 
   beforeEach(async () => {
     await resetFormatState();
+    await suppressPackagedProfiles();
     installProviderDouble();
   });
 
@@ -373,6 +404,7 @@ describe('Block 5 — Phase 1H.1 coordinate sampling (physical fixture)', () => 
     expect(first.length).toBeGreaterThan(0);
 
     await resetFormatState();
+    await suppressPackagedProfiles();
     installProviderDouble();
 
     const second = parseCoordinateSample((await runOnboarding()).userPrompt);

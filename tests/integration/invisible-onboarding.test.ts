@@ -1,25 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { parsePDF } from '@/lib/pdf-parser';
 import { db } from '@/lib/db';
-import { clearDatabase } from '../helpers/factories';
+import { clearDatabase, createTestCompany } from '../helpers/factories';
 import { invalidateAllProfilesCache } from '@/lib/bank-profile-service';
 
-// Mock the Z AI SDK completions module
-const mockCreateChatCompletion = vi.fn();
+// Inference boundary: the learning call goes through the import AI client, which
+// talks to the installation's configured provider. Only that external call is
+// substituted; everything else below runs as the product does.
+const mockRequestProfile = vi.fn();
 
-vi.mock('z-ai-web-dev-sdk', () => {
+vi.mock('@/lib/import-ai-client', () => {
   return {
-    default: {
-      create: async () => {
-        return {
-          chat: {
-            completions: {
-              create: mockCreateChatCompletion
-            }
-          }
-        };
-      }
-    }
+    requestImportProfile: (systemPrompt: string, userPrompt: string, timeoutMs: number) =>
+      mockRequestProfile(systemPrompt, userPrompt, timeoutMs)
   };
 });
 
@@ -69,29 +62,41 @@ const createPdfItems = (
 };
 
 describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () => {
+  // S1 (Wave 5): learned profiles are company-scoped, so a parse that must persist
+  // what it learned has to say which tenant is importing. Each test gets its own
+  // company; test factories do not register @example.com members, so the company
+  // is removed explicitly in afterEach.
+  const COMPANY_IDS: string[] = [];
+  let companyId: string;
+
   beforeEach(async () => {
     await clearDatabase();
     await db.bankProfile.deleteMany({});
     invalidateAllProfilesCache();
     customGetDocumentMock = null;
-    mockCreateChatCompletion.mockReset();
+    mockRequestProfile.mockReset();
+    const company = await createTestCompany(`Invisible onboarding ${Date.now()}`, 'BUSINESS', {
+      seedEntitlements: false,
+    });
+    COMPANY_IDS.push(company.id);
+    companyId = company.id;
   });
 
   afterEach(async () => {
     await clearDatabase();
     await db.bankProfile.deleteMany({});
     invalidateAllProfilesCache();
+    const ids = COMPANY_IDS.splice(0);
+    if (ids.length > 0) {
+      await db.company.deleteMany({ where: { id: { in: ids } } });
+    }
     customGetDocumentMock = null;
     vi.restoreAllMocks();
   });
 
   it('debe inferir, guardar e invalidar cache para un banco desconocido exitosamente (Reconciliación exitosa: requiresReview -> false)', async () => {
     // 1. Mock the LLM output for "Banco Galicia Onboard" layout
-    mockCreateChatCompletion.mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
+    mockRequestProfile.mockResolvedValue(JSON.stringify({
               bankName: 'Banco Galicia Onboard',
               fingerprints: ['Galicia Onboard', 'Galicia Onboard Business'],
               config: {
@@ -120,11 +125,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
                   }
                 }
               }
-            })
-          }
-        }
-      ]
-    });
+    }));
 
     customGetDocumentMock = vi.fn().mockReturnValue({
       promise: Promise.resolve({
@@ -140,7 +141,9 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
     });
 
     // 2. Run parsePDF
-    const result = await parsePDF(Buffer.from('mock_unknown_galicia_onboard_statement'));
+    const result = await parsePDF(Buffer.from('mock_unknown_galicia_onboard_statement'), {
+      companyId,
+    });
 
     // 3. Verify results
     expect(result.mathValid).toBe(true);
@@ -150,7 +153,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
 
     // 4. Verify the BankProfile record exists in DB
     const profileInDb = await db.bankProfile.findFirst({
-      where: { bankName: 'Banco Galicia Onboard' }
+      where: { bankName: 'Banco Galicia Onboard', companyId },
     });
 
     expect(profileInDb).toBeDefined();
@@ -196,11 +199,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
     });
 
     // 2. Mockear la respuesta del LLM durante el Self-Healing para que devuelva la configuración correcta
-    mockCreateChatCompletion.mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
+    mockRequestProfile.mockResolvedValue(JSON.stringify({
               bankName: 'Banco Galicia Healing',
               fingerprints: ['Galicia Healing', 'Galicia Healing Business'],
               config: {
@@ -229,11 +228,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
                   }
                 }
               }
-            })
-          }
-        }
-      ]
-    });
+    }));
 
     // 3. Mockear el PDF con transacciones correctas
     customGetDocumentMock = vi.fn().mockReturnValue({
@@ -250,15 +245,16 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
     });
 
     // 4. Parsear el PDF
-    const result = await parsePDF(Buffer.from('mock_galicia_healing_statement'));
+    const result = await parsePDF(Buffer.from('mock_galicia_healing_statement'), { companyId });
 
     // 5. Verificar que se parsearon transacciones
     expect(result.transactions.length).toBe(1);
     expect(result.transactions[0].amount).toBe(400.0);
 
     // 6. Verificar que la base de datos se actualizó y requireReview es false
+    //    (the healed profile is the tenant-scoped row for the same bankId)
     const profileInDb = await db.bankProfile.findFirst({
-      where: { bankName: 'Banco Galicia Healing' }
+      where: { bankName: 'Banco Galicia Healing', companyId },
     });
     expect(profileInDb).toBeDefined();
     expect(profileInDb?.requiresReview).toBe(false);
@@ -295,11 +291,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
     });
 
     // 2. Mockear el LLM para retornar un perfil con fingerprints similares (Jaccard >= 0.6)
-    mockCreateChatCompletion.mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
+    mockRequestProfile.mockResolvedValue(JSON.stringify({
               bankName: 'Banco Galicia Existente Modificado',
               fingerprints: ['Galicia Jaccard A1', 'Galicia Jaccard A2', 'Galicia Jaccard A3', 'Galicia Jaccard A5'],
               config: {
@@ -316,11 +308,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
                   }
                 }
               }
-            })
-          }
-        }
-      ]
-    });
+    }));
 
     customGetDocumentMock = vi.fn().mockReturnValue({
       promise: Promise.resolve({
@@ -401,7 +389,7 @@ describe('AI-driven Invisible Onboarding & Self-Healing Integration Tests', () =
     const result = await parsePDF(Buffer.from('mock_galicia_cooldown_statement'));
 
     // 4. Verificar que no se llamó al LLM y devuelve el warning adecuado
-    expect(mockCreateChatCompletion).not.toHaveBeenCalled();
+    expect(mockRequestProfile).not.toHaveBeenCalled();
     expect(result.warnings.some(w => w.includes('La reconciliación matemática falló'))).toBe(true);
   });
 

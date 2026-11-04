@@ -34,6 +34,43 @@ import { createProfileFromPdf } from '@/lib/bank-profile-onboarding';
 import { parsePDF } from '@/lib/pdf-parser';
 import { createTestCompany } from '../helpers/factories';
 
+/**
+ * Inference boundary only. Format learning now goes through the import AI client,
+ * which talks to the installation's configured provider; the deterministic answer
+ * below is the same origin profile the previous setup-level SDK double produced.
+ * Everything else in this file — createProfileFromPdf, upsertBankProfile,
+ * getAllActiveProfiles, the parser and Prisma — is the real product code.
+ */
+const learnedProfileJson = vi.hoisted(() =>
+  JSON.stringify({
+    bankName: 'Mock Bank',
+    fingerprints: ['Mock Fingerprint'],
+    config: {
+      layoutType: 'SINGLE_AMOUNT_COLUMN',
+      lineGroupingTolerancePx: 5,
+      numberFormat: {
+        decimalSeparator: '.',
+        thousandsSeparator: ',',
+        negativeIndicator: 'MINUS_SIGN',
+        negativePosition: 'PREFIX',
+      },
+      rules: {
+        anchor: { regex: '^\\d{2}/\\d{2}/\\d{2}$', columnRange: [0.0, 0.18] },
+        columns: {
+          date: [0.0, 0.18],
+          description: [0.18, 0.8],
+          amount: [0.8, 1.0],
+        },
+        metadata: { accountNumber: [], initialBalance: [], finalBalance: [] },
+      },
+    },
+  }),
+);
+
+vi.mock('@/lib/import-ai-client', () => ({
+  requestImportProfile: async () => learnedProfileJson,
+}));
+
 const RUN = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
 const BANK_PREFIX = `wave5-s1-${RUN}`;
 

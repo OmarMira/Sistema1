@@ -281,7 +281,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
 
       expect(res.status).toBe(403);
       const body = await res.json();
-      expect(body.error).toContain('closed period');
+      expect(body.error).toContain('período cerrado');
     });
 
     it('void: bloquea anulación en período cerrado', async () => {
@@ -316,7 +316,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
 
       expect(res.status).toBe(403);
       const body = await res.json();
-      expect(body.error).toContain('closed period');
+      expect(body.error).toContain('período cerrado');
     });
 
     it('post: permite posteo en período abierto', async () => {

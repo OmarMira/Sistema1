@@ -120,7 +120,7 @@ describe('4.7 - Per-transaction fiscal guard: two-period batch, one locked (inte
     // narrows the error class; the message confirms the locked period.
     const guardError = thrown as ForbiddenError;
     expect(guardError.code).toBe('FORBIDDEN');
-    expect(guardError.message).toContain('closed period');
+    expect(guardError.message).toContain('período cerrado');
     expect(guardError.message).toContain('2025-07');
 
     // Whole abort: no record, no journal, no line.
@@ -197,7 +197,7 @@ describe('4.7 - Per-transaction fiscal guard: two-period batch, one locked (inte
     // for the locked period before touching any journal.
     const revertGuardError = thrown as ForbiddenError;
     expect(revertGuardError.code).toBe('FORBIDDEN');
-    expect(revertGuardError.message).toContain('closed period');
+    expect(revertGuardError.message).toContain('período cerrado');
 
     // Whole abort: record stays applied, journal stays posted, links intact.
     const recordAfter = await db.ruleApplyRecord.findUniqueOrThrow({ where: { id: recordId } });

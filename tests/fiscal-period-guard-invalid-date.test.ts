@@ -32,7 +32,7 @@ describe('assertActiveFiscalPeriod — invalid date is fail-closed (S9)', () => 
 
   it('rejects an unparseable date string instead of silently passing', async () => {
     await expect(assertActiveFiscalPeriod('company-1', 'not-a-date')).rejects.toThrow(
-      'Invalid transaction date: "not-a-date"',
+      'Fecha de transacción inválida: "not-a-date"',
     );
   });
 
@@ -55,14 +55,14 @@ describe('assertActiveFiscalPeriod — invalid date is fail-closed (S9)', () => 
 
   it('rejects a NaN numeric date', async () => {
     await expect(assertActiveFiscalPeriod('company-1', Number.NaN)).rejects.toThrow(
-      'Invalid transaction date',
+      'Fecha de transacción inválida',
     );
     expect(findFirst).not.toHaveBeenCalled();
   });
 
   it('rejects an empty-string date', async () => {
     await expect(assertActiveFiscalPeriod('company-1', '')).rejects.toThrow(
-      'Invalid transaction date',
+      'Fecha de transacción inválida',
     );
     expect(findFirst).not.toHaveBeenCalled();
   });
@@ -72,7 +72,7 @@ describe('assertActiveFiscalPeriod — invalid date is fail-closed (S9)', () => 
     findFirst.mockResolvedValue({ name: 'May 2026' });
 
     await expect(assertActiveFiscalPeriod('company-1', '2026-05-15')).rejects.toThrow(
-      'Cannot post transactions to a closed period. Period locked: "May 2026".',
+      'No se pueden registrar transacciones en un período cerrado. Período bloqueado: "May 2026".',
     );
 
     expect(findFirst).toHaveBeenCalledTimes(1);

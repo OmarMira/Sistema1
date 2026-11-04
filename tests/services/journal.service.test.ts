@@ -94,7 +94,7 @@ describe('JournalService', () => {
         },
         user.id,
       )
-    ).rejects.toThrow('Cannot post transactions to a closed period.');
+    ).rejects.toThrow('No se pueden registrar transacciones en un período cerrado.');
   });
 
   it('debe fallar al crear un asiento con menos de 2 líneas', async () => {

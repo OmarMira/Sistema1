@@ -100,10 +100,10 @@ async function run(args) {
       if (database !== 'accountexpress_test') await sql(`CREATE ROLE ${database} LOGIN PASSWORD '${password}'`);
       if (database === 'accountexpress_test') await sql(`CREATE DATABASE ${database} OWNER identity_test`); else await sql(`CREATE DATABASE ${database} OWNER identity_test`);
       // PostgreSQL 15+: CREATE TYPE requires ownership of the public schema.
-      // Each database connects as its own role (same name as the DB), so the
-      // schema ownership must transfer to that role. Run as identity_test
-      // (the container superuser) which has the authority to transfer.
-      await sql(`GRANT ALL ON SCHEMA public TO ${database}; ALTER SCHEMA public OWNER TO ${database}`, database);
+      // Each database connects as its own role (identity_test for the main DB,
+      // same-name role for the rest), so ownership must transfer to that role.
+      const dbUser = database === 'accountexpress_test' ? 'identity_test' : database;
+      await sql(`GRANT ALL ON SCHEMA public TO ${dbUser}; ALTER SCHEMA public OWNER TO ${dbUser}`, database);
       await sql('CREATE EXTENSION IF NOT EXISTS pg_trgm', database);
     }
     const url = (database, user = database) => `postgresql://${user}:${password}@127.0.0.1:${port}/${database}`;

@@ -4,6 +4,7 @@ import { db } from '@/lib/db';
 import { safeAuditLog } from './audit-service';
 import { logger } from '@/lib/logger';
 import { checkPromptInjection, addSystemDelimiter } from '@/lib/guardrails';
+import { normalizeConfidence, toConfidenceLabel } from '@/lib/confidence';
 import { findContext } from '@/lib/services/entity-context-service';
 import { ROLE_ACCOUNT_MAP } from '@/lib/constants/role-account-map';
 import type { EntityRole } from '@/lib/constants/entity-roles';
@@ -82,6 +83,25 @@ function aiErrorSummary(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
 }
+
+/**
+ * S9 — grade reported when KE knowledge decided the answer.
+ *
+ * The two hardcoded `confidence: 0.95` / `confidenceLabel: 'high'` pairs that
+ * used to sit at the exact-treatment and structural-pattern return sites are a
+ * DELIBERATE product policy, not a pending-approval placeholder: KE-EVOL-003
+ * makes a KE treatment authoritative even when its stored confidence is
+ * `tentative` and discloses that tentativeness through `explanation` /
+ * `uncertaintyReasons` instead of downgrading the grade (pinned by
+ * tests/services/conversational-service.test.ts T19 and
+ * tests/services/conversational-structural.test.ts T37). The grade therefore
+ * stays the authoritative `certain` bucket, but its number and its UI label now
+ * come from the single documented confidence vocabulary (src/lib/confidence.ts)
+ * so the pair can never drift apart again.
+ */
+const KE_AUTHORITATIVE_GRADE = normalizeConfidence('certain');
+const KE_AUTHORITATIVE_CONFIDENCE = KE_AUTHORITATIVE_GRADE.score;
+const KE_AUTHORITATIVE_LABEL = toConfidenceLabel(KE_AUTHORITATIVE_GRADE.level);
 
 // ── Internal: read assistant config from disk ──
 function readAssistantConfigSync(): AssistantConfig {
@@ -466,8 +486,9 @@ export async function parseConversationalContext(
             normalBalance: account?.normalBalance ?? undefined,
           },
           conditions: [{ field: 'description', operator: 'contains', value: pattern }],
-          confidence: 0.95,
-          confidenceLabel: 'high',
+          // S9: authoritative KE grade from the single confidence vocabulary.
+          confidence: KE_AUTHORITATIVE_CONFIDENCE,
+          confidenceLabel: KE_AUTHORITATIVE_LABEL,
           explanation: isTentative
             ? `KE treatment found for entity ${entityResolution.entityId} - treatment confidence: tentative (applied as authoritative, knowledge evidence is not final)`
             : `KE treatment found for entity ${entityResolution.entityId}`,
@@ -565,8 +586,9 @@ export async function parseConversationalContext(
             normalBalance: structuralAccount?.normalBalance ?? undefined,
           },
           conditions: [{ field: 'description', operator: 'contains', value: pattern }],
-          confidence: 0.95,
-          confidenceLabel: 'high',
+          // S9: authoritative KE grade from the single confidence vocabulary.
+          confidence: KE_AUTHORITATIVE_CONFIDENCE,
+          confidenceLabel: KE_AUTHORITATIVE_LABEL,
           explanation: `Authorized structural treatment applied (pattern ${structural.authorizedPatternId}, candidate ${structural.sourceCandidateId}) for entity ${entityResolution.entityId}`,
           uncertaintyReasons: [],
         };

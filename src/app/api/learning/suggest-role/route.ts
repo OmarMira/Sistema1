@@ -5,6 +5,7 @@ import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { ENTITY_ROLES, EXPECTED_DIRECTION } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { checkPromptInjection } from '@/lib/guardrails';
+import { normalizeConfidence } from '@/lib/confidence';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { requireCompanyContext } from '@/lib/context-storage';
@@ -372,6 +373,13 @@ ${freshRequest ? 'Also include: "accountCode" (existing catalog code or null), "
           });
           throw new Error('Could not extract role from AI response');
         }
+
+        // S9 — one confidence scale: the model's free-form score is normalized
+        // once, here, so every downstream gate (web-search fallback < 0.80, the
+        // 0.69 disclosure cap, the >= 0.9 auto-assign threshold) compares the
+        // same documented 0-1 score. Off-contract values fail closed to 0/low,
+        // so a malformed confidence can never auto-assign a role.
+        aiResult.confidence = normalizeConfidence(aiResult.confidence).score;
 
         // Successfully resolved role suggestion, break out of loop
         logger.info('[SUGGEST_ROLE SUCCESS]', { model: currentModel });

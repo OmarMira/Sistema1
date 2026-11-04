@@ -87,8 +87,26 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     "local/no-server-import-in-client": "error",
   },
 }, {
-  // Keep other tests excluded while allowing traversal into the CI test directory.
-  ignores: ["node_modules/**", ".next/**", "out/**", "build/**", "next-env.d.ts", "examples/**", "skills", "scripts/**", "*.mjs", "tests/*", "!tests/ci/"]
+  // Keep non-app directories and CommonJS files excluded from linting.
+  // .cjs files legitimately use require() (CommonJS standard).
+  // .mjs files in src/lib use Node.js APIs that the TS parser can't validate.
+  ignores: [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "next-env.d.ts",
+    "examples/**",
+    "skills",
+    "scripts/**",
+    "**/*.mjs",
+    "**/*.cjs",
+    "tests/**",
+    "installer/**",
+    ".checks/**",
+    ".data/**",
+    "db/backups/**",
+  ]
 }];
 
 export default eslintConfig;

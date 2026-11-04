@@ -1,0 +1,1 @@
+{"extends":"../../../tsconfig.json","compilerOptions":{"noEmit":true,"incremental":false,"target":"ES2022","module":"ESNext","moduleResolution":"bundler"},"include":["../../../src/lib/backup-restore.ts","../../../src/lib/backup-recovery-decision.ts","../../../src/lib/backup-recovery-journal.ts","../../../src/lib/backup-recovery-files.ts"],"exclude":[]}

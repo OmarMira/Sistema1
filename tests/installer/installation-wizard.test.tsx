@@ -20,6 +20,28 @@ async function review() {
 beforeEach(() => { vi.clearAllMocks(); vi.stubGlobal('fetch', vi.fn()); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe('operational installation wizard', () => {
+  it('independently reveals and conceals both passwords without submitting or losing values', async () => {
+    render(<InstallationWizard onBack={() => {}} />); await review();
+    fireEvent.click(screen.getByRole('button', {name:'Volver'}));
+    const password = screen.getByLabelText('Contraseña', {exact:true});
+    const confirmation = screen.getByLabelText('Confirmar contraseña', {exact:true});
+    expect(password.getAttribute('type')).toBe('password');
+    expect(confirmation.getAttribute('type')).toBe('password');
+    fireEvent.click(screen.getByRole('button', {name:'Mostrar contraseña', exact:true}));
+    expect(password.getAttribute('type')).toBe('text');
+    expect(confirmation.getAttribute('type')).toBe('password');
+    fireEvent.click(screen.getByRole('button', {name:'Ocultar contraseña', exact:true}));
+    expect(password.getAttribute('type')).toBe('password');
+    fireEvent.click(screen.getByRole('button', {name:'Mostrar confirmación de contraseña', exact:true}));
+    expect(confirmation.getAttribute('type')).toBe('text');
+    expect(password.getAttribute('type')).toBe('password');
+    fireEvent.click(screen.getByRole('button', {name:'Ocultar confirmación de contraseña', exact:true}));
+    expect(confirmation.getAttribute('type')).toBe('password');
+    expect((password as HTMLInputElement).value).toBe('SecretPass123!');
+    expect((confirmation as HTMLInputElement).value).toBe('SecretPass123!');
+    expect(fetch).not.toHaveBeenCalled();
+    expect(localStorage.getItem('password')).toBeNull();
+  });
   it('calls real register, verify, complete, authoritative me and hydrate without a global opening balance', async () => {
     const company = {id:'c1', legalName:'Example Company', isOnboardingComplete:true};
     vi.mocked(fetch).mockResolvedValueOnce(response({requiresVerification:true,deliveryFailed:false}) as Response)

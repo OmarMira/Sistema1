@@ -16,6 +16,7 @@ import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
 import { downloadBackup } from '@/lib/backup-download';
+import { translateApiError } from '@/i18n/errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -95,7 +96,7 @@ export function BackupTab() {
         await fetchBackups();
       } else {
         const data = await res.json();
-        toast.error(t('settings.backup.backupFailed'), { description: data.error });
+        toast.error(t('settings.backup.backupFailed'), { description: translateApiError(data, t) });
       }
     } catch {
       toast.error(t('settings.backup.backupFailed'));
@@ -154,7 +155,7 @@ export function BackupTab() {
         await fetchBackups();
       } else {
         toast.error(t('settings.backup.restoreFailed'), {
-          description: result.error,
+          description: translateApiError(result, t),
         });
       }
     } catch {
@@ -192,7 +193,7 @@ export function BackupTab() {
           });
           await fetchBackups();
         } else {
-          toast.error(t('settings.backup.restoreFailed'), { description: data.error });
+          toast.error(t('settings.backup.restoreFailed'), { description: translateApiError(data, t) });
         }
       } catch {
         toast.error(t('settings.backup.restoreFailed'));

@@ -1183,14 +1183,30 @@ const es = {
         'Configuración de Impuestos Desactivada. Por control interno y mitigación de contingencia legal, la imputación de impuestos se realizará de manera pura vía cuentas del Libro Diario.',
       note: 'El módulo fiscal estándar permanecerá desactivado de acuerdo a las reglas del sistema.',
     },
-    step5: {
-      initialBalance: 'Saldo Inicial de Caja/Banco (Opcional)',
-      help: 'Si ingresa un monto mayor a cero, se generará de forma automática un asiento contable balanceado de apertura en el Libro Diario asimilando el capital inicial en el patrimonio.',
+    bankBalances: {
+      title: 'No necesitás buscar tus saldos ahora',
+      description: 'Podés empezar sin ingresar un saldo inicial. Los saldos de cada cuenta bancaria se incorporan al importar sus resúmenes; no se usa un saldo único para toda la empresa.',
+      missing: 'Si un archivo no incluye esa información o no puede leerse correctamente, será necesario revisarla durante la importación.',
     },
     step6: {
       ready: '¡Todo listo para activar el sistema!',
       confirm:
-        'Al presionar "Finalizar", se ejecutarán de forma atómica la creación de períodos, la inyección del plan de cuentas y la inicialización de tus balances contables.',
+        'Al presionar "Finalizar", se crearán los períodos y se preparará el plan de cuentas. No se registrará un saldo inicial global ni un aporte de capital desde este asistente.',
+    },
+    adminStep: {
+      firstName: 'Nombre',
+      lastName: 'Apellido',
+      email: 'Correo',
+      password: 'Contraseña',
+      confirmPassword: 'Confirmar Contraseña',
+      codeLabel: 'Código de Verificación',
+      codeSent: 'Se envió un código de 6 dígitos a {email}. Ingresalo para completar el registro.',
+    },
+    reviewStep: {
+      title: 'Revisá tu información',
+      company: 'Empresa',
+      fiscal: 'Período Fiscal',
+      admin: 'Administrador',
     },
     success: {
       title: '¡Configuración Exitosa!',
@@ -1800,6 +1816,39 @@ const es = {
       datesRequired: 'Los parámetros startDate y endDate son requeridos en formato YYYY-MM-DD',
       invalidDates: 'Fechas inválidas. Use el formato YYYY-MM-DD',
     },
+  },
+  // S3 — códigos de error estables para los flujos principales (importación,
+  // respaldo, fiscal, autenticación). La clave es el código, no el idioma:
+  // `src/i18n/errors.ts` resuelve `errors.<CODE>` en el idioma elegido y, si el
+  // código no está aquí, muestra el mensaje del servidor tal cual.
+  errors: {
+    FISCAL_PERIOD_LOCKED:
+      'El período fiscal está cerrado: no se pueden registrar movimientos en él. Reabrí el período o elegí otra fecha.',
+    FISCAL_DATE_INVALID:
+      'La fecha del movimiento no es válida. Revisá el formato (AAAA-MM-DD) e intentá nuevamente.',
+    IMPORT_TIMEOUT:
+      'La importación tardó más de lo permitido y no se guardó ningún dato. Dividí el archivo en partes más pequeñas e intentá nuevamente.',
+    IMPORT_TOO_LARGE: 'El archivo es demasiado grande. El tamaño máximo por archivo es 10 MB.',
+    IMPORT_TOO_MANY_FILES:
+      'No se pueden importar más de 10 archivos en una sola petición. Divídalos en lotes más pequeños.',
+    IMPORT_NO_FILE:
+      'No se subió ningún archivo. Adjuntá un extracto bancario (.csv, .ofx, .qfx o .pdf) e intentá nuevamente.',
+    CONFLICT:
+      'Ya existe un registro para ese período. Eliminá el anterior o usá un período diferente.',
+    AI_CONFIG_MISSING: 'Configurá la IA para interpretar este documento.',
+    AI_CONFIG_UNAVAILABLE:
+      'No se pudo leer la configuración de IA. Revisá la configuración o contactá al administrador.',
+    AI_PROVIDER_UNAVAILABLE:
+      'El proveedor de IA no pudo completar la lectura. Revisá la conexión, la cuenta y el modelo antes de reintentar.',
+    DATABASE_ERROR:
+      'No se pudo guardar el cambio en la base de datos. Revisá los datos e intentá nuevamente.',
+    FORBIDDEN: 'No tenés permisos para realizar esta acción.',
+    // Texto idéntico al que el backend devuelve hoy en el 401 de login, para que
+    // el formulario no cambie de mensaje (fijado por tests/identity/registration-ui).
+    UNAUTHORIZED: 'Correo electrónico o contraseña inválidos',
+    RATE_LIMIT_EXCEEDED: 'Demasiados intentos de inicio de sesión. Intentá nuevamente más tarde.',
+    INTERNAL_SERVER_ERROR:
+      'Ocurrió un error inesperado. Intentá nuevamente; si el problema persiste, contactá al administrador.',
   },
   adminUsers: {
     title: 'Usuarios Globales',

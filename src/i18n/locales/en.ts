@@ -1169,14 +1169,30 @@ const en = {
         'Tax Configuration Disabled. To ensure strict internal controls and prevent tax compliance risks, all tax entries are to be manually recorded into their respective General Ledger accounts.',
       note: 'The standard tax module will remain disabled per system guidelines.',
     },
-    step5: {
-      initialBalance: 'Initial Cash/Bank Balance (Optional)',
-      help: "Entering an amount greater than zero will automatically generate a balanced opening journal entry, recording the starting capital within Owner's Equity.",
+    bankBalances: {
+      title: 'No need to look up your balances now',
+      description: 'You can start without entering an opening balance. Balances for each bank account are incorporated when you import its statements; there is no single balance for the whole company.',
+      missing: 'If a file does not include that information or cannot be read correctly, it will need to be reviewed during import.',
     },
     step6: {
       ready: 'All ready to activate the system!',
       confirm:
-        'Pressing "Finish" will atomically execute the period creation, seed the chart of accounts, and initialize your ledger balances.',
+        'Pressing "Finish" will create the periods and prepare the chart of accounts. This assistant will not record a company-wide opening balance or capital contribution.',
+    },
+    adminStep: {
+      firstName: 'First Name',
+      lastName: 'Last Name',
+      email: 'Email',
+      password: 'Password',
+      confirmPassword: 'Confirm Password',
+      codeLabel: 'Verification Code',
+      codeSent: 'A 6-digit code was sent to {email}. Enter it to complete registration.',
+    },
+    reviewStep: {
+      title: 'Review your information',
+      company: 'Company',
+      fiscal: 'Fiscal Period',
+      admin: 'Administrator',
     },
     success: {
       title: 'Setup Completed Successfully!',
@@ -1783,6 +1799,34 @@ const en = {
       datesRequired: 'startDate and endDate parameters are required in YYYY-MM-DD format',
       invalidDates: 'Invalid dates. Use YYYY-MM-DD format',
     },
+  },
+  // S3 — stable machine codes for the top user-facing flows (import, backup,
+  // fiscal, auth). The key is the code, not the language: `src/i18n/errors.ts`
+  // resolves `errors.<CODE>` in the selected locale and shows the server
+  // message verbatim when the code is not listed here.
+  errors: {
+    FISCAL_PERIOD_LOCKED:
+      'This fiscal period is locked, so no entries can be recorded in it. Reopen the period or choose another date.',
+    FISCAL_DATE_INVALID:
+      'The movement date is not valid. Check the format (YYYY-MM-DD) and try again.',
+    IMPORT_TIMEOUT:
+      'The import took longer than allowed and nothing was saved. Split the file into smaller parts and try again.',
+    IMPORT_TOO_LARGE: 'The file is too large. The maximum size per file is 10 MB.',
+    IMPORT_TOO_MANY_FILES:
+      'No more than 10 files can be imported in a single request. Split them into smaller batches.',
+    IMPORT_NO_FILE: 'No file was uploaded. Attach a bank statement (.csv, .ofx, .qfx or .pdf) and try again.',
+    CONFLICT: 'A record already exists for that period. Delete the previous one or use a different period.',
+    AI_CONFIG_MISSING: 'Configure AI to interpret this document.',
+    AI_CONFIG_UNAVAILABLE:
+      'The AI configuration could not be read. Check the configuration or contact your administrator.',
+    AI_PROVIDER_UNAVAILABLE:
+      'The AI provider could not complete the reading. Check the connection, the account and the model before retrying.',
+    DATABASE_ERROR: 'The change could not be saved to the database. Review the data and try again.',
+    FORBIDDEN: 'You do not have permission to perform this action.',
+    UNAUTHORIZED: 'Invalid email or password',
+    RATE_LIMIT_EXCEEDED: 'Too many sign-in attempts. Try again later.',
+    INTERNAL_SERVER_ERROR:
+      'An unexpected error occurred. Try again; if the problem persists, contact your administrator.',
   },
   adminUsers: {
     title: 'Global Users',

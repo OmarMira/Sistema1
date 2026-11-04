@@ -19,6 +19,7 @@ import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type User } from '@/store/auth-store';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { saveRegistrationDraft, readRegistrationDraft, clearRegistrationDraft } from '@/lib/registration-draft';
+import { translateApiError } from '@/i18n/errors';
 
 export function RegisterPage() {
   const t = useLanguageStore((s) => s.t);
@@ -111,7 +112,7 @@ export function RegisterPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setError(data.error || t('common.error'));
+        setError(translateApiError(data, t, t('common.error')));
         return;
       }
 

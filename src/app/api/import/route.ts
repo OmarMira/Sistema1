@@ -30,6 +30,19 @@ const MULTIPART_OVERHEAD_BYTES = 64 * 1024;
  */
 const MAX_FILES_PER_REQUEST = 10;
 
+/**
+ * S3 — stable, translatable reason for an import rejection.
+ *
+ * `ValidationError` always answers the family code `VALIDATION_ERROR`, so the
+ * specific reason rides in `details.code`, which apiHandler forwards verbatim
+ * and the frontend resolves against the `errors.<CODE>` locale catalog.
+ */
+type ImportErrorCode = 'IMPORT_NO_FILE' | 'IMPORT_TOO_LARGE' | 'IMPORT_TOO_MANY_FILES';
+
+function importError(message: string, code: ImportErrorCode): ValidationError {
+  return new ValidationError(message, { code });
+}
+
 /** Per-file outcome of a multi-file import (S2). */
 export interface ImportBatchFileResult {
   fileName: string;
@@ -69,7 +82,7 @@ export const POST = apiHandler(async (request: NextRequest) => {
     Number.isFinite(declaredLength) &&
     declaredLength > MAX_FILES_PER_REQUEST * (MAX_SIZE + MULTIPART_OVERHEAD_BYTES)
   ) {
-    throw new ValidationError(serverT(locale, 'apiErrors.import.tooLarge'));
+    throw importError(serverT(locale, 'apiErrors.import.tooLarge'), 'IMPORT_TOO_LARGE');
   }
 
   const formData = await request.formData();
@@ -78,12 +91,13 @@ export const POST = apiHandler(async (request: NextRequest) => {
   const bypassHolderValidation = formData.get('bypassHolderValidation') === 'true';
 
   if (files.length === 0) {
-    throw new ValidationError(serverT(locale, 'apiErrors.import.noFile'));
+    throw importError(serverT(locale, 'apiErrors.import.noFile'), 'IMPORT_NO_FILE');
   }
 
   if (files.length > MAX_FILES_PER_REQUEST) {
-    throw new ValidationError(
+    throw importError(
       `No se pueden importar más de ${MAX_FILES_PER_REQUEST} archivos en una sola petición. Divídalos en lotes más pequeños.`,
+      'IMPORT_TOO_MANY_FILES',
     );
   }
 
@@ -152,7 +166,7 @@ async function importOneFile(
   const { locale, companyId, bankAccountId, bypassHolderValidation, userId } = params;
 
   if (file.size > MAX_SIZE) {
-    throw new ValidationError(serverT(locale, 'apiErrors.import.tooLarge'));
+    throw importError(serverT(locale, 'apiErrors.import.tooLarge'), 'IMPORT_TOO_LARGE');
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());

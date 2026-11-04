@@ -59,6 +59,7 @@ import {
   getFormatBadge,
   formatDateShort,
 } from '@/lib/types/import-page';
+import { translateApiError } from '@/i18n/errors';
 
 // ─── Main Component ───────────────────────────────────────────────────
 
@@ -333,7 +334,9 @@ export function ImportPage() {
               continue;
             }
 
-            throw new Error(err.error || `${file.name}: ${t('banks.importFailed')}`);
+            throw new Error(
+              translateApiError(err, t, `${file.name}: ${t('banks.importFailed')}`),
+            );
           } else {
             throw new Error(t('importPage.serverError').replace('{file}', file.name).replace('{status}', String(res.status)));
           }

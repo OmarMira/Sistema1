@@ -17,6 +17,7 @@ import { useAuthStore } from '@/store/auth-store';
 import { toast } from 'sonner';
 import { downloadBackup } from '@/lib/backup-download';
 import { previewCompanyRestore } from '@/lib/backup-restore';
+import { translateApiError } from '@/i18n/errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -107,7 +108,7 @@ export function BackupPage() {
       } else {
         const data = await res.json();
         toast.error(t('settings.backup.backupFailed'), {
-          description: data.error,
+          description: translateApiError(data, t),
         });
       }
     } catch {
@@ -241,7 +242,7 @@ export function BackupPage() {
         window.location.href = '/';
       } else {
         toast.error(t('settings.backup.restoreFailed'), {
-          description: result.error,
+          description: translateApiError(result, t),
         });
       }
     } catch {

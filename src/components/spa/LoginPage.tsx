@@ -18,6 +18,7 @@ import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type User } from '@/store/auth-store';
 import { saveRegistrationDraft, clearRegistrationDraft } from '@/lib/registration-draft';
+import { translateApiError } from '@/i18n/errors';
 
 export function LoginPage() {
   const t = useLanguageStore((s) => s.t);
@@ -51,7 +52,7 @@ export function LoginPage() {
           setCurrentView('register');
           return;
         }
-        setError(data.error || t('auth.invalidCredentials'));
+        setError(translateApiError(data, t, t('auth.invalidCredentials')));
         return;
       }
 

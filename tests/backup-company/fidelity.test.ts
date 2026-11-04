@@ -118,7 +118,38 @@ beforeEach(() => {
 });
 afterAll(() => { vi.unstubAllEnvs(); fs.rmSync(state.root, { recursive: true, force: true }); });
 
-it.each(['9999999999999999.99', '0.01', '-9999999999999999.99', '-0.01', '0.00'])('public export -> JSON -> preview/restore preserves exact %s and ordinary Number results', async amount => {
+// S2 of odd/tasks/decimal-money-boundary.md: the out-of-range guard is spec-intended —
+// magnitudes beyond 2^53-1 cents must fail loudly at the number edge instead of drifting.
+it.each(['9999999999999999.99', '-9999999999999999.99'])('public export keeps exact %s while the number edge fails loudly (S2 safe-range guard)', async amount => {
+  state.rows.glAccount[0].balance = amount;
+  // Loud failure at the number edge: the coerced field raises instead of drifting.
+  // (Prisma materializes computed fields lazily, so this surfaces on the query or
+  // on the field access depending on the client; both are captured here.)
+  const failure = await (async () => {
+    try {
+      const rows = await db.glAccount.findMany();
+      return rows[0].balance;
+    } catch (error) {
+      return error;
+    }
+  })();
+  expect(failure).toBeInstanceOf(RangeError);
+  expect((failure as Error).message).toMatch(/money value exceeds the safe cent range/);
+  expect((failure as Error).message).toMatch(/9007199254740991/);
+  // Nothing was silently coerced: the exact string still round-trips through backup/restore.
+  const saved = await createBackup('tenant'), source = body(saved);
+  expect(source.manifest.version).toBe('2.1.0');
+  expect(source.data.glAccounts[0].balance).toBe(amount);
+  expect(state.options).toEqual([{ isolationLevel: 'RepeatableRead' }]);
+  await previewCompanyRestore('tenant', JSON.stringify(source));
+  const result = await restoreCompanyBackup('tenant', JSON.stringify(source));
+  expect(result.status).toBe('committed');
+  expect(state.writes.find(([model, data]) => model === 'glAccount' && 'balance' in data)[1].balance).toBe(amount);
+  const safety = JSON.parse(getBackupFile(result.safetyFilename)!.data);
+  expect(safety.data.glAccounts[0].balance).toBe(amount);
+});
+
+it.each(['0.01', '-0.01', '0.00'])('public export -> JSON -> preview/restore preserves exact %s and ordinary Number results', async amount => {
   state.rows.glAccount[0].balance = amount;
   expect(typeof (await db.glAccount.findMany())[0].balance).toBe('number');
   const saved = await createBackup('tenant'), source = body(saved);

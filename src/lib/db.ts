@@ -2,6 +2,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { trackQueryDuration } from './metrics';
 import { logger } from './logger';
 import { withRuntimeOperation } from './backup-runtime-maintenance';
+import { toMoneyNumber } from './money';
 
 const globalForPrisma = globalThis as unknown as {
   prisma?: PrismaClient;
@@ -83,8 +84,32 @@ if (!globalForPrisma.isListenerRegistered) {
 // $allModels.$allOperations was REMOVED (it silently converted every
 // Prisma.Decimal in every result). The explicit per-field `result` overrides
 // below are the ONLY conversion layer: each monetary field is deliberately
-// exposed as `number` for API/UI consumers. Aggregate/groupBy results are no
-// longer coerced here — consumers must normalize them explicitly.
+// exposed as `number` for API/UI consumers.
+//
+// Decimal-money boundary (S2): every compute below routes through
+// `toMoneyNumber` from src/lib/money.ts — Decimal → exact integer cents →
+// number. For valid Decimal(18,2) data this is bit-identical to the previous
+// `Number(decimal)`, but a stored magnitude above Number.MAX_SAFE_INTEGER
+// cents (9_007_199_254_740_991 = 2^53-1 ≈ ±$90.07 trillion) now throws a
+// descriptive RangeError instead of drifting silently. Prisma materializes
+// `compute` fields lazily, so the throw happens when a consumer reads a money
+// field — or serializes the row (JSON.stringify) — rather than yielding a
+// silently drifted value.
+// Never replace these with `Number(...)` or `decimal.toNumber()`: ALL money
+// arithmetic MUST go through src/lib/money.ts (see its module header).
+//
+// KNOWN BYPASS — aggregate()/groupBy() results do NOT flow through `result`
+// overrides (Prisma applies extensions to model results only), so `_sum`,
+// `_avg`, `_min`, `_max` still return Prisma.Decimal. Those call sites must
+// normalize with the money module themselves; the current ones are:
+//   - src/app/api/ai-assistant/route.ts            (bankTransaction _sum/_avg/_min/_max.amount)
+//   - src/app/api/reconciliation/report/route.ts   (_sum.amount)
+//   - src/lib/reconciliation.ts                    (_sum.amount)
+//   - src/lib/assistant/insight-engine.ts          (groupBy _sum.debit/_sum.credit)
+//   - src/lib/budget/engine.ts                     (groupBy _sum.debit/_sum.credit)
+//   - src/lib/services/closing-engine.ts           (groupBy _sum.debit/_sum.credit)
+//   - src/lib/services/journal-entry.service.ts    (aggregate _sum.debit/_sum.credit)
+// Converting every one of them is the S3 follow-up task, not this layer.
 
 const extended = base.$extends({
   result: {
@@ -92,7 +117,7 @@ const extended = base.$extends({
       amount: {
         needs: { amount: true },
         compute(data) {
-          return Number(data.amount);
+          return toMoneyNumber(data.amount);
         },
       },
     },
@@ -100,7 +125,7 @@ const extended = base.$extends({
       balance: {
         needs: { balance: true },
         compute(data) {
-          return Number(data.balance);
+          return toMoneyNumber(data.balance);
         },
       },
     },
@@ -108,13 +133,13 @@ const extended = base.$extends({
       balance: {
         needs: { balance: true },
         compute(data) {
-          return Number(data.balance);
+          return toMoneyNumber(data.balance);
         },
       },
       initialBalance: {
         needs: { initialBalance: true },
         compute(data) {
-          return Number(data.initialBalance);
+          return toMoneyNumber(data.initialBalance);
         },
       },
     },
@@ -122,25 +147,25 @@ const extended = base.$extends({
       openingBalance: {
         needs: { openingBalance: true },
         compute(data) {
-          return Number(data.openingBalance);
+          return toMoneyNumber(data.openingBalance);
         },
       },
       closingBalance: {
         needs: { closingBalance: true },
         compute(data) {
-          return Number(data.closingBalance);
+          return toMoneyNumber(data.closingBalance);
         },
       },
       totalCredits: {
         needs: { totalCredits: true },
         compute(data) {
-          return Number(data.totalCredits);
+          return toMoneyNumber(data.totalCredits);
         },
       },
       totalDebits: {
         needs: { totalDebits: true },
         compute(data) {
-          return Number(data.totalDebits);
+          return toMoneyNumber(data.totalDebits);
         },
       },
     },
@@ -148,19 +173,19 @@ const extended = base.$extends({
       statementBalance: {
         needs: { statementBalance: true },
         compute(data) {
-          return Number(data.statementBalance);
+          return toMoneyNumber(data.statementBalance);
         },
       },
       bookBalance: {
         needs: { bookBalance: true },
         compute(data) {
-          return Number(data.bookBalance);
+          return toMoneyNumber(data.bookBalance);
         },
       },
       difference: {
         needs: { difference: true },
         compute(data) {
-          return Number(data.difference);
+          return toMoneyNumber(data.difference);
         },
       },
     },
@@ -168,13 +193,13 @@ const extended = base.$extends({
       debit: {
         needs: { debit: true },
         compute(data) {
-          return Number(data.debit);
+          return toMoneyNumber(data.debit);
         },
       },
       credit: {
         needs: { credit: true },
         compute(data) {
-          return Number(data.credit);
+          return toMoneyNumber(data.credit);
         },
       },
     },

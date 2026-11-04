@@ -63,6 +63,15 @@ export interface ApiHandlerOptions {
  * 2. Cabeceras HTTP (x-company-id)
  * 3. Cuerpo JSON de la petición (POST, PUT, PATCH, DELETE)
  * 4. Datos de formulario Multipart (multipart/form-data)
+ *
+ * SECURITY: the extracted companyId is NOT trusted. Every route that
+ * accesses company-scoped data MUST go through requireActiveTenantAccess
+ * (or requireCompanyRole), which validates the caller's membership and
+ * active status against the supplied companyId. A foreign companyId
+ * with a valid session is rejected with 403. The multi-source extraction
+ * exists because a user can belong to multiple companies and the active
+ * company is a client-side selection — the server enforces authorization,
+ * not the source of the id.
  */
 async function extractCompanyId(request: NextRequest): Promise<string | null> {
   const { searchParams } = new URL(request.url);

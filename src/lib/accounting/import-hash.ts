@@ -57,14 +57,15 @@ export function generateImportHash(payload: HashPayload): string {
  * LEGACY hash shape (statement month INCLUDED), kept only to recognize rows
  * stored before the content-hash change.
  *
- * Migration note: rows imported by older builds keep this value in
- * `BankTransaction.importHash`. They cannot be recomputed without knowing the
- * statement range they were imported under, so the import pipeline looks up
- * BOTH hashes when it checks for duplicates. A row stored the legacy way is
- * therefore still detected inside its original statement range; detecting it
- * under a NEW range would require a data migration (rewrite of stored hashes),
- * which is intentionally not performed here. Only new rows are stored with the
- * content hash. Never change this function: it is the compatibility anchor.
+ * Migration note: rows imported by older builds kept this value in
+ * `BankTransaction.importHash`, and because it cannot be recomputed without the
+ * statement range it was imported under, the import pipeline looks up BOTH
+ * hashes when it checks for duplicates. Migration
+ * `20261107000001_import_hash_content_rehash` (Wave 5, S6) rewrote those stored
+ * values to the content hash from each row's own fields — that is what makes a
+ * re-import under a DIFFERENT statement range a duplicate. The legacy lookup
+ * stays in place so an instance restored from an old backup keeps deduping.
+ * Never change this function: it is the compatibility anchor.
  */
 export function generateLegacyImportHash(payload: HashPayload & { statementMonth: string }): string {
   const raw = [

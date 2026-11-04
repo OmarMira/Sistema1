@@ -113,8 +113,15 @@ describe('company snapshot and publication', () => {
     expect(result.size).toBe(Buffer.byteLength(payloadText));
     expect(body.manifest.version).toBe('2.1.0');
     expect(body.manifest.fidelity).toEqual({ monetary: 'decimal-18,2', jsonNulls: [] });
-    expect(body.manifest.integrity.authenticated).toBe(false);
-    expect(body.manifest.integrity.digest).toBe(crypto.createHash('sha256').update(JSON.stringify({ manifest: { ...body.manifest, integrity: undefined }, data: body.data }), 'utf8').digest('hex'));
+    // S6 (Wave 5) — the integrity seal is now a SESSION_SECRET-derived HMAC
+    // (read-legacy / write-new). The manifest shape assertions above are
+    // unchanged; only the seal FORMAT moved: a newly written snapshot must never
+    // carry the forgeable plain-SHA-256 digest any more.
+    const sealedPayload = JSON.stringify({ manifest: { ...body.manifest, integrity: undefined }, data: body.data });
+    expect(body.manifest.integrity.algorithm).toBe('hmac-sha256');
+    expect(body.manifest.integrity.authenticated).toBe(true);
+    expect(body.manifest.integrity.digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(body.manifest.integrity.digest).not.toBe(crypto.createHash('sha256').update(sealedPayload, 'utf8').digest('hex'));
     expect(listBackups('tenant')[0]).toMatchObject({ id: result.id, filename: result.filename, size: result.size });
     expect(files()).toEqual([result.filename, 'manifest.json'].sort());
   });

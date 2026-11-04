@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { BACKUP_DIR, RUNTIME_FILES } from '@/lib/config/paths';
+import { logger } from '@/lib/logger';
 import { parseSnapshot, isCompanyFormat } from './backup-format';
 import type { BackupManifest } from './backup';
 
@@ -276,6 +277,11 @@ export function publishBackup(filename: string, text: string): void {
   writeAtomic(backupPath(filename), sealed, false);
   try { writeCatalog(readCatalog()); }
   catch (error) { throw new Error(`Backup file published as ${filename}, but catalog update failed: ${String(error)}`, { cause: error }); }
+  // Retention runs at the moment growth happens (every publish, including the
+  // safety snapshot each restore adds). Publication already succeeded, so a
+  // retention failure is reported and never turned into a false publish error.
+  try { pruneBackups(); }
+  catch (error) { logger.warn('BACKUP_RETENTION_SKIPPED', { error: String(error), filename }); }
 }
 
 export function removeBackupFile(filename: string): boolean {
@@ -285,4 +291,146 @@ export function removeBackupFile(filename: string): boolean {
     fs.unlinkSync(target);
     return true;
   } catch (error) { if (missing(error)) return false; throw error; }
+}
+
+/* ─── Retention policy ──────────────────────────────────────────────────
+ * Every restore publishes an extra safety snapshot next to the regular ones,
+ * so an installed instance grew without bound: nothing ever removed a backup
+ * file. Retention is a bounded policy over the SAME authorized storage helpers
+ * (never a raw unlink) with two independent limits:
+ *
+ *  - BACKUP_RETENTION_COUNT (default 20): per company, at most N files.
+ *  - BACKUP_RETENTION_DAYS  (default 90): per company, at most N days of age
+ *    (0 disables the age rule; a non-integer/negative value falls back).
+ *
+ * Hard guarantees, in order of precedence:
+ *  1. The NEWEST full backup of every company is never pruned.
+ *  2. A file referenced as `safetyFilename` by ANY recovery journal is never
+ *     pruned, regardless of age or count. A safety snapshot is the rollback
+ *     image of a restore; the journal/receipt coupling is deliberately NOT
+ *     re-derived here (an unexpired receipt is an AuditLog row owned by the
+ *     restore flow), so safety snapshots are EXCLUDED FROM PRUNING ENTIRELY.
+ *     That is the conservative reading of "never delete a safety snapshot
+ *     attached to an unexpired recovery receipt": we never delete any of them,
+ *     and the operator removes them after reconciliation.
+ *  3. If the journal directory exists but a journal cannot be read, the whole
+ *     prune is skipped: an unreadable journal may name a safety snapshot we
+ *     cannot identify, and guessing risks the only rollback image.
+ */
+export interface BackupRetentionPolicy {
+  /** Maximum files kept per company (newest always kept). */
+  count: number;
+  /** Maximum age in days; 0 disables the age rule. */
+  days: number;
+}
+
+export const DEFAULT_BACKUP_RETENTION: BackupRetentionPolicy = { count: 20, days: 90 };
+
+function positiveInteger(raw: string | undefined): number | null {
+  if (raw === undefined || raw.trim() === '') return null;
+  const value = Number(raw);
+  return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+export function backupRetentionPolicy(env: NodeJS.ProcessEnv = process.env): BackupRetentionPolicy {
+  const count = positiveInteger(env.BACKUP_RETENTION_COUNT);
+  const days = positiveInteger(env.BACKUP_RETENTION_DAYS);
+  return {
+    // A zero/negative/invalid count would delete everything but the newest on
+    // every publish; the documented default is used instead of a silent purge.
+    count: count !== null && count >= 1 ? count : DEFAULT_BACKUP_RETENTION.count,
+    days: days !== null ? days : DEFAULT_BACKUP_RETENTION.days,
+  };
+}
+
+/** Recovery journals live beside the runtime files, one JSON per operation. */
+function recoveryJournalDirectory(): string {
+  return path.join(path.dirname(RUNTIME_FILES.companyConfig), 'backup-recovery');
+}
+
+/**
+ * Filenames a recovery journal points at as its safety snapshot.
+ * `null` means the protection set is UNKNOWN (unreadable journal present) and
+ * pruning must not run at all.
+ */
+function safetySnapshotFilenames(): Set<string> | null {
+  const directory = recoveryJournalDirectory();
+  let names: string[];
+  try { names = fs.readdirSync(directory); }
+  catch (error) { if (missing(error)) return new Set(); throw error; }
+  const safety = new Set<string>();
+  for (const name of names) {
+    // readdir yields single path components only: no traversal, and the
+    // journal contract already guarantees the basename shape below.
+    if (!name.endsWith('.json')) continue;
+    let journal: unknown;
+    try { journal = JSON.parse(fs.readFileSync(path.join(directory, name), 'utf8')); }
+    catch { return null; }
+    const filename = (journal as { payload?: { safetyFilename?: unknown } })?.payload?.safetyFilename;
+    if (filename === undefined) continue;
+    if (!validBackupFilename(filename as string)) return null;
+    safety.add(filename as string);
+  }
+  return safety;
+}
+
+export interface BackupPruneResult {
+  policy: BackupRetentionPolicy;
+  pruned: CatalogEntry[];
+  retained: number;
+  /** Files skipped because a recovery journal names them as its safety image. */
+  safetyProtected: number;
+  /** Retention was skipped wholesale because the safety set was unknown. */
+  unknownSafetyState: boolean;
+}
+
+/**
+ * Apply the retention policy to the published catalog. Files are authoritative
+ * (the catalog is a cache), so the decision is recomputed from disk. Removal
+ * goes through removeBackupFile, which re-validates the filename and target.
+ */
+export function pruneBackups(options: { now?: Date; policy?: BackupRetentionPolicy } = {}): BackupPruneResult {
+  const policy = options.policy ?? backupRetentionPolicy();
+  const now = (options.now ?? new Date()).getTime();
+  const catalog = readCatalog();
+  const safety = safetySnapshotFilenames();
+  if (safety === null) {
+    return { policy, pruned: [], retained: catalog.backups.length, safetyProtected: 0, unknownSafetyState: true };
+  }
+
+  const byCompany = new Map<string, CatalogEntry[]>();
+  for (const entry of catalog.backups) {
+    const group = byCompany.get(entry.companyId);
+    if (group) group.push(entry); else byCompany.set(entry.companyId, [entry]);
+  }
+
+  const pruned: CatalogEntry[] = [];
+  let safetyProtected = 0;
+  for (const entries of byCompany.values()) {
+    // Newest first; the filename tie-break keeps the order deterministic when
+    // two snapshots share a timestamp.
+    const ordered = [...entries].sort((a, b) =>
+      (Date.parse(b.createdAt) - Date.parse(a.createdAt)) || a.filename.localeCompare(b.filename));
+    for (const [position, entry] of ordered.entries()) {
+      // Guarantee 1: the newest full backup of every company survives.
+      if (position === 0) continue;
+      // Guarantee 2: a safety snapshot is never pruned.
+      if (safety.has(entry.filename)) { safetyProtected += 1; continue; }
+      const created = Date.parse(entry.createdAt);
+      const ageDays = Number.isFinite(created) ? (now - created) / 86_400_000 : -1;
+      const beyondCount = position >= policy.count;
+      const beyondAge = policy.days > 0 && ageDays > policy.days;
+      if (!beyondCount && !beyondAge) continue;
+      // A concurrent deletion is not a retention failure, and a file that is
+      // not on disk must not be reported as pruned.
+      if (!removeBackupFile(entry.filename)) continue;
+      pruned.push(entry);
+    }
+  }
+
+  if (pruned.length) {
+    const removed = new Set(pruned.map(entry => entry.filename));
+    writeCatalog({ backups: catalog.backups.filter(entry => !removed.has(entry.filename)) });
+  }
+  return { policy, pruned, retained: catalog.backups.length - pruned.length, safetyProtected, unknownSafetyState: false };
 }

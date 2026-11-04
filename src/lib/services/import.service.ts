@@ -763,10 +763,13 @@ export class ImportService {
     // ─── Deduplicación por importHash (SHA-256) ───────────────────────
     // S20.1 — the hash now covers ONLY the normalized row content, so the same
     // rows are recognized even when the statement range (the old
-    // statementMonth hash input) changes. Rows imported by older builds keep
+    // statementMonth hash input) changes. Rows imported by older builds kept
     // the legacy month-scoped hash, so the lookup queries BOTH shapes: nothing
     // that used to be deduplicated stops being deduplicated, and new rows are
-    // stored with the content hash.
+    // stored with the content hash. Wave 5 / S6 re-hashed the stored legacy
+    // values through migration 20261107000001, which is what makes a re-import
+    // under a different statement month a duplicate; the legacy lookup remains
+    // for databases restored from an old backup.
     const contentHashes = sorted.map((txn) =>
       generateImportHash({
         companyId,

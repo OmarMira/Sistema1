@@ -172,26 +172,107 @@ export const SNAPSHOT_SECTIONS = [
   'ruleApplyRecords', 'ruleExecutionAudits', 'auditLogs', 'pendingApprovals',
 ] as const;
 
+/* ─── Snapshot integrity seal: READ-legacy / WRITE-new ──────────────────
+ * The seal used to be a plain SHA-256 digest of the canonical payload. That
+ * detects accidental corruption but proves NOTHING about authorship: anyone
+ * who can write a backup file can also recompute an unkeyed digest, so a
+ * crafted snapshot restored as if it had been produced by the application.
+ *
+ * New seals are HMAC-SHA256 under a key derived from SESSION_SECRET, reusing
+ * the domain-separated derivation introduced for the crypto v2 envelope in
+ * src/lib/crypto.ts: PBKDF2-SHA256(SESSION_SECRET, 'crypto-key-salt', 100000)
+ * produces the 256-bit base, HKDF-SHA256 with info
+ * `accountexpress:crypto:v2:hmac` separates the signing purpose. The same
+ * info string is never used for an AES key, so a backup seal key cannot be
+ * turned into a decryption key or vice versa. It is re-expressed here with
+ * node:crypto because sealing and verification are synchronous while the
+ * shared module is async/Web-Crypto; the derived bits are identical.
+ *
+ * Compatibility contract:
+ *  - READ-legacy: `algorithm: 'sha256'`, `authenticated: false` seals keep
+ *    validating exactly as before. Existing files are never re-sealed.
+ *  - WRITE-new: every seal written from now on is `algorithm: 'hmac-sha256'`,
+ *    `authenticated: true`, keyed, and cannot be produced without the secret.
+ *  - A payload that fails its own seal fails in BOTH modes: a tampered legacy
+ *    file fails the legacy digest, a tampered new file fails the HMAC.
+ */
 export interface SnapshotIntegrity {
-  algorithm: 'sha256';
+  /** 'sha256' is the legacy unkeyed seal (read-only); writers emit the HMAC. */
+  algorithm: 'sha256' | 'hmac-sha256';
   encoding: 'utf8';
   scope: 'JSON.stringify({manifest-without-integrity,data})';
-  authenticated: false;
+  /** Declares whether the digest is a keyed MAC (legacy: false, new: true). */
+  authenticated: boolean;
+  /** Present on new seals: how the signing key was derived. */
+  keyDerivation?: string;
   digest: string;
 }
 
-function digest(snapshot: BackupData): string {
+const INTEGRITY_SCOPE = 'JSON.stringify({manifest-without-integrity,data})' as const;
+const SEAL_SALT = 'crypto-key-salt';
+const SEAL_ITERATIONS = 100_000;
+const SEAL_INFO = 'accountexpress:crypto:v2:hmac';
+/** Recorded in the seal so a reader never has to guess the derivation. */
+export const SEAL_KEY_DERIVATION = `pbkdf2-sha256:${SEAL_ITERATIONS}+hkdf-sha256:${SEAL_INFO}`;
+
+let sealKeyCache: { secret: string; key: Buffer } | null = null;
+
+/** Memoized per secret: one PBKDF2 expansion per process, never per file. */
+function sealKey(): Buffer {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret) {
+    throw new Error(
+      'SESSION_SECRET environment variable is required. ' +
+      'Set it in .env.local (development) or your deployment environment (production).',
+    );
+  }
+  if (sealKeyCache?.secret !== secret) {
+    const base = crypto.pbkdf2Sync(secret, SEAL_SALT, SEAL_ITERATIONS, 32, 'sha256');
+    sealKeyCache = {
+      secret,
+      key: Buffer.from(crypto.hkdfSync('sha256', base, SEAL_SALT, SEAL_INFO, 32)),
+    };
+  }
+  return sealKeyCache.key;
+}
+
+/** Canonical bytes both seal modes cover, with `integrity` removed. */
+function integrityPayload(snapshot: BackupData): string {
   const { integrity: _integrity, ...manifest } = snapshot.manifest;
-  return crypto.createHash('sha256')
-    .update(JSON.stringify({ manifest, data: snapshot.data }), 'utf8').digest('hex');
+  return JSON.stringify({ manifest, data: snapshot.data });
+}
+
+/** Legacy unkeyed digest: verification only, never written any more. */
+function legacyDigest(snapshot: BackupData): string {
+  return crypto.createHash('sha256').update(integrityPayload(snapshot), 'utf8').digest('hex');
+}
+
+/** Keyed digest written by sealSnapshot. */
+function keyedDigest(snapshot: BackupData): string {
+  return crypto.createHmac('sha256', sealKey()).update(integrityPayload(snapshot), 'utf8').digest('hex');
+}
+
+/** Constant-time comparison; a length/type mismatch is a plain failure. */
+function digestMatches(expected: string, actual: unknown): boolean {
+  if (typeof actual !== 'string' || actual.length !== expected.length) return false;
+  return crypto.timingSafeEqual(Buffer.from(actual, 'utf8'), Buffer.from(expected, 'utf8'));
 }
 
 export function sealSnapshot(snapshot: BackupData): void {
   snapshot.manifest.integrity = {
-    algorithm: 'sha256', encoding: 'utf8',
-    scope: 'JSON.stringify({manifest-without-integrity,data})',
-    authenticated: false, digest: digest(snapshot),
+    algorithm: 'hmac-sha256', encoding: 'utf8', scope: INTEGRITY_SCOPE,
+    authenticated: true, keyDerivation: SEAL_KEY_DERIVATION, digest: keyedDigest(snapshot),
   };
+}
+
+/** Legacy seals keep validating; new seals must verify as HMAC. */
+function integrityVerified(snapshot: BackupData, integrity: SnapshotIntegrity): boolean {
+  if (integrity.algorithm === 'hmac-sha256') {
+    // Fail closed: without SESSION_SECRET a keyed seal cannot be verified.
+    return digestMatches(keyedDigest(snapshot), integrity.digest);
+  }
+  if (integrity.algorithm === 'sha256') return digestMatches(legacyDigest(snapshot), integrity.digest);
+  return false;
 }
 
 /** Catalog validation is NOT restore authorization or authenticity verification. */
@@ -229,11 +310,15 @@ export function parseSnapshot(text: string): BackupData {
     }
   }
   if (isCompanyFormat(manifest.version)) {
-    const integrity = manifest.integrity;
+    const integrity = manifest.integrity as SnapshotIntegrity | undefined;
+    // Read-legacy / write-new: both seal shapes are accepted, but the declared
+    // shape must match the digest that actually verifies.
+    const authenticatedShape = integrity?.algorithm === 'hmac-sha256'
+      ? integrity.authenticated === true
+      : integrity?.algorithm === 'sha256' && integrity.authenticated === false;
     if (typeof manifest.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(manifest.id) ||
-        integrity?.algorithm !== 'sha256' || integrity.encoding !== 'utf8' ||
-        integrity.scope !== 'JSON.stringify({manifest-without-integrity,data})' ||
-        integrity.authenticated !== false || integrity.digest !== digest(snapshot)) {
+        !integrity || !authenticatedShape || integrity.encoding !== 'utf8' ||
+        integrity.scope !== INTEGRITY_SCOPE || !integrityVerified(snapshot, integrity)) {
       throw new Error('Backup checksum or metadata mismatch');
     }
     if (data.systemConfig.length !== 0 || manifest.recordCounts.companyConfig !== (data.companyConfig !== null)) {

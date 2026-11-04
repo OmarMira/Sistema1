@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
 import { withRuntimeOperation, withRuntimeOperationSync } from '../backup-runtime-maintenance';
+import { runBackupRetention } from '../backup-runtime-maintenance';
 
 export async function cleanupExpiredSessions(): Promise<void> {
   try {
@@ -34,8 +35,10 @@ function startAdmittedSessionCleanup(): void {
   // Then run every 1 hour
   const ONE_HOUR = 60 * 60 * 1000;
   setInterval(() => {
-    cleanupExpiredSessions().catch((err) => {
-      logger.error('SESSION_CLEANUP_INTERVAL_ERROR', { error: String(err) });
-    });
+    cleanupExpiredSessions()
+      .then(() => runBackupRetention())
+      .catch((err) => {
+        logger.error('SESSION_CLEANUP_INTERVAL_ERROR', { error: String(err) });
+      });
   }, ONE_HOUR);
 }

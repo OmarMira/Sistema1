@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryRows, queryNullMetadata } from './helpers';
 
@@ -35,6 +36,7 @@ vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 import { createBackup, getBackupFile, listBackups, deleteBackup } from '@/lib/backup';
 import { decrypt } from '@/lib/crypto';
+import { parseSnapshot, SEAL_KEY_DERIVATION } from '@/lib/backup-format';
 
 const dir = path.join(state.root, 'backups');
 const config = path.join(state.root, 'company-config.json');
@@ -160,5 +162,107 @@ describe('company backup encryption at rest', () => {
     await expect(createBackup('tenant')).rejects.toThrow('SESSION_SECRET environment variable is required');
     expect(files()).toEqual(before);
     for (const name of files()) expect(fs.readFileSync(path.join(dir, name), 'utf8')).not.toContain('legalName');
+  });
+});
+
+/**
+ * S6 (Wave 5) — the snapshot integrity seal: READ-legacy / WRITE-new.
+ *
+ * The seal used to be a plain SHA-256 digest, which detects corruption but not
+ * forgery: anyone able to write a backup file can recompute it. New seals are
+ * HMAC-SHA256 under a key derived from SESSION_SECRET with the same
+ * domain-separated derivation as the crypto v2 envelope
+ * (PBKDF2-SHA256 + HKDF-SHA256, info `accountexpress:crypto:v2:hmac`).
+ * Legacy seals keep validating; nothing is re-sealed.
+ */
+describe('company backup integrity seal (S6)', () => {
+  /** Canonical seal payload of a written snapshot text. */
+  function sealPayload(text: string): string {
+    const snapshot = JSON.parse(text);
+    const { integrity: _integrity, ...manifest } = snapshot.manifest;
+    return JSON.stringify({ manifest, data: snapshot.data });
+  }
+
+  /** Independent re-derivation: same two steps as src/lib/crypto.ts, sync. */
+  function derivedSealKey(secret: string): Buffer {
+    const base = crypto.pbkdf2Sync(secret, 'crypto-key-salt', 100_000, 32, 'sha256');
+    return Buffer.from(crypto.hkdfSync('sha256', base, 'crypto-key-salt', 'accountexpress:crypto:v2:hmac', 32));
+  }
+
+  it('writes a keyed HMAC seal that is not the forgeable plain digest', async () => {
+    const saved = await createBackup('tenant');
+    const text = getBackupFile(saved.filename)!.data;
+    const integrity = JSON.parse(text).manifest.integrity;
+
+    expect(integrity.algorithm).toBe('hmac-sha256');
+    expect(integrity.authenticated).toBe(true);
+    expect(integrity.keyDerivation).toBe(SEAL_KEY_DERIVATION);
+    expect(integrity.encoding).toBe('utf8');
+    expect(integrity.scope).toBe('JSON.stringify({manifest-without-integrity,data})');
+    // New seals validate through the real read path.
+    expect(parseSnapshot(text).manifest.integrity!.digest).toBe(integrity.digest);
+
+    const payload = sealPayload(text);
+    const plain = crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
+    const rawSecretMac = crypto.createHmac('sha256', secret).update(payload, 'utf8').digest('hex');
+    expect(integrity.digest).not.toBe(plain);
+    // The key is DERIVED: it is neither the plain hash nor an HMAC of the raw
+    // SESSION_SECRET.
+    expect(integrity.digest).not.toBe(rawSecretMac);
+    // And it is exactly the domain-separated derivation, independently redone.
+    expect(integrity.digest).toBe(
+      crypto.createHmac('sha256', derivedSealKey(secret)).update(payload, 'utf8').digest('hex'),
+    );
+  });
+
+  it('keeps validating legacy plain-SHA-256 seals without re-sealing the file', async () => {
+    const saved = await createBackup('tenant');
+    const parsed = JSON.parse(getBackupFile(saved.filename)!.data);
+    delete parsed.manifest.integrity;
+    parsed.manifest.integrity = {
+      algorithm: 'sha256',
+      encoding: 'utf8',
+      scope: 'JSON.stringify({manifest-without-integrity,data})',
+      authenticated: false,
+      digest: crypto.createHash('sha256').update(sealPayload(JSON.stringify(parsed)), 'utf8').digest('hex'),
+    };
+    const legacyText = JSON.stringify(parsed, null, 2);
+
+    // Read-legacy: a file an older build produced still validates as-is.
+    const reopened = parseSnapshot(legacyText);
+    expect(reopened.manifest.integrity).toEqual(parsed.manifest.integrity);
+    expect(reopened.manifest.integrity!.algorithm).toBe('sha256');
+    expect(reopened.manifest.integrity!.authenticated).toBe(false);
+  });
+
+  it('rejects a tampered payload under BOTH seal shapes', async () => {
+    const saved = await createBackup('tenant');
+    const text = getBackupFile(saved.filename)!.data;
+
+    // (a) HMAC seal: altering the data without the key leaves a bad MAC.
+    const forged = JSON.parse(text);
+    forged.data.glAccounts[0].balance = '999.99';
+    expect(() => parseSnapshot(JSON.stringify(forged))).toThrow(/checksum/i);
+
+    // (b) legacy seal: the plain digest no longer matches either.
+    const legacy = JSON.parse(text);
+    legacy.manifest.integrity = {
+      algorithm: 'sha256',
+      encoding: 'utf8',
+      scope: 'JSON.stringify({manifest-without-integrity,data})',
+      authenticated: false,
+      digest: crypto.createHash('sha256').update(sealPayload(text), 'utf8').digest('hex'),
+    };
+    legacy.data.glAccounts[0].balance = '999.99';
+    expect(() => parseSnapshot(JSON.stringify(legacy))).toThrow(/checksum/i);
+
+    // (c) a seal cannot lie about its own shape: a keyed digest declared as an
+    // unauthenticated plain digest is refused, and vice versa.
+    const mismatched = JSON.parse(text);
+    mismatched.manifest.integrity = { ...mismatched.manifest.integrity, algorithm: 'sha256', authenticated: false };
+    expect(() => parseSnapshot(JSON.stringify(mismatched))).toThrow(/checksum/i);
+    const unauthenticated = JSON.parse(text);
+    unauthenticated.manifest.integrity = { ...unauthenticated.manifest.integrity, authenticated: false };
+    expect(() => parseSnapshot(JSON.stringify(unauthenticated))).toThrow(/checksum/i);
   });
 });

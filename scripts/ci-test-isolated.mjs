@@ -92,18 +92,17 @@ async function run(args) {
       await delay(500);
     }
     if (!ready) throw new Error('New PostgreSQL container did not become ready');
-    const sql = async (statement, database = 'identity_phase_a') => {
+    const sql = async (statement, database = 'identity_phase_a', user = 'identity_test') => {
       proveOwned(await inspect(), id, owner);
-      await docker(['exec', id, 'psql', '-U', 'identity_test', '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', statement]);
+      await docker(['exec', id, 'psql', '-U', user, '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', statement]);
     };
     for (const database of ['accountexpress_test', 'registration_test', 'clean_identity_test', 'accountexpress_bootstraptest']) {
       if (database !== 'accountexpress_test') await sql(`CREATE ROLE ${database} LOGIN PASSWORD '${password}'`);
       if (database === 'accountexpress_test') await sql(`CREATE DATABASE ${database} OWNER identity_test`); else await sql(`CREATE DATABASE ${database} OWNER identity_test`);
       // PostgreSQL 15+: CREATE TYPE and other DDL in the public schema require
-      // explicit ownership transfer. Without this, Prisma's schema push fails
-      // with "permission denied for schema public" when the enums from
-      // 20261108000000_string_to_enum try to CREATE TYPE.
-      await sql(`ALTER SCHEMA public OWNER TO identity_test`, database);
+      // explicit ownership transfer. Must run as the postgres superuser —
+      // identity_test cannot ALTER SCHEMA through pg_database_owner alone.
+      await sql(`ALTER SCHEMA public OWNER TO identity_test`, database, 'postgres');
       await sql('CREATE EXTENSION IF NOT EXISTS pg_trgm', database);
     }
     const url = (database, user = database) => `postgresql://${user}:${password}@127.0.0.1:${port}/${database}`;

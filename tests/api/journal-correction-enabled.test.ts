@@ -302,7 +302,7 @@ describe('S24 — POST /api/journal/[id]/corregir (enabled, company_admin)', () 
           Authorization: `Bearer ${seed.adminToken}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ action: 'void' }),
+        body: JSON.stringify({ action: 'void', reason: 'Prueba de corrección sobre asiento anulado' }),
       }),
       { params: Promise.resolve({ id: original.id }) },
     );

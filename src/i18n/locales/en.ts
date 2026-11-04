@@ -1905,6 +1905,7 @@ const en = {
     FORBIDDEN: 'You do not have permission to perform this action.',
     UNAUTHORIZED: 'Invalid email or password',
     RATE_LIMIT_EXCEEDED: 'Too many sign-in attempts. Try again later.',
+    VOID_REASON_REQUIRED: 'Enter the void reason: between 5 and 500 characters.',
     INTERNAL_SERVER_ERROR:
       'An unexpected error occurred. Try again; if the problem persists, contact your administrator.',
   },

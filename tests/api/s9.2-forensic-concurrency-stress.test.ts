@@ -377,7 +377,7 @@ describe('SCENARIO-8: Journal void — 20 concurrent', () => {
     const responses = await Promise.all(Array.from({ length: 20 }, () => {
       const req = new NextRequest(`${BASE}/journal/${entry.id}?companyId=${CID}`, {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ action: 'void' }),
+        body: JSON.stringify({ action: 'void', reason: 'Concurrencia: anulación duplicada' }),
       });
       return POST(req, { params: Promise.resolve({ id: entry.id }) });
     }));

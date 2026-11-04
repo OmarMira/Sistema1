@@ -232,6 +232,10 @@ const es = {
       'Esto cambiará el estado a "Registrado". Los asientos registrados no pueden editarse.',
     confirmVoid: '¿Cancelar este asiento?',
     confirmVoidDesc: 'Esto marcará el asiento como "Cancelado". Esta acción no se puede deshacer.',
+    voidReasonLabel: 'Motivo de la anulación',
+    voidReasonPlaceholder: 'Ej.: Factura cargada dos veces en el mismo período',
+    voidReasonHint:
+      'Obligatorio: entre 5 y 500 caracteres. El motivo queda registrado en la auditoría.',
     confirmDelete: '¿Estás seguro de que deseas eliminar este asiento?',
     noLines: 'El asiento debe tener al menos dos líneas.',
     noEntries: 'No se encontraron registros en el libro mayor.',
@@ -1932,6 +1936,10 @@ const es = {
     // el formulario no cambie de mensaje (fijado por tests/identity/registration-ui).
     UNAUTHORIZED: 'Correo electrónico o contraseña inválidos',
     RATE_LIMIT_EXCEEDED: 'Demasiados intentos de inicio de sesión. Intentá nuevamente más tarde.',
+    // S7 — una anulación exige motivo: el backend responde 400 VALIDATION_ERROR
+    // con details.code = VOID_REASON_REQUIRED para que la UI lo traduzca.
+    VOID_REASON_REQUIRED:
+      'Indicá el motivo de la anulación: entre 5 y 500 caracteres.',
     INTERNAL_SERVER_ERROR:
       'Ocurrió un error inesperado. Intentá nuevamente; si el problema persiste, contactá al administrador.',
   },

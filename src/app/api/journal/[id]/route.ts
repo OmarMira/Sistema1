@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
@@ -8,6 +9,19 @@ import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { appendEntryToJournalChain, JournalChainError } from '@/lib/journal-chain';
+
+/**
+ * S7 — voiding a posted entry is no longer silent. A void does not produce a
+ * contra-entry (that is the correction path, POST /api/journal/[id]/correction),
+ * so the only record of WHY a bookkeeping movement was cancelled is the reason
+ * the caller supplies here: it is required, Zod-validated and written into the
+ * chained JOURNAL_VOIDED audit row.
+ */
+const voidReasonSchema = z
+  .string({ error: 'reason is required to void a journal entry' })
+  .trim()
+  .min(5, 'reason must be at least 5 characters')
+  .max(500, 'reason must be at most 500 characters');
 
 // F-6: delegate to the canonical active-tenant gate, resource-scoped to the
 // entry's companyId. Replaces the previous manual membership checks so that
@@ -248,7 +262,7 @@ export const PUT = apiHandler(
 
 // ─── POST /api/journal/[id] ─────────────────────────────────────────
 // Actions: post | void
-// Body: { action: 'post' | 'void' }
+// Body: { action: 'post' } | { action: 'void', reason: string }  // reason: 5..500 chars (S7)
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const userId = requireCurrentUserId();
@@ -391,6 +405,23 @@ export const POST = apiHandler(
     }
 
     if (action === 'void') {
+      // S7 — validate the reason BEFORE any state change: a request without a
+      // usable reason must not touch the entry, its balances or the audit trail.
+      const parsedReason = voidReasonSchema.safeParse(body?.reason);
+      if (!parsedReason.success) {
+        return NextResponse.json(
+          {
+            error: parsedReason.error.issues[0]?.message,
+            code: 'VALIDATION_ERROR',
+            // S3 pattern: the family code stays VALIDATION_ERROR and the specific
+            // reason travels in details.code so the UI can localize it.
+            details: { code: 'VOID_REASON_REQUIRED', field: 'reason' },
+          },
+          { status: 400 },
+        );
+      }
+      const reason = parsedReason.data;
+
       if (entry.status !== 'posted') {
         return NextResponse.json({ error: 'Only posted entries can be voided' }, { status: 400 });
       }
@@ -412,6 +443,11 @@ export const POST = apiHandler(
           { status: 400 },
         );
       }
+
+      // Exact totals of the movement being cancelled, recorded in the audit row
+      // so the void remains fully reconstructable from the audit trail alone.
+      const totalDebits = entry.lines.reduce((sum, line) => sum + Number(line.debit), 0);
+      const totalCredits = entry.lines.reduce((sum, line) => sum + Number(line.credit), 0);
 
       const updated = await db.$transaction(async (tx) => {
         await assertActiveFiscalPeriod(
@@ -440,8 +476,23 @@ export const POST = apiHandler(
           },
         });
 
+        // S7 — the audit row carries WHAT was voided (description + totals) and
+        // WHY (the reason). Same chained writer, same transaction as the status
+        // mutation, so a void can never exist without its justification.
         await createAuditLogWithRetry(
-          { companyId: entry.companyId, userId, action: 'void', entity: 'journalEntry', entityId: id },
+          {
+            companyId: entry.companyId,
+            userId,
+            action: 'JOURNAL_VOIDED',
+            entity: 'journalEntry',
+            entityId: id,
+            details: JSON.stringify({
+              reason,
+              entryDescription: entry.description,
+              totalDebits,
+              totalCredits,
+            }),
+          },
           tx as any,
         );
 

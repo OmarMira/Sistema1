@@ -7,12 +7,42 @@ import { getClientIp } from './security/client-ip';
 import { db } from './db';
 import { requestContext } from './context-storage';
 import { logger } from './logger';
+import { acquireNormalOperation } from './backup-runtime-maintenance';
 
 const API_SECURITY_HEADERS = {
   'X-Frame-Options': 'DENY',
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 };
+
+/**
+ * S8 — Prisma error codes that mean "the database is unavailable", not "your data
+ * violates a constraint". Mapping these to 400 DATABASE_ERROR told every client
+ * their input was wrong and hid a real outage behind a validation error.
+ *
+ * Connection class: P1000 authentication failed, P1001 cannot reach the server,
+ * P1002 the server closed the connection on timeout, P1003 the database does not
+ * exist, P1008 operations timed out, P1010 access denied, P1011 TLS error, P1017
+ * the server closed the connection, P2024 the connection pool timed out.
+ * Constraint/validation codes (P2000-P2034 …) keep answering 400.
+ */
+const PRISMA_UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
+  'P1000',
+  'P1001',
+  'P1002',
+  'P1003',
+  'P1008',
+  'P1010',
+  'P1011',
+  'P1017',
+  'P2024',
+]);
+
+const DATABASE_UNAVAILABLE_MESSAGE =
+  'La base de datos no está disponible en este momento. Intentá nuevamente en unos segundos.';
+
+/** Retry-After hint (seconds) for an unavailable-database answer. */
+const DATABASE_UNAVAILABLE_RETRY_AFTER = '5';
 
 export type RouteParams = Record<string, string>;
 export type RouteContext = { params: Promise<RouteParams> };
@@ -33,6 +63,15 @@ export interface ApiHandlerOptions {
  * 2. Cabeceras HTTP (x-company-id)
  * 3. Cuerpo JSON de la petición (POST, PUT, PATCH, DELETE)
  * 4. Datos de formulario Multipart (multipart/form-data)
+ *
+ * SECURITY: the extracted companyId is NOT trusted. Every route that
+ * accesses company-scoped data MUST go through requireActiveTenantAccess
+ * (or requireCompanyRole), which validates the caller's membership and
+ * active status against the supplied companyId. A foreign companyId
+ * with a valid session is rejected with 403. The multi-source extraction
+ * exists because a user can belong to multiple companies and the active
+ * company is a client-side selection — the server enforces authorization,
+ * not the source of the id.
  */
 async function extractCompanyId(request: NextRequest): Promise<string | null> {
   const { searchParams } = new URL(request.url);
@@ -77,6 +116,24 @@ async function extractCompanyId(request: NextRequest): Promise<string | null> {
 }
 
 export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}) {
+  const admitted = admittedApiHandler(handler, options);
+  return async (request: NextRequest, context: RouteContext) => {
+    try {
+      // Always acquire a fresh lease: an HTTP request cannot inherit recovery
+      // authority or bypass admission through headers, sessions, or options.
+      const lease = acquireNormalOperation();
+      try { return await lease.run(() => admitted(request, context)); }
+      finally { lease.release(); }
+    } catch {
+      return NextResponse.json(
+        { error: 'Maintenance admission unavailable', code: 'BACKUP_MAINTENANCE' },
+        { status: 503, headers: API_SECURITY_HEADERS },
+      );
+    }
+  };
+}
+
+function admittedApiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}) {
   const requireMembership = options.requireMembership ?? true;
   const requireSuperAdmin = options.requireSuperAdmin ?? false;
   const allowAnonymous = options.allowAnonymous ?? false;
@@ -114,12 +171,16 @@ export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {})
 
       // 5. Validar acceso tenant (empresa activa + membresía, con bypass super_admin)
       //    Delegado a requireActiveTenantAccess: única fuente de verdad.
+      let tenantVerified = false;
       if (requireMembership && userId) {
         if (!companyId) {
           throw new ValidationError('companyId is required');
         }
 
         await requireActiveTenantAccess(companyId, { userId, role: userRole ?? '' });
+        // super_admin bypasses the membership lookup, so its companyId is not
+        // proven to exist; only a verified membership makes the pair DB-backed.
+        tenantVerified = userRole !== 'super_admin';
       }
 
       // 5. Ejecutar validación de rate limit
@@ -135,10 +196,16 @@ export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {})
       let resetAt = '';
 
       if (rateLimitKey !== null) {
+        // S23e: only a session user id plus an already-verified tenant may be
+        // written to the audit trail. An IP bucket or the 'global' placeholder
+        // is logged instead (those rows used to violate AuditLog foreign keys).
+        const auditSubject =
+          userId && companyId && tenantVerified ? { userId, companyId } : null;
         const rl = checkRateLimit(
           rateLimitKey,
           companyId || 'global',
           request.nextUrl.pathname,
+          auditSubject,
         );
         limit = rl.limit;
         remaining = rl.remaining;
@@ -212,11 +279,28 @@ export function apiHandler(handler: ApiHandler, options: ApiHandlerOptions = {})
         'code' in error &&
         'clientVersion' in error
       ) {
-        logger.error('[PRISMA DB ERROR]', { error: String(error) });
-        errResponse = NextResponse.json(
-          { error: 'Database constraint violation or error occurred.', code: 'DATABASE_ERROR' },
-          { status: 400 },
-        );
+        const prismaCode = (error as { code?: unknown }).code;
+        if (typeof prismaCode === 'string' && PRISMA_UNAVAILABLE_CODES.has(prismaCode)) {
+          // S8: an outage is a 503 the client can retry, not a 400 that blames input.
+          logger.error('[PRISMA DB UNAVAILABLE]', { prismaCode, error: String(error) });
+          errResponse = NextResponse.json(
+            {
+              error: DATABASE_UNAVAILABLE_MESSAGE,
+              code: 'DATABASE_UNAVAILABLE',
+              retryable: true,
+            },
+            {
+              status: 503,
+              headers: { ...API_SECURITY_HEADERS, 'Retry-After': DATABASE_UNAVAILABLE_RETRY_AFTER },
+            },
+          );
+        } else {
+          logger.error('[PRISMA DB ERROR]', { error: String(error) });
+          errResponse = NextResponse.json(
+            { error: 'Error de restricción o de base de datos.', code: 'DATABASE_ERROR' },
+            { status: 400 },
+          );
+        }
       } else {
         logger.error('[UNHANDLED API ERROR]', { error: String(error) });
         errResponse = NextResponse.json(

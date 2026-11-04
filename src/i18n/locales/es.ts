@@ -107,6 +107,27 @@ const es = {
     featureReportsDesc:
       'Genera balances generales, estados de resultados y balanzas de comprobación.',
   },
+  register: {
+    subtitle: 'Ingresa tus datos para crear una cuenta.',
+    passwordMin: 'La contraseña debe tener al menos 8 caracteres.',
+    optional: 'Opcional',
+    verifyTitle: 'Verifica tu correo',
+    verify: 'Verificar',
+    codeLabel: 'Código de verificación',
+    codeRequired: 'Ingresa el código de 6 dígitos que recibiste por correo.',
+    codeSent: 'Se envió un código de 6 dígitos a {email}. Ingrésalo para completar tu registro.',
+    deliveryFailed: 'No se pudo enviar el código. Intenta reenviarlo.',
+    authorizationFailed: 'No se pudo autorizar la verificación. Intenta nuevamente.',
+    verificationFailed: 'No se pudo verificar el código. Intenta nuevamente.',
+    invalidCode: 'El código de verificación no es válido o ha expirado.',
+    unavailable: 'La verificación por correo no está disponible. Intenta más tarde.',
+    tooManyAttempts: 'Demasiados intentos. Intenta nuevamente más tarde.',
+    resend: 'Reenviar código',
+    resendAccepted: 'Si hay una cuenta pendiente con ese correo, recibirás un nuevo código.',
+    checkSpam: 'Si no encuentras el correo, revisa la carpeta de spam o solicita otro código.',
+    resumePassword: 'Para continuar, vuelve a ingresar tu contraseña. No la guardamos en este navegador.',
+    resumeExisting: 'Tu cuenta necesita confirmar el correo. Ingresa el código o solicita uno nuevo.',
+  },
   dashboard: {
     title: 'Panel',
     overview: 'Resumen',
@@ -211,6 +232,10 @@ const es = {
       'Esto cambiará el estado a "Registrado". Los asientos registrados no pueden editarse.',
     confirmVoid: '¿Cancelar este asiento?',
     confirmVoidDesc: 'Esto marcará el asiento como "Cancelado". Esta acción no se puede deshacer.',
+    voidReasonLabel: 'Motivo de la anulación',
+    voidReasonPlaceholder: 'Ej.: Factura cargada dos veces en el mismo período',
+    voidReasonHint:
+      'Obligatorio: entre 5 y 500 caracteres. El motivo queda registrado en la auditoría.',
     confirmDelete: '¿Estás seguro de que deseas eliminar este asiento?',
     noLines: 'El asiento debe tener al menos dos líneas.',
     noEntries: 'No se encontraron registros en el libro mayor.',
@@ -497,6 +522,37 @@ const es = {
     },
   },
   reconciliation: {
+    report: {
+      title: "Información bancaria para revisión contable",
+      subtitle: "Organiza los movimientos y prepara información de trabajo para la contadora.",
+      statementPeriod: "Período de los extractos",
+      opening: "Saldo inicial de los extractos seleccionados",
+      statementCount: "{count} resúmenes seleccionados",
+      importedCount: "{count} movimientos importados en esta cuenta",
+      noStatements: "Todavía no hay extractos importados para determinar un período.",
+      importDateHelp: "La fecha de carga no cambia el período de los extractos. Puedes importarlos en cualquier momento.",
+      listScope: "Preparación del listado filtrado: {count} movimientos",
+      unclassified: "Sin clasificación guardada: {count}",
+      unposted: "Sin asiento vinculado: {count}",
+      reviewHelp: "Informe de trabajo para revisión de la contadora: no es una presentación oficial ni acredita aprobación contable.",
+      cutoff: "Fecha de corte: {date}",
+      noCutoff: "sin límite de fecha",
+      bookHelp: "Solo asientos contabilizados. Los asientos posteriores al corte no se incluyen; importar no contabiliza los movimientos.",
+      differenceHelp: "Una diferencia no implica por sí sola un error de importación. Revisa los cortes y los movimientos sin asiento; no crees ajustes solo para llevarla a cero.",
+      differentCutoffs: "Los saldos tienen fechas de corte distintas. El filtro Hasta cambia el corte contable, no el cierre del extracto bancario.",
+      pendingReview: "Revisión interna pendiente",
+      statusHelp: "Los contadores de conciliación corresponden a toda la cuenta. Conciliar o aprobar una revisión interna no equivale a la aprobación de la contadora.",
+      counterpart: "Contrapartida del movimiento",
+      counterpartHelp: "La cuenta de cada fila clasifica el movimiento; no cambia el vínculo contable de la cuenta bancaria.",
+      from: "Desde (movimientos)",
+      until: "Hasta (movimientos)",
+      statementFilter: "Extractos para el control",
+      postingOn: "Al confirmar se solicitarán asientos publicados para los movimientos procesados. Cambiar esta opción por sí solo no crea asientos.",
+      postingOff: "No se solicitarán asientos nuevos al confirmar. Esta opción no elimina los existentes.",
+      exportWorking: "Exportar informe de trabajo",
+      exportHelp: "Descarga TXT del listado filtrado y los saldos mostrados. No es un informe anual firmado ni una presentación oficial.",
+      adjustmentHelp: "Un ajuste modifica la contabilidad. No es necesario para importar ni para descargar el informe de trabajo.",
+    },
     title: 'Conciliación Bancaria',
     selectAccount: 'Seleccionar Cuenta Bancaria',
     selectPeriod: 'Seleccionar Período',
@@ -604,8 +660,71 @@ const es = {
     linking: 'Vinculando...',
     linkButton: 'Vincular',
   },
+  installation: {
+    title: 'Asistente de instalación',
+    intro: 'Un paso a la vez, sin conocimientos técnicos.',
+    steps: {
+      welcome: 'Bienvenida',
+      business: 'Tus datos',
+      accounting: 'Inicio contable',
+      email: 'Correo',
+      review: 'Revisión',
+    },
+    welcome: 'Todo comienza por acá',
+    welcomeBody:
+      'Vamos a preparar tu empresa y confirmar tu correo antes de crear el acceso al sistema.',
+    local:
+      'La aplicación y tus datos contables quedan en esta PC. Solo la confirmación y recuperación de acceso utilizan el servicio de correo.',
+    business: 'Nombre legal de tu empresa',
+    currency: 'Moneda de trabajo',
+    bank: 'Los saldos bancarios se incorporan al importar cada estado de cuenta. No se interpreta un saldo faltante como cero.',
+    fiscal: '¿Cuándo empieza tu ejercicio contable?',
+    year: 'Año de inicio del ejercicio',
+    month: 'Mes de inicio del ejercicio',
+    period: 'Tipo de período contable',
+    calendar: 'Calendario natural',
+    custom: 'Meses personalizados',
+    weeks: 'Semanas 52/53',
+    admin: 'Tu acceso al sistema',
+    first: 'Nombre',
+    last: 'Apellido',
+    email: 'Correo electrónico',
+    password: 'Contraseña',
+    confirm: 'Confirmar contraseña',
+    passwordHelp: 'Usá al menos 8 caracteres. La contraseña no se guarda en este navegador.',
+    review: 'Revisá tus datos',
+    before:
+      'Primero confirmaremos el correo. La empresa y el acceso se crearán solo cuando se acepte el código.',
+    code: 'Código de verificación',
+    delivered: 'El servicio aceptó el envío. Revisá tu bandeja de entrada y correo no deseado.',
+    mailFailed:
+      'No se pudo enviar el correo. Revisá la configuración de correo antes de reintentar.',
+    resendNote: 'Se solicitó un nuevo código. Esto no confirma que el correo haya llegado.',
+    start: 'Comenzar',
+    next: 'Continuar',
+    back: 'Volver',
+    reviewButton: 'Revisar',
+    send: 'Enviar código',
+    verify: 'Verificar y completar',
+    resend: 'Solicitar otro código',
+    retry: 'Reintentar configuración',
+    busy: 'Procesando…',
+    error:
+      'No se pudo completar la operación. Revisá los datos e intentá nuevamente.',
+    showPassword: 'Mostrar contraseña',
+    hidePassword: 'Ocultar contraseña',
+    showConfirmation: 'Mostrar confirmación de contraseña',
+    hideConfirmation: 'Ocultar confirmación de contraseña',
+    mismatch: 'Las contraseñas no coinciden.',
+    complete: 'Configuración completada',
+    ready: 'Los datos guardados fueron confirmados por el sistema.',
+  },
   budget: {
     loading: 'Cargando análisis presupuestal...',
+    varianceTitle: 'Análisis de Varianza: {period}',
+    budgetLabel: 'Presupuesto',
+    actualLabel: 'Real',
+    varianceLabel: 'Varianza',
   },
   reports: {
     title: 'Reportes',
@@ -662,6 +781,20 @@ const es = {
     noReconciledData: 'No hay datos de conciliación disponibles.',
     exportSuccess: 'Reporte exportado exitosamente.',
     generating: 'Generando reporte...',
+    exportModalDescription:
+      'Genera balances contables con huella de integridad en CSV, o abrí la vista de impresión del navegador para guardarlos como PDF.',
+    reportType: 'Reporte',
+    reportTypePlaceholder: 'Seleccionar reporte',
+    incomeStatementPL: 'Estado de Resultados (P&L)',
+    format: 'Formato',
+    formatPlaceholder: 'Seleccionar formato',
+    formatCsv: 'CSV (Con hash SHA-256)',
+    formatPrint: 'Imprimir / Guardar como PDF',
+    internalUseOnly: 'USO INTERNO ÚNICAMENTE',
+    draftDisclaimer:
+      'Documento de borrador interno. No está firmado digitalmente y no es válido para presentación oficial ante entidades de impuestos o gubernamentales.',
+    exporting: 'Exportando...',
+    exportReport: 'Exportar Reporte',
   },
   knowledgeEngine: {
     title: 'Motor de Conocimiento',
@@ -913,6 +1046,10 @@ const es = {
         'No se podrán crear ni modificar asientos en este período. Esta acción es irreversible.',
       noPeriods: 'No hay períodos fiscales configurados.',
       periodCreated: 'Período creado exitosamente',
+      closingAccountPlaceholder: 'Ej. 3000',
+      periodNamePlaceholder: 'Ej., Enero 2025',
+      lockWarning:
+        'ADVERTENCIA: Esta acción es irreversible. No se podrá volver a abrir este período.',
     },
   },
   exportData: {
@@ -1131,14 +1268,30 @@ const es = {
         'Configuración de Impuestos Desactivada. Por control interno y mitigación de contingencia legal, la imputación de impuestos se realizará de manera pura vía cuentas del Libro Diario.',
       note: 'El módulo fiscal estándar permanecerá desactivado de acuerdo a las reglas del sistema.',
     },
-    step5: {
-      initialBalance: 'Saldo Inicial de Caja/Banco (Opcional)',
-      help: 'Si ingresa un monto mayor a cero, se generará de forma automática un asiento contable balanceado de apertura en el Libro Diario asimilando el capital inicial en el patrimonio.',
+    bankBalances: {
+      title: 'No necesitás buscar tus saldos ahora',
+      description: 'Podés empezar sin ingresar un saldo inicial. Los saldos de cada cuenta bancaria se incorporan al importar sus resúmenes; no se usa un saldo único para toda la empresa.',
+      missing: 'Si un archivo no incluye esa información o no puede leerse correctamente, será necesario revisarla durante la importación.',
     },
     step6: {
       ready: '¡Todo listo para activar el sistema!',
       confirm:
-        'Al presionar "Finalizar", se ejecutarán de forma atómica la creación de períodos, la inyección del plan de cuentas y la inicialización de tus balances contables.',
+        'Al presionar "Finalizar", se crearán los períodos y se preparará el plan de cuentas. No se registrará un saldo inicial global ni un aporte de capital desde este asistente.',
+    },
+    adminStep: {
+      firstName: 'Nombre',
+      lastName: 'Apellido',
+      email: 'Correo',
+      password: 'Contraseña',
+      confirmPassword: 'Confirmar Contraseña',
+      codeLabel: 'Código de Verificación',
+      codeSent: 'Se envió un código de 6 dígitos a {email}. Ingresalo para completar el registro.',
+    },
+    reviewStep: {
+      title: 'Revisá tu información',
+      company: 'Empresa',
+      fiscal: 'Período Fiscal',
+      admin: 'Administrador',
     },
     success: {
       title: '¡Configuración Exitosa!',
@@ -1167,8 +1320,8 @@ const es = {
     adminConsoleDesc: 'Gestionar empresas, accesos de usuarios y bitácoras',
   },
   financialDashboard: {
-    title: 'Estado Financiero',
-    subtitle: 'Análisis de transacciones reales e histórico de flujos',
+    title: 'Actividad bancaria',
+    subtitle: 'Entradas, salidas y saldos de los extractos bancarios',
     syncing: 'Sincronizando Estado Financiero...',
     export: 'Exportar Datos',
     revenue: 'Ingresos Totales',
@@ -1316,7 +1469,24 @@ const es = {
     otroDescription: 'Describí la relación con tu empresa...',
     assignAsOther: 'Asignar como Otro',
     accept: 'Aceptar',
-    preClassify: 'Obtener una nueva sugerencia',
+    preClassify: 'Obtener sugerencia',
+    newSuggestion: 'Obtener nueva sugerencia',
+    rentReceipt: 'Cobro de alquiler',
+    customRoleOption: 'Personalizado...',
+    accountGuidance: {
+      title: 'Cuenta contable sugerida',
+      useSuggested: 'Usar cuenta sugerida',
+      chooseExisting: 'Elegir una cuenta existente',
+      createChild: 'Crear una subcuenta',
+      confirmCreate: 'Confirmar creación de subcuenta',
+      childName: 'Nombre de la subcuenta',
+      cancel: 'Cancelar creación',
+      createError: 'No se pudo crear la subcuenta. Revisá tus permisos e intentá de nuevo.',
+      codeConflict: 'Ese código ya existe. Actualizá la lista de cuentas antes de volver a crear la subcuenta.',
+      clarification: 'Aclaración del movimiento',
+      clarificationPlaceholder: 'Explicá qué representan estos pagos y pedí una nueva sugerencia',
+      caution: 'Revisá la propuesta antes de guardar. Una entidad puede tener movimientos de distintos conceptos. La cuenta se guarda como referencia; automatizar requiere tu confirmación por separado.',
+    },
     preClassifyPlural: 'Identificar entidades',
     saveClassificationSingular: 'Guardar clasificación',
     saveClassificationPlural: 'Guardar clasificaciones',
@@ -1672,7 +1842,7 @@ const es = {
   sidebar: {
     logoTooltip: 'Visualización del flujo contable de la empresa',
     dashboard: 'Panel principal con el flujo contable de la empresa',
-    financialDashboard: 'Indicadores financieros: ingresos, gastos y rentabilidad',
+    financialDashboard: 'Movimientos y saldos bancarios, con filtros por cuenta y año',
     accounts: 'Plan de cuentas contables de la empresa',
     journal: 'Registro de movimientos y asientos contables',
     banks: 'Cuentas bancarias conectadas y sus saldos',
@@ -1732,6 +1902,47 @@ const es = {
       invalidDates: 'Fechas inválidas. Use el formato YYYY-MM-DD',
     },
   },
+  // S3 — códigos de error estables para los flujos principales (importación,
+  // respaldo, fiscal, autenticación). La clave es el código, no el idioma:
+  // `src/i18n/errors.ts` resuelve `errors.<CODE>` en el idioma elegido y, si el
+  // código no está aquí, muestra el mensaje del servidor tal cual.
+  errors: {
+    FISCAL_PERIOD_LOCKED:
+      'El período fiscal está cerrado: no se pueden registrar movimientos en él. Reabrí el período o elegí otra fecha.',
+    FISCAL_DATE_INVALID:
+      'La fecha del movimiento no es válida. Revisá el formato (AAAA-MM-DD) e intentá nuevamente.',
+    IMPORT_TIMEOUT:
+      'La importación tardó más de lo permitido y no se guardó ningún dato. Dividí el archivo en partes más pequeñas e intentá nuevamente.',
+    IMPORT_TOO_LARGE: 'El archivo es demasiado grande. El tamaño máximo por archivo es 10 MB.',
+    IMPORT_TOO_MANY_FILES:
+      'No se pueden importar más de 10 archivos en una sola petición. Divídalos en lotes más pequeños.',
+    IMPORT_NO_FILE:
+      'No se subió ningún archivo. Adjuntá un extracto bancario (.csv, .ofx, .qfx o .pdf) e intentá nuevamente.',
+    CONFLICT:
+      'Ya existe un registro para ese período. Eliminá el anterior o usá un período diferente.',
+    AI_CONFIG_MISSING: 'Configurá la IA para interpretar este documento.',
+    AI_CONFIG_UNAVAILABLE:
+      'No se pudo leer la configuración de IA. Revisá la configuración o contactá al administrador.',
+    AI_PROVIDER_UNAVAILABLE:
+      'El proveedor de IA no pudo completar la lectura. Revisá la conexión, la cuenta y el modelo antes de reintentar.',
+    DATABASE_ERROR:
+      'No se pudo guardar el cambio en la base de datos. Revisá los datos e intentá nuevamente.',
+    // S8 — la base no está disponible (corte/overload), no un problema de datos:
+    // es reintentable, por eso el 503 y no un 400.
+    DATABASE_UNAVAILABLE:
+      'La base de datos no está disponible en este momento. Intentá nuevamente en unos segundos.',
+    FORBIDDEN: 'No tenés permisos para realizar esta acción.',
+    // Texto idéntico al que el backend devuelve hoy en el 401 de login, para que
+    // el formulario no cambie de mensaje (fijado por tests/identity/registration-ui).
+    UNAUTHORIZED: 'Correo electrónico o contraseña inválidos',
+    RATE_LIMIT_EXCEEDED: 'Demasiados intentos de inicio de sesión. Intentá nuevamente más tarde.',
+    // S7 — una anulación exige motivo: el backend responde 400 VALIDATION_ERROR
+    // con details.code = VOID_REASON_REQUIRED para que la UI lo traduzca.
+    VOID_REASON_REQUIRED:
+      'Indicá el motivo de la anulación: entre 5 y 500 caracteres.',
+    INTERNAL_SERVER_ERROR:
+      'Ocurrió un error inesperado. Intentá nuevamente; si el problema persiste, contactá al administrador.',
+  },
   adminUsers: {
     title: 'Usuarios Globales',
     subtitle: 'Administración completa y control de accesos del sistema AccountExpress.',
@@ -1762,6 +1973,12 @@ const es = {
     deleteWarning:
       'Esta acción revocará todos sus accesos a empresas. Esta operación es irreversible.',
     deleteBtn: 'Sí, Eliminar Usuario',
+    deleteBlockedTitle: 'No se puede eliminar este usuario',
+    lastSuperAdminMessage: 'La eliminación dejaría una o más empresas sin su último superusuario activo. Antes de continuar, debe existir otro superusuario activo con acceso habilitado para administrar esas empresas.',
+    deleteNoChanges: 'No se realizó ningún cambio.',
+    deleteFailedTitle: 'No se pudo eliminar el usuario',
+    deleteFailedMessage: 'No fue posible completar la solicitud. Compruebe la conexión y sus permisos antes de volver a intentarlo.',
+    acknowledgeBtn: 'Entendido',
     deletingBtn: 'Eliminando...',
     placeholderFirstName: 'Nombre',
     placeholderLastName: 'Apellido',

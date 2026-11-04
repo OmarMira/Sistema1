@@ -32,6 +32,10 @@ async function asUser(email: string, membershipRole: 'viewer' | 'employee' | 'co
 }
 
 async function asSuperAdmin(email: string) {
+  // T3 (emailVerifiedAt / PENDING flow): an unverified account is rejected at
+  // session resolution, before the tenant gate runs. These cases assert the
+  // super_admin Bypass policy (a platform operator needs no CompanyMember), so
+  // the harness must create a verified account or every case degenerates to 401.
   const user = await db.user.create({
     data: {
       email,
@@ -39,6 +43,8 @@ async function asSuperAdmin(email: string) {
       firstName: 'Super',
       lastName: 'Admin',
       platformRole: 'super_admin',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
     },
   });
   const token = await createSession(user.id);

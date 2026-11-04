@@ -16,58 +16,90 @@ export async function register() {
 
   // 2️⃣ Node.js Runtime Config & Setup
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    // Validate required environment before starting any runtime service.
-    const { validateEnv } = await import('./lib/env/server');
-    validateEnv();
+    const { withRuntimeOperation } = await import('./lib/backup-runtime-maintenance');
+    await withRuntimeOperation(registerNodeRuntime);
+  }
+}
 
-    // Sentry Server Config
-    Sentry.init({
-      dsn: process.env.SENTRY_DSN,
-      tracesSampleRate: 0.1,
-    });
+async function registerNodeRuntime() {
+  // Lexical runtime guard: Turbopack dead-code-eliminates this whole branch
+  // from the Edge instrumentation bundle, so the Node-only import chain
+  // (cleanupSessions → backup-runtime-maintenance → backup-maintenance.mjs,
+  // init-runtime, etc.) is never traced for Edge and the startup log stays
+  // free of Edge Runtime warnings.
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
 
-    // POLYFILL: Debe ejecutarse ANTES de que cualquier módulo importe pdfjs-dist
-    if (typeof globalThis.DOMMatrix === 'undefined') {
-      (globalThis as unknown as { DOMMatrix: unknown }).DOMMatrix = class DOMMatrix {
-        constructor() {}
-        toString() {
-          return 'matrix(1,0,0,1,0,0)';
-        }
-        static fromFloat32Array() {
-          return new this();
-        }
-        static fromFloat64Array() {
-          return new this();
-        }
-        multiply() {
-          return this;
-        }
-      };
-    }
+  // Validate required environment before starting any runtime service.
+  const { validateEnv } = await import('./lib/env/server');
+  validateEnv();
 
-    // Inicializa worker PDF dinámicamente para evitar warnings en el compilador de Edge
-    const { initPdfWorker } = await import('./lib/pdf-worker');
-    await initPdfWorker();
+  // Sentry Server Config
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    tracesSampleRate: 0.1,
+  });
 
-    const { initRuntimeData } = await import('./lib/init-runtime');
-    const { optimizeDatabase } = await import('./lib/db-optimizer');
-    const { resetMetrics } = await import('./lib/metrics');
-    const { startSessionCleanupInterval } = await import('./lib/maintenance/cleanupSessions');
-    const { decrypt } = await import('./lib/crypto');
-
-    initRuntimeData();
-    await optimizeDatabase();
-    resetMetrics();
-    startSessionCleanupInterval();
-
-    // Auto-decrypt API key at startup if encrypted variant exists
-    if (process.env.AI_API_KEY_ENCRYPTED && !process.env.AI_API_KEY) {
-      try {
-        process.env.AI_API_KEY = decrypt(process.env.AI_API_KEY_ENCRYPTED);
-      } catch {
-        // encrypted key exists but decryption failed (e.g. SESSION_SECRET changed)
+  // POLYFILL: Debe ejecutarse ANTES de que cualquier módulo importe pdfjs-dist
+  if (typeof globalThis.DOMMatrix === 'undefined') {
+    (globalThis as unknown as { DOMMatrix: unknown }).DOMMatrix = class DOMMatrix {
+      constructor() {}
+      toString() {
+        return 'matrix(1,0,0,1,0,0)';
       }
-    }
+      static fromFloat32Array() {
+        return new this();
+      }
+      static fromFloat64Array() {
+        return new this();
+      }
+      multiply() {
+        return this;
+      }
+    };
+  }
+
+  // Inicializa worker PDF dinámicamente para evitar warnings en el compilador de Edge
+  const { initPdfWorker } = await import('./lib/pdf-worker');
+  await initPdfWorker();
+
+  const { initRuntimeData } = await import('./lib/init-runtime');
+  const { optimizeDatabase } = await import('./lib/db-optimizer');
+  const { resetMetrics } = await import('./lib/metrics');
+  const { startSessionCleanupInterval } = await import('./lib/maintenance/cleanupSessions');
+
+  initRuntimeData();
+  await optimizeDatabase();
+  resetMetrics();
+  startSessionCleanupInterval();
+
+  await decryptAiApiKeyAtStartup();
+}
+
+/**
+ * Auto-decrypt the encrypted AI API key at startup when only the sealed variant
+ * is present.
+ *
+ * S23f: the failure path used to be swallowed, so a rotated SESSION_SECRET (or a
+ * corrupted value) silently left the assistant without a key and no diagnostic.
+ * A failure is now logged as an ERROR with the actionable cause.
+ *
+ * @returns true when AI_API_KEY was populated.
+ */
+export async function decryptAiApiKeyAtStartup(): Promise<boolean> {
+  if (!process.env.AI_API_KEY_ENCRYPTED || process.env.AI_API_KEY) return false;
+
+  const { decrypt } = await import('./lib/crypto');
+  try {
+    process.env.AI_API_KEY = await decrypt(process.env.AI_API_KEY_ENCRYPTED);
+    return true;
+  } catch (error) {
+    const { logger } = await import('./lib/logger');
+    logger.error(
+      '[INSTRUMENTATION] Failed to decrypt AI_API_KEY_ENCRYPTED — the AI assistant will run without a key. ' +
+        'Most common cause: SESSION_SECRET changed since the key was saved. Re-save the AI key from Settings.',
+      { error: String(error) },
+    );
+    return false;
   }
 }
 

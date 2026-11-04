@@ -22,6 +22,7 @@ import {
 import { useAuthStore } from '@/store/auth-store';
 import { useLanguageStore } from '@/store/language-store';
 import { isPeriodLocked } from '@/lib/fiscal-period/utils';
+import { translateApiError } from '@/i18n/errors';
 import { logger } from '@/lib/logger';
 import { toast } from 'sonner';
 import {
@@ -111,6 +112,9 @@ export function JournalPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmAction, setConfirmAction] = useState<'post' | 'void' | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<string | null>(null);
+  // S7: a void must say WHY. The reason travels with the request and is stored
+  // in the JOURNAL_VOIDED audit row by the server.
+  const [voidReason, setVoidReason] = useState('');
 
   const fetchEntries = useCallback(async () => {
     if (!activeCompany) return;
@@ -288,6 +292,8 @@ export function JournalPage() {
   function requestAction(entryId: string, action: 'post' | 'void') {
     setConfirmAction(action);
     setConfirmTarget(entryId);
+    // Never carry a stale reason from a previous void into this one.
+    setVoidReason('');
     setConfirmOpen(true);
   }
 
@@ -303,12 +309,17 @@ export function JournalPage() {
       }
     }
 
+    const requestBody =
+      confirmAction === 'void'
+        ? { action: 'void', reason: voidReason.trim() }
+        : { action: 'post' };
+
     setActionLoading(true);
     try {
       const res = await fetch(`/api/journal/${confirmTarget}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: confirmAction }),
+        body: JSON.stringify(requestBody),
       });
       if (res.ok) {
         const data = await res.json();
@@ -318,7 +329,10 @@ export function JournalPage() {
         fetchEntries();
       } else {
         const err = await res.json();
-        toast.error(err.error || 'Action failed');
+        // S7: the server answers a stable code (VALIDATION_ERROR +
+        // details.code VOID_REASON_REQUIRED), so the reason rule is shown in the
+        // operator's locale instead of a raw English string.
+        toast.error(translateApiError(err, t));
       }
     } catch (err) {
       logger.error('Action error:', { error: String(err) });
@@ -327,6 +341,7 @@ export function JournalPage() {
       setConfirmOpen(false);
       setConfirmAction(null);
       setConfirmTarget(null);
+      setVoidReason('');
     }
   }
 
@@ -545,6 +560,8 @@ export function JournalPage() {
         action={confirmAction}
         loading={actionLoading}
         onConfirm={executeAction}
+        reason={voidReason}
+        onReasonChange={setVoidReason}
       />
     </div>
   );

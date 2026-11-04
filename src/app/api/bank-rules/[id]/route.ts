@@ -370,6 +370,12 @@ export const PUT = apiHandler(async (request: NextRequest, context: RouteContext
 });
 
 // ─── DELETE /api/bank-rules/[id] ───────────────────────────────────
+// S22(f) — deleting a rule preserves provenance in the audit chain and stops
+// issuing the explicit `matchedRuleId: null` write. Historical provenance is
+// recorded BEFORE the row disappears: rule id, rule name and the transactions
+// the rule had classified. BankTransaction.matchedRuleId is a foreign key with
+// ON DELETE SET NULL, so the column itself is nulled by the database (the
+// classification — glAccountId, journalEntryId — is never touched).
 export const DELETE = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
@@ -381,13 +387,40 @@ export const DELETE = apiHandler(async (request: NextRequest, context: RouteCont
     return NextResponse.json({ error: 'Rule not found' }, { status: 404 });
   }
 
-  // Clear matchedRuleId from transactions that reference this rule
-  await db.bankTransaction.updateMany({
-    where: { matchedRuleId: id },
-    data: { matchedRuleId: null },
-  });
+  const where = { matchedRuleId: id, statement: { companyId } } as const;
+  const [matchedTransactionCount, affectedTransactions] = await Promise.all([
+    db.bankTransaction.count({ where }),
+    db.bankTransaction.findMany({
+      where,
+      select: { id: true },
+      orderBy: [{ date: 'asc' }, { id: 'asc' }],
+      take: 500,
+    }),
+  ]);
 
-  await db.bankRule.delete({ where: { id } });
+  await db.$transaction(async (tx) => {
+    await createAuditLogWithRetry(
+      {
+        companyId,
+        userId,
+        action: 'RULE_DELETED',
+        entity: 'BankRule',
+        entityId: id,
+        details: JSON.stringify({
+          ruleId: id,
+          ruleName: existing.name,
+          matchedTransactionCount,
+          transactionIds: affectedTransactions.map((t) => t.id),
+          transactionIdsTruncated: matchedTransactionCount > affectedTransactions.length,
+          provenanceNote:
+            'Historical classification retained on the transactions; BankTransaction.matchedRuleId is nulled by the FK (ON DELETE SET NULL).',
+        }),
+      },
+      tx as any,
+    );
+
+    await tx.bankRule.delete({ where: { id } });
+  });
 
   return NextResponse.json({ success: true });
 });

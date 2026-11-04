@@ -1,0 +1,6 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": { "noEmit": true, "incremental": false, "target": "ES2022", "module": "ESNext", "moduleResolution": "bundler" },
+  "include": ["../../../src/lib/backup-storage.ts", "../catalog-publication.test.ts"],
+  "exclude": []
+}

@@ -55,6 +55,38 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     });
   }
 
+  // S22(d) — a transaction reconciled inside a COMPLETED period is locked
+  // evidence: undoing it silently would mutate a closed reconciliation. The
+  // refusal is explicit and atomic (nothing is updated). Reopening the period
+  // is a separate, deliberate action.
+  const periodIds = [
+    ...new Set(
+      reconciledTxs
+        .map((t) => t.reconciliationPeriodId)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    ),
+  ];
+
+  if (periodIds.length > 0) {
+    const completedPeriods = await db.reconciliationPeriod.findMany({
+      where: { id: { in: periodIds }, companyId, status: 'completed' },
+      select: { id: true },
+    });
+
+    if (completedPeriods.length > 0) {
+      const completedIds = completedPeriods.map((p) => p.id);
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            'Cannot unreconcile transactions that belong to a completed reconciliation period. Reopen the period first.',
+          periodIds: completedIds,
+        },
+        { status: 400 },
+      );
+    }
+  }
+
   const idsToUpdate = reconciledTxs.map((t) => t.id);
 
   // Update transactions

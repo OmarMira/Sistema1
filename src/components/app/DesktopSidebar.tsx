@@ -35,6 +35,7 @@ export function DesktopSidebar({
           <TooltipTrigger asChild>
             <button
               onClick={onOpenWorkflow}
+              aria-label={collapsed ? t('common.appName') : undefined}
               className={cn(
                 'flex h-14 items-center hover:bg-accent/50 transition-colors text-left focus:outline-hidden cursor-pointer',
                 collapsed ? 'justify-center px-2' : 'gap-2 px-4 w-full',
@@ -59,7 +60,7 @@ export function DesktopSidebar({
       <Separator />
 
       <ScrollArea className="flex-1 py-2">
-        <nav className="space-y-1 px-2">
+        <nav aria-label="Navegación principal" className="space-y-1 px-2">
           <DesktopNavItems collapsed={collapsed} />
         </nav>
       </ScrollArea>

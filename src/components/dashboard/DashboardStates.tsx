@@ -10,9 +10,16 @@ interface LoadingStateProps {
 }
 
 export function LoadingState({ mounted, loadingText }: LoadingStateProps) {
+  // S11 — a spinner alone is silent for assistive tech: the wrapper is a live
+  // status region so the loading text is announced when it appears.
   return (
-    <div className="flex flex-col items-center justify-center min-h-[450px]">
-      <RefreshCw className="w-10 h-10 animate-spin text-teal-600 dark:text-teal-400 mb-4" />
+    <div
+      role="status"
+      aria-live="polite"
+      aria-busy="true"
+      className="flex flex-col items-center justify-center min-h-[450px]"
+    >
+      <RefreshCw aria-hidden="true" className="w-10 h-10 animate-spin text-teal-600 dark:text-teal-400 mb-4" />
       {mounted && (
         <span className="text-sm font-bold text-slate-500 uppercase tracking-widest animate-pulse">
           {loadingText}
@@ -33,7 +40,7 @@ export function EmptyState({ title, description, buttonLabel, onGoImport }: Empt
   return (
     <div className="flex flex-col items-center justify-center min-h-[500px] space-y-6 text-center px-4">
       <div className="p-6 rounded-3xl bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700">
-        <Database className="w-16 h-16 text-slate-400 dark:text-slate-500 mx-auto" />
+        <Database aria-hidden="true" className="w-16 h-16 text-slate-400 dark:text-slate-500 mx-auto" />
       </div>
       <div className="space-y-2">
         <h2 className="text-xl font-bold text-slate-900 dark:text-white">{title}</h2>

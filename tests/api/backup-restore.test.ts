@@ -2,10 +2,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { POST as backupPOST, GET as backupGET, DELETE as backupDELETE } from '../../src/app/api/backup/route';
 import { POST as restorePOST } from '../../src/app/api/backup/restore/route';
 import { validateBackup } from '../../src/lib/backup';
+import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction, createTestJournalEntry, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
+import { createMaintenanceGate } from '@/lib/backup-maintenance.mjs';
+import { RUNTIME_DIR } from '@/lib/config/paths';
 import fs from 'fs';
 import path from 'path';
 
@@ -32,6 +35,22 @@ function cleanTestBackups(filenames: string[]) {
   }
 }
 
+/**
+ * Release a maintenance marker left behind by an unsuccessful transition, using
+ * the same gate API an operator would. Returns the previous state for evidence.
+ */
+async function releaseMaintenanceIfMarked() {
+  const root = path.join(RUNTIME_DIR, 'backup-maintenance');
+  const markerPath = path.join(root, 'maintenance.json');
+  if (!fs.existsSync(markerPath)) return false;
+  const gate = createMaintenanceGate(root);
+  const record = JSON.parse(fs.readFileSync(markerPath, 'utf-8')) as { id: string };
+  const owner = gate.resumeMaintenance(record.id);
+  await owner.drain({ timeoutMs: 0 });
+  owner.release();
+  return true;
+}
+
 async function createTestFixture(companyId: string) {
   const gl = await createTestGlAccount({
     companyId,
@@ -48,7 +67,7 @@ async function createTestFixture(companyId: string) {
     description: 'Test deposit',
     reference: 'REF-001',
   });
-  await createTestJournalEntry(companyId, {
+  const entry = await createTestJournalEntry(companyId, {
     date: '2025-03-15',
     description: 'Test entry',
     lines: [
@@ -56,7 +75,13 @@ async function createTestFixture(companyId: string) {
       { glAccountId: gl.id, debit: 0, credit: 500 },
     ],
   });
-  return { gl, bankAccount, statement };
+  // JH2: a posted entry without its v2 seal (hash/previousHash + chain head) is
+  // not restorable — the coordinated restore certifies the source chain and
+  // never re-signs (RESTORE_CHAIN MEMBER_HASH_NULL). Seal it through the SAME
+  // production primitive the journal POST route uses, so the backup under test
+  // is the contract-compliant output of createBackup, not a hand-built payload.
+  await db.$transaction((tx) => appendEntryToJournalChain(tx, { companyId, entryId: entry.id }));
+  return { gl, bankAccount, statement, entry };
 }
 
 describe('POST /api/backup + POST /api/backup/restore', () => {
@@ -68,6 +93,12 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
   });
 
   afterEach(async () => {
+    // A maintenance transition that does not reach release() leaves the gate
+    // fenced — by design, ambiguity blocks all normal admission. The suite owns
+    // that state, so it unwinds it through the production gate API instead of
+    // leaking a marker into the next test (the transition failure itself is
+    // asserted by the restore test, never hidden here).
+    await releaseMaintenanceIfMarked();
     await clearDatabase();
     cleanTestBackups(createdBackups);
   });
@@ -141,6 +172,10 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     // Order matters: FK-sensitive children first
     await db.journalLine.deleteMany({ where: { entry: { companyId: company.id } } });
     await db.journalEntry.deleteMany({ where: { companyId: company.id } });
+    // The chain head is a link to the tail entry: leaving it behind would be a
+    // dangling JournalChainHead.lastEntryId that the restore correctly refuses
+    // (RESTORE_REFERENCE), so the whole journal-chain state is removed here.
+    await db.journalChainHead.deleteMany({ where: { companyId: company.id } });
     await db.bankTransaction.deleteMany({ where: { statement: { companyId: company.id } } });
     await db.bankStatement.deleteMany({ where: { companyId: company.id } });
     await db.bankAccount.deleteMany({ where: { companyId: company.id } });
@@ -168,6 +203,10 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
 
     const restoreBody = await restoreRes.json();
     expect(restoreBody.success).toBe(true);
+    expect(restoreBody.status).toBe('committed');
+    expect(restoreBody.scope).toBe('database-and-company-config');
+    // The restore publishes a safety preimage; remove it with the other backups.
+    createdBackups.push(restoreBody.safetyFilename);
 
     // Verify GL accounts restored
     const glRestored = await db.glAccount.findMany({ where: { companyId: company.id } });
@@ -188,27 +227,31 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     const entriesRestored = await db.journalEntry.findMany({ where: { companyId: company.id } });
     expect(entriesRestored).toHaveLength(entriesBefore.length);
 
-    // Audit Contract v1 — verificar RESTORE_COMPLETED
-    const restoreAudit = await db.auditLog.findMany({
-      where: { companyId: company.id, action: 'RESTORE_COMPLETED' },
+    // Coordinated-restore audit contract: the legacy RESTORE_COMPLETED /
+    // SECURITY_RESTORE_INITIATED pair is written only by the retired lib/backup.ts
+    // restore path. /api/backup/restore now commits through
+    // restoreCompanyBackupCoordinated, whose atomic evidence is exactly one
+    // userId-null COMPANY_RESTORE_COMMITTED receipt (the actor is proven by the
+    // RBAC gate above, and the receipt is deliberately not an accounting seal).
+    const commitAudit = await db.auditLog.findMany({
+      where: { companyId: company.id, action: 'COMPANY_RESTORE_COMMITTED' },
     });
-    expect(restoreAudit).toHaveLength(1);
-    const restoreLog = restoreAudit[0];
-    expect(restoreLog.userId).toBe(user.id);
-    expect(restoreLog.entity).toBe('Backup');
-    const restoreDetails = JSON.parse(restoreLog.details || '{}');
-    expect(restoreDetails.contractVersion).toBe(1);
-    expect(restoreDetails.restoredCounts.glAccounts).toBeGreaterThanOrEqual(1);
+    expect(commitAudit).toHaveLength(1);
+    const commitLog = commitAudit[0];
+    expect(commitLog.userId).toBeNull();
+    expect(commitLog.entity).toBe('Backup');
+    expect(commitLog.id).toBe(restoreBody.operationId);
+    const commitDetails = JSON.parse(commitLog.details || '{}');
+    expect(commitDetails.scope).toBe('database-only');
+    expect(commitDetails.safetyFilename).toBe(restoreBody.safetyFilename);
+    expect(commitDetails.checksum).toMatch(/^[a-f0-9]{64}$/);
 
-    // Audit Contract v1 — verificar SECURITY_RESTORE_INITIATED
-    const securityAudit = await db.auditLog.findMany({
-      where: { companyId: company.id, action: 'SECURITY_RESTORE_INITIATED' },
+    // The pre-existing audit trail of the source company is replaced by the
+    // snapshot (which predates its own BACKUP_CREATED row) — no stale rows leak.
+    const staleAudits = await db.auditLog.findMany({
+      where: { companyId: company.id, action: { in: ['RESTORE_COMPLETED', 'SECURITY_RESTORE_INITIATED'] } },
     });
-    expect(securityAudit).toHaveLength(1);
-    const securityLog = securityAudit[0];
-    expect(securityLog.userId).toBe(user.id);
-    const securityDetails = JSON.parse(securityLog.details || '{}');
-    expect(securityDetails.contractVersion).toBe(1);
+    expect(staleAudits).toHaveLength(0);
   });
 
   it('debe rechazar restauracion con backup de otra empresa', async () => {
@@ -241,7 +284,17 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     expect(restoreRes.status).toBe(400);
 
     const restoreBody = await restoreRes.json();
-    expect(restoreBody.error).toContain('does not match');
+    // Identity admission is a client rejection (AppError -> 400), not a 500.
+    expect(restoreBody.code).toBe('VALIDATION_ERROR');
+    expect(restoreBody.error).toContain('RESTORE_IDENTITY');
+    expect(restoreBody.error).toContain('mismatch');
+
+    // The rejected payload left the other tenant untouched.
+    expect(await db.glAccount.findMany({ where: { companyId: companyB.id } })).toHaveLength(0);
+    expect(await db.bankAccount.findMany({ where: { companyId: companyB.id } })).toHaveLength(0);
+    expect(
+      await db.auditLog.findMany({ where: { companyId: companyB.id, action: 'COMPANY_RESTORE_COMMITTED' } }),
+    ).toHaveLength(0);
   });
 
   it('debe rechazar datos de backup invalidos', async () => {

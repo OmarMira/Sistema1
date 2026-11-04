@@ -15,6 +15,20 @@ import { join } from 'path';
 import { readFileSync, existsSync } from 'fs';
 import type { AiChatMessage, AiToolCall, ParsedRuleFromAI } from '@/lib/types/shared';
 import { Prisma } from '@prisma/client';
+import { assertSafeCents, toCents, toMoneyNumber } from '@/lib/money';
+
+/**
+ * S3 — a Prisma.Decimal quotient (`aggregate._avg`) is not a ledger amount: it
+ * is not necessarily a whole number of cents, so rounding it through
+ * `toMoneyNumber` would change the reported average. It keeps its exact
+ * decimal→double value, but must still pass the money module's safe-cent range
+ * check instead of silently returning a drifted number.
+ */
+function guardedAverage(value: Prisma.Decimal | number | string | null | undefined): number {
+  if (value === null || value === undefined) return 0;
+  assertSafeCents(toCents(value)); // range guard only — the value is not rounded
+  return typeof value === 'number' ? value : Number(value);
+}
 
 // ─── Context management constants ───────────────────────────────────────
 const MAX_INPUT_TOKENS = 6000;
@@ -538,14 +552,17 @@ async function executeTool(
         });
 
         // G6/F6: aggregate results are no longer coerced by the client — normalize explicitly.
+        // S3: `_sum`/`_min`/`_max` are cent-granular ledger amounts, so they go
+        // through src/lib/money.ts (exact, and a loud safe-range failure instead
+        // of a drifted number). `_avg` is a quotient — see guardedAverage.
         return {
           totalCount,
           reconciledCount,
           unreconciledCount,
-          sumOfAmounts: Number(aggregations._sum.amount ?? 0),
-          averageAmount: Number(aggregations._avg.amount ?? 0),
-          minAmount: Number(aggregations._min.amount ?? 0),
-          maxAmount: Number(aggregations._max.amount ?? 0),
+          sumOfAmounts: toMoneyNumber(aggregations._sum.amount ?? 0),
+          averageAmount: guardedAverage(aggregations._avg.amount),
+          minAmount: toMoneyNumber(aggregations._min.amount ?? 0),
+          maxAmount: toMoneyNumber(aggregations._max.amount ?? 0),
         };
       }
 

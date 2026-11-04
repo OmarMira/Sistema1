@@ -44,8 +44,20 @@ export function FinancialDashboard({ companyId }: { companyId: string }) {
     fetchData();
   }, [fetchData]);
 
-  if (loading) return <div className="p-6">Cargando panel financiero...</div>;
-  if (!data) return <div className="p-6 text-red-500">Error cargando datos</div>;
+  // S11 — the loading and failure states are the two places where the dashboard
+  // would otherwise change silently for a screen reader.
+  if (loading)
+    return (
+      <div role="status" aria-live="polite" aria-busy="true" className="p-6">
+        Cargando panel financiero...
+      </div>
+    );
+  if (!data)
+    return (
+      <div role="alert" className="p-6 text-red-500">
+        Error cargando datos
+      </div>
+    );
 
   const { kpi, alerts, monthlyTrend } = data;
 
@@ -54,14 +66,19 @@ export function FinancialDashboard({ companyId }: { companyId: string }) {
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-bold">Panel Financiero Ejecutivo</h2>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={() => exportToCSV(kpi, monthlyTrend, companyId)}>
-            <Download className="w-4 h-4 mr-2" /> CSV
+          <Button
+            variant="outline"
+            aria-label="Exportar indicadores y tendencia a CSV"
+            onClick={() => exportToCSV(kpi, monthlyTrend, companyId)}
+          >
+            <Download aria-hidden="true" className="w-4 h-4 mr-2" /> CSV
           </Button>
           <Button
             variant="outline"
+            aria-label="Exportar indicadores y tendencia a PDF"
             onClick={() => exportToPDF(kpi, alerts as unknown as DashboardAlert[], monthlyTrend, companyId)}
           >
-            <Download className="w-4 h-4 mr-2" /> PDF
+            <Download aria-hidden="true" className="w-4 h-4 mr-2" /> PDF
           </Button>
         </div>
       </div>
@@ -71,7 +88,7 @@ export function FinancialDashboard({ companyId }: { companyId: string }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Wallet className="w-5 h-5" /> Activos
+              <Wallet aria-hidden="true" className="w-5 h-5" /> Activos
             </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold">${kpi.assets.toFixed(2)}</CardContent>
@@ -79,7 +96,7 @@ export function FinancialDashboard({ companyId }: { companyId: string }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5" /> Patrimonio
+              <TrendingUp aria-hidden="true" className="w-5 h-5" /> Patrimonio
             </CardTitle>
           </CardHeader>
           <CardContent className="text-2xl font-bold">${kpi.equity.toFixed(2)}</CardContent>
@@ -88,6 +105,7 @@ export function FinancialDashboard({ companyId }: { companyId: string }) {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <AlertTriangle
+                aria-hidden="true"
                 className={`w-5 h-5 ${kpi.accountingEquationCheck === 'PASS' ? 'text-green-500' : 'text-red-500'}`}
               />{' '}
               Ecuación Contable
@@ -102,7 +120,7 @@ export function FinancialDashboard({ companyId }: { companyId: string }) {
       </div>
 
       {/* Alertas */}
-      <Card>
+      <Card role="region" aria-label="Estado de integridad contable">
         <CardHeader>
           <CardTitle>Estado de Integridad</CardTitle>
         </CardHeader>
@@ -131,9 +149,9 @@ export function FinancialDashboard({ companyId }: { companyId: string }) {
             <p className="text-sm text-gray-500">Estado General</p>
             <p className="text-xl font-bold flex items-center gap-2">
               {alerts.status === 'HEALTHY' ? (
-                <CheckCircle className="w-5 h-5 text-green-600" />
+                <CheckCircle aria-hidden="true" className="w-5 h-5 text-green-600" />
               ) : (
-                <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                <AlertTriangle aria-hidden="true" className="w-5 h-5 text-yellow-600" />
               )}
               {alerts.status}
             </p>

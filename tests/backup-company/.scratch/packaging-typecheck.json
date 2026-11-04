@@ -1,0 +1,12 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true, "incremental": false, "target": "ES2022",
+    "module": "ESNext", "moduleResolution": "bundler", "allowImportingTsExtensions": true
+  },
+  "include": [
+    "../helpers.ts", "../export.test.ts", "../fidelity.test.ts", "../public-pg.integration.ts",
+    "../../../vitest.company-backup-pg.config.mts"
+  ],
+  "exclude": []
+}

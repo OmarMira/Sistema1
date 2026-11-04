@@ -1,3 +1,5 @@
+import { csvCell } from '@/lib/csv-cell';
+
 interface AccountRow {
   code: string;
   name: string;
@@ -49,7 +51,7 @@ export function exportToCSVContent(
     const tb = data as TrialBalanceData;
     content += 'Código,Cuenta,Tipo,Débito,Crédito,Saldo Neto\n';
     for (const acc of tb.accounts) {
-      content += `"${acc.code}","${acc.name}","${acc.accountType}",${acc.debit},${acc.credit},${acc.balance}\n`;
+      content += `${csvCell(acc.code)},${csvCell(acc.name)},${csvCell(acc.accountType)},${acc.debit},${acc.credit},${acc.balance}\n`;
     }
     content += `,,,${tb.totalDebits},${tb.totalCredits},\n`;
     content += `Cuadrado,${tb.balanced ? 'SÍ' : 'NO'}\n`;
@@ -58,14 +60,14 @@ export function exportToCSVContent(
     content += 'INGRESOS\n';
     content += 'Código,Cuenta,Saldo\n';
     for (const r of isData.revenues) {
-      content += `"${r.code}","${r.name}",${r.balance}\n`;
+      content += `${csvCell(r.code)},${csvCell(r.name)},${r.balance}\n`;
     }
     content += `TOTAL INGRESOS,,${isData.totalRevenue}\n\n`;
 
     content += 'EGRESOS / GASTOS\n';
     content += 'Código,Cuenta,Saldo\n';
     for (const e of isData.expenses) {
-      content += `"${e.code}","${e.name}",${e.balance}\n`;
+      content += `${csvCell(e.code)},${csvCell(e.name)},${e.balance}\n`;
     }
     content += `TOTAL GASTOS,,${isData.totalExpense}\n\n`;
     content += `UTILIDAD NETO DEL EJERCICIO,,${isData.netIncome}\n`;
@@ -74,21 +76,21 @@ export function exportToCSVContent(
     content += 'ACTIVOS (ASSETS)\n';
     content += 'Código,Cuenta,Saldo\n';
     for (const a of bs.assets) {
-      content += `"${a.code}","${a.name}",${a.balance}\n`;
+      content += `${csvCell(a.code)},${csvCell(a.name)},${a.balance}\n`;
     }
     content += `TOTAL ACTIVOS,,${bs.totalAssets}\n\n`;
 
     content += 'PASIVOS (LIABILITIES)\n';
     content += 'Código,Cuenta,Saldo\n';
     for (const l of bs.liabilities) {
-      content += `"${l.code}","${l.name}",${l.balance}\n`;
+      content += `${csvCell(l.code)},${csvCell(l.name)},${l.balance}\n`;
     }
     content += `TOTAL PASIVOS,,${bs.totalLiabilities}\n\n`;
 
     content += 'PATRIMONIO (EQUITY)\n';
     content += 'Código,Cuenta,Saldo\n';
     for (const eq of bs.equities) {
-      content += `"${eq.code}","${eq.name}",${eq.balance}\n`;
+      content += `${csvCell(eq.code)},${csvCell(eq.name)},${eq.balance}\n`;
     }
     content += `TOTAL PATRIMONIO,,${bs.totalEquity}\n\n`;
     content += `TOTAL PASIVO + PATRIMONIO,,${bs.totalLiabilities + bs.totalEquity}\n`;

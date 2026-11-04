@@ -72,6 +72,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   m.getSessionUserId.mockResolvedValue('user-coverage-1');
   m.requestContextRun.mockImplementation(async (_c: unknown, fn: () => Promise<unknown>) => fn());
+  // S4 (Wave 6): POST /api/companies is now a platform-super_admin operation,
+  // so the apiHandler reads the caller's platformRole before the handler runs.
+  dbMocks.userFindUnique.mockResolvedValue({ platformRole: 'super_admin' });
 });
 
 // ═══════════════════════════════════════════════════════════════════

@@ -786,7 +786,11 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
   let accountHolder: string | undefined;
 
   try {
-    const activeProfiles = await getAllActiveProfiles();
+    // S1 (Wave 5): profiles are resolved for the importing company. Fingerprint
+    // matching sees the company's own profiles first plus the global seeds, and
+    // every learned profile is written company-scoped only.
+    const profileCompanyId = options?.companyId ?? null;
+    const activeProfiles = await getAllActiveProfiles(profileCompanyId);
     // Sort: profiles that DON'T require review (official/verified) first
     const sorted = [...activeProfiles].sort((a, b) => {
       if (a.requiresReview === b.requiresReview) return 0;
@@ -832,7 +836,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
             page: el.page,
           })),
           firstPageSample: fullText.slice(0, 2000),
-        });
+        }, profileCompanyId);
 
         if (healedProfile) {
           const parseResult = runParseWithProfile(
@@ -851,7 +855,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
             mismatch = parseResult.mismatch;
             warnings.push(...parseResult.warnings);
             if (parseResult.mathValid) {
-              await updateRequiresReviewStatus(healedProfile.bankId, false);
+              await updateRequiresReviewStatus(healedProfile.bankId, false, profileCompanyId);
             }
           }
         }
@@ -875,7 +879,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
             page: el.page,
           })),
           firstPageSample: fullText.slice(0, 2000),
-        });
+        }, profileCompanyId);
 
         if (newProfile) {
           const parseResult = runParseWithProfile(linesOfElements, pageWidth, fullText, newProfile);
@@ -888,7 +892,7 @@ export async function parsePDF(buffer: Buffer, options?: ParseOptions): Promise<
           mismatch = parseResult.mismatch;
           warnings.push(...parseResult.warnings);
           if (parseResult.mathValid) {
-            await updateRequiresReviewStatus(newProfile.bankId, false);
+            await updateRequiresReviewStatus(newProfile.bankId, false, profileCompanyId);
           }
         }
       } catch (onboardErr) {

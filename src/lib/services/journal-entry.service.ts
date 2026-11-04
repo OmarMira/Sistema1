@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { toNum } from '@/lib/utils/decimal';
+import { fromCents, sumCents, toCents } from '@/lib/money';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
 
@@ -34,14 +35,18 @@ export class JournalEntryService {
 
     await assertActiveFiscalPeriod(companyId, bankTxDate, prisma);
 
-    const amount = Math.abs(bankTxAmount);
-    if (amount < 0.01) return null;
+    // S3: the amount threshold is a money comparison in cents (identical to the
+    // previous `< 0.01` test for every Decimal(18,2) amount) and the amount that
+    // reaches the ledger is the exact cent value.
+    const amountCents = Math.abs(toCents(bankTxAmount));
+    if (amountCents === 0) return null;
 
-    const isDeposit = bankTxAmount > 0;
+    const isDeposit = toCents(bankTxAmount) > 0;
     const debitAccountId = isDeposit ? bankGlAccountId : counterpartyGlAccountId;
     const creditAccountId = isDeposit ? counterpartyGlAccountId : bankGlAccountId;
 
     const description = `Bank: ${bankTxDescription}`;
+    const amount = fromCents(amountCents);
 
     const entry = await prisma.journalEntry.create({
       data: {
@@ -85,6 +90,11 @@ export class JournalEntryService {
    * Recalculate a single GL account's balance from its journal lines.
    * For debit-normal accounts: balance = SUM(debit) - SUM(credit)
    * For credit-normal accounts: balance = SUM(credit) - SUM(debit)
+   *
+   * S3: the aggregate `_sum` values arrive as Prisma.Decimal (aggregate/groupBy
+   * results are not coerced by the db.ts result layer), so they are normalized
+   * through src/lib/money.ts and the subtraction happens in integer cents. The
+   * stored balance is derived from those cents, never from a float `+`/`-`.
    */
   static async recalculateBalance(
     prisma: Prisma.TransactionClient,
@@ -110,19 +120,19 @@ export class JournalEntryService {
       _sum: { debit: true, credit: true },
     });
 
-    const totalDebit = Number(totals._sum.debit || 0);
-    const totalCredit = Number(totals._sum.credit || 0);
+    const totalDebitCents = toCents(totals._sum.debit ?? 0);
+    const totalCreditCents = toCents(totals._sum.credit ?? 0);
 
     // Debit-normal (asset, expense): balance = debit - credit
     // Credit-normal (liability, equity, revenue): balance = credit - debit
-    const balance =
+    const balanceCents =
       glAccount.normalBalance === 'debit'
-        ? totalDebit - totalCredit
-        : totalCredit - totalDebit;
+        ? sumCents(totalDebitCents, -totalCreditCents)
+        : sumCents(totalCreditCents, -totalDebitCents);
 
     await prisma.glAccount.update({
       where: { id: glAccountId },
-      data: { balance },
+      data: { balance: fromCents(balanceCents) },
     });
   }
 

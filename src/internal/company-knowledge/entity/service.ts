@@ -36,6 +36,12 @@ export interface ConfirmCreateInput {
   pendingApprovalId: string;
   companyId: string;
   reason?: string;
+  /**
+   * Four-eyes (S21): when true the confirmer must not be the proposer of this
+   * same pending item. Opt-in so non-interactive/internal callers keep their
+   * existing contract; the HTTP approval routes always enable it.
+   */
+  requireDistinctApprover?: boolean;
 }
 
 export interface ProposeUpdateInput {
@@ -54,6 +60,8 @@ export interface ConfirmUpdateInput {
   pendingApprovalId: string;
   companyId: string;
   reason?: string;
+  /** See ConfirmCreateInput.requireDistinctApprover. */
+  requireDistinctApprover?: boolean;
 }
 
 export interface ArchiveInput {
@@ -73,6 +81,12 @@ export interface MergeInput {
   targetKnowledgeId: string;
   companyId: string;
   fieldResolutions: Record<string, unknown>;
+  reason?: string;
+}
+
+export interface RollbackInput {
+  knowledgeId: string;
+  companyId: string;
   reason?: string;
 }
 
@@ -222,6 +236,28 @@ async function acquireCompanyLock(
 }
 
 /**
+ * S21 four-eyes guard — the confirmer must not be the proposer of the very
+ * same pending item. Runs inside the confirm transaction, before any write and
+ * before the once-only CAS, so a refused self-approval leaves the pending item
+ * untouched. Opt-in: only callers that pass requireDistinctApprover enforce it.
+ */
+function assertDistinctApprover(params: {
+  requireDistinctApprover?: boolean;
+  requestedBy?: string | null;
+}): void {
+  if (!params.requireDistinctApprover) return;
+  const requestedBy = params.requestedBy ?? '';
+  if (!requestedBy || requestedBy === 'system') return;
+
+  const approverId = requireCurrentUserId();
+  if (approverId === requestedBy) {
+    throw new ForbiddenError(
+      'Four-eyes violation: the proposer of a pending approval cannot confirm it',
+    );
+  }
+}
+
+/**
  * G8-2 identity disjointness precheck — reject identity collisions with
  * 409 BEFORE any write. Candidate canonicalName + aliases are compared
  * against canonicalName + aliases of other ACTIVE entities of the same
@@ -347,6 +383,12 @@ export async function confirmCreate(
     if (pending.action !== 'create') {
       throw new Error('PendingApproval action must be "create"');
     }
+
+    // Four-eyes (S21): the same human cannot approve their own proposal.
+    assertDistinctApprover({
+      requireDistinctApprover: input.requireDistinctApprover,
+      requestedBy: pending.requestedBy,
+    });
 
     const payload = pending.payload as Record<string, unknown>;
 
@@ -512,6 +554,12 @@ export async function confirmUpdate(
     if (pending.action !== 'update') {
       throw new Error('PendingApproval action must be "update"');
     }
+
+    // Four-eyes (S21): the same human cannot approve their own proposal.
+    assertDistinctApprover({
+      requireDistinctApprover: input.requireDistinctApprover,
+      requestedBy: pending.requestedBy,
+    });
 
     const payload = pending.payload as Record<string, unknown>;
     const updates = payload.updates as Record<string, unknown>;
@@ -727,6 +775,158 @@ export async function restore(
       source: 'company_knowledge',
       reason: input.reason ?? 'Entity restored',
       client: tx,
+    });
+
+    return record as unknown as CompanyKnowledgeRecord;
+  });
+}
+
+// ───────────────────────────────────────────────
+// Rollback — one-step undo of the last audited identity state
+// ───────────────────────────────────────────────
+
+/**
+ * S9 — restore a CompanyKnowledge identity from the audit trail.
+ *
+ * Contract:
+ *   - ONE-STEP undo only: the target state is the `beforeValue` of the MOST
+ *     RECENT KnowledgeAudit row for this entity. There is no arbitrary
+ *     time travel, and no version may be selected by the caller.
+ *   - Refuses when the entity has no audit history, or when that most recent
+ *     entry has no `beforeValue` (a `create` — the previous state is "nothing").
+ *   - Audits the rollback itself (action 'ROLLBACK') in the SAME transaction and
+ *     increments the version, so the after-state stays auditable.
+ *   - Restores identity fields only (canonicalName, aliases, relationship,
+ *     metadata). `status` and merge lineage are NOT rewound: archive/restore and
+ *     merge own those transitions and a rollback must never resurrect an
+ *     archived or merged entity.
+ *   - Runs inside one interactive transaction whose first statement is the
+ *     Company row lock, exactly like every other identity mutation here.
+ */
+export async function rollbackEntityIdentity(
+  input: RollbackInput,
+): Promise<CompanyKnowledgeRecord> {
+  return db.$transaction(async (tx) => {
+    // 1. Company FOR UPDATE first — zero rows fails before any write.
+    await acquireCompanyLock(
+      tx as unknown as Prisma.TransactionClient,
+      input.companyId,
+    );
+
+    // 2. Re-read + tenant check inside the same transaction.
+    const existing = await tx.companyKnowledge.findUnique({
+      where: { id: input.knowledgeId },
+    });
+
+    if (!existing) {
+      throw new Error(`CompanyKnowledge ${input.knowledgeId} not found`);
+    }
+
+    if (existing.companyId !== input.companyId) {
+      throw new Error('Company isolation violation');
+    }
+
+    // 3. Most recent audit row for this entity — the only rollback target.
+    const latestAudit = await tx.knowledgeAudit.findFirst({
+      where: { knowledgeId: input.knowledgeId },
+      orderBy: [{ timestamp: 'desc' }, { id: 'desc' }],
+    });
+
+    if (!latestAudit) {
+      throw new Error(
+        `No audit history for CompanyKnowledge ${input.knowledgeId}: nothing to roll back`,
+      );
+    }
+
+    const beforeValue = latestAudit.beforeValue;
+    if (
+      beforeValue === null ||
+      typeof beforeValue !== 'object' ||
+      Array.isArray(beforeValue)
+    ) {
+      throw new Error(
+        `Audit entry ${latestAudit.id} has no beforeValue: nothing to roll back`,
+      );
+    }
+
+    const before = beforeValue as Record<string, unknown>;
+
+    // 4. Restorable identity fields — type-checked, identity fields only.
+    const restoreData: Record<string, unknown> = {};
+
+    if (typeof before.canonicalName === 'string' && before.canonicalName.trim() !== '') {
+      restoreData.canonicalName = before.canonicalName;
+    }
+
+    if (
+      Array.isArray(before.aliases) &&
+      before.aliases.every((alias) => typeof alias === 'string')
+    ) {
+      restoreData.aliases = before.aliases as string[];
+    }
+
+    if (Object.prototype.hasOwnProperty.call(before, 'relationship')) {
+      if (typeof before.relationship === 'string' || before.relationship === null) {
+        restoreData.relationship = before.relationship;
+      }
+    }
+
+    if (
+      before.metadata !== null &&
+      typeof before.metadata === 'object' &&
+      !Array.isArray(before.metadata)
+    ) {
+      restoreData.metadata = before.metadata as Record<string, unknown>;
+    }
+
+    if (Object.keys(restoreData).length === 0) {
+      throw new Error(
+        `Audit entry ${latestAudit.id} has no restorable identity fields`,
+      );
+    }
+
+    const newVersion = existing.version + 1;
+
+    // 5. Identity disjointness precheck BEFORE the write, only while the entity
+    //    is active (archived/merged rows never reserve identity).
+    if (existing.status === 'active') {
+      await assertIdentityDisjoint(tx as unknown as Prisma.TransactionClient, {
+        companyId: existing.companyId,
+        canonicalName:
+          (restoreData.canonicalName as string | undefined) ?? existing.canonicalName,
+        aliases: (restoreData.aliases as string[] | undefined) ?? existing.aliases,
+        excludeKnowledgeId: existing.id,
+      });
+    }
+
+    restoreData.version = newVersion;
+
+    const record = await tx.companyKnowledge.update({
+      where: { id: input.knowledgeId },
+      data: restoreData,
+    });
+
+    // 6. Audit the rollback itself on the SAME transaction client.
+    await appendAuditEntry({
+      client: tx,
+      knowledgeId: input.knowledgeId,
+      action: 'ROLLBACK',
+      version: newVersion,
+      beforeValue: {
+        canonicalName: existing.canonicalName,
+        aliases: existing.aliases,
+        relationship: existing.relationship,
+        metadata: existing.metadata as Record<string, unknown>,
+      },
+      afterValue: {
+        canonicalName: record.canonicalName,
+        aliases: record.aliases,
+        relationship: record.relationship,
+        metadata: record.metadata as Record<string, unknown>,
+        rolledBackFromAuditId: latestAudit.id,
+      },
+      source: existing.source,
+      reason: input.reason ?? 'Entity rolled back to its previous audited state',
     });
 
     return record as unknown as CompanyKnowledgeRecord;

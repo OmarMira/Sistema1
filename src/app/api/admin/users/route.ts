@@ -6,6 +6,7 @@ import { requireCurrentUserId } from '@/lib/context-storage';
 import { saveLogo } from '@/lib/uploads/logo-service';
 import { createAdminUserSchema } from '@/lib/validations/admin';
 import { parseAdminBody } from '@/lib/parse-admin-body';
+import { createAuditLogWithRetry } from '@/lib/audit';
 
 export const GET = apiHandler(
   async (_request: NextRequest, _context: RouteContext) => {
@@ -109,14 +110,14 @@ export const POST = apiHandler(
       },
     });
 
-    await db.auditLog.create({
-      data: {
-        userId,
-        action: 'create_user',
-        entity: 'User',
-        entityId: newUser.id,
-        details: `Created user ${newUser.email}`,
-      },
+    // S17b: routed through the chained writer so this row is sealed into the
+    // audit hash chain instead of being persisted unhashed.
+    await createAuditLogWithRetry({
+      userId,
+      action: 'create_user',
+      entity: 'User',
+      entityId: newUser.id,
+      details: `Created user ${newUser.email}`,
     });
 
     const { platformRole, ...userPayload } = newUser;

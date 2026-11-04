@@ -55,6 +55,8 @@ export function DesktopNavItems({ collapsed }: { collapsed: boolean }) {
                 onClick={itemDisabled ? undefined : () => handleNav(item.view)}
                 disabled={itemDisabled}
                 aria-disabled={itemDisabled}
+                aria-current={isActive ? 'page' : undefined}
+                aria-label={collapsed ? t(item.labelKey) : undefined}
                 className={cn(
                   'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                   collapsed ? 'justify-center' : 'w-full',
@@ -63,7 +65,7 @@ export function DesktopNavItems({ collapsed }: { collapsed: boolean }) {
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
                 )}
               >
-                <item.icon className="size-4 shrink-0" />
+                <item.icon aria-hidden="true" className="size-4 shrink-0" />
                 {!collapsed && t(item.labelKey)}
               </button>
             </TooltipTrigger>
@@ -78,12 +80,13 @@ export function DesktopNavItems({ collapsed }: { collapsed: boolean }) {
         <TooltipTrigger asChild>
           <button
             onClick={() => setAiAssistantOpen(true)}
+            aria-label={collapsed ? t('aiAssistant.title') : undefined}
             className={cn(
               'flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-purple-500/10 hover:text-purple-500 transition-colors',
               collapsed ? 'justify-center' : 'w-full',
             )}
           >
-            <Sparkles className="size-4 shrink-0" />
+            <Sparkles aria-hidden="true" className="size-4 shrink-0" />
             {!collapsed && t('aiAssistant.title')}
           </button>
         </TooltipTrigger>

@@ -4,11 +4,14 @@ import { db } from '@/lib/db';
 import { safeAuditLog } from './audit-service';
 import { logger } from '@/lib/logger';
 import { checkPromptInjection, addSystemDelimiter } from '@/lib/guardrails';
+import { normalizeConfidence, toConfidenceLabel } from '@/lib/confidence';
 import { findContext } from '@/lib/services/entity-context-service';
 import { ROLE_ACCOUNT_MAP } from '@/lib/constants/role-account-map';
 import type { EntityRole } from '@/lib/constants/entity-roles';
 import { serverT } from '@/lib/server-i18n';
 import { getAiConfig } from '@/lib/ai-config';
+import { assertAiCallAllowed, extractTotalTokens, recordAiTokenUsage } from '@/lib/ai-quota';
+import { AppError } from '@/lib/api-error';
 import { safeFetch } from '@/lib/security/safe-fetch';
 import type { RuleCondition, AssistantConfig } from '@/lib/types/shared';
 import { collectSignals } from './signal-collector';
@@ -29,6 +32,12 @@ export interface ConversationalParseResult {
     accountType?: string;
     normalBalance?: string;
   };
+  /**
+   * S21c: a read path never writes master data. When the resolved code is a
+   * well-known system account that does not exist yet, the proposal is returned
+   * here (structured) for the caller/UI to create deliberately.
+   */
+  suggestedGlAccount?: SuggestedGlAccount | null;
   conditions?: RuleCondition[] | null;
   confidence: number;
   confidenceLabel: 'high' | 'medium' | 'low';
@@ -39,6 +48,60 @@ export interface ConversationalParseResult {
     entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset';
   } | null;
 }
+
+export interface SuggestedGlAccount {
+  code: string;
+  name: string;
+  accountType: string;
+  normalBalance: string;
+  parentCode: string;
+}
+
+/**
+ * System accounts the classifier may propose when they are missing. Proposing
+ * is a suggestion only — nothing is written from this module (S21c).
+ */
+const SUGGESTED_SYSTEM_ACCOUNTS: Record<string, SuggestedGlAccount> = {
+  '3010': {
+    code: '3010',
+    name: 'Partner Contributions / Capital',
+    accountType: 'equity',
+    normalBalance: 'credit',
+    parentCode: '3000',
+  },
+  '3040': {
+    code: '3040',
+    name: "Owner's Draw / Partner Withdrawals",
+    accountType: 'equity',
+    normalBalance: 'debit',
+    parentCode: '3000',
+  },
+};
+
+/** Compact, log-safe provider error summary (no prompt/PII payloads). */
+function aiErrorSummary(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+/**
+ * S9 — grade reported when KE knowledge decided the answer.
+ *
+ * The two hardcoded `confidence: 0.95` / `confidenceLabel: 'high'` pairs that
+ * used to sit at the exact-treatment and structural-pattern return sites are a
+ * DELIBERATE product policy, not a pending-approval placeholder: KE-EVOL-003
+ * makes a KE treatment authoritative even when its stored confidence is
+ * `tentative` and discloses that tentativeness through `explanation` /
+ * `uncertaintyReasons` instead of downgrading the grade (pinned by
+ * tests/services/conversational-service.test.ts T19 and
+ * tests/services/conversational-structural.test.ts T37). The grade therefore
+ * stays the authoritative `certain` bucket, but its number and its UI label now
+ * come from the single documented confidence vocabulary (src/lib/confidence.ts)
+ * so the pair can never drift apart again.
+ */
+const KE_AUTHORITATIVE_GRADE = normalizeConfidence('certain');
+const KE_AUTHORITATIVE_CONFIDENCE = KE_AUTHORITATIVE_GRADE.score;
+const KE_AUTHORITATIVE_LABEL = toConfidenceLabel(KE_AUTHORITATIVE_GRADE.level);
 
 // ── Internal: read assistant config from disk ──
 function readAssistantConfigSync(): AssistantConfig {
@@ -74,6 +137,8 @@ export async function parseWithAI(
     canonicalName: string;
     entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset';
   } | null;
+  /** Tokens billed by the provider for this response (0 when not exposed). */
+  tokenUsage: number;
 }> {
   const { apiKey, baseUrl, model } = deps;
   const fetchFn = deps.fetch ?? safeFetch;
@@ -181,6 +246,7 @@ export async function parseWithAI(
         suggestSubAccount: Boolean(parsed.suggestSubAccount),
         subAccountName: parsed.subAccountName ? String(parsed.subAccountName) : null,
         proposedEntity,
+        tokenUsage: extractTotalTokens(resData),
       };
     } catch (err: unknown) {
       clearTimeout(timeout);
@@ -420,8 +486,9 @@ export async function parseConversationalContext(
             normalBalance: account?.normalBalance ?? undefined,
           },
           conditions: [{ field: 'description', operator: 'contains', value: pattern }],
-          confidence: 0.95,
-          confidenceLabel: 'high',
+          // S9: authoritative KE grade from the single confidence vocabulary.
+          confidence: KE_AUTHORITATIVE_CONFIDENCE,
+          confidenceLabel: KE_AUTHORITATIVE_LABEL,
           explanation: isTentative
             ? `KE treatment found for entity ${entityResolution.entityId} - treatment confidence: tentative (applied as authoritative, knowledge evidence is not final)`
             : `KE treatment found for entity ${entityResolution.entityId}`,
@@ -519,8 +586,9 @@ export async function parseConversationalContext(
             normalBalance: structuralAccount?.normalBalance ?? undefined,
           },
           conditions: [{ field: 'description', operator: 'contains', value: pattern }],
-          confidence: 0.95,
-          confidenceLabel: 'high',
+          // S9: authoritative KE grade from the single confidence vocabulary.
+          confidence: KE_AUTHORITATIVE_CONFIDENCE,
+          confidenceLabel: KE_AUTHORITATIVE_LABEL,
           explanation: `Authorized structural treatment applied (pattern ${structural.authorizedPatternId}, candidate ${structural.sourceCandidateId}) for entity ${entityResolution.entityId}`,
           uncertaintyReasons: [],
         };
@@ -589,20 +657,30 @@ export async function parseConversationalContext(
     apiKey = aiConfig.apiKey;
     baseUrl = aiConfig.baseUrl;
     model = aiConfig.model;
-  } catch {
-    // AI not configured
+  } catch (configError) {
+    // No silent failures (S21e): the reason is always observable.
+    logger.warn('[CONVERSATIONAL AI CONFIG UNAVAILABLE]', {
+      companyId,
+      error: aiErrorSummary(configError),
+    });
   }
 
   let aiResponse: { role?: string; glAccountCode?: string; proposedEntity?: { canonicalName: string; entityType: 'person' | 'company' | 'financial_product' | 'platform' | 'asset' } | null } | null = null;
 
   if (apiKey && baseUrl && model) {
     try {
+      // S21d: kill switch + per-company daily token budget gate every call.
+      await assertAiCallAllowed(companyId);
+
       const parsed = await parseWithAI(pattern, userInput, {
         apiKey,
         baseUrl,
         model,
         fetch: fetchFn,
       });
+
+      // S21d: capture provider-reported usage for the daily budget.
+      await recordAiTokenUsage(companyId, parsed.tokenUsage);
 
       if (userId) {
         safeAuditLog({
@@ -633,8 +711,16 @@ export async function parseConversationalContext(
           });
         }
       }
-    } catch {
-      // AI failed
+    } catch (aiError) {
+      // No silent failures (S21e): a provider/quota failure is logged with a
+      // compact error summary, never swallowed. AI is one signal among several,
+      // so the heuristic pipeline still decides for this request.
+      logger.warn('[CONVERSATIONAL AI CALL FAILED]', {
+        companyId,
+        pattern,
+        code: aiError instanceof AppError ? aiError.code : undefined,
+        error: aiErrorSummary(aiError),
+      });
     }
   }
 
@@ -667,63 +753,19 @@ export async function parseConversationalContext(
       db: prismaClient,
     });
 
-    // Auto-create known system accounts if missing
+    // S21c: a read path never creates GL accounts. A missing well-known system
+    // account is returned as a structured suggestion instead of being written.
+    let suggestedGlAccount: SuggestedGlAccount | null = null;
     if (!glAccountId) {
-      const SYSTEM_ACCOUNTS: Record<
-        string,
-        { name: string; type: string; normalBalance: string; parentCode: string }
-      > = {
-        '3010': {
-          name: "Partner Contributions / Capital",
-          type: 'equity',
-          normalBalance: 'credit',
-          parentCode: '3000',
-        },
-        '3040': {
-          name: "Owner's Draw / Partner Withdrawals",
-          type: 'equity',
-          normalBalance: 'debit',
-          parentCode: '3000',
-        },
-      };
-
-      const def = SYSTEM_ACCOUNTS[glAccountCode];
+      const def = SUGGESTED_SYSTEM_ACCOUNTS[glAccountCode];
       if (def) {
-        try {
-          const client = prismaClient ?? db;
-          const parent = await client.glAccount.findFirst({
-            where: { companyId, code: def.parentCode, isActive: true },
-          });
-          const created = await client.glAccount.create({
-            data: {
-              companyId,
-              code: glAccountCode,
-              name: def.name,
-              accountType: def.type,
-              normalBalance: def.normalBalance,
-              parentId: parent?.id ?? null,
-              isActive: true,
-            },
-          });
-          glAccountId = created.id;
-          account = {
-            code: created.code,
-            name: created.name,
-            accountType: created.accountType,
-            normalBalance: created.normalBalance,
-          };
-          logger.info('[AUTO-CREATED SYSTEM ACCOUNT]', {
-            code: glAccountCode,
-            companyId,
-            accountId: created.id,
-          });
-        } catch (createErr) {
-          logger.warn('[FAILED TO AUTO-CREATE SYSTEM ACCOUNT]', {
-            code: glAccountCode,
-            companyId,
-            error: String(createErr),
-          });
-        }
+        suggestedGlAccount = { ...def };
+        account = {
+          code: def.code,
+          name: def.name,
+          accountType: def.accountType,
+          normalBalance: def.normalBalance,
+        };
       }
     }
 
@@ -752,6 +794,7 @@ export async function parseConversationalContext(
         accountType: account.accountType ?? undefined,
         normalBalance: account.normalBalance ?? undefined,
       },
+      suggestedGlAccount,
       conditions,
       confidence: result.confidence,
       confidenceLabel: result.confidenceLabel,

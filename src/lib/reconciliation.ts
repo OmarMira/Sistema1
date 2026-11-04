@@ -1,4 +1,5 @@
 import { db } from '@/lib/db';
+import { toMoneyNumber } from '@/lib/money';
 
 /**
  * Recalculate the bank account balance based on all reconciled transactions.
@@ -24,8 +25,10 @@ export async function recalculateBankAccountBalance(bankAccountId: string): Prom
     },
   });
 
-  // G6/F6: aggregate results are no longer coerced by the client — normalize explicitly.
-  const reconciledTotal = Number(result._sum.amount ?? 0);
+  // G6/F6: aggregate results are no longer coerced by the client — normalize
+  // explicitly. S3: the `_sum` arrives as Prisma.Decimal, so it is normalized
+  // through src/lib/money.ts (exact cents, loud safe-range failure).
+  const reconciledTotal = toMoneyNumber(result._sum.amount ?? 0);
 
   // Update the bank account balance
   await db.bankAccount.update({

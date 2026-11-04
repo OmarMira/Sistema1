@@ -124,6 +124,9 @@ export const PUT = apiHandler(async (request: NextRequest, context: RouteContext
         const unlinkedLines = await tx.journalLine.findMany({
           where: {
             glAccountId: bankGlAccountId,
+            // S17a: posted-only, matching the /api/accounts aggregation (S8) and
+            // JournalEntryService.recalculateBalance. Draft/void lines must never
+            // move the opening-balance effect this guard compares against.
             entry: { companyId, status: 'posted', transactions: { none: {} } },
           },
           select: { debit: true, credit: true },

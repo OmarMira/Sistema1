@@ -3,7 +3,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { requireGlobalAdminRole } from '@/lib/rbac';
 import { safeFetch } from '@/lib/security/safe-fetch';
-import { getAiConfig, setAiConfig } from '@/lib/ai-config';
+import { getAiConfig, isMaskedKeyPayload, maskAiApiKey, setAiConfig, setAiConfigMetadata, type AiConfig } from '@/lib/ai-config';
 import {
   AI_CONFIG,
   AiProviderReconfigurationError,
@@ -20,10 +20,7 @@ export const GET = apiHandler(
 
     try {
       const config = await getAiConfig();
-      const maskedKey =
-        config.apiKey.length > 8
-          ? config.apiKey.slice(0, 4) + '...' + config.apiKey.slice(-4)
-          : '...';
+      const maskedKey = maskAiApiKey(config.apiKey);
 
       logger.info('[AI CONFIG GET]', { model: config.model, baseUrl: config.baseUrl, providerId: config.providerId });
 
@@ -73,6 +70,57 @@ export const GET = apiHandler(
   { requireMembership: false },
 );
 
+async function readStoredConfig(): Promise<AiConfig | null> {
+  try {
+    return await getAiConfig();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save request that carries the masked placeholder instead of a real key: the
+ * user did not change the key, so the stored one is kept and never re-encrypted.
+ * Only metadata (model) may change; switching provider requires a new key.
+ */
+async function saveWithUnchangedKey(params: {
+  model: unknown;
+  resolvedBaseUrl: string;
+}): Promise<NextResponse> {
+  const stored = await readStoredConfig();
+  if (!stored) {
+    return NextResponse.json(
+      { error: 'No hay una clave de API válida guardada. Ingresá tu clave para activar la IA.' },
+      { status: 400 },
+    );
+  }
+
+  if (stored.baseUrl !== params.resolvedBaseUrl) {
+    return NextResponse.json(
+      {
+        error: 'Para cambiar de proveedor tenés que ingresar la clave de API del nuevo proveedor.',
+        code: 'AI_KEY_REQUIRED_FOR_PROVIDER_CHANGE',
+      },
+      { status: 400 },
+    );
+  }
+
+  const nextModel =
+    typeof params.model === 'string' && params.model.trim() ? params.model.trim() : stored.model;
+
+  // The stored key and baseUrl stay exactly as they are; only the model can move.
+  if (nextModel !== stored.model) {
+    await setAiConfigMetadata({ model: nextModel, baseUrl: stored.baseUrl });
+    logger.info('[AI CONFIG] Saved metadata with unchanged key', { model: nextModel });
+  }
+
+  return NextResponse.json({
+    success: true,
+    providerId: stored.providerId,
+    keyUnchanged: true,
+  });
+}
+
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
     const userId = requireCurrentUserId();
@@ -113,6 +161,13 @@ export const POST = apiHandler(
         resolvedBaseUrl = baseUrl.trim();
       } else {
         resolvedBaseUrl = AI_CONFIG.BASE_URL;
+      }
+
+      // Never persist the masked placeholder: the UI echoes back what GET returned,
+      // and a verify response of success-with-warning (HTTP 429) used to let it be
+      // encrypted over the real key, destroying it.
+      if (isMaskedKeyPayload(apiKey)) {
+        return await saveWithUnchangedKey({ model, resolvedBaseUrl });
       }
 
       // Persist to DB — encrypts internally via setAiConfig and clears the cache.

@@ -6,7 +6,7 @@ import { parsePDF } from '@/lib/pdf-parser';
 import { db } from '@/lib/db';
 import { invalidateAllProfilesCache } from '@/lib/bank-profile-service';
 import { BankProfileConfigSchema } from '@/lib/bank-profile-schema';
-import { clearDatabase } from '../helpers/factories';
+import { clearDatabase, createTestCompany } from '../helpers/factories';
 
 /**
  * Block 5 — PDF format learning loop certification.
@@ -16,7 +16,8 @@ import { clearDatabase } from '../helpers/factories';
  *   -> second equivalent PDF -> persisted fingerprint match
  *   -> profile reuse -> NO second learning call.
  *
- * Only the external inference boundary (z-ai-web-dev-sdk) is substituted with
+ * Only the external inference boundary (the import AI client that talks to the
+ * installation's configured provider) is substituted with
  * a deterministic response equivalent to a valid provider answer. Every other
  * link of the loop (pdf-parser, createProfileFromPdf, upsertBankProfile,
  * getAllActiveProfiles, fingerprint matching, runParseWithProfile, Prisma) is
@@ -26,16 +27,9 @@ import { clearDatabase } from '../helpers/factories';
 // ── External boundary: inference provider only ──────────────────────────────
 const llmCreate = vi.hoisted(() => vi.fn());
 
-vi.mock('z-ai-web-dev-sdk', () => ({
-  default: {
-    create: async () => ({
-      chat: {
-        completions: {
-          create: (args: unknown) => llmCreate(args),
-        },
-      },
-    }),
-  },
+vi.mock('@/lib/import-ai-client', () => ({
+  requestImportProfile: (systemPrompt: string, userPrompt: string, timeoutMs: number) =>
+    llmCreate(systemPrompt, userPrompt, timeoutMs),
 }));
 
 // ── Fixture ─────────────────────────────────────────────────────────────────
@@ -117,33 +111,93 @@ async function resetFormatState(): Promise<void> {
   invalidateAllProfilesCache();
 }
 
+/**
+ * The product ships one packaged format definition (`boa-standard`) that is
+ * always available in memory, so this fixture would be parsed by it and the
+ * learning loop would never run. `getAllActiveProfiles` suppresses a packaged
+ * definition when any stored row shares its bankId, so an inactive row is the
+ * documented way to start from a knowledge base that holds no usable format.
+ */
+async function suppressPackagedProfiles(): Promise<void> {
+  await db.bankProfile.create({
+    data: {
+      bankId: 'boa-standard',
+      companyId: null,
+      bankName: 'Bank of America',
+      fingerprints: JSON.stringify(['Bank of America', 'Business Advantage Relationship Banking']),
+      config: JSON.stringify({
+        layoutType: 'SINGLE_AMOUNT_COLUMN',
+        lineGroupingTolerancePx: 5,
+        numberFormat: {
+          decimalSeparator: '.',
+          thousandsSeparator: ',',
+          negativeIndicator: 'MINUS_SIGN',
+          negativePosition: 'PREFIX',
+        },
+        rules: {
+          anchor: { regex: '^\\d{2}/\\d{2}/\\d{2}$', columnRange: [0, 0.18] },
+          columns: { date: [0, 0.18], description: [0.18, 0.8], amount: [0.8, 1] },
+          metadata: { accountNumber: [], initialBalance: [], finalBalance: [] },
+        },
+      }),
+      isActive: false,
+      requiresReview: false,
+    },
+  });
+  invalidateAllProfilesCache();
+}
+
+// S1 (Wave 5): learned profiles are company-scoped, so the loop under test only
+// persists when the parser knows which tenant is importing. Each test gets its
+// own company and the rows are removed again in afterEach.
+const COMPANY_IDS: string[] = [];
+
+async function makeCompany(): Promise<string> {
+  const company = await createTestCompany(`Block5 format learning ${Date.now()}`, 'BUSINESS', {
+    seedEntitlements: false,
+  });
+  COMPANY_IDS.push(company.id);
+  return company.id;
+}
+
+async function dropCompanies(): Promise<void> {
+  const ids = COMPANY_IDS.splice(0);
+  if (ids.length === 0) return;
+  await db.bankProfile.deleteMany({ where: { companyId: { in: ids } } });
+  await db.company.deleteMany({ where: { id: { in: ids } } });
+  invalidateAllProfilesCache();
+}
+
 describe('Block 5 — PDF format learning loop', () => {
+  let companyId: string;
+
   beforeEach(async () => {
     await resetFormatState();
+    await suppressPackagedProfiles();
     llmCreate.mockReset();
-    llmCreate.mockImplementation(async () => ({
-      choices: [{ message: { content: JSON.stringify(PROVIDER_RESPONSE) } }],
-    }));
+    llmCreate.mockImplementation(async () => JSON.stringify(PROVIDER_RESPONSE));
+    companyId = await makeCompany();
   });
 
   afterEach(async () => {
     await resetFormatState();
+    await dropCompanies();
   });
 
   it('learns once, persists the profile, and reuses it on the second import without relearning', async () => {
     const pdfBuffer = readFileSync(join(FIXTURE_DIR, FIXTURE_NAME));
 
     // ── Initial state: provably no usable format knowledge ──────────────────
-    const initialProfiles = await db.bankProfile.findMany();
+    const initialProfiles = await db.bankProfile.findMany({ where: { isActive: true } });
     expect(initialProfiles).toHaveLength(0);
     expect(llmCreate).toHaveBeenCalledTimes(0);
 
     // ── First occurrence ────────────────────────────────────────────────────
-    const first = await parsePDF(pdfBuffer, { fileName: FIXTURE_NAME });
+    const first = await parsePDF(pdfBuffer, { fileName: FIXTURE_NAME, companyId });
 
     expect(llmCreate).toHaveBeenCalledTimes(1);
 
-    const firstProfiles = await db.bankProfile.findMany();
+    const firstProfiles = await db.bankProfile.findMany({ where: { isActive: true } });
     expect(firstProfiles).toHaveLength(1);
 
     const learned = firstProfiles[0];
@@ -178,12 +232,12 @@ describe('Block 5 — PDF format learning loop', () => {
     const persistedRequiresReview = learned.requiresReview;
 
     // ── Second occurrence: same equivalent statement, no manual insertion ───
-    const second = await parsePDF(pdfBuffer, { fileName: FIXTURE_NAME });
+    const second = await parsePDF(pdfBuffer, { fileName: FIXTURE_NAME, companyId });
 
     // Load-bearing property: the learning boundary was not reached again.
     expect(llmCreate).toHaveBeenCalledTimes(1);
 
-    const secondProfiles = await db.bankProfile.findMany();
+    const secondProfiles = await db.bankProfile.findMany({ where: { isActive: true } });
     expect(secondProfiles).toHaveLength(1);
     expect(secondProfiles[0].id).toBe(firstProfileId);
 

@@ -10,6 +10,7 @@ import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { requireGlobalAdminRole } from '@/lib/rbac';
 import { safeFetch } from '@/lib/security/safe-fetch';
+import { isMaskedKeyPayload } from '@/lib/ai-config';
 
 export const POST = apiHandler(
   async (request: NextRequest, context: RouteContext) => {
@@ -20,6 +21,20 @@ export const POST = apiHandler(
       const { apiKey, model, baseUrl, providerId } = await request.json();
       if (!apiKey) {
         return NextResponse.json({ error: 'La clave no puede estar vacía' }, { status: 400 });
+      }
+
+      // A masked placeholder (what GET /api/config/ai returns for a stored key) is
+      // not a key. Verifying it would produce a false "valid" answer, and a 429
+      // rate-limit response would come back as success-with-warning, authorizing
+      // the client to overwrite the real stored key with the placeholder.
+      if (isMaskedKeyPayload(apiKey)) {
+        return NextResponse.json(
+          {
+            error: 'La clave enviada es el valor enmascarado. Ingresá tu clave de API completa.',
+            code: 'AI_API_KEY_MASKED',
+          },
+          { status: 400 },
+        );
       }
 
       // Fail closed: a baseUrl supplied by the client must be canonical.

@@ -126,7 +126,7 @@ export function ReconciliationSection({ language, totalCount, reconciledCount }:
       <div className="flex flex-col lg:flex-row items-center justify-between gap-6">
         <div className="space-y-2">
           <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-            <CheckCircle2 className="w-5 h-5 text-teal-500" />
+            <CheckCircle2 aria-hidden="true" className="w-5 h-5 text-teal-500" />
             {language === 'en' ? 'Operational Reconciliation Status' : 'Estado de Conciliación Operativa'}
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
@@ -140,7 +140,7 @@ export function ReconciliationSection({ language, totalCount, reconciledCount }:
           {/* Progreso Visual */}
           <div className="flex items-center gap-4 flex-1 lg:flex-initial min-w-[200px]">
             <div className="relative w-16 h-16 shrink-0 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+              <svg aria-hidden="true" focusable="false" className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
                 <path className="text-slate-200 dark:text-slate-800" strokeWidth="3.5" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
                 <path className="text-teal-500 transition-all duration-500" strokeWidth="3.5" strokeDasharray={`${pct}, 100`} strokeLinecap="round" stroke="currentColor" fill="none" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
               </svg>
@@ -206,7 +206,7 @@ export function DashboardAlerts({ dt, alerts, structure, opportunities }: Dashbo
       {/* Column 1: Alert Signals */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col">
         <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100 dark:border-slate-800/50">
-          <span className="p-1.5 rounded-lg bg-rose-500/10 text-rose-600"><AlertCircle className="w-5 h-5" /></span>
+          <span className="p-1.5 rounded-lg bg-rose-500/10 text-rose-600"><AlertCircle aria-hidden="true" className="w-5 h-5" /></span>
           <h2 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{dt.alertSignals}</h2>
         </div>
         <div className="flex-1 space-y-4">
@@ -229,7 +229,7 @@ export function DashboardAlerts({ dt, alerts, structure, opportunities }: Dashbo
       {/* Column 2: Business Structure */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col">
         <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100 dark:border-slate-800/50">
-          <span className="p-1.5 rounded-lg bg-teal-500/10 text-teal-600"><Layers className="w-5 h-5" /></span>
+          <span className="p-1.5 rounded-lg bg-teal-500/10 text-teal-600"><Layers aria-hidden="true" className="w-5 h-5" /></span>
           <h2 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{dt.businessStructure}</h2>
         </div>
         <div className="flex-1 space-y-4">
@@ -248,7 +248,7 @@ export function DashboardAlerts({ dt, alerts, structure, opportunities }: Dashbo
       {/* Column 3: Opportunities */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col">
         <div className="flex items-center gap-2 mb-6 pb-2 border-b border-slate-100 dark:border-slate-800/50">
-          <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600"><Zap className="w-5 h-5" /></span>
+          <span className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-600"><Zap aria-hidden="true" className="w-5 h-5" /></span>
           <h2 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">{dt.opportunities}</h2>
         </div>
         <div className="flex-1 space-y-4">
@@ -281,19 +281,19 @@ export function ExportFooter({ dt, onExportClassified, onExportSummary, hasClass
   return (
     <footer className="bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 flex flex-wrap items-center justify-between gap-4">
       <div className="flex items-center gap-2">
-        <FileSpreadsheet className="w-5 h-5 text-teal-600" />
+        <FileSpreadsheet aria-hidden="true" className="w-5 h-5 text-teal-600" />
         <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">{dt.legalTaxExportModule}</span>
       </div>
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="outline" size="sm" onClick={onExportClassified}
           className="rounded-xl border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 gap-1.5"
           disabled={!hasClassifiedData}>
-          <Download className="w-4 h-4" /> {dt.exportClassifiedCSV}
+          <Download aria-hidden="true" className="w-4 h-4" /> {dt.exportClassifiedCSV}
         </Button>
         <Button variant="outline" size="sm" onClick={onExportSummary}
           className="rounded-xl border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 gap-1.5"
           disabled={!hasSummaryData}>
-          <Download className="w-4 h-4" /> {dt.exportMonthlySummaryCSV}
+          <Download aria-hidden="true" className="w-4 h-4" /> {dt.exportMonthlySummaryCSV}
         </Button>
       </div>
     </footer>
@@ -310,26 +310,34 @@ interface HelpModalProps {
 }
 
 export function HelpModal({ open, language, dt, onClose }: HelpModalProps) {
+  // S11 — the overlay is a modal dialog: it announces itself, its accessible
+  // name comes from the visible heading, and the icon-only close control has a
+  // real label instead of the bare multiplication glyph.
   if (!open) return null;
   return (
     <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dashboard-help-title"
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         className="bg-white dark:bg-slate-900 rounded-[2rem] border border-slate-200 dark:border-slate-800 max-w-2xl w-full p-8 shadow-2xl relative overflow-hidden"
       >
         <button onClick={onClose}
+          type="button"
+          aria-label={language === 'en' ? 'Close help dialog' : 'Cerrar ayuda'}
           className="absolute top-6 right-6 text-slate-400 hover:text-slate-600 dark:hover:text-white text-2xl font-bold"
         >&times;</button>
-        <h3 className="text-xl font-bold text-slate-900 dark:text-white mb-4">{dt.requiredFileStructure}</h3>
+        <h3 id="dashboard-help-title" className="text-xl font-bold text-slate-900 dark:text-white mb-4">{dt.requiredFileStructure}</h3>
         <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">{dt.supportedFormatHelpDesc}</p>
         <div className="overflow-hidden border border-slate-200 dark:border-slate-800 rounded-2xl mb-6">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 dark:bg-slate-950 font-bold text-slate-400 border-b border-slate-200 dark:border-slate-800">
               <tr>
-                <th className="px-4 py-3">{dt.columnHeader}</th>
-                <th className="px-4 py-3">{dt.typeHeader}</th>
-                <th className="px-4 py-3">{dt.descriptionHeader}</th>
+                <th scope="col" className="px-4 py-3">{dt.columnHeader}</th>
+                <th scope="col" className="px-4 py-3">{dt.typeHeader}</th>
+                <th scope="col" className="px-4 py-3">{dt.descriptionHeader}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-150 dark:divide-slate-850 font-medium text-slate-700 dark:text-slate-300">
@@ -391,7 +399,7 @@ export function HelpModal({ open, language, dt, onClose }: HelpModalProps) {
           </table>
         </div>
         <p className="text-xs text-slate-400 font-medium flex items-start gap-1.5">
-          <Info className="w-4 h-4 shrink-0 text-teal-500" />
+          <Info aria-hidden="true" className="w-4 h-4 shrink-0 text-teal-500" />
           {dt.supportedFormatHelpFootnote}
         </p>
       </motion.div>

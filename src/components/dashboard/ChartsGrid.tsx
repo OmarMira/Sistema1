@@ -19,18 +19,23 @@ interface ChartBoxProps {
 }
 
 function ChartBox({ title, subtitle, children }: ChartBoxProps) {
+  // S11 — a chart is a labelled region for assistive tech: the figure takes its
+  // name from the caption and the plot itself is exposed as one graphic named
+  // after the chart instead of a stream of unlabeled SVG nodes.
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col justify-between">
-      <header className="mb-4">
+    <figure className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col justify-between m-0">
+      <figcaption className="mb-4">
         <h3 className="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">
           {title}
         </h3>
         <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">
           {subtitle}
         </p>
-      </header>
-      <div className="relative z-10 w-full mt-2">{children}</div>
-    </div>
+      </figcaption>
+      <div role="img" aria-label={title} className="relative z-10 w-full mt-2">
+        {children}
+      </div>
+    </figure>
   );
 }
 
@@ -152,7 +157,7 @@ export function ChartsGrid(props: ChartsGridProps) {
           <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-2">
             {expensesByCategoryData.map((c) => (
               <div key={c.name} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                <div aria-hidden="true" className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate max-w-[140px]">
                   {c.name === 'Sin asignar' ? (language === 'en' ? 'Unassigned' : 'Sin asignar') : c.name}
                 </span>
@@ -183,7 +188,7 @@ export function ChartsGrid(props: ChartsGridProps) {
           <div className="flex-1 grid grid-cols-2 gap-x-4 gap-y-2">
             {incomeByCategoryData.map((c) => (
               <div key={c.name} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
+                <div aria-hidden="true" className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: c.color }} />
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300 truncate max-w-[140px]">
                   {c.name === 'Sin asignar' ? (language === 'en' ? 'Unassigned' : 'Sin asignar') : c.name}
                 </span>

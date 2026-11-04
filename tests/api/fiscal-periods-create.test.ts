@@ -17,6 +17,13 @@ const mockDbTransaction = vi.hoisted(() => vi.fn((fn: any) => fn({
 
 vi.mock('@/lib/sessions', () => ({ getSessionUserId: mockGetSessionUserId }));
 vi.mock('@/lib/security/rate-limiter', () => ({ checkRateLimit: mockCheckRateLimit }));
+// S17b: POST /api/fiscal-periods writes its audit row through the chained writer
+// (createAuditLogWithRetry), which needs a real raw-query-capable client. This
+// suite's fake transaction client has no $executeRaw/$queryRaw, so the writer is
+// mocked here exactly as tests/api/s9.2-forensic-concurrency-stress.test.ts does.
+vi.mock('@/lib/audit', () => ({
+  createAuditLogWithRetry: vi.fn(async () => ({ id: 'audit-log-id' })),
+}));
 vi.mock('@/lib/db', () => ({
   db: {
     $transaction: mockDbTransaction,

@@ -164,7 +164,14 @@ export const DELETE = apiHandler(
       await tx.glAccount.deleteMany({ where: { companyId: id } });
       await tx.reconciliationPeriod.deleteMany({ where: { companyId: id } });
       await tx.companyMember.deleteMany({ where: { companyId: id } });
-      await tx.auditLog.deleteMany({ where: { companyId: id } });
+      // S19(c) — AuditLog rows are NEVER deleted with the tenant. They are
+      // hash-chained evidence (the chain is one global sequence whose links
+      // are not company-scoped), so deleting them would destroy the audit
+      // trail of the very deletion being performed — and removing rows from
+      // the middle of the chain would leave the surviving members orphaned.
+      // The rows keep their companyId; "AuditLog"."companyId" carries no
+      // foreign key to "Company" (see prisma/schema.prisma) so the tenant
+      // delete below cannot null it and invalidate the stored hash.
       await tx.systemMemory.deleteMany({ where: { companyId: id } });
 
       // ─── Finally delete the company ────────────────────────────────────────

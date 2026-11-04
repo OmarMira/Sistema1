@@ -18,32 +18,7 @@ import {
   type Rule,
   type MatchingRule,
 } from '@/lib/services/rule-matching-engine';
-
-// ─── Write-time pending-decision guard (E2E Decision-Learning Loop §8) ──
-//
-// Contract shared with the §2 Apply-All and §6 Single-Rule guards: a
-// BankTransaction governed by an ACTIVE human decision (PendingApproval with
-// action='ai_classification_proposal', status='pending', payload.transactionId
-// = BankTransaction.importHash) must never receive classification or
-// reconciliation effects from automated flows. The match-time load below
-// already excludes such transactions; between that load and the write a human
-// decision can still land, so the write loop revalidates inside this same
-// transaction before persisting glAccountId / matchedRuleId / isReconciled /
-// journalEntryId or creating any journal entry. Returns false when the
-// candidate is now governed by a pending decision (stale candidate): the loop
-// then skips every write for it.
-export async function revalidateAutoMatchCandidate(
-  executor: Pick<typeof db, 'pendingApproval' | 'bankTransaction'>,
-  txId: string,
-  companyId: string,
-): Promise<boolean> {
-  const exclusion = await excludePendingHumanDecisions(executor, companyId);
-  const row = await executor.bankTransaction.findFirst({
-    where: { id: txId, AND: [exclusion] },
-    select: { id: true },
-  });
-  return row !== null;
-}
+import { revalidateAutoMatchCandidate } from './helpers';
 
 // ─── POST /api/reconciliation/auto ─────────────────────────────────
 // Auto-reconcile using bank rules + amount matching with journal entries.

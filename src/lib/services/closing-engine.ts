@@ -1,6 +1,8 @@
 import { db } from '@/lib/db';
 import { createAuditLogWithRetry } from '@/lib/audit';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
+import { fromCents, sumCents, toCents } from '@/lib/money';
+import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { getPeriodStrategy } from '@/lib/fiscal-period/strategies';
 import { FiscalYearConfig } from '@/lib/fiscal-period/types';
 
@@ -33,21 +35,28 @@ export async function executeYearClose(companyId: string, year: number, config: 
       entry: { companyId, date: { gte: fiscalStart, lte: fiscalEnd }, status: 'posted' },
     },
   });
+  // S3: the groupBy `_sum` values arrive as Prisma.Decimal (aggregate results
+  // bypass the db.ts result layer), so every balance is derived in integer
+  // cents and converted back only when the closing line is written.
   const balanceMap = new Map(
-    totals.map((t) => [t.glAccountId, { debit: t._sum.debit ?? 0, credit: t._sum.credit ?? 0 }]),
+    totals.map((t) => [
+      t.glAccountId,
+      { debitCents: toCents(t._sum.debit ?? 0), creditCents: toCents(t._sum.credit ?? 0) },
+    ]),
   );
   const netBalances = accounts.map((acc) => {
-    const { debit, credit } = balanceMap.get(acc.id) ?? { debit: 0, credit: 0 };
-    return { id: acc.id, diff: debit - credit };
+    const { debitCents, creditCents } = balanceMap.get(acc.id) ?? { debitCents: 0, creditCents: 0 };
+    return { id: acc.id, diffCents: sumCents(debitCents, -creditCents) };
   });
 
   const lines = netBalances
-    .filter((b) => Math.abs(b.diff) > 0.01)
+    // A residual of one cent or less is not closed (unchanged threshold: |diff| > 0.01).
+    .filter((b) => Math.abs(b.diffCents) > 1)
     .map((b) => ({
       glAccountId: b.id,
       description: `Cierre ${year}`,
-      debit: b.diff < 0 ? Math.abs(b.diff) : 0,
-      credit: b.diff > 0 ? b.diff : 0,
+      debit: b.diffCents < 0 ? fromCents(-b.diffCents) : 0,
+      credit: b.diffCents > 0 ? fromCents(b.diffCents) : 0,
     }));
 
   const closingAcc = await db.glAccount.findFirst({
@@ -55,18 +64,20 @@ export async function executeYearClose(companyId: string, year: number, config: 
   });
   if (!closingAcc) throw new Error('Cuenta de cierre no encontrada');
 
-  const netToRetained = lines.reduce((s, l) => s + Number(l.debit) - Number(l.credit), 0);
+  const netToRetainedCents = lines.reduce(
+    (total, line) => sumCents(total, toCents(line.debit), -toCents(line.credit)),
+    0,
+  );
   lines.push({
     glAccountId: closingAcc.id,
     description: `Traslado utilidades ${year}`,
-    debit: netToRetained < 0 ? Math.abs(netToRetained) : 0,
-    credit: netToRetained > 0 ? netToRetained : 0,
+    debit: netToRetainedCents < 0 ? fromCents(-netToRetainedCents) : 0,
+    credit: netToRetainedCents > 0 ? fromCents(netToRetainedCents) : 0,
   });
 
-  if (
-    Math.abs(lines.reduce((s, l) => s + Number(l.debit), 0) - lines.reduce((s, l) => s + Number(l.credit), 0)) >
-    0.01
-  ) {
+  const totalDebitCents = lines.reduce((total, line) => sumCents(total, toCents(line.debit)), 0);
+  const totalCreditCents = lines.reduce((total, line) => sumCents(total, toCents(line.credit)), 0);
+  if (Math.abs(sumCents(totalDebitCents, -totalCreditCents)) > 1) {
     throw new Error('Asiento de cierre descuadrado');
   }
 
@@ -83,6 +94,13 @@ export async function executeYearClose(companyId: string, year: number, config: 
     });
     // JH2 writer: closing entry is POSTED at creation.
     await appendEntryToJournalChain(tx as any, { companyId, entryId: entry.id });
+
+    // S23h: a POSTED entry changes GlAccount.balance, and every other posting
+    // path (post, void, bank flows) refreshes it in the same transaction. The
+    // closing entry must not leave balances stale.
+    for (const glAccountId of new Set(lines.map((l) => l.glAccountId))) {
+      await JournalEntryService.recalculateBalance(tx as any, glAccountId);
+    }
     await createAuditLogWithRetry(
       {
         companyId,

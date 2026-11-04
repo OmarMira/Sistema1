@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NextResponse } from 'next/server';
-import { parseDateOrError } from '@/app/api/admin/shadow-metrics/route';
+import { parseDateOrError } from '@/app/api/admin/shadow-metrics/helpers';
 import {
   ShadowMetricsReader,
 } from '@/lib/services/shadow-metrics-reader';

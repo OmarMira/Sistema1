@@ -1,0 +1,11 @@
+{
+  "src/lib/db.ts": "b71f3906b8a62289d049227c16bd995eb1e79f35c296dc46cd522b237be5385b",
+  "src/lib/backup.ts": "85824cdca1465ab3a90998d817c132238d491e9ac7dc0109e5443f4be66fabba",
+  "src/lib/backup-format.ts": "2f0421bd5ea078d9722e25e94c907e2853d2b87c67d5996c47cbab1000341306",
+  "src/lib/backup-validation.ts": "8a3f73553d673085371b1c11b9b6661efda0524b119f4baf4eddcc07cf1491fa",
+  "src/lib/backup-restore.ts": "85340b752c13d6028ca9f7fa308b9aa7e01d805be6548e3cb8041ee42da37aa6",
+  "src/lib/backup-storage.ts": "a74732ccab07c64577f7aed32e94f217f196e1a6eb26f15824d9fb94674ddb4d",
+  "tests/backup-company/public-pg.integration.ts": "eb7d9e7a8a021ba870454fd682df9567d9817510dfc6014a1245821de10dfc3b",
+  "vitest.company-backup.config.mts": "994f5ad174750ba663b24e7e99d0405761127911f8008d63bd0977816c8e6530",
+  "vitest.company-backup-pg.config.mts": "8dc9d6f3ddf1383904f31f2081836ee51ba13296b0695aeddfcbb73d0fdebf4b"
+}

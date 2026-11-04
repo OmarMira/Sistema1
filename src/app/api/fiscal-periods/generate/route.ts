@@ -18,25 +18,40 @@ export const POST = apiHandler(async (req: NextRequest) => {
   const strategy = getPeriodStrategy(validated.type);
   const calculated = strategy.calculate({ year, config: validated });
 
-  // ⚠️ VALIDACIÓN ANTES DE INSERTAR
-  const existing = await db.fiscalPeriod.findMany({
-    where: { companyId },
-    select: { name: true, startDate: true, endDate: true },
+  // ⚠️ VALIDACIÓN Y ESCRITURA EN LA MISMA TRANSACCIÓN (S5)
+  //
+  // El chequeo de solapamiento vivía FUERA de la transacción de inserción: dos
+  // generaciones concurrentes leían ambas la tabla vacía, ambas pasaban el
+  // chequeo y la perdedora moría en el índice único (companyId, name) con un 400
+  // genérico. El lock de asesoría (advisory lock transaccional) serializa
+  // "chequear + insertar" por empresa: la segunda petición espera el commit de la
+  // primera, ve sus períodos y responde 409 con el mensaje de conflicto.
+  const created = await db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`fiscal-periods:generate:${companyId}`}, 0))`;
+
+    const existing = await tx.fiscalPeriod.findMany({
+      where: { companyId },
+      select: { name: true, startDate: true, endDate: true },
+    });
+    const conflict = calculated.find((p) =>
+      existing.some(
+        (e) => e.name === p.name || !(p.endDate < e.startDate || p.startDate > e.endDate),
+      ),
+    );
+    if (conflict) return null;
+
+    return Promise.all(
+      calculated.map(({ isShort, ...p }) =>
+        tx.fiscalPeriod.create({ data: { companyId, ...p } }),
+      ),
+    );
   });
-  const conflict = calculated.find((p) =>
-    existing.some(
-      (e) => e.name === p.name || !(p.endDate < e.startDate || p.startDate > e.endDate),
-    ),
-  );
-  if (conflict)
+
+  if (!created)
     return NextResponse.json(
       { error: serverT(locale, 'apiErrors.fiscalPeriods.conflict') },
       { status: 409 },
     );
-
-  const created = await db.$transaction(
-    calculated.map(({ isShort, ...p }) => db.fiscalPeriod.create({ data: { companyId, ...p } })),
-  );
 
   await db.auditLog.create({
     data: {

@@ -3,15 +3,52 @@ import { join } from 'path';
 import { db } from '@/lib/db';
 import { logger } from '../logger';
 
+type Budget = { requestsPerMinute: number; burstMultiplier: number };
+
 type RateLimitConfig = {
-  default: { requestsPerMinute: number; burstMultiplier: number };
-  criticalEndpoints: Record<string, { requestsPerMinute: number; burstMultiplier: number }>;
+  default: Budget;
+  criticalEndpoints: Record<string, Budget>;
   scope: string;
   windowMs: number;
+  /**
+   * S23e: cross-path budget per user identity. Per-path buckets alone let a
+   * client fan out across many endpoints and never hit a limit; this ceiling is
+   * shared by every path a single user identity touches inside `windowMs`.
+   */
+  userBudget?: Budget;
 };
 
+/**
+ * Default cross-path budget: 300 requests/minute with the usual burst ×2, i.e.
+ * at most 600 requests per minute per user identity (session user, or trusted
+ * client IP for anonymous traffic). Override with
+ * `rateLimit.userBudget` in rules/security-config.json.
+ */
+export const GLOBAL_USER_BUDGET: Budget = { requestsPerMinute: 300, burstMultiplier: 2 };
+
+/**
+ * Identifiers that are PROVEN to exist in the database (a session user id and a
+ * tenant id that already passed `requireActiveTenantAccess`). Anything else —
+ * an IP used as the bucket key, the 'global' placeholder company — must never
+ * reach the audit table: those writes violated the AuditLog foreign keys and
+ * were swallowed by a catch.
+ */
+export type RateLimitAuditSubject = { userId: string; companyId: string };
+
+export interface RateLimitResult {
+  allowed: boolean;
+  limit: number;
+  remaining: number;
+  resetAt: number;
+  /** Which budget produced this decision. */
+  scope: 'path' | 'user';
+  budgetLimit: number;
+  budgetRemaining: number;
+  budgetResetAt: number;
+}
+
 // Cache interno de ventanas deslizantes
-const requestWindows = new Map<string, { count: number; resetAt: number }>();
+const requestWindows = new Map<string, { count: number; resetAt: number; audited?: boolean }>();
 const CLEANUP_INTERVAL = 5 * 60 * 1000; // Limpieza cada 5 min para evitar memory leaks
 
 let _cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -50,6 +87,7 @@ const DEFAULT_CONFIG: RateLimitConfig = {
   criticalEndpoints: {},
   scope: 'global',
   windowMs: 60000,
+  userBudget: GLOBAL_USER_BUDGET,
 };
 
 function getRateLimitConfig(): RateLimitConfig {
@@ -76,7 +114,8 @@ export function checkRateLimit(
   userId: string,
   companyId: string,
   path: string,
-): { allowed: boolean; limit: number; remaining: number; resetAt: number } {
+  auditSubject?: RateLimitAuditSubject | null,
+): RateLimitResult {
   try {
     const config = getRateLimitConfig();
 
@@ -105,24 +144,78 @@ export function checkRateLimit(
 
     window.count++;
     const remaining = Math.max(0, maxAllowed - window.count);
-    const allowed = window.count <= maxAllowed;
+    const pathAllowed = window.count <= maxAllowed;
 
-    // Auditoría asíncrona de violaciones (con entity obligatoria, no bloquea respuesta)
+    // S23e: cross-path per-user budget (independent of company and path).
+    const userBudget = config.userBudget ?? GLOBAL_USER_BUDGET;
+    const userMaxAllowed = Math.floor(userBudget.requestsPerMinute * userBudget.burstMultiplier);
+    const userWindowKey = `user-budget:${userId}`;
+    let userWindow = requestWindows.get(userWindowKey);
+    if (!userWindow || now >= userWindow.resetAt) {
+      userWindow = { count: 0, resetAt: now + config.windowMs };
+      requestWindows.set(userWindowKey, userWindow);
+    }
+    userWindow.count++;
+    const userBudgetRemaining = Math.max(0, userMaxAllowed - userWindow.count);
+    const userAllowed = userWindow.count <= userMaxAllowed;
+
+    const allowed = pathAllowed && userAllowed;
+    const scope: 'path' | 'user' = userAllowed ? 'path' : 'user';
+    const limitForScope = scope === 'user' ? userMaxAllowed : maxAllowed;
+    const remainingForScope = scope === 'user' ? userBudgetRemaining : remaining;
+
+    // Auditoría de violaciones: solo cuando ambos identificadores son ids reales
+    // de la base (la escritura antigua usaba companyId='global' / userId=<ip> y
+    // rompía las FKs; el catch se la tragaba). Como máximo una fila por ventana.
     if (!allowed) {
-      db.auditLog
-        .create({
-          data: {
-            companyId,
-            userId,
-            action: 'RATE_LIMIT_VIOLATION',
-            entity: 'Security',
-            details: JSON.stringify({ userId, path, limit: maxAllowed, attempts: window.count }),
-          },
-        })
-        .catch((e) => logger.error('[RATE LIMIT AUDIT LOG ERROR]', { error: String(e) }));
+      if (auditSubject?.userId && auditSubject.companyId) {
+        if (!window.audited) {
+          window.audited = true;
+          db.auditLog
+            .create({
+              data: {
+                companyId: auditSubject.companyId,
+                userId: auditSubject.userId,
+                action: 'RATE_LIMIT_VIOLATION',
+                entity: 'Security',
+                details: JSON.stringify({
+                  userId,
+                  companyId,
+                  path,
+                  scope,
+                  limit: limitForScope,
+                  attempts: window.count,
+                  userAttempts: userWindow.count,
+                }),
+              },
+            })
+            .catch((e) => logger.warn('[RATE LIMIT] Audit write failed', { error: String(e) }));
+        }
+      } else {
+        // No FK-safe identifiers: log loudly with the RAW bucket identifiers so
+        // the violation is still observable, and write nothing to the database.
+        logger.warn('[RATE LIMIT] Violation without database-backed identity', {
+          bucketKey: userId,
+          companyId,
+          path,
+          scope,
+          limit: limitForScope,
+          attempts: window.count,
+          userAttempts: userWindow.count,
+        });
+      }
     }
 
-    return { allowed, limit: maxAllowed, remaining, resetAt: Math.ceil(window.resetAt / 1000) };
+    return {
+      allowed,
+      limit: limitForScope,
+      remaining: remainingForScope,
+      resetAt: Math.ceil((scope === 'user' ? userWindow.resetAt : window.resetAt) / 1000),
+      scope,
+      budgetLimit: userMaxAllowed,
+      budgetRemaining: userBudgetRemaining,
+      budgetResetAt: Math.ceil(userWindow.resetAt / 1000),
+    };
   } catch (error) {
     logger.error('[RATE LIMIT ERROR] Fail-safe active, denying request:', { error: String(error) });
     return {
@@ -130,6 +223,15 @@ export function checkRateLimit(
       limit: 0,
       remaining: 0,
       resetAt: Math.ceil((Date.now() + 30000) / 1000),
+      scope: 'path',
+      budgetLimit: 0,
+      budgetRemaining: 0,
+      budgetResetAt: Math.ceil((Date.now() + 30000) / 1000),
     };
   }
+}
+
+/** Test hook: clear every in-memory window (never used in production paths). */
+export function resetRateLimitWindows(): void {
+  requestWindows.clear();
 }

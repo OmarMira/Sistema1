@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSession } from '@/lib/sessions';
 import { apiHandler } from '@/lib/api-handler';
 import { validateRequest } from '@/lib/validate-request';
 import { registerSchema } from '@/lib/validations/auth';
-import { AuthService } from '@/lib/services/auth.service';
+import { createIdentityService } from '@/lib/identity/runtime';
 import { authRateLimiter } from '@/lib/rate-limiter';
 import { getClientIp } from '@/lib/security/client-ip';
+import { grantFirstAdminBootstrap, setupTokenMatches } from '@/lib/services/auth.service';
 
-// ─── POST /api/auth/register ──────────────────────────────────────────
 export const POST = apiHandler(
   async (request: NextRequest) => {
     const ip = getClientIp(request);
-
     const raw = await request.clone().json();
     const email = typeof raw?.email === 'string' ? raw.email : undefined;
 
@@ -26,45 +24,59 @@ export const POST = apiHandler(
       );
     }
 
+    // S10: when the operator configured a bootstrap token, the registration that
+    // may later become the first super_admin must present it. Same comparison as
+    // /api/bootstrap/restore (SHA-256 + timingSafeEqual); the token is accepted
+    // from the x-bootstrap-token header or the `setupToken` body field and is
+    // never echoed or logged.
+    const bootstrapTokenRequired = Boolean(process.env.BOOTSTRAP_SETUP_TOKEN);
+    const presentedSetupToken = request.headers.get('x-bootstrap-token')
+      ?? (typeof raw?.setupToken === 'string' ? raw.setupToken : '');
+    if (bootstrapTokenRequired) {
+      if (!presentedSetupToken) {
+        authRateLimiter.increment(ip, email);
+        return NextResponse.json({ error: 'Se requiere un token de inicialización.' }, { status: 403 });
+      }
+      if (!setupTokenMatches(presentedSetupToken)) {
+        authRateLimiter.increment(ip, email);
+        return NextResponse.json({ error: 'Token de inicialización inválido.' }, { status: 403 });
+      }
+    }
+
     const body = await validateRequest(request, registerSchema);
     if (body instanceof NextResponse) return body;
 
+    // The challenge request and the confirmation are separate requests: record
+    // the operator authorization as a single-use grant bound to this email.
+    if (bootstrapTokenRequired) {
+      await grantFirstAdminBootstrap(body.email);
+    }
+
     try {
-      const result = await AuthService.register(body);
+      const identity = createIdentityService();
+      let deliveryFailed = true;
+      if (identity) {
+        try {
+          const delivery = await identity.requestRegistrationCode(body.email, false, ip ?? undefined);
+          deliveryFailed = !delivery.delivered;
+        } catch {
+          // Delivery failure (SMTP unavailable) must not block verification flow.
+        }
+      }
 
-      authRateLimiter.reset(ip, email);
+      // S8: mirrors the S4 login fix. A successful registration clears ONLY the
+      // per-email bucket; the IP bucket must survive, otherwise an attacker who
+      // can complete one registration from an IP resets that IP's failure counter
+      // and can keep interleaving a spray across many accounts. `reset(null, ...)`
+      // leaves the IP entry untouched while still forgiving the user's own email.
+      authRateLimiter.reset(null, email);
 
-      const token = await createSession(result.user.id);
-
-      const response = NextResponse.json({
-        user: {
-          id: result.user.id,
-          email: result.user.email,
-          firstName: result.user.firstName,
-          lastName: result.user.lastName,
-          role: result.user.platformRole,
-        },
-        companies: [
-          {
-            id: result.company.id,
-            legalName: result.company.legalName,
-            entityType: result.company.entityType,
-            taxId: result.company.taxId,
-            isOnboardingComplete: result.company.isOnboardingComplete,
-          },
-        ],
+      // Only a temporary email challenge exists. Never return a fictitious user/session.
+      return NextResponse.json({
+        requiresVerification: true,
+        deliveryFailed,
+        email: body.email.trim().toLowerCase(),
       });
-
-      const isProd = process.env.NODE_ENV === 'production';
-      response.cookies.set(isProd ? '__Host-session' : 'session', token, {
-        httpOnly: true,
-        secure: isProd,
-        sameSite: 'lax',
-        path: '/',
-        maxAge: 7 * 24 * 60 * 60,
-      });
-
-      return response;
     } catch (err) {
       authRateLimiter.increment(ip, email);
       throw err;

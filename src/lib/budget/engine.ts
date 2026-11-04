@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { fromCents, sumCents, toCents } from '@/lib/money';
 
 export type BudgetComparison = {
   accountCode: string;
@@ -12,15 +13,89 @@ export type BudgetComparison = {
   status: 'OK' | 'WARNING' | 'CRITICAL';
 };
 
+/** Account code -> budgeted amount for one company/month. */
+export type MonthBudgets = Record<string, number>;
+
+/**
+ * On-disk budget file format (S6):
+ *
+ * {
+ *   "companies": { "<companyId>": { "<year>": { "<month>": { "<accountCode>": number } } } },
+ *   "legacy":    { "<year>": { "<month>": { "<accountCode>": number } } }
+ * }
+ *
+ * A flat file of the pre-scoping format ("<year>": { "<month>": { ... } }) is legacy,
+ * unscoped data: it is never attributed to a company.
+ */
+const BUDGETS_FILE_ENV = 'BUDGETS_FILE_PATH';
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function toMonthBudgets(node: unknown): MonthBudgets {
+  if (!isPlainObject(node)) return {};
+  const budgets: MonthBudgets = {};
+  for (const [accountCode, amount] of Object.entries(node)) {
+    if (typeof amount === 'number' && Number.isFinite(amount)) {
+      budgets[accountCode] = amount;
+    }
+  }
+  return budgets;
+}
+
+export function getBudgetsFilePath(): string {
+  const override = process.env[BUDGETS_FILE_ENV];
+  if (typeof override === 'string' && override.trim() !== '') return override;
+  return join(process.cwd(), 'data', 'budgets.json');
+}
+
+/**
+ * Reads the budget file. A missing, unreadable or malformed file means
+ * "no budgets configured" and must never surface as a request error.
+ */
+function readBudgetFile(filePath: string): unknown {
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Company-scoped budget lookup. Legacy unscoped entries (flat year-keyed data,
+ * or data under an explicit "legacy" section) are attributed to no company,
+ * so company-scoped lookups return an empty map rather than another tenant's numbers.
+ */
+export function getCompanyMonthBudgets(companyId: string, year: number, month: number): MonthBudgets {
+  const file = readBudgetFile(getBudgetsFilePath());
+  if (!isPlainObject(file)) return {};
+
+  const companies = file.companies;
+  if (!isPlainObject(companies)) return {};
+
+  const company = companies[companyId];
+  if (!isPlainObject(company)) return {};
+
+  const yearNode = company[String(year)];
+  if (!isPlainObject(yearNode)) return {};
+
+  return toMonthBudgets(yearNode[String(month)]);
+}
+
 export async function getVarianceReport(
   companyId: string,
   year: number,
   month: number,
 ): Promise<BudgetComparison[]> {
-  // 1. Cargar Presupuestos
-  const budgetsPath = join(process.cwd(), 'data/budgets.json');
-  const allBudgets = JSON.parse(readFileSync(budgetsPath, 'utf-8'));
-  const monthBudgets = allBudgets[year]?.[month] || {};
+  // 1. Cargar Presupuestos (por empresa)
+  const monthBudgets = getCompanyMonthBudgets(companyId, year, month);
 
   // 2. Calcular Reales (Agregación Nativa PostgreSQL)
   const start = new Date(Date.UTC(year, month - 1, 1));
@@ -58,13 +133,19 @@ export async function getVarianceReport(
 
     const budgetVal = monthBudgets[code] || 0;
 
-    // Calcular saldo real según normalBalance
+    // Calcular saldo real según normalBalance — S3: the groupBy `_sum` values
+    // arrive as Prisma.Decimal, so the balance is derived in integer cents.
     const realData = actualsAgg.find((a) => accountMap.get(a.glAccountId)?.code === code);
-    const d = realData?._sum.debit ?? 0;
-    const c = realData?._sum.credit ?? 0;
-    const actualVal = account.normalBalance === 'credit' ? c - d : d - c;
+    const debitCents = toCents(realData?._sum.debit ?? 0);
+    const creditCents = toCents(realData?._sum.credit ?? 0);
+    const actualCents =
+      account.normalBalance === 'credit'
+        ? sumCents(creditCents, -debitCents)
+        : sumCents(debitCents, -creditCents);
+    const actualVal = fromCents(actualCents);
 
-    const variance = actualVal - budgetVal;
+    const varianceCents = sumCents(actualCents, -toCents(budgetVal));
+    const variance = fromCents(varianceCents);
     const variancePercent = budgetVal !== 0 ? (variance / Math.abs(budgetVal)) * 100 : 100;
 
     // Determinar estado (Lógica simple para ejemplo, configurable)
@@ -77,7 +158,7 @@ export async function getVarianceReport(
       accountName: account.name,
       budget: budgetVal,
       actual: actualVal,
-      variance: Math.round(variance * 100) / 100,
+      variance,
       variancePercent: Math.round(variancePercent * 100) / 100,
       status,
     });

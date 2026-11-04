@@ -20,5 +20,8 @@ export default defineConfig({
     globals: true,
     fileParallelism: false,
     testTimeout: 15000,
+    // Never pick up stale compiled copies of tests inside build output,
+    // frozen review candidate views or other internal directories.
+    exclude: ['**/node_modules/**', '**/.next/**', '**/dist/**', '**/.git/**'],
   },
 });

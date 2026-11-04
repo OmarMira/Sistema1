@@ -9,6 +9,8 @@ export async function createTestUser(email: string = 'test@example.com') {
       firstName: 'Test',
       lastName: 'User',
       platformRole: 'user',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
     },
   });
 }

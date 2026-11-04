@@ -28,7 +28,7 @@ export function BudgetVarianceReport({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Análisis de Varianza: {data?.period}</CardTitle>
+        <CardTitle>{t('budget.varianceTitle', { period: data?.period ?? '' })}</CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
@@ -51,15 +51,15 @@ export function BudgetVarianceReport({
 
               <div className="flex items-center gap-6 text-sm font-mono">
                 <div className="text-right">
-                  <p className="text-muted-foreground text-xs">Presupuesto</p>
+                  <p className="text-muted-foreground text-xs">{t('budget.budgetLabel')}</p>
                   <p>${row.budget.toFixed(2)}</p>
                 </div>
                 <div className="text-right">
-                  <p className="text-muted-foreground text-xs">Real</p>
+                  <p className="text-muted-foreground text-xs">{t('budget.actualLabel')}</p>
                   <p>${row.actual.toFixed(2)}</p>
                 </div>
                 <div className="text-right w-24">
-                  <p className="text-muted-foreground text-xs">Varianza</p>
+                  <p className="text-muted-foreground text-xs">{t('budget.varianceLabel')}</p>
                   <p
                     className={`flex items-center justify-end gap-1 ${row.variance > 0 ? 'text-red-500' : 'text-green-500'}`}
                   >

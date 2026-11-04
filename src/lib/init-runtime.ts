@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { RUNTIME_DIR, RUNTIME_FILES, LEGACY_FILES, DEFAULT_TEMPLATES } from '@/lib/config/paths';
+import { DATA_ROOT, RUNTIME_DIR, RUNTIME_FILES, LEGACY_FILES, DEFAULT_TEMPLATES } from '@/lib/config/paths';
 import { logger } from '@/lib/logger';
+import { withRuntimeOperation, withRuntimeOperationSync } from './backup-runtime-maintenance';
 
 function ensureDir(dir: string): void {
   if (!fs.existsSync(dir)) {
@@ -34,10 +35,15 @@ function initFromDefault(templatePath: string, targetPath: string): void {
 }
 
 export function initRuntimeData(): void {
+  return withRuntimeOperationSync(initializeRuntimeData);
+}
+
+function initializeRuntimeData(): void {
   ensureDir(RUNTIME_DIR);
 
-  // 1. Migrate legacy files first (they take priority over defaults)
-  migrateLegacy(LEGACY_FILES.companyConfig, RUNTIME_FILES.companyConfig);
+  // Installed instances must not import development legacy company data.
+  // Unconfigured development keeps the existing legacy migration behavior.
+  if (!DATA_ROOT) migrateLegacy(LEGACY_FILES.companyConfig, RUNTIME_FILES.companyConfig);
 
   // 2. Init from defaults only if no runtime file exists yet
   initFromDefault(DEFAULT_TEMPLATES.companyConfig, RUNTIME_FILES.companyConfig);
@@ -45,7 +51,7 @@ export function initRuntimeData(): void {
   logger.info('[RUNTIME] Initialization complete', { dir: RUNTIME_DIR });
 
   // Non-blocking AI config integrity check (fire-and-forget — does not block startup)
-  void import('@/lib/ai-config').then(({ checkAiConfigIntegrity }) =>
+  void withRuntimeOperation(() => import('@/lib/ai-config').then(({ checkAiConfigIntegrity }) =>
     checkAiConfigIntegrity().then((health) => {
       switch (health.code) {
         case 'AI_CONFIG_OK':
@@ -61,5 +67,7 @@ export function initRuntimeData(): void {
     }).catch((err) => {
       logger.error('[AI CONFIG] Startup integrity check threw unexpectedly', { error: String(err) });
     }),
-  );
+  )).catch((err) => {
+    logger.error('[AI CONFIG] Startup integrity check threw unexpectedly', { error: String(err) });
+  });
 }

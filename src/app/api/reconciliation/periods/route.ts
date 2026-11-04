@@ -161,6 +161,61 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       }
 
       const stmtBalance = latestStatement?.closingBalance ?? bankAccount.balance;
+      const stmtBalanceNum = Number(stmtBalance);
+      const difference = Number((stmtBalanceNum - bookBalance).toFixed(2));
+
+      // S22(c) — a period can only be completed when the books reconcile to the
+      // statement AND nothing is left unreconciled on this account. Completing
+      // with silent blockers is what let a difference-carrying (or
+      // half-reviewed) period be declared done.
+      const [unmatchedCount, unmatchedTransactions] = await Promise.all([
+        db.bankTransaction.count({
+          where: {
+            statement: { bankAccountId },
+            isReconciled: false,
+            isIgnored: false,
+          },
+        }),
+        db.bankTransaction.findMany({
+          where: {
+            statement: { bankAccountId },
+            isReconciled: false,
+            isIgnored: false,
+          },
+          select: { id: true },
+          orderBy: [{ date: 'asc' }, { id: 'asc' }],
+          take: 100,
+        }),
+      ]);
+
+      const differenceInCents = Math.round(difference * 100);
+      const blockers = {
+        difference,
+        differenceInCents,
+        unmatchedCount,
+        unmatchedTransactionIds: unmatchedTransactions.map((t) => t.id),
+        unmatchedTransactionIdsTruncated: unmatchedCount > unmatchedTransactions.length,
+      };
+
+      if (differenceInCents !== 0 || unmatchedCount > 0) {
+        const reasons: string[] = [];
+        if (differenceInCents !== 0) {
+          reasons.push(`outstanding difference of ${difference.toFixed(2)}`);
+        }
+        if (unmatchedCount > 0) {
+          reasons.push(`${unmatchedCount} unmatched (unreconciled, non-ignored) transaction(s)`);
+        }
+
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Cannot complete the reconciliation period: ${reasons.join(' and ')}.`,
+            blockers,
+            period,
+          },
+          { status: 400 },
+        );
+      }
 
       const updated = await db.reconciliationPeriod.update({
         where: { id: periodId },
@@ -169,7 +224,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
           completedAt: new Date(),
           statementBalance: stmtBalance,
           bookBalance,
-          difference: stmtBalance - bookBalance,
+          difference,
           notes: notes || period.notes,
         },
       });
@@ -184,7 +239,7 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
           details: JSON.stringify({
             statementBalance: stmtBalance,
             bookBalance,
-            difference: stmtBalance - bookBalance,
+            difference,
           }),
         },
       });

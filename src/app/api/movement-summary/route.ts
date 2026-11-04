@@ -5,8 +5,50 @@ import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { readJsonConfig } from '@/lib/config-loader';
+
+/**
+ * S23a — the movement summary used to load EVERY posted journal line (and every
+ * reconciled bank transaction) into memory and aggregate in JS. The
+ * aggregation now runs in PostgreSQL: one GROUP BY over a UNION of
+ *   (a) posted journal lines,
+ *   (b) the GL-account line of a reconciled bank transaction that never became
+ *       a journal entry, and
+ *   (c) that transaction's bank-asset line,
+ * plus a count query and a bounded "recent movements" query. The response shape
+ * is unchanged.
+ *
+ * Money is summed in the database and re-normalized to integer cents in JS
+ * (decimal strings in, cents accumulated) instead of chaining float additions.
+ */
+
+type AccountAggregateRow = {
+  accountId: string;
+  code: string;
+  name: string;
+  accountType: string;
+  debits: string;
+  credits: string;
+};
+
+type RecentMovementRow = {
+  id: string;
+  date: Date;
+  description: string;
+  debit: string;
+  credit: string;
+  code: string;
+  name: string;
+  reference: string | null;
+};
+
+const RECENT_MOVEMENT_LIMIT = 50;
+
+/** Money never accumulates as float: aggregate as cents. */
+function toCents(value: string | number | null | undefined): number {
+  return Math.round(Number(value ?? 0) * 100);
+}
 
 export const GET = apiHandler(async (request: NextRequest) => {
   try {
@@ -59,50 +101,174 @@ export const GET = apiHandler(async (request: NextRequest) => {
       return NextResponse.json({ minDate, maxDate });
     }
 
-    // Build where clause
-    const where: Prisma.JournalEntryWhereInput = {
-      companyId,
-      status: 'posted',
-    };
+    const from = fromDate ? new Date(fromDate + 'T00:00:00.000Z') : null;
+    const to = toDate ? new Date(toDate + 'T23:59:59.999Z') : null;
 
-    // Date filter
-    if (fromDate || toDate) {
-      const dateWhere: Prisma.DateTimeFilter = {};
-      if (fromDate) {
-        dateWhere.gte = new Date(fromDate + 'T00:00:00.000Z');
-      }
-      if (toDate) {
-        dateWhere.lte = new Date(toDate + 'T23:59:59.999Z');
-      }
-      where.date = dateWhere;
-    }
+    const journalDateFilter =
+      from || to
+        ? Prisma.sql`${from ? Prisma.sql`AND je."date" >= ${from}` : Prisma.empty}${
+            to ? Prisma.sql` AND je."date" <= ${to}` : Prisma.empty
+          }`
+        : Prisma.empty;
 
-    // Line-level account filter
-    const lineWhere: Prisma.JournalLineWhereInput = {};
-    if (accountId) {
-      lineWhere.glAccountId = accountId;
-    }
+    const bankDateFilter =
+      from || to
+        ? Prisma.sql`${from ? Prisma.sql`AND bt."date" >= ${from}` : Prisma.empty}${
+            to ? Prisma.sql` AND bt."date" <= ${to}` : Prisma.empty
+          }`
+        : Prisma.empty;
 
-    // Fetch journal entries with their lines and GL accounts
-    const entries = await db.journalEntry.findMany({
-      where,
-      include: {
-        lines: {
-          where: Object.keys(lineWhere).length > 0 ? lineWhere : undefined,
-          include: {
-            glAccount: true,
-          },
-        },
-      },
-      orderBy: { date: 'desc' },
-    });
+    // The line-level account filter, expressed exactly as the previous JS pass:
+    //  - journal lines are filtered by their own glAccountId;
+    //  - a reconciled transaction is only in scope when ITS assigned account
+    //    matches, and its bank-asset line is only emitted when the bank account
+    //    is that same account.
+    const journalLineFilter = accountId
+      ? Prisma.sql`AND jl."glAccountId" = ${accountId}`
+      : Prisma.empty;
+    const bankAssignedFilter = accountId
+      ? Prisma.sql`AND bt."glAccountId" = ${accountId}`
+      : Prisma.empty;
+    const bankAssetFilter = accountId
+      ? Prisma.sql`AND bt."glAccountId" = ${accountId} AND ba."glAccountId" = ${accountId}`
+      : Prisma.empty;
 
-    // Calculate summary totals
-    let totalDebits = 0;
-    let totalCredits = 0;
-    let transactionCount = 0;
+    const virtualTxFrom = Prisma.sql`
+      FROM "BankTransaction" bt
+      JOIN "BankStatement" bs ON bs.id = bt."statementId"
+      JOIN "BankAccount" ba ON ba.id = bs."bankAccountId"
+      WHERE ba."companyId" = ${companyId}
+        AND bt."isReconciled" = true
+        AND bt."glAccountId" IS NOT NULL
+        AND bt."journalEntryId" IS NULL
+        ${bankDateFilter}
+    `;
 
-    // By-account aggregation
+    const lineFacts = Prisma.sql`
+      SELECT jl."glAccountId" AS "glAccountId", jl."debit" AS debit, jl."credit" AS credit
+      FROM "JournalLine" jl
+      JOIN "JournalEntry" je ON jl."entryId" = je.id
+      WHERE je."companyId" = ${companyId}
+        AND je."status" = 'posted'
+        ${journalDateFilter}
+        ${journalLineFilter}
+      UNION ALL
+      SELECT bt."glAccountId", CASE WHEN bt."amount" > 0 THEN 0 ELSE -bt."amount" END,
+             CASE WHEN bt."amount" > 0 THEN bt."amount" ELSE 0 END
+      ${virtualTxFrom}
+        ${bankAssignedFilter}
+      UNION ALL
+      SELECT ba."glAccountId", CASE WHEN bt."amount" > 0 THEN bt."amount" ELSE 0 END,
+             CASE WHEN bt."amount" > 0 THEN 0 ELSE -bt."amount" END
+      ${virtualTxFrom}
+        AND ba."glAccountId" IS NOT NULL
+        ${bankAssetFilter}
+    `;
+
+    const [aggregateRows, countRows, recentRows] = await Promise.all([
+      db.$queryRaw<AccountAggregateRow[]>`
+        SELECT
+          ga.id AS "accountId",
+          ga.code AS code,
+          ga.name AS name,
+          ga."accountType" AS "accountType",
+          COALESCE(SUM(f.debit), 0)::text AS debits,
+          COALESCE(SUM(f.credit), 0)::text AS credits
+        FROM (${lineFacts}) f
+        JOIN "GlAccount" ga ON ga.id = f."glAccountId"
+        GROUP BY ga.id, ga.code, ga.name, ga."accountType"
+      `,
+      db.$queryRaw<Array<{ journalEntries: bigint; virtualTransactions: bigint }>>`
+        SELECT
+          (
+            SELECT COUNT(DISTINCT je.id)
+            FROM "JournalLine" jl
+            JOIN "JournalEntry" je ON jl."entryId" = je.id
+            WHERE je."companyId" = ${companyId}
+              AND je."status" = 'posted'
+              ${journalDateFilter}
+              ${journalLineFilter}
+          ) AS "journalEntries",
+          (
+            SELECT COUNT(DISTINCT bt.id)
+            ${virtualTxFrom}
+              ${bankAssignedFilter}
+          ) AS "virtualTransactions"
+      `,
+      db.$queryRaw<RecentMovementRow[]>`
+        SELECT id, date, description, debit::text AS debit, credit::text AS credit,
+               code, name, reference
+        FROM (
+          SELECT
+            je.id || '-' || jl.id AS id,
+            je."date" AS date,
+            je.description AS description,
+            jl."debit" AS debit,
+            jl."credit" AS credit,
+            ga.code AS code,
+            ga.name AS name,
+            je.reference AS reference,
+            0 AS source
+          FROM "JournalLine" jl
+          JOIN "JournalEntry" je ON jl."entryId" = je.id
+          JOIN "GlAccount" ga ON ga.id = jl."glAccountId"
+          WHERE je."companyId" = ${companyId}
+            AND je."status" = 'posted'
+            ${journalDateFilter}
+            ${journalLineFilter}
+          UNION ALL
+          SELECT
+            bt.id || '-' || bt."glAccountId" AS id,
+            bt."date" AS date,
+            bt.description AS description,
+            CASE WHEN bt."amount" > 0 THEN 0 ELSE -bt."amount" END AS debit,
+            CASE WHEN bt."amount" > 0 THEN bt."amount" ELSE 0 END AS credit,
+            ga.code AS code,
+            ga.name AS name,
+            bt.reference AS reference,
+            1 AS source
+          FROM "BankTransaction" bt
+          JOIN "BankStatement" bs ON bs.id = bt."statementId"
+          JOIN "BankAccount" ba ON ba.id = bs."bankAccountId"
+          JOIN "GlAccount" ga ON ga.id = bt."glAccountId"
+          WHERE ba."companyId" = ${companyId}
+            AND bt."isReconciled" = true
+            AND bt."glAccountId" IS NOT NULL
+            AND bt."journalEntryId" IS NULL
+            ${bankDateFilter}
+            ${bankAssignedFilter}
+          UNION ALL
+          SELECT
+            bt.id || '-' || ba."glAccountId" AS id,
+            bt."date" AS date,
+            bt.description AS description,
+            CASE WHEN bt."amount" > 0 THEN bt."amount" ELSE 0 END AS debit,
+            CASE WHEN bt."amount" > 0 THEN 0 ELSE -bt."amount" END AS credit,
+            ga.code AS code,
+            ga.name AS name,
+            bt.reference AS reference,
+            2 AS source
+          FROM "BankTransaction" bt
+          JOIN "BankStatement" bs ON bs.id = bt."statementId"
+          JOIN "BankAccount" ba ON ba.id = bs."bankAccountId"
+          JOIN "GlAccount" ga ON ga.id = ba."glAccountId"
+          WHERE ba."companyId" = ${companyId}
+            AND bt."isReconciled" = true
+            AND bt."glAccountId" IS NOT NULL
+            AND bt."journalEntryId" IS NULL
+            ${bankDateFilter}
+            ${bankAssetFilter}
+        ) movement
+        WHERE debit <> 0 OR credit <> 0
+        ORDER BY date DESC, id ASC
+        LIMIT ${RECENT_MOVEMENT_LIMIT}
+      `,
+    ]);
+
+    // ── By-account (and by-type) aggregation, accumulated in cents ──
+    let totalDebitsCents = 0;
+    let totalCreditsCents = 0;
+
     const accountMap = new Map<
       string,
       {
@@ -110,238 +276,54 @@ export const GET = apiHandler(async (request: NextRequest) => {
         accountCode: string;
         accountName: string;
         accountType: string;
-        debits: number;
-        credits: number;
+        debitsCents: number;
+        creditsCents: number;
       }
     >();
 
-    // By-type aggregation
-    const typeMap = new Map<
-      string,
-      {
-        type: string;
-        debits: number;
-        credits: number;
-      }
-    >();
+    for (const row of aggregateRows) {
+      const debitsCents = toCents(row.debits);
+      const creditsCents = toCents(row.credits);
+      totalDebitsCents += debitsCents;
+      totalCreditsCents += creditsCents;
+      accountMap.set(row.accountId, {
+        accountId: row.accountId,
+        accountCode: row.code,
+        accountName: row.name,
+        accountType: row.accountType,
+        debitsCents,
+        creditsCents,
+      });
+    }
 
-    // Recent movements
-    const recentMovements: Array<{
-      id: string;
-      date: string;
-      description: string;
-      debit: number;
-      credit: number;
-      account: string;
-      reference: string;
-    }> = [];
+    const byAccountWithNet = Array.from(accountMap.values())
+      .sort((a, b) => a.accountCode.localeCompare(b.accountCode))
+      .map((account) => ({
+        accountId: account.accountId,
+        accountCode: account.accountCode,
+        accountName: account.accountName,
+        accountType: account.accountType,
+        debits: account.debitsCents / 100,
+        credits: account.creditsCents / 100,
+        net: (account.debitsCents - account.creditsCents) / 100,
+      }));
 
-    for (const entry of entries) {
-      if (entry.lines.length > 0) {
-        transactionCount++;
-      }
-      for (const line of entry.lines) {
-        if (!line.glAccount) continue;
-
-        totalDebits += Number(line.debit);
-        totalCredits += Number(line.credit);
-
-        // By account
-        const acctKey = line.glAccountId;
-        const existing = accountMap.get(acctKey);
-        if (existing) {
-          existing.debits += Number(line.debit);
-          existing.credits += Number(line.credit);
-        } else {
-          accountMap.set(acctKey, {
-            accountId: line.glAccountId,
-            accountCode: line.glAccount.code,
-            accountName: line.glAccount.name,
-            accountType: line.glAccount.accountType,
-            debits: line.debit,
-            credits: line.credit,
-          });
-        }
-
-        // By type
-        const typeKey = line.glAccount.accountType;
-        const existingType = typeMap.get(typeKey);
-        if (existingType) {
-          existingType.debits += Number(line.debit);
-          existingType.credits += Number(line.credit);
-        } else {
-          typeMap.set(typeKey, {
-            type: typeKey,
-            debits: line.debit,
-            credits: line.credit,
-          });
-        }
-
-        // Add to recent movements
-        recentMovements.push({
-          id: entry.id,
-          date: entry.date.toISOString().split('T')[0] ?? '',
-          description: entry.description,
-          debit: line.debit,
-          credit: line.credit,
-          account: `${line.glAccount.code} - ${line.glAccount.name}`,
-          reference: entry.reference ?? '',
+    // Type rollup: bounded by the chart of accounts, not by the ledger size.
+    const typeMap = new Map<string, { type: string; debitsCents: number; creditsCents: number }>();
+    for (const account of accountMap.values()) {
+      const existing = typeMap.get(account.accountType);
+      if (existing) {
+        existing.debitsCents += account.debitsCents;
+        existing.creditsCents += account.creditsCents;
+      } else {
+        typeMap.set(account.accountType, {
+          type: account.accountType,
+          debitsCents: account.debitsCents,
+          creditsCents: account.creditsCents,
         });
       }
     }
 
-    // --- INCLUDE VIRTUAL ENTRIES FROM RECONCILED BANK TRANSACTIONS ---
-    const bankTxWhere: Prisma.BankTransactionWhereInput = {
-      statement: { bankAccount: { companyId } },
-      isReconciled: true,
-      glAccountId: { not: null },
-    };
-
-    if (fromDate || toDate) {
-      const dateWhere: Prisma.DateTimeFilter = {};
-      if (fromDate) dateWhere.gte = new Date(fromDate + 'T00:00:00.000Z');
-      if (toDate) dateWhere.lte = new Date(toDate + 'T23:59:59.999Z');
-      bankTxWhere.date = dateWhere;
-    }
-
-    if (accountId) {
-      bankTxWhere.glAccountId = accountId;
-    }
-
-    const reconciledTxs = await db.bankTransaction.findMany({
-      where: bankTxWhere,
-      select: {
-        id: true,
-        date: true,
-        amount: true,
-        description: true,
-        reference: true,
-        journalEntryId: true,
-        glAccount: {
-          select: {
-            id: true,
-            code: true,
-            name: true,
-            accountType: true,
-            normalBalance: true,
-          },
-        },
-        statement: {
-          select: {
-            bankAccount: {
-              select: {
-                glAccount: {
-                  select: {
-                    id: true,
-                    code: true,
-                    name: true,
-                    accountType: true,
-                    normalBalance: true,
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    for (const tx of reconciledTxs) {
-      if (!tx.glAccount) continue;
-      // A transaction already represented by a journal entry (journalEntryId) is
-      // already counted via its posted lines above — never as a virtual movement.
-      if (tx.journalEntryId) continue;
-      transactionCount++;
-
-      const isDeposit = Number(tx.amount) > 0;
-      const absAmount = Math.abs(tx.amount);
-
-      // Function to process a "virtual" line
-      const processVirtualLine = (
-        glAcct: {
-          id: string;
-          code: string;
-          name: string;
-          accountType: string;
-          normalBalance: string;
-        },
-        debit: number,
-        credit: number,
-      ) => {
-        if (!glAcct) return;
-        totalDebits += debit;
-        totalCredits += credit;
-
-        // By account
-        const acctKey = glAcct.id;
-        const existing = accountMap.get(acctKey);
-        if (existing) {
-          existing.debits += debit;
-          existing.credits += credit;
-        } else {
-          accountMap.set(acctKey, {
-            accountId: glAcct.id,
-            accountCode: glAcct.code,
-            accountName: glAcct.name,
-            accountType: glAcct.accountType,
-            debits: debit,
-            credits: credit,
-          });
-        }
-
-        // By type
-        const typeKey = glAcct.accountType;
-        const existingType = typeMap.get(typeKey);
-        if (existingType) {
-          existingType.debits += debit;
-          existingType.credits += credit;
-        } else {
-          typeMap.set(typeKey, {
-            type: typeKey,
-            debits: debit,
-            credits: credit,
-          });
-        }
-
-        // Add to recent movements
-        recentMovements.push({
-          id: tx.id + '-' + glAcct.id,
-          date: tx.date.toISOString().split('T')[0] ?? '',
-          description: tx.description,
-          debit: debit,
-          credit: credit,
-          account: `${glAcct.code} - ${glAcct.name}`,
-          reference: tx.reference ?? '',
-        });
-      };
-
-      // The assigned GL Account line
-      processVirtualLine(tx.glAccount, isDeposit ? 0 : absAmount, isDeposit ? absAmount : 0);
-
-      // The Bank Asset Account line (if not filtered out by accountId)
-      if (!accountId || accountId === tx.statement.bankAccount.glAccount?.id) {
-        processVirtualLine(
-          tx.statement.bankAccount.glAccount,
-          isDeposit ? absAmount : 0,
-          isDeposit ? 0 : absAmount,
-        );
-      }
-    }
-
-    const netMovement = totalDebits - totalCredits;
-
-    // Sort by account code
-    const byAccount = Array.from(accountMap.values()).sort((a, b) =>
-      a.accountCode.localeCompare(b.accountCode),
-    );
-
-    // Add net to byAccount
-    const byAccountWithNet = byAccount.map((a) => ({
-      ...a,
-      net: a.debits - a.credits,
-    }));
-
-    // Sort by type in logical GAAP order
     const accountTypeMeta =
       await readJsonConfig<Record<string, { order: number }>>('account-types.json');
     const typeOrder = Object.entries(accountTypeMeta)
@@ -354,23 +336,36 @@ export const GET = apiHandler(async (request: NextRequest) => {
         return (aIdx === -1 ? 99 : aIdx) - (bIdx === -1 ? 99 : bIdx);
       })
       .map((item) => ({
-        ...item,
-        net: item.debits - item.credits,
+        type: item.type,
+        debits: item.debitsCents / 100,
+        credits: item.creditsCents / 100,
+        net: (item.debitsCents - item.creditsCents) / 100,
       }));
 
-    // Limit recent movements to 50 and only those with non-zero amounts
-    const filteredRecent = recentMovements.filter((m) => Number(m.debit) > 0 || Number(m.credit) > 0).slice(0, 50);
+    const counts = countRows[0];
+    const transactionCount =
+      Number(counts?.journalEntries ?? 0) + Number(counts?.virtualTransactions ?? 0);
+
+    const recentMovements = recentRows.map((row) => ({
+      id: row.id,
+      date: row.date.toISOString().split('T')[0] ?? '',
+      description: row.description,
+      debit: toCents(row.debit) / 100,
+      credit: toCents(row.credit) / 100,
+      account: `${row.code} - ${row.name}`,
+      reference: row.reference ?? '',
+    }));
 
     return NextResponse.json({
       summary: {
-        totalDebits,
-        totalCredits,
-        netMovement,
+        totalDebits: totalDebitsCents / 100,
+        totalCredits: totalCreditsCents / 100,
+        netMovement: (totalDebitsCents - totalCreditsCents) / 100,
         transactionCount,
       },
       byAccount: byAccountWithNet,
       byType,
-      recentMovements: filteredRecent,
+      recentMovements,
     });
   } catch (error: unknown) {
     if (error instanceof AppError) {
@@ -380,4 +375,3 @@ export const GET = apiHandler(async (request: NextRequest) => {
     return NextResponse.json({ error: 'Failed to fetch movement summary' }, { status: 500 });
   }
 });
-

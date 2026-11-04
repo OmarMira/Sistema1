@@ -65,5 +65,13 @@ export const POST = apiHandler(
 
     return NextResponse.json({ company }, { status: 201 });
   },
-  { requireMembership: false },
+  // S4 — creating a company is a PLATFORM operation: it also grants the caller
+  // a company_admin membership plus a seeded chart of accounts and module
+  // entitlements. Without the platform gate any authenticated user could mint
+  // tenants, so only `super_admin` may call this route. `requireMembership`
+  // stays false on purpose: the creator has no membership in the company being
+  // created (it is created here), and requireSuperAdmin already fetches and
+  // checks the platform role through the canonical gate. The single-user owner
+  // of an installation IS super_admin, so their flow is unchanged.
+  { requireMembership: false, requireSuperAdmin: true },
 );

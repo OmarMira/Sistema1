@@ -215,6 +215,8 @@ describe('PDF Parser - Bank of America PDF Parser', () => {
 
       const jeCountBefore = await db.journalEntry.count({ where: { companyId: company.id } });
 
+      // The fiscal guard reports the closed period in the user's language; the
+      // machine-readable code lives in the error payload, not in the prose.
       await expect(
         ImportService.importFile({
           companyId: company.id,
@@ -224,7 +226,7 @@ describe('PDF Parser - Bank of America PDF Parser', () => {
           buffer: Buffer.from(csvContent),
           content: csvContent,
         }),
-      ).rejects.toThrow(/period/i);
+      ).rejects.toThrow(/período cerrado/i);
 
       const jeCountAfter = await db.journalEntry.count({ where: { companyId: company.id } });
       expect(jeCountAfter).toBe(jeCountBefore);

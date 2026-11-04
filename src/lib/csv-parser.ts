@@ -164,6 +164,72 @@ export function applyCsvLayout(
   return transactions;
 }
 
+/**
+ * Decodes an uploaded statement document into text BEFORE any CSV parsing.
+ *
+ * Exports from real-world banking tools are not always plain UTF-8:
+ *  - Excel "CSV UTF-8" emits a UTF-8 BOM (EF BB BF), which would otherwise
+ *    become part of the first header ("\uFEFFdate") and break column
+ *    discovery.
+ *  - Excel "Unicode Text" emits UTF-16 LE with a FF FE BOM (some tools emit
+ *    UTF-16 BE with FE FF). Decoded as UTF-8 those bytes produce NUL-laced
+ *    garbage and the import fails with an unreadable mapping error.
+ *
+ * BOM-less UTF-16 is detected by byte layout (a NUL in every other byte for
+ * mostly-ASCII content) because that is the only signal Excel leaves behind.
+ * Anything else falls through to plain UTF-8, so existing UTF-8 uploads are
+ * byte-for-byte unchanged.
+ */
+export function decodeCsvBuffer(buffer: Uint8Array): string {
+  const bytes = Buffer.from(buffer);
+
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return bytes.subarray(3).toString('utf8');
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return bytes.subarray(2).toString('utf16le');
+  }
+
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return decodeUtf16Be(bytes.subarray(2));
+  }
+
+  if (bytes.length >= 4) {
+    const layout = utf16ByteLayout(bytes);
+    if (layout === 'le') return bytes.toString('utf16le');
+    if (layout === 'be') return decodeUtf16Be(bytes);
+  }
+
+  return bytes.toString('utf8');
+}
+
+function decodeUtf16Be(body: Buffer): string {
+  if (body.length % 2 !== 0) return body.toString('utf8');
+  const swapped = Buffer.from(body);
+  swapped.swap16();
+  return swapped.toString('utf16le');
+}
+
+/**
+ * Byte-layout guess for BOM-less UTF-16: mostly-ASCII text decoded as UTF-16
+ * puts a NUL in every high byte. Returns null when the layout is ambiguous.
+ */
+function utf16ByteLayout(bytes: Buffer): 'le' | 'be' | null {
+  const pairs = Math.floor(bytes.length / 2);
+  if (pairs < 2) return null;
+  let zeroHigh = 0; // byte at odd index is NUL → UTF-16 LE for ASCII
+  let zeroLow = 0; // byte at even index is NUL → UTF-16 BE for ASCII
+  for (let i = 0; i + 1 < bytes.length; i += 2) {
+    if (bytes[i + 1] === 0) zeroHigh++;
+    if (bytes[i] === 0) zeroLow++;
+  }
+  const threshold = pairs * 0.5;
+  if (zeroHigh > threshold && zeroLow <= threshold) return 'le';
+  if (zeroLow > threshold && zeroHigh <= threshold) return 'be';
+  return null;
+}
+
 export function parseCSV(content: string): ParsedTransaction[] {
   // Legacy entry point: same inspection + discovery + application semantics
   // as the exported pair above (single source of truth). Header-alias

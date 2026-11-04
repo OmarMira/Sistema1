@@ -5,6 +5,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { EntityOnboardingModal } from '@/components/learning/EntityOnboardingModal';
+import es from '@/i18n/locales/es';
+import en from '@/i18n/locales/en';
 
 afterEach(() => cleanup());
 
@@ -37,6 +39,7 @@ vi.mock('@/components/ui/select', () => ({
         onChange={(e) => onValueChange?.(e.target.value)}
         disabled={disabled}
       >
+        <option value="">Select...</option>
         {options.map((o) => (
           <option key={o.value} value={o.value}>{o.label}</option>
         ))}
@@ -79,6 +82,7 @@ const tFn = vi.hoisted(() => vi.fn((key: string, params?: Record<string, any>) =
     'learning.otroDescription': 'Describe what this entity is...',
     'learning.otroAnalyzing': 'Analyzing...',
     'learning.preClassify': 'Suggest role',
+    'learning.newSuggestion': 'Get new suggestion',
     'learning.preClassifyPlural': 'Suggest roles',
     'learning.manualSelection': 'Manual selection',
     'learning.accept': 'Accept',
@@ -123,6 +127,22 @@ const tFn = vi.hoisted(() => vi.fn((key: string, params?: Record<string, any>) =
     'learning.glAccountRequired': 'GL Account is required when creating a rule.',
     'learning.intentSelectorPlaceholder': 'What does this movement represent?',
     'learning.glAccount': 'GL Account',
+    'learning.rentReceipt': 'Rent received',
+    'learning.customRoleLabel': 'Nombre del rol personalizado',
+    'learning.customRoleOption': 'Personalizado...',
+    'learning.customRolePlaceholder': 'Ej: FIDEICOMISO, PLATAFORMA, INVERSOR...',
+    'learning.accountGuidance.title': 'Suggested account',
+    'learning.accountGuidance.useSuggested': 'Use suggested account',
+    'learning.accountGuidance.chooseExisting': 'Choose another account',
+    'learning.accountGuidance.createChild': 'Create subaccount',
+    'learning.accountGuidance.confirmCreate': 'Confirm subaccount creation',
+    'learning.accountGuidance.childName': 'Subaccount name',
+    'learning.accountGuidance.cancel': 'Cancel creation',
+    'learning.accountGuidance.createError': 'Could not create subaccount.',
+    'learning.accountGuidance.codeConflict': 'Account code already exists. Choose another name or refresh.',
+    'learning.accountGuidance.clarification': 'Please clarify the movement',
+    'learning.accountGuidance.clarificationPlaceholder': 'Explain what these payments represent',
+    'learning.accountGuidance.caution': 'Review this proposal. Not all movements from one entity represent the same concept.',
     'learning.accountPlaceholder': 'Select an account...',
     'transactionIntent.OPERATING_EXPENSE': 'Operating Expense',
     'transactionIntent.LOAN_PAYMENT': 'Loan Payment',
@@ -143,8 +163,14 @@ const tFn = vi.hoisted(() => vi.fn((key: string, params?: Record<string, any>) =
   }
   return value;
 }));
+const languageState = vi.hoisted(() => ({ language: 'en' }));
+const spanishT = (key: string, params?: Record<string, string | number>) => {
+  let value: any = es;
+  for (const part of key.split('.')) value = value?.[part];
+  return Object.entries(params ?? {}).reduce((text, [name, replacement]) => text.replace(`{${name}}`, String(replacement)), typeof value === 'string' ? value : key);
+};
 vi.mock('@/store/language-store', () => ({
-  useLanguageStore: (selector: (s: any) => any) => selector({ t: tFn, language: 'en' }),
+  useLanguageStore: (selector: (s: any) => any) => selector({ t: languageState.language === 'es' ? spanishT : tFn, language: languageState.language }),
 }));
 
 const mockToast = vi.hoisted(() => ({
@@ -196,6 +222,8 @@ function setupFetch(
     classifyResponse?: any;
     suggestRoleStatus?: number;
     classifyStatus?: number;
+    accounts?: any[];
+    accountStatus?: number;
   },
 ) {
   mockFetch.mockImplementation((url: string, req?: RequestInit) => {
@@ -206,10 +234,16 @@ function setupFetch(
         json: () => Promise.resolve({ success: true, data: candidates }),
       });
     }
+    if (u.includes('/api/accounts') && req?.method === 'POST') {
+      const status = options?.accountStatus ?? 201;
+      return Promise.resolve({ ok: status === 201, status, json: async () => ({
+        account: { id: 'new-child', ...JSON.parse(String(req.body)) },
+      }) });
+    }
     if (u.includes('/api/accounts')) {
       return Promise.resolve({
         ok: true,
-        json: () => Promise.resolve({ accounts: [{ id: 'gl-1', code: '4010', name: 'Test Account' }] }),
+        json: () => Promise.resolve({ accounts: options?.accounts ?? [{ id: 'gl-1', code: '4010', name: 'Test Account' }] }),
       });
     }
     if (u.includes('/api/learning/suggest-role')) {
@@ -264,6 +298,7 @@ async function selectRole(user: ReturnType<typeof userEvent.setup>, entityIdx: n
 describe('EntityOnboardingModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    languageState.language = 'en';
     vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.stubGlobal('fetch', mockFetch);
   });
@@ -271,6 +306,228 @@ describe('EntityOnboardingModal', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  describe('per-entity suggestion lifecycle', () => {
+    it('distinguishes first and subsequent requests in the real translations', () => {
+      expect(es.learning.preClassify).toBe('Obtener sugerencia');
+      expect(es.learning.newSuggestion).toBe('Obtener nueva sugerencia');
+      expect(en.learning.preClassify).toBe('Get suggestion');
+      expect(en.learning.newSuggestion).toBe('Get new suggestion');
+    });
+
+    it('starts with a first-suggestion label and does not request or save anything on opening', async () => {
+      setupFetch([debitCandidate, creditCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      const buttons = await screen.findAllByTestId('pre-classify-btn');
+      expect(buttons).toHaveLength(2);
+      buttons.forEach((button) => expect(button).toHaveTextContent('Suggest role'));
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role') || url.includes('/classify-entity'))).toHaveLength(0);
+    });
+
+    it('keeps history per entity after discard and sends it on a real retry without saving', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([debitCandidate, creditCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click((await screen.findAllByTestId('pre-classify-btn'))[0]);
+      expect(await screen.findByText('Matches supplier pattern')).toBeInTheDocument();
+      await user.click(screen.getByTestId('discard-suggestion-btn'));
+      const buttons = screen.getAllByTestId('pre-classify-btn');
+      expect(buttons[0]).toHaveTextContent('Get new suggestion');
+      expect(buttons[1]).toHaveTextContent('Suggest role');
+      await user.click(buttons[0]);
+      await screen.findByTestId('accept-suggestion-btn');
+      const calls = mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'));
+      expect(calls).toHaveLength(2);
+      expect(JSON.parse(calls[0][1].body)).toMatchObject({
+        entityName: 'DEBIT ENTITY', description: 'DEBIT ENTITY', companyId: 'comp_1', manualRequest: true,
+      });
+      expect(JSON.parse(calls[0][1].body).previousSuggestion).toBeUndefined();
+      expect(JSON.parse(calls[1][1].body)).toMatchObject({
+        entityName: 'DEBIT ENTITY',
+        previousSuggestion: { role: 'PROVEEDOR', explanation: 'Matches supplier pattern' },
+      });
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'))).toHaveLength(0);
+    });
+
+    it('offers a new suggestion directly and saves only after explicit acceptance', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await user.click(await screen.findByRole('button', { name: /Get new suggestion/i }));
+      await screen.findByTestId('accept-suggestion-btn');
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'))).toHaveLength(2);
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'))).toHaveLength(0);
+      await user.click(screen.getByTestId('accept-suggestion-btn'));
+      await screen.findByText('All entities classified');
+      const saves = mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'));
+      expect(saves).toHaveLength(1);
+      expect(JSON.parse(saves[0][1].body)).toEqual({
+        companyId: 'comp_1', pattern: 'DEBIT ENTITY', userInput: 'DEBIT ENTITY', role: 'PROVEEDOR', createRule: false,
+      });
+    });
+
+    it('can reevaluate a newly proposed role without assigning or creating it', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([debitCandidate], { suggestRoleResponse: {
+        suggestedRole: 'PLATAFORMA', confidence: 0.8, explanation: 'Platform payouts', isNewRole: true,
+      } });
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await user.click(await screen.findByRole('button', { name: /Get new suggestion/i }));
+      await screen.findByText('Platform payouts');
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'))).toHaveLength(2);
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'))).toHaveLength(0);
+    });
+
+    it('resets proposal history when the dialog closes', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([debitCandidate]);
+      const { rerender } = render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await screen.findByTestId('accept-suggestion-btn');
+      rerender(<EntityOnboardingModal isOpen={false} onClose={vi.fn()} companyId="comp_1" />);
+      rerender(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      expect(await screen.findByTestId('pre-classify-btn')).toHaveTextContent('Suggest role');
+      await user.click(screen.getByTestId('pre-classify-btn'));
+      await screen.findByTestId('accept-suggestion-btn');
+      const calls = mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'));
+      expect(JSON.parse(calls[1][1].body).previousSuggestion).toBeUndefined();
+    });
+
+    it('keeps the actual entity name when manual relationship context is provided', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([debitCandidate]);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await screen.findByText('DEBIT ENTITY');
+      await selectRole(user, 0, 'OTRO');
+      await user.type(screen.getByPlaceholderText('Describe what this entity is...'), 'Owner withdrawal');
+      await user.click(screen.getByRole('button', { name: /Suggest role/i }));
+      await screen.findByTestId('accept-suggestion-btn');
+      const calls = mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'));
+      expect(JSON.parse(calls[0][1].body)).toMatchObject({ entityName: 'DEBIT ENTITY', description: 'Owner withdrawal' });
+    });
+  });
+
+  describe('account guidance for non-expert users', () => {
+    const rentAccount = { id: 'rent', code: '4020', name: 'Ingresos por alquileres', accountType: 'revenue', normalBalance: 'credit', parentId: null, isActive: true };
+    const guidance = {
+      account: rentAccount, intent: 'RENT_PAYMENT', needsClarification: false,
+      reason: 'Rental receipts belong to income.', question: null,
+    };
+    function setupGuidance(accountStatus = 201) {
+      setupFetch([creditCandidate], { accounts: [rentAccount], accountStatus, suggestRoleResponse: {
+        suggestedRole: 'INQUILINO', confidence: 0.9, explanation: 'Tenant payments.', accountGuidance: guidance,
+      } });
+    }
+
+    it('offers the suggested account and receipt concept without silently enabling automation', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupGuidance();
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await user.click(await screen.findByTestId('use-suggested-account'));
+      expect(screen.getByText('Rent received')).toBeInTheDocument();
+      expect(screen.getByTestId('create-rule-toggle')).not.toBeChecked();
+      const requests = mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'));
+      expect(requests[0][1].headers).toMatchObject({ 'x-locale': 'en' });
+      await user.click(screen.getByTestId('accept-suggestion-btn'));
+      await screen.findByText('All entities classified');
+      const saves = mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'));
+      expect(JSON.parse(saves[0][1].body)).toMatchObject({ glAccountCode: '4020', intent: 'RENT_PAYMENT', createRule: false });
+    });
+
+    it('uses Spanish controls and sends the selected language to suggestion and assignment', async () => {
+      vi.useRealTimers();
+      languageState.language = 'es';
+      const user = userEvent.setup();
+      setupFetch([creditCandidate], { accounts: [rentAccount], suggestRoleResponse: {
+        suggestedRole: 'INQUILINO', confidence: 0.9, explanation: 'Son cobros de alquiler.',
+        accountGuidance: { ...guidance, reason: 'Corresponden a ingresos, no a gastos.' },
+      } });
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await screen.findByText('Son cobros de alquiler.');
+      await user.click(screen.getByRole('button', { name: es.learning.accountGuidance.useSuggested }));
+      expect(screen.getByText('Cobro de alquiler')).toBeInTheDocument();
+      await user.click(screen.getByTestId('accept-suggestion-btn'));
+      await screen.findByText(es.learning.allClassified);
+      for (const [, req] of mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role') || url.includes('/classify-entity'))) {
+        expect(req.headers).toMatchObject({ 'x-locale': 'es' });
+      }
+    });
+
+    it('lets the user choose another existing account without creating one', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([creditCandidate], { accounts: [rentAccount, { ...rentAccount, id: 'other-income', code: '4030', name: 'Other income' }], suggestRoleResponse: {
+        suggestedRole: 'INQUILINO', confidence: 0.9, explanation: 'Tenant.', accountGuidance: guidance,
+      } });
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await user.selectOptions(await screen.findByTestId('guidance-account-select'), '4030');
+      await user.click(screen.getByTestId('accept-suggestion-btn'));
+      await screen.findByText('All entities classified');
+      const saves = mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'));
+      expect(JSON.parse(saves[0][1].body)).toMatchObject({ glAccountCode: '4030', createRule: false });
+      expect(mockFetch.mock.calls.filter(([url, req]) => url.includes('/api/accounts') && req?.method === 'POST')).toHaveLength(0);
+    });
+
+    it('sends the clarification for reevaluation instead of saving a guessed account', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupFetch([creditCandidate], { accounts: [rentAccount], suggestRoleResponse: {
+        suggestedRole: 'INQUILINO', confidence: 0.6, explanation: 'Purpose unclear.',
+        accountGuidance: { account: null, intent: null, needsClarification: true, reason: '', question: 'Rent or security deposit?' },
+      } });
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await user.type(await screen.findByTestId('guidance-clarification'), 'Son cobros de alquiler de la unidad A');
+      await user.click(screen.getByRole('button', { name: /Get new suggestion/i }));
+      await waitFor(() => expect(mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'))).toHaveLength(2));
+      const requests = mockFetch.mock.calls.filter(([url]) => url.includes('/suggest-role'));
+      expect(JSON.parse(requests[1][1].body)).toMatchObject({ entityName: creditCandidate.canonicalName, description: 'Son cobros de alquiler de la unidad A' });
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'))).toHaveLength(0);
+    });
+
+    it('creates a child only after explicit confirmation, inheriting its actual parent type', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupGuidance();
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await user.click(await screen.findByTestId('create-subaccount-btn'));
+      expect(screen.getByText(/4020-01/)).toBeInTheDocument();
+      expect(mockFetch.mock.calls.filter(([url, req]) => url.includes('/api/accounts') && req?.method === 'POST')).toHaveLength(0);
+      await user.type(screen.getByTestId('subaccount-name'), 'Alquiler Unidad A');
+      await user.click(screen.getByTestId('confirm-subaccount-btn'));
+      await waitFor(() => expect(screen.getByTestId('guidance-account-select')).toHaveValue('4020-01'));
+      const creates = mockFetch.mock.calls.filter(([url, req]) => url.includes('/api/accounts') && req?.method === 'POST');
+      expect(creates).toHaveLength(1);
+      expect(JSON.parse(creates[0][1].body)).toEqual({ code: '4020-01', name: 'Alquiler Unidad A', accountType: 'revenue', normalBalance: 'credit', parentId: 'rent' });
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'))).toHaveLength(0);
+    });
+
+    it('does not save a classification when child creation fails', async () => {
+      vi.useRealTimers();
+      const user = userEvent.setup();
+      setupGuidance(409);
+      render(<EntityOnboardingModal isOpen onClose={vi.fn()} companyId="comp_1" />);
+      await user.click(await screen.findByTestId('pre-classify-btn'));
+      await user.click(await screen.findByTestId('create-subaccount-btn'));
+      await user.type(screen.getByTestId('subaccount-name'), 'Alquiler Unidad A');
+      await user.click(screen.getByTestId('confirm-subaccount-btn'));
+      await screen.findByRole('alert');
+      expect(screen.getByTestId('guidance-account-select')).toHaveValue('');
+      expect(mockFetch.mock.calls.filter(([url]) => url.includes('/classify-entity'))).toHaveLength(0);
+    });
   });
 
   // ── F3: Split flow (absence check) ───────────────────────────────
@@ -742,7 +999,8 @@ describe('EntityOnboardingModal', () => {
       await user.click(screen.getByRole('button', { name: /Save entity and create rule/i }));
 
       await waitFor(() => {
-        expect(screen.getByText(/CONFLICT/i)).toBeInTheDocument();
+        expect(screen.getByText('This entity already has a rule for this intent with a different GL account.')).toBeInTheDocument();
+        expect(screen.queryByText(/CONFLICT:/i)).not.toBeInTheDocument();
       });
 
       // Modal is still open — we can still interact

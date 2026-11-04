@@ -26,7 +26,7 @@ interface CombinedEntry {
 }
 
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
-  const { userId, companyId } = requireCompanyContext();
+  const { companyId } = requireCompanyContext();
   await requireModuleEntitlement('accounting');
 
   const { searchParams } = new URL(request.url);
@@ -35,119 +35,164 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
   const glAccountId = searchParams.get('glAccountId');
   const page = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') ?? '25', 10) || 25));
+  const offset = (page - 1) * limit;
 
-  // Build where clause
-  const where: Record<string, unknown> = {
-    companyId,
-    status: 'posted',
-  };
+  const startDate = startDateParam ? new Date(startDateParam + 'T00:00:00.000Z') : null;
+  const endDate = endDateParam ? new Date(endDateParam + 'T23:59:59.999Z') : null;
 
-  if (startDateParam || endDateParam) {
-    where.date = {};
-    if (startDateParam) {
-      (where.date as Record<string, unknown>).gte = new Date(startDateParam + 'T00:00:00.000Z');
-    }
-    if (endDateParam) {
-      (where.date as Record<string, unknown>).lte = new Date(endDateParam + 'T23:59:59.999Z');
-    }
-  }
+  // S23a — this route used to load EVERY posted entry with every line (plus
+  // every reconciled bank transaction) and then paginate/aggregate in JS. The
+  // page window and the total count now come from one SQL query each, and the
+  // GL filter is part of the query instead of a JS pass. The response shape is
+  // unchanged: { data, pagination: { page, limit, totalCount, totalPages } }.
+  //
+  // The report merges two sources (journal entries and "virtual" entries built
+  // from reconciled bank transactions that were never turned into a journal
+  // entry), so the page has to be cut from the UNION — cutting each source
+  // separately would break the page boundaries.
+  const journalDateFilter =
+    startDate || endDate
+      ? Prisma.sql`${startDate ? Prisma.sql`AND je."date" >= ${startDate}` : Prisma.empty}${
+          endDate ? Prisma.sql` AND je."date" <= ${endDate}` : Prisma.empty
+        }`
+      : Prisma.empty;
 
-  // Line filter for specific GL account
-  const lineWhere: Record<string, unknown> = {};
-  if (glAccountId) {
-    lineWhere.glAccountId = glAccountId;
-  }
+  const bankDateFilter =
+    startDate || endDate
+      ? Prisma.sql`${startDate ? Prisma.sql`AND bt."date" >= ${startDate}` : Prisma.empty}${
+          endDate ? Prisma.sql` AND bt."date" <= ${endDate}` : Prisma.empty
+        }`
+      : Prisma.empty;
 
-  // Fetch real journal entries matching filter
-  const realEntries = await db.journalEntry.findMany({
-    where,
-    include: {
-      lines: {
-        include: {
-          glAccount: {
-            select: {
-              id: true,
-              code: true,
-              name: true,
-              accountType: true,
-              normalBalance: true,
-            },
-          },
-        },
-      },
-    },
-    orderBy: { date: 'desc' },
-  });
+  const journalGlFilter = glAccountId
+    ? Prisma.sql`AND EXISTS (SELECT 1 FROM "JournalLine" jl WHERE jl."entryId" = je.id AND jl."glAccountId" = ${glAccountId})`
+    : Prisma.empty;
 
-  // Fetch virtual entries from reconciled bank transactions
-  const bankTxWhere: Prisma.BankTransactionWhereInput = {
-    statement: { bankAccount: { companyId } },
-    isReconciled: true,
-    glAccountId: { not: null },
-  };
+  // Parity with the previous JS pass: a virtual entry is selected by its
+  // ASSIGNED gl account (the bank-asset line is still returned with it).
+  const bankGlFilter = glAccountId
+    ? Prisma.sql`AND bt."glAccountId" = ${glAccountId}`
+    : Prisma.empty;
 
-  if (startDateParam || endDateParam) {
-    bankTxWhere.date = {};
-    if (startDateParam) bankTxWhere.date.gte = new Date(startDateParam + 'T00:00:00.000Z');
-    if (endDateParam) bankTxWhere.date.lte = new Date(endDateParam + 'T23:59:59.999Z');
-  }
+  const unified = Prisma.sql`
+    SELECT je.id AS id, je."date" AS date, 'journal'::text AS source
+    FROM "JournalEntry" je
+    WHERE je."companyId" = ${companyId}
+      AND je."status" = 'posted'
+      ${journalDateFilter}
+      ${journalGlFilter}
+    UNION ALL
+    SELECT bt.id AS id, bt."date" AS date, 'bank'::text AS source
+    FROM "BankTransaction" bt
+    JOIN "BankStatement" bs ON bs.id = bt."statementId"
+    JOIN "BankAccount" ba ON ba.id = bs."bankAccountId"
+    WHERE ba."companyId" = ${companyId}
+      AND bt."isReconciled" = true
+      AND bt."glAccountId" IS NOT NULL
+      AND bt."journalEntryId" IS NULL
+      ${bankDateFilter}
+      ${bankGlFilter}
+  `;
 
-  const reconciledTxs = await db.bankTransaction.findMany({
-    where: bankTxWhere,
-    select: {
-      id: true,
-      date: true,
-      amount: true,
-      description: true,
-      reference: true,
-      journalEntryId: true,
-      glAccount: {
-        select: { id: true, code: true, name: true, accountType: true, normalBalance: true },
-      },
-      statement: {
-        select: {
-          bankAccount: {
-            select: {
-              glAccount: {
-                select: {
-                  id: true,
-                  code: true,
-                  name: true,
-                  accountType: true,
-                  normalBalance: true,
+  const [pageRows, countRows] = await Promise.all([
+    db.$queryRaw<Array<{ id: string; date: Date; source: string }>>`
+      SELECT id, date, source FROM (${unified}) unified
+      ORDER BY date DESC, id DESC
+      LIMIT ${limit} OFFSET ${offset}
+    `,
+    db.$queryRaw<Array<{ total: bigint }>>`
+      SELECT COUNT(*) AS total FROM (${unified}) unified
+    `,
+  ]);
+
+  const totalCount = Number(countRows[0]?.total ?? 0);
+  const journalIds = pageRows.filter((r) => r.source === 'journal').map((r) => r.id);
+  const bankIds = pageRows.filter((r) => r.source === 'bank').map((r) => r.id);
+
+  const [realEntries, reconciledTxs] = await Promise.all([
+    journalIds.length > 0
+      ? db.journalEntry.findMany({
+          where: { id: { in: journalIds } },
+          include: {
+            lines: {
+              include: {
+                glAccount: {
+                  select: { id: true, code: true, name: true, accountType: true, normalBalance: true },
                 },
               },
             },
           },
-        },
-      },
-    },
-  });
+        })
+      : Promise.resolve([]),
+    bankIds.length > 0
+      ? db.bankTransaction.findMany({
+          where: { id: { in: bankIds } },
+          select: {
+            id: true,
+            date: true,
+            amount: true,
+            description: true,
+            reference: true,
+            journalEntryId: true,
+            glAccount: {
+              select: { id: true, code: true, name: true, accountType: true, normalBalance: true },
+            },
+            statement: {
+              select: {
+                bankAccount: {
+                  select: {
+                    glAccount: {
+                      select: {
+                        id: true,
+                        code: true,
+                        name: true,
+                        accountType: true,
+                        normalBalance: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        })
+      : Promise.resolve([]),
+  ]);
 
-  // Convert real entries to standardized format
-  const combinedEntries: CombinedEntry[] = realEntries.map((entry) => ({
-    id: entry.id,
-    date: entry.date,
-    description: entry.description,
-    reference: entry.reference,
-    status: entry.status,
-    lines: entry.lines.map((l) => ({
-      id: l.id,
-      glAccountId: l.glAccountId,
-      accountCode: l.glAccount.code,
-      accountName: l.glAccount.name,
-      accountType: l.glAccount.accountType,
-      description: l.description ?? '',
-      debit: l.debit || 0,
-      credit: l.credit || 0,
-    })),
-  }));
+  const entryById = new Map(realEntries.map((entry) => [entry.id, entry]));
+  const txById = new Map(reconciledTxs.map((tx) => [tx.id, tx]));
 
-  // Add virtual entries
-  for (const tx of reconciledTxs) {
-    if (!tx.glAccount) continue;
+  const combinedEntries: CombinedEntry[] = [];
+
+  // Rebuild the page in the SQL order: no client-side re-sort, no re-filter.
+  for (const row of pageRows) {
+    if (row.source === 'journal') {
+      const entry = entryById.get(row.id);
+      if (!entry) continue;
+      combinedEntries.push({
+        id: entry.id,
+        date: entry.date,
+        description: entry.description,
+        reference: entry.reference,
+        status: entry.status,
+        lines: entry.lines.map((l) => ({
+          id: l.id,
+          glAccountId: l.glAccountId,
+          accountCode: l.glAccount.code,
+          accountName: l.glAccount.name,
+          accountType: l.glAccount.accountType,
+          description: l.description ?? '',
+          debit: l.debit || 0,
+          credit: l.credit || 0,
+        })),
+      });
+      continue;
+    }
+
+    const tx = txById.get(row.id);
+    if (!tx || !tx.glAccount) continue;
     // A transaction already represented by a journal entry (journalEntryId) is
-    // already present in realEntries above — never as a virtual entry.
+    // already present as a real entry — never as a virtual entry.
     if (tx.journalEntryId) continue;
 
     const isDeposit = Number(tx.amount) > 0;
@@ -192,20 +237,7 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     });
   }
 
-  // Sort by date descending
-  combinedEntries.sort((a, b) => b.date.getTime() - a.date.getTime());
-
-  // Apply GL Account filter if provided
-  const filteredEntries = glAccountId
-    ? combinedEntries.filter((e) => e.lines.some((l: TransactionLine) => l.glAccountId === glAccountId))
-    : combinedEntries;
-
-  const totalCount = filteredEntries.length;
-
-  // Paginate
-  const paginatedEntries = filteredEntries.slice((page - 1) * limit, page * limit);
-
-  const result = paginatedEntries.map((entry) => {
+  const result = combinedEntries.map((entry) => {
     const totalDebit = entry.lines.reduce((sum: number, l: TransactionLine) => sum + Number(l.debit), 0);
     const totalCredit = entry.lines.reduce((sum: number, l: TransactionLine) => sum + Number(l.credit), 0);
     return {
@@ -226,4 +258,3 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
     },
   });
 });
-

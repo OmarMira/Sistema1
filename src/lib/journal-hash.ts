@@ -643,13 +643,52 @@ export function recomputeLegacyHash(entry: {
 }
 
 /**
- * Verify the integrity of the entire audit log hash chain.
+ * Result of an audit chain verification.
+ * The audit chain is GLOBAL: `previousHash` links are not company-scoped, so a
+ * tenant filter cannot be applied to the walk itself without breaking it.
  */
-export async function verifyAuditChain(): Promise<IntegrityResult> {
-  const { db } = await import('@/lib/db');
+export interface AuditChainResult extends IntegrityResult {
+  scope: 'global-audit-chain';
+  /** Rows carrying a hash (chain members). */
+  members: number;
+  /** Rows written before chaining was activated — tolerated, never verified. */
+  legacyRows: number;
+  /** Rows belonging to the requested company (absent when no scope is given). */
+  companyRows?: number;
+}
 
-  const logs = await db.auditLog.findMany({
-    orderBy: { createdAt: 'asc' },
+export interface AuditChainScope {
+  /** Caller company — governs reporting only, never the chain walk. */
+  companyId?: string | null;
+}
+
+type AuditChainRow = {
+  id: string;
+  companyId: string | null;
+  userId: string | null;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  details: string | null;
+  hash: string | null;
+  previousHash: string | null;
+};
+
+/**
+ * Verify the integrity of the audit log hash chain.
+ *
+ * S12: rows without a hash are legacy history written before chaining was
+ * activated. They are counted but never verified, so a mixed hashed/unhashed
+ * history stays valid while every new row is sealed. The walk follows the
+ * stored links (ROOT = previousHash null, TAIL = last reachable member), the
+ * same topology contract used for journal entries.
+ */
+export async function verifyAuditChain(scope?: AuditChainScope): Promise<AuditChainResult> {
+  const { db } = await import('@/lib/db');
+  const companyId = scope?.companyId ?? null;
+
+  const logs = (await db.auditLog.findMany({
+    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
     select: {
       id: true,
       companyId: true,
@@ -661,47 +700,166 @@ export async function verifyAuditChain(): Promise<IntegrityResult> {
       hash: true,
       previousHash: true,
     },
+  })) as AuditChainRow[];
+
+  const members = logs.filter((l) => l.hash != null);
+  const legacyRows = logs.length - members.length;
+  const base = {
+    scope: 'global-audit-chain' as const,
+    members: members.length,
+    legacyRows,
+    ...(companyId ? { companyRows: logs.filter((l) => l.companyId === companyId).length } : {}),
+  };
+
+  if (members.length === 0) {
+    return { valid: true, totalChecked: logs.length, firstBreak: null, ...base };
+  }
+
+  /**
+   * A break located in another tenant is reported without cross-tenant
+   * identifiers: the caller learns the chain is broken, not whose row broke it.
+   */
+  const breakFor = (
+    row: AuditChainRow,
+    totalChecked: number,
+    reasonCode: string,
+    firstBreak: NonNullable<IntegrityResult['firstBreak']>,
+  ): AuditChainResult => ({
+    valid: false,
+    totalChecked,
+    firstBreak:
+      companyId != null && row.companyId !== companyId
+        ? {
+            entryId: '(outside the caller company)',
+            entryDate: '',
+            description: 'redacted (other tenant)',
+            expectedHash: '<integrity>',
+            actualHash: '<integrity>',
+          }
+        : firstBreak,
+    reasonCode,
+    ...base,
   });
 
-  if (logs.length === 0) {
-    return { valid: true, totalChecked: 0, firstBreak: null };
+  // (F1) two members must never share a stored hash value.
+  const byStoredHash = new Map<string, number>();
+  for (const m of members) {
+    byStoredHash.set(m.hash as string, (byStoredHash.get(m.hash as string) ?? 0) + 1);
   }
-
-  const logsWithHash = logs.filter((l) => l.hash);
-  const legacyCount = logs.length - logsWithHash.length;
-
-  let previousHash: string | null = null;
-
-  for (let i = 0; i < logsWithHash.length; i++) {
-    const log = logsWithHash[i];
-
-    const expectedHash = computeAuditHash({
-      id: log.id,
-      companyId: log.companyId,
-      userId: log.userId,
-      action: log.action,
-      entity: log.entity,
-      entityId: log.entityId,
-      details: log.details,
-      previousHash,
-    });
-
-    if (log.hash !== expectedHash) {
-      return {
-        valid: false,
-        totalChecked: legacyCount + i + 1,
-        firstBreak: {
-          entryId: log.id,
-          entryDate: log.action,
-          description: `${log.entity}${log.entityId ? `:${log.entityId}` : ''}`,
-          expectedHash,
-          actualHash: log.hash as string,
-        },
-      };
+  for (const [dupHref, count] of byStoredHash) {
+    if (count > 1) {
+      const dup = members.find((m) => m.hash === dupHref)!;
+      return breakFor(dup, 0, 'DUPLICATE_MEMBER_HASH', {
+        entryId: dup.id,
+        entryDate: '',
+        description: `${dup.entity}${dup.entityId ? `:${dup.entityId}` : ''}`,
+        expectedHash: '<unique stored hash per member>',
+        actualHash: `${count} members carry ${dupHref.slice(0, 12)}…`,
+      });
     }
-
-    previousHash = log.hash;
   }
 
-  return { valid: true, totalChecked: logs.length, firstBreak: null };
+  // (fork) at most one successor per stored previousHash reference.
+  const successors = new Map<string, number>();
+  for (const m of members) {
+    if (m.previousHash == null) continue;
+    successors.set(m.previousHash, (successors.get(m.previousHash) ?? 0) + 1);
+  }
+  for (const [prevHash, count] of successors) {
+    if (count > 1) {
+      const dup = members.find((m) => m.previousHash === prevHash)!;
+      return breakFor(dup, 0, 'CHAIN_FORK', {
+        entryId: dup.id,
+        entryDate: '',
+        description: `${dup.entity}${dup.entityId ? `:${dup.entityId}` : ''}`,
+        expectedHash: '<unique successor>',
+        actualHash: `${count} members chain on ${prevHash.slice(0, 12)}…`,
+      });
+    }
+  }
+
+  // exactly one ROOT (previousHash === null).
+  const roots = members.filter((m) => m.previousHash == null);
+  if (roots.length !== 1) {
+    const offender = roots[0] ?? members[0];
+    return breakFor(offender, 0, 'CHAIN_ROOT_COUNT', {
+      entryId: offender.id,
+      entryDate: '',
+      description: `${offender.entity}${offender.entityId ? `:${offender.entityId}` : ''}`,
+      expectedHash: '<exactly one ROOT: previousHash=null>',
+      actualHash: `<${roots.length} roots>`,
+    });
+  }
+
+  const root = roots[0];
+  const visited = new Set<string>([root.id]);
+  const order: AuditChainRow[] = [root];
+  let current = root;
+  while (true) {
+    const next = members.find((m) => m.previousHash === current.hash);
+    if (!next) break;
+    if (visited.has(next.id)) {
+      return breakFor(next, visited.size, 'CHAIN_CYCLE', {
+        entryId: next.id,
+        entryDate: '',
+        description: `${next.entity}${next.entityId ? `:${next.entityId}` : ''}`,
+        expectedHash: '<acyclic>',
+        actualHash: 'cycle detected',
+      });
+    }
+    visited.add(next.id);
+    order.push(next);
+    current = next;
+  }
+
+  // unique linear chain: every member reachable from ROOT.
+  if (visited.size !== members.length) {
+    const orphan = members.find((m) => !visited.has(m.id))!;
+    return breakFor(orphan, visited.size, 'CHAIN_ORPHAN', {
+      entryId: orphan.id,
+      entryDate: '',
+      description: `${orphan.entity}${orphan.entityId ? `:${orphan.entityId}` : ''}`,
+      expectedHash: '<reachable from ROOT>',
+      actualHash: 'unreachable / parallel chain',
+    });
+  }
+
+  // the stored link must match the stored hash of the predecessor.
+  for (let i = 1; i < order.length; i++) {
+    if (order[i].previousHash !== order[i - 1].hash) {
+      const m = order[i];
+      return breakFor(m, visited.size, 'STORED_PREVIOUS_HASH_MISMATCH', {
+        entryId: m.id,
+        entryDate: '',
+        description: `${m.entity}${m.entityId ? `:${m.entityId}` : ''}`,
+        expectedHash: order[i - 1].hash as string,
+        actualHash: (m.previousHash ?? 'null') as string,
+      });
+    }
+  }
+
+  // recomputed hash == stored hash.
+  for (const m of order) {
+    const expectedHash = computeAuditHash({
+      id: m.id,
+      companyId: m.companyId,
+      userId: m.userId,
+      action: m.action,
+      entity: m.entity,
+      entityId: m.entityId,
+      details: m.details,
+      previousHash: m.previousHash,
+    });
+    if (m.hash !== expectedHash) {
+      return breakFor(m, visited.size, 'HASH_MISMATCH', {
+        entryId: m.id,
+        entryDate: '',
+        description: `${m.entity}${m.entityId ? `:${m.entityId}` : ''}`,
+        expectedHash,
+        actualHash: m.hash as string,
+      });
+    }
+  }
+
+  return { valid: true, totalChecked: logs.length, firstBreak: null, ...base };
 }

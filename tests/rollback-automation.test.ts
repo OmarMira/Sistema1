@@ -364,7 +364,7 @@ describe('§GAP10 rollback automation core', () => {
         correctedGlAccountId: t.glNewId,
         reason: 'T10 locked period',
       }),
-    ).rejects.toThrow(/Cannot post transactions to a closed period/);
+    ).rejects.toThrow(/No se pueden registrar transacciones en un período cerrado/);
 
     const after = await db.bankTransaction.findUnique({ where: { id: t.txId } });
     expect(after?.glAccountId).toBe(t.glOldId);

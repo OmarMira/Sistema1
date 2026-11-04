@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { getBackupFile } from '@/lib/backup';
+import { requireCompanyRole } from '@/lib/rbac';
 import { createAuditLogWithRetry } from '@/lib/audit';
 
 /**
@@ -11,6 +12,10 @@ import { createAuditLogWithRetry } from '@/lib/audit';
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
   const { filename } = await context.params;
+
+  // Downloading a backup exposes the full ledger and PII; require the same
+  // role tier as backup creation and deletion.
+  await requireCompanyRole(companyId, ['company_admin']);
 
   if (!filename) {
     return NextResponse.json({ error: 'Filename is required' }, { status: 400 });

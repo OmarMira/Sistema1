@@ -6,6 +6,7 @@ import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import { validateSemanticDirection } from '@/lib/semantic-validator';
 import { JournalEntryService } from '@/lib/services/journal-entry.service';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
+import { fromCents, sumCents, toCents } from '@/lib/money';
 
 export class ReconciliationService {
   static reconcile = withTiming(async (input: CreateReconciliationInput) => {
@@ -184,15 +185,20 @@ export class ReconciliationService {
 
           // Case 1: Splits provided
           if (txn.splits && txn.splits.length > 0) {
-            // Validate splits before creating the entry
-            const absBankAmount = Math.abs(bankTx.amount);
-            const splitSum = txn.splits.reduce((s, sp) => s + Math.abs(sp.amount), 0);
-            if (Math.abs(splitSum - absBankAmount) > 0.01) {
+            // Validate splits before creating the entry.
+            // S3: the split total and its comparison against the bank amount are
+            // computed in integer cents (unchanged tolerance: |diff| > 0.01).
+            const bankAmountCents = Math.abs(toCents(bankTx.amount));
+            const splitSumCents = txn.splits.reduce(
+              (total, sp) => sumCents(total, Math.abs(toCents(sp.amount))),
+              0,
+            );
+            if (Math.abs(sumCents(splitSumCents, -bankAmountCents)) > 1) {
               throw new ValidationError(
-                `Split amounts sum to ${splitSum.toFixed(2)} but transaction amount is ${absBankAmount.toFixed(2)}`,
+                `Split amounts sum to ${fromCents(splitSumCents).toFixed(2)} but transaction amount is ${fromCents(bankAmountCents).toFixed(2)}`,
               );
             }
-            if (txn.splits.some((sp) => Math.abs(sp.amount) === 0)) {
+            if (txn.splits.some((sp) => toCents(sp.amount) === 0)) {
               throw new ValidationError('Split amounts must be greater than zero');
             }
 

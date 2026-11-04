@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import readline from 'readline';
+import path from 'node:path';
+import { createMaintenanceGate, runtimeDirectory } from '../src/lib/backup-maintenance.mjs';
 
 const url = process.env.DATABASE_URL ?? '';
 const force = process.argv.includes('--force');
@@ -12,12 +14,16 @@ if (!url.includes('test') && !force) {
   process.exit(1);
 }
 
+try {
+const gate = createMaintenanceGate(path.join(runtimeDirectory(), 'backup-maintenance'));
+await gate.withNormalOperation(async () => {
 const db = new PrismaClient();
 
 const COMPANY_ID = process.argv[2];
 if (!COMPANY_ID) {
   console.error('Uso: node scripts/delete-company.mjs <company-id> [--force]');
-  process.exit(1);
+  process.exitCode = 1;
+  return;
 }
 
 // Confirm before deleting
@@ -29,7 +35,7 @@ rl.close();
 
 if (answer !== 'SI') {
   console.log('Cancelado.');
-  process.exit(0);
+  return;
 }
 
 console.log(`🗑️  Borrando empresa: ${COMPANY_ID}`);
@@ -89,4 +95,9 @@ try {
   console.error('❌ Error:', e);
 } finally {
   await db.$disconnect();
+}
+});
+} catch (error) {
+  console.error(error.message);
+  process.exitCode = 1;
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
 import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
+import { compareCents, fromCents, sumCents, toCents } from '@/lib/money';
 import { z } from 'zod';
 
 // ─── GET /api/reconciliation/report ────────────────────────────────
@@ -62,16 +63,18 @@ export const GET = apiHandler(async (request: NextRequest) => {
     },
   });
 
-  let balancePerBooks = 0;
+  // S3: per-books balance accumulates in integer cents.
+  let balancePerBooksCents = 0;
   const isDebitNormal = bankAccount.glAccount.normalBalance === 'debit';
   for (const line of journalLines) {
-    const debit = line.debit;
-    const credit = line.credit;
-    if (isDebitNormal) {
-      balancePerBooks += debit - credit;
-    } else {
-      balancePerBooks += credit - debit;
-    }
+    const debitCents = toCents(line.debit);
+    const creditCents = toCents(line.credit);
+    balancePerBooksCents = sumCents(
+      balancePerBooksCents,
+      isDebitNormal
+        ? sumCents(debitCents, -creditCents)
+        : sumCents(creditCents, -debitCents),
+    );
   }
 
   // Calculate balancePerStatement from bank account (sum of reconciled transactions)
@@ -82,9 +85,13 @@ export const GET = apiHandler(async (request: NextRequest) => {
     },
     _sum: { amount: true },
   });
-  const balancePerStatement = Number(reconciledResult._sum.amount ?? 0);
+  // S3: aggregate `_sum` values arrive as Prisma.Decimal — normalize through cents.
+  const balancePerStatementCents = toCents(reconciledResult._sum.amount ?? 0);
 
-  const difference = balancePerStatement - balancePerBooks;
+  const differenceCents = sumCents(balancePerStatementCents, -balancePerBooksCents);
+  const balancePerBooks = fromCents(balancePerBooksCents);
+  const balancePerStatement = fromCents(balancePerStatementCents);
+  const difference = fromCents(differenceCents);
 
   // Get reconciled items
   const reconciledItems = await db.bankTransaction.findMany({
@@ -132,8 +139,8 @@ export const GET = apiHandler(async (request: NextRequest) => {
     report: {
       balancePerBooks: Math.round(balancePerBooks * 100) / 100,
       balancePerStatement: Math.round(balancePerStatement * 100) / 100,
-      difference: Math.round(difference * 100) / 100,
-      isBalanced: Math.abs(difference) < 0.01,
+      difference,
+      isBalanced: compareCents(differenceCents, 0) === 0,
       generatedAt: new Date().toISOString(),
     },
     counts: {

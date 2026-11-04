@@ -15,6 +15,7 @@ import {
 import { findByCompanyAndFingerprint, persistSuccessfulMapping } from '@/lib/csv-layout-profile-service';
 import { parseOFX } from '@/lib/ofx-parser';
 import { parsePDFAsync } from '@/lib/pdf-processor';
+import { ImportAiError } from '@/lib/ai-import-error';
 import {
   validateAccountHolder,
   isStrictModeEnabled,
@@ -30,7 +31,7 @@ import {
 } from '@/lib/api-error';
 import { trackPDFParseDuration } from '@/lib/metrics';
 import { withTiming } from '@/lib/timing';
-import { generateImportHash } from '@/lib/accounting/import-hash';
+import { generateImportHash, generateLegacyImportHash } from '@/lib/accounting/import-hash';
 import { toStatementMonth, toDateString } from '@/lib/accounting/date-window';
 import type { ParsedTransaction, StatementBalanceInfo, RuleCondition } from '@/lib/types/shared';
 import { resolveImportRule } from '@/lib/services/rule-precedence-import-resolver';
@@ -64,6 +65,22 @@ import {
   type DecisionSource,
 } from '@/lib/final-decision-trace';
 
+/**
+ * One row of an imported file that was NOT persisted, with the reason.
+ * S20.2/S20.3: rejected rows are reported per row instead of aborting the
+ * whole import (in-file duplicates and ambiguous Knowledge-Engine rows).
+ */
+export interface ImportRowRejection {
+  /** 1-based position of the row inside the statement's chronological order. */
+  rowIndex: number;
+  /** "YYYY-MM-DD" */
+  date: string;
+  description: string;
+  amount: number;
+  reason: 'duplicate_in_file' | 'ke_error';
+  message: string;
+}
+
 export interface ImportResult {
   statementId: string;
   transactionCount: number;
@@ -71,6 +88,15 @@ export interface ImportResult {
   duplicatesSkipped: number;
   newAccountCreated: boolean;
   bankAccountName: string;
+  /**
+   * Rows skipped/quarantined with the per-row reason (never silently dropped).
+   *
+   * Emitted ONLY when at least one row was skipped or quarantined — the same
+   * conditional-shape convention `policyObservation` already uses — so a clean
+   * import keeps the exact response shape that is part of the published
+   * contract (pinned by tests/services/shadow-mode-import.test.ts).
+   */
+  rejectedRows?: ImportRowRejection[];
   policyObservation?: PolicyObservationResponse;
 }
 
@@ -80,6 +106,90 @@ export interface ImportDecision {
   source: 'ke' | 'rule_engine' | 'ke_error';
   glAccountId: string | null;
   matchedRuleId: string | null;
+}
+
+// ─── RuleExecutionAudit on the productive import path (Wave 6 / S8) ────
+
+/**
+ * Provenance label written into `RuleExecutionAudit.engineVersion` for rows
+ * produced by the PRODUCTIVE import path (rule precedence resolver). It is
+ * deliberately distinct from the V2 shadow engine's `RULE_ENGINE_VERSION` so
+ * the two audit families can never be confused during forensics.
+ */
+const IMPORT_RULE_AUDIT_ENGINE_VERSION = 'import-precedence-1.0';
+
+/** One pending audit row, collected inside the import transaction. */
+interface ImportRuleAuditPayload {
+  /** The PERSISTED BankTransaction id (never the import hash). */
+  transactionId: string;
+  ruleId: string;
+  matchedConditions: Prisma.JsonValue;
+}
+
+interface RuleAuditSource {
+  id: string;
+  conditions: Prisma.JsonValue | null;
+  conditionType: string | null;
+  conditionValue: string | null;
+}
+
+/**
+ * Snapshot of the conditions the productive engine actually evaluated: the
+ * structured `conditions` JSON when the rule has one, otherwise the legacy
+ * single (conditionType, conditionValue) pair.
+ */
+function ruleConditionsSnapshot(rule: RuleAuditSource): Prisma.JsonValue {
+  if (rule.conditions !== null && rule.conditions !== undefined) {
+    return rule.conditions;
+  }
+  return { conditionType: rule.conditionType, conditionValue: rule.conditionValue };
+}
+
+/**
+ * Best-effort RuleExecutionAudit write for the productive import path.
+ *
+ * Fire-and-forget by contract: the import transaction has ALREADY committed
+ * when this runs, so a failed audit write is logged and discarded — it can
+ * never fail, block or roll back the import that produced it.
+ */
+function persistImportRuleExecutionAudits(
+  companyId: string,
+  payloads: readonly ImportRuleAuditPayload[],
+): void {
+  if (payloads.length === 0) return;
+
+  void Promise.all(
+    payloads.map((payload) =>
+      db.ruleExecutionAudit
+        .create({
+          data: {
+            engineVersion: IMPORT_RULE_AUDIT_ENGINE_VERSION,
+            transactionId: payload.transactionId,
+            companyId,
+            result: 'MATCHED',
+            winnerRuleId: payload.ruleId,
+            candidateCount: 1,
+            candidateList: JSON.stringify([
+              { ruleId: payload.ruleId, conditions: payload.matchedConditions },
+            ]),
+            trace: JSON.stringify({
+              source: 'IMPORT_PRODUCTIVE_PATH',
+              matchedConditions: payload.matchedConditions,
+            }),
+          },
+        })
+        .catch((error: unknown) => {
+          logger.warn('[IMPORT RULE EXECUTION AUDIT] write failed', {
+            companyId,
+            transactionId: payload.transactionId,
+            ruleId: payload.ruleId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }),
+    ),
+  ).catch(() => {
+    // Never surfaces: the import is already committed at this point.
+  });
 }
 
 /**
@@ -394,6 +504,10 @@ export class ImportService {
         if (parseError instanceof MathMismatchError) {
           throw parseError;
         }
+        if (parseError instanceof ImportAiError) {
+          // A provider outage/config problem is a 503 with a typed code, not a client validation error.
+          throw parseError;
+        }
         throw new ValidationError(
           parseError instanceof Error ? parseError.message : 'Error al parsear el archivo PDF',
         );
@@ -414,7 +528,11 @@ export class ImportService {
           legalName: company?.legalName,
         });
       } else if (company && accountHolder) {
-        const entityType = (company.entityType ?? 'BUSINESS') as 'INDIVIDUAL' | 'BUSINESS';
+        // S3 (Wave 6): `Company.entityType` is a `CompanyEntityType` enum, so the
+        // previous `?? 'BUSINESS'` fallback and the `as` cast that bridged the
+        // free-form String are both dead — the column is NOT NULL with a default
+        // and already carries exactly the union the validator accepts.
+        const entityType = company.entityType;
         const validation = validateAccountHolder(accountHolder, company.legalName, entityType);
         similarityScore = validation.score;
 
@@ -569,6 +687,10 @@ export class ImportService {
 
         bankName = this.extractBankNameFromFilename(fileName);
       } catch (parseError) {
+        if (parseError instanceof ImportAiError) {
+          // A provider outage/config problem is a 503 with a typed code, not a client validation error.
+          throw parseError;
+        }
         throw new ValidationError(
           parseError instanceof Error ? parseError.message : 'Error al parsear el archivo CSV',
         );
@@ -602,6 +724,10 @@ export class ImportService {
       try {
         parsed = parseOFX(content);
       } catch (parseError) {
+        if (parseError instanceof ImportAiError) {
+          // A provider outage/config problem is a 503 with a typed code, not a client validation error.
+          throw parseError;
+        }
         throw new ValidationError(
           parseError instanceof Error ? parseError.message : 'Error al parsear el archivo OFX/QFX',
         );
@@ -714,7 +840,6 @@ export class ImportService {
     const startDate = balanceInfo?.startDate || sorted[0]!.date;
     const endDate = balanceInfo?.endDate || sorted[sorted.length - 1]!.date;
     const openingBalance = balanceInfo?.openingBalance ?? 0;
-    const closingBalance = balanceInfo?.closingBalance ?? 0;
 
     const bankAccount = await db.bankAccount.findFirst({
       where: { id: bankAccountId },
@@ -724,9 +849,27 @@ export class ImportService {
     const statementMonth = toStatementMonth(startDate);
 
     // ─── Deduplicación por importHash (SHA-256) ───────────────────────
-    // Detecta reimportaciones del mismo extracto sin cargar todo en memoria.
-    const hashList = sorted.map((txn) =>
+    // S20.1 — the hash now covers ONLY the normalized row content, so the same
+    // rows are recognized even when the statement range (the old
+    // statementMonth hash input) changes. Rows imported by older builds kept
+    // the legacy month-scoped hash, so the lookup queries BOTH shapes: nothing
+    // that used to be deduplicated stops being deduplicated, and new rows are
+    // stored with the content hash. Wave 5 / S6 re-hashed the stored legacy
+    // values through migration 20261107000001, which is what makes a re-import
+    // under a different statement month a duplicate; the legacy lookup remains
+    // for databases restored from an old backup.
+    const contentHashes = sorted.map((txn) =>
       generateImportHash({
+        companyId,
+        accountNumber,
+        txDate: toDateString(txn.date),
+        amount: txn.amount,
+        description: txn.description,
+        reference: txn.reference,
+      }),
+    );
+    const legacyHashes = sorted.map((txn) =>
+      generateLegacyImportHash({
         companyId,
         accountNumber,
         statementMonth,
@@ -737,13 +880,42 @@ export class ImportService {
     );
 
     const existingHashes = await db.bankTransaction.findMany({
-      where: { importHash: { in: hashList } },
+      where: { importHash: { in: [...contentHashes, ...legacyHashes] } },
       select: { importHash: true },
     });
     const existingHashSet = new Set(existingHashes.map((t) => t.importHash));
 
-    const uniqueTransactions = sorted.filter((_txn, idx) => !existingHashSet.has(hashList[idx]!));
-    const uniqueHashes = hashList.filter((_, idx) => !existingHashSet.has(hashList[idx]!));
+    // S20.2 — identical rows WITHIN one file are skipped per row instead of
+    // reaching createMany and violating the importHash unique index (which
+    // aborted the whole import).
+    const rejectedRows: ImportRowRejection[] = [];
+    const rowIndexOfHash = new Map<string, number>();
+    const seenHashes = new Set<string>();
+    const uniqueTransactions: typeof sorted = [];
+    const uniqueHashes: string[] = [];
+
+    for (let idx = 0; idx < sorted.length; idx++) {
+      const txn = sorted[idx]!;
+      const contentHash = contentHashes[idx]!;
+      if (existingHashSet.has(contentHash) || existingHashSet.has(legacyHashes[idx]!)) {
+        continue; // ya importada
+      }
+      if (seenHashes.has(contentHash)) {
+        rejectedRows.push({
+          rowIndex: idx + 1,
+          date: toDateString(txn.date),
+          description: txn.description,
+          amount: txn.amount,
+          reason: 'duplicate_in_file',
+          message: 'Fila duplicada dentro del mismo archivo: ya incluida en este extracto.',
+        });
+        continue;
+      }
+      seenHashes.add(contentHash);
+      rowIndexOfHash.set(contentHash, idx);
+      uniqueTransactions.push(txn);
+      uniqueHashes.push(contentHash);
+    }
 
     const duplicatesSkipped = sorted.length - uniqueTransactions.length;
 
@@ -753,6 +925,7 @@ export class ImportService {
         transactionCount: 0,
         autoCategorizedCount: 0,
         duplicatesSkipped,
+        ...(rejectedRows.length > 0 && { rejectedRows }),
       };
     }
 
@@ -778,8 +951,12 @@ export class ImportService {
     const shadowEnabled = isRulePrecedenceShadowEnabled();
     const shadowRules = shadowEnabled ? bankRules.map((r) => toRulePrecedenceRule(r)) : [];
     let shadowSummary: ShadowImportSummary | null = null;
+    // Wave 6 / S8 — rule matches are collected INSIDE the transaction and
+    // written AFTER it commits (best-effort, never blocks the import).
+    const ruleAuditPayloads: ImportRuleAuditPayload[] = [];
+    const ruleById = new Map(bankRules.map((rule) => [rule.id, rule]));
 
-    const result = await db.$transaction(async (tx) => {
+    const result = await ImportService.inImportTransaction(async (tx) => {
       // Duplicate check inside TX (atomic — prevents race conditions)
       const existingStatement = await tx.bankStatement.findFirst({
         where: { bankAccountId, startDate, endDate },
@@ -797,7 +974,10 @@ export class ImportService {
           startDate,
           endDate,
           openingBalance,
-          closingBalance: closingBalance || openingBalance + totalCredits - totalDebits,
+          // S20.4 — `|| computed` overwrote a legitimate 0.00 closing balance.
+          // Only fall back to the recomputed balance when the statement did not
+          // report one at all.
+          closingBalance: balanceInfo?.closingBalance ?? openingBalance + totalCredits - totalDebits,
           totalCredits,
           totalDebits,
           format,
@@ -893,13 +1073,19 @@ export class ImportService {
         const matchedRuleId = decision.matchedRuleId;
         const glAccountId = decision.glAccountId;
 
-        // KE_ERROR: explicit failure — rollback entire import, do NOT persist unclassified transaction
+        // S20.3 — an ambiguous/incoherent KE classification no longer aborts the
+        // whole file: the row is quarantined (never persisted, never posted)
+        // and reported per row, while the rest of the statement imports.
         if (decision.source === 'ke_error') {
-          throw new AppError(
-            500,
-            `KE_ERROR: Knowledge Engine failed for transaction "${txn.description}". Import rolled back.`,
-            'KE_ERROR',
-          );
+          rejectedRows.push({
+            rowIndex: (rowIndexOfHash.get(uniqueHashes[idx]!) ?? idx) + 1,
+            date: toDateString(txn.date),
+            description: txn.description,
+            amount: txn.amount,
+            reason: 'ke_error',
+            message: `KE_ERROR: Knowledge Engine no pudo clasificar "${txn.description}". Fila omitida.`,
+          });
+          continue;
         }
 
         if (matchedRuleId) autoCategorizedCount++;
@@ -958,6 +1144,10 @@ export class ImportService {
 
         transactionsToInsert.push({
           statementId: statement.id,
+          // S19(f) — denormalized tenant key (defense in depth). The statement
+          // already carries it, but keeping it on the row lets hot queries
+          // filter by tenant without traversing statement → account.
+          companyId,
           date: txn.date,
           description: txn.description,
           amount: txn.amount,
@@ -966,6 +1156,46 @@ export class ImportService {
           glAccountId: glAccountId || null,
           matchedRuleId: matchedRuleId || null,
           importHash: uniqueHashes[idx], // SHA-256 para idempotencia
+        });
+      }
+
+      // Nothing importable (every row was quarantined): keep the fail-closed
+      // contract — refuse the whole statement instead of persisting an empty
+      // one, exactly as before per-row quarantine existed.
+      if (transactionsToInsert.length === 0) {
+        throw new AppError(
+          500,
+          `KE_ERROR: Knowledge Engine failed for every transaction in "${fileName}". Import rolled back.`,
+          'KE_ERROR',
+        );
+      }
+
+      // A quarantined row was never persisted, so it must not inflate the
+      // statement totals either (in-file duplicates are already excluded from
+      // the totals computed above). Only rows that actually reach the DB are
+      // allowed to move the statement's money columns.
+      if (rejectedRows.some((row) => row.reason === 'ke_error')) {
+        const persistedCredits = transactionsToInsert
+          .filter((t) => Number(t.amount) > 0)
+          .reduce((sum, t) => sum.add(new Prisma.Decimal(Number(t.amount))), new Prisma.Decimal(0))
+          .toNumber();
+        const persistedDebits = transactionsToInsert
+          .filter((t) => Number(t.amount) < 0)
+          .reduce(
+            (sum, t) => sum.add(new Prisma.Decimal(Number(t.amount)).abs()),
+            new Prisma.Decimal(0),
+          )
+          .toNumber();
+        await tx.bankStatement.update({
+          where: { id: statement.id },
+          data: {
+            totalCredits: persistedCredits,
+            totalDebits: persistedDebits,
+            // A source-reported closing balance still wins (S20.4).
+            ...(balanceInfo?.closingBalance === undefined && {
+              closingBalance: openingBalance + persistedCredits - persistedDebits,
+            }),
+          },
         });
       }
 
@@ -1000,6 +1230,24 @@ export class ImportService {
         }
       }
 
+      // Wave 6 / S8 — collect the rule-classified rows for the post-commit
+      // RuleExecutionAudit write. Rows with no matched rule are NOT audited.
+      if (ruleById.size > 0) {
+        const ruleMatchedTxns = await tx.bankTransaction.findMany({
+          where: { statementId: statement.id, matchedRuleId: { not: null } },
+          select: { id: true, matchedRuleId: true },
+        });
+        for (const ruleMatchedTx of ruleMatchedTxns) {
+          const rule = ruleById.get(ruleMatchedTx.matchedRuleId!);
+          if (!rule) continue;
+          ruleAuditPayloads.push({
+            transactionId: ruleMatchedTx.id,
+            ruleId: rule.id,
+            matchedConditions: ruleConditionsSnapshot(rule),
+          });
+        }
+      }
+
       // Create journal entries for transactions with auto-assigned GL accounts
       const createdTxs = await tx.bankTransaction.findMany({
         where: { statementId: statement.id, glAccountId: { not: null }, journalEntryId: null },
@@ -1031,8 +1279,17 @@ export class ImportService {
        
       await ImportService.recalculateBalances(tx as any, bankAccountId);
 
-      return { statementId: statement.id, autoCategorizedCount };
+      return {
+        statementId: statement.id,
+        autoCategorizedCount,
+        insertedCount: transactionsToInsert.length,
+      };
     });
+
+    // ─── Wave 6 / S8 — RuleExecutionAudit on the productive path ─────
+    // Committed already: the writes below are fire-and-forget and can only
+    // ever be lost (logged), never fail the import.
+    persistImportRuleExecutionAudits(companyId, ruleAuditPayloads);
 
     // ─── Persistir resumen shadow post-commit ──────────────────────
     if (shadowSummary) {
@@ -1089,11 +1346,55 @@ export class ImportService {
 
     return {
       statementId: result.statementId,
-      transactionCount: uniqueTransactions.length,
+      transactionCount: result.insertedCount,
       autoCategorizedCount: result.autoCategorizedCount,
       duplicatesSkipped,
+      ...(rejectedRows.length > 0 && { rejectedRows }),
       ...(policyObservation !== undefined && { policyObservation }),
     };
+  }
+
+  /**
+   * S2 — one import file = one transaction.
+   *
+   * The file commits or rolls back as a unit (that is what makes a multi-file
+   * batch per-file atomic), and the statement budget is applied with SET LOCAL
+   * to THIS transaction only, so a long import can never leak a session-wide
+   * statement timeout onto the pooled connection.
+   *
+   * With IMPORT_STATEMENT_TIMEOUT_MS unset, nothing changes: no SET LOCAL and
+   * no transaction options are passed.
+   */
+  private static async inImportTransaction<T>(
+    work: (tx: ImportTransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const statementTimeoutMs = resolveImportStatementTimeoutMs();
+
+    if (statementTimeoutMs === null) {
+      try {
+        return await db.$transaction(work);
+      } catch (error) {
+        throw toImportTransactionError(error);
+      }
+    }
+
+    const withBudget = async (tx: ImportTransactionClient): Promise<T> => {
+      // Integer-validated above, so this cannot carry SQL from the environment.
+      await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${statementTimeoutMs}`);
+      return work(tx);
+    };
+
+    try {
+      return await db.$transaction(withBudget, {
+        // The configured value is the per-statement budget. Prisma's interactive
+        // transaction budget must never be tightened below its own default (5s),
+        // and a value above it lifts the budget too — otherwise a large file is
+        // still killed at 5s and rolled back in full.
+        timeout: Math.max(statementTimeoutMs, PRISMA_DEFAULT_TRANSACTION_TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw toImportTransactionError(error);
+    }
   }
 
   private static extractBankNameFromFilename(fileName: string): string {
@@ -1151,6 +1452,59 @@ export class ImportService {
     });
   }
 
+}
+
+// ─── S2 Helpers — import statement budget ───────────────────
+
+/** Prisma's own default interactive-transaction budget (5s). */
+const PRISMA_DEFAULT_TRANSACTION_TIMEOUT_MS = 5_000;
+
+/** The transaction client `db.$transaction(async (tx) => …)` hands to a callback. */
+type ImportTransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
+/**
+ * S2 — statement budget (ms) for the import transaction.
+ *
+ * Unset or invalid → `null`, meaning "apply nothing" and keep the historical
+ * behavior. When set, `inImportTransaction` applies it with SET LOCAL inside
+ * the import transaction only.
+ */
+function resolveImportStatementTimeoutMs(): number | null {
+  const raw = process.env.IMPORT_STATEMENT_TIMEOUT_MS;
+  if (!raw) return null;
+  const parsed = Number(raw.trim());
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+/**
+ * Postgres cancels a statement that exceeds `statement_timeout` (57014) and
+ * Prisma reports an expired interactive transaction (P2028) for the same cause.
+ * Both must reach the caller as an actionable Spanish message instead of a raw
+ * driver/ORM dump.
+ */
+function isImportTimeoutError(error: unknown): boolean {
+  const meta = (error as { meta?: { code?: unknown } } | null)?.meta;
+  if (meta?.code === '57014') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /statement timeout|expired transaction|transaction.*timed out|timed out|Transaction already closed/i.test(
+    message,
+  );
+}
+
+/**
+ * Only timeout-shaped failures are translated; every other error is returned
+ * untouched so the existing contracts (CONFLICT, KE_ERROR, fiscal period guard,
+ * BANK_CREATION_REQUIRED, ImportAiError) keep their exact behavior.
+ */
+function toImportTransactionError(error: unknown): unknown {
+  if (error instanceof AppError) return error;
+  if (!isImportTimeoutError(error)) return error;
+  return new AppError(
+    503,
+    'La importación excedió el tiempo máximo permitido para procesar el archivo y no se guardó ningún dato. Divida el extracto en archivos más pequeños o aumente IMPORT_STATEMENT_TIMEOUT_MS e intente nuevamente.',
+    'IMPORT_TIMEOUT',
+  );
 }
 
 // ─── S7-09 Helpers ──────────────────────────────────────────

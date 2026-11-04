@@ -252,12 +252,23 @@ function setupMocks(overrides: {
         },
         journalLine: { findMany: mockJournalLineFindMany },
         journalEntry: { update: mockJournalEntryUpdate },
+        // S12 — the accounting phase seals its final-decision trace into the
+        // audit hash chain, which needs the advisory lock, the chain-tail read
+        // and the post-insert seal update.
+        $executeRaw: vi.fn(async () => 0),
+        $queryRaw: vi.fn(async () => []),
         auditLog: {
           create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
             id: 'audit-test-id',
             ...data,
             createdAt: new Date(),
           })),
+          update: vi.fn(
+            async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({
+              id: where.id,
+              ...data,
+            }),
+          ),
         },
       };
       return fn(tx);

@@ -9,6 +9,11 @@ function isValidIp(value: string): boolean {
 
 export function getClientIpSource(): ClientIpSource {
   const v = process.env.CLIENT_IP_SOURCE;
+  // Default 'none' when unset: correct for single-PC installs behind no
+  // proxy (the socket peer 127.0.0.1 is meaningless for per-IP limiting;
+  // the per-user/per-email budget is what matters). Set
+  // CLIENT_IP_SOURCE=trusted-x-forwarded-for only behind a trusted
+  // reverse proxy that strips client-supplied X-Forwarded-For headers.
   if (!v) return 'none';
   if (v === 'none' || v === 'trusted-x-forwarded-for') {
     return v;

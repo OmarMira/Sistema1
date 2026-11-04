@@ -6,6 +6,11 @@ import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import * as JournalEntryServiceModule from '@/lib/services/journal-entry.service';
 
+// S7 (Wave 6): a void now REQUIRES a reason (5..500 chars) and records it in a
+// chained JOURNAL_VOIDED audit row. Every void call in this suite supplies one;
+// the no-reason contract is pinned by tests/wave6/void-audit.test.ts.
+const VOID_REASON = 'Cargado por duplicado en el mismo período';
+
 async function createDraftEntry(companyId: string, debitGl: string, creditGl: string) {
   return db.journalEntry.create({
     data: {
@@ -88,7 +93,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
         new NextRequest(`http://localhost/api/journal/${entry.id}?companyId=${company.id}`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'void' }),
+          body: JSON.stringify({ action: 'void', reason: VOID_REASON }),
         }),
         { params: Promise.resolve({ id: entry.id }) },
       );
@@ -197,7 +202,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
         new NextRequest(`http://localhost/api/journal/${entry.id}?companyId=${company.id}`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'void' }),
+          body: JSON.stringify({ action: 'void', reason: VOID_REASON }),
         }),
         { params: Promise.resolve({ id: entry.id }) },
       );
@@ -281,7 +286,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
 
       expect(res.status).toBe(403);
       const body = await res.json();
-      expect(body.error).toContain('closed period');
+      expect(body.error).toContain('período cerrado');
     });
 
     it('void: bloquea anulación en período cerrado', async () => {
@@ -309,14 +314,14 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
         new NextRequest(`http://localhost/api/journal/${entry.id}?companyId=${company.id}`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'void' }),
+          body: JSON.stringify({ action: 'void', reason: VOID_REASON }),
         }),
         { params: Promise.resolve({ id: entry.id }) },
       );
 
       expect(res.status).toBe(403);
       const body = await res.json();
-      expect(body.error).toContain('closed period');
+      expect(body.error).toContain('período cerrado');
     });
 
     it('post: permite posteo en período abierto', async () => {
@@ -395,7 +400,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
         new NextRequest(`http://localhost/api/journal/${entry.id}?companyId=${company.id}`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'void' }),
+          body: JSON.stringify({ action: 'void', reason: VOID_REASON }),
         }),
         { params: Promise.resolve({ id: entry.id }) },
       );
@@ -449,7 +454,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
         new NextRequest(`http://localhost/api/journal/${entry.id}?companyId=${company.id}`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'void' }),
+          body: JSON.stringify({ action: 'void', reason: VOID_REASON }),
         }),
         { params: Promise.resolve({ id: entry.id }) },
       );
@@ -458,7 +463,8 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
         where: { companyId: company.id, entity: 'journalEntry', entityId: entry.id },
       });
       expect(auditLogs).toHaveLength(1);
-      expect(auditLogs[0].action).toBe('void');
+      expect(auditLogs[0].action).toBe('JOURNAL_VOIDED');
+      expect(JSON.parse(String(auditLogs[0].details)).reason).toBe(VOID_REASON);
     });
   });
 
@@ -497,7 +503,7 @@ describe('H2 — POST /api/journal/[id] (verificación de mitigación)', () => {
         new NextRequest(`http://localhost/api/journal/${je.id}?companyId=${company.id}`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'void' }),
+          body: JSON.stringify({ action: 'void', reason: VOID_REASON }),
         }),
         { params: Promise.resolve({ id: je.id }) },
       );

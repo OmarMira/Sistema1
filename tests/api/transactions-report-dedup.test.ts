@@ -1,112 +1,143 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
-
-const mockDb = vi.hoisted(() => ({
-  companyModuleEntitlement: { findFirst: async () => ({ enabled: true }) },
-  user: { findUnique: vi.fn() },
-  companyMember: { findUnique: vi.fn() },
-  company: { findUnique: vi.fn() },
-  journalEntry: { findMany: vi.fn() },
-  bankTransaction: { findMany: vi.fn() },
-}));
-
-vi.mock('@/lib/sessions', () => ({
-  getSessionUserId: vi.fn().mockResolvedValue('user-test'),
-}));
-
-vi.mock('@/lib/db', () => ({ db: mockDb }));
-
+import { db } from '@/lib/db';
+import { createSession } from '@/lib/sessions';
+import {
+  clearDatabase,
+  createTestUser,
+  createTestCompany,
+  createTestCompanyMember,
+  createTestGlAccount,
+  createTestBankAccount,
+  createTestBankStatement,
+} from '../helpers/factories';
 import { GET } from '@/app/api/reports/transactions/route';
 
-const EXPENSE = {
-  id: 'gl-6000',
-  code: '6000',
-  name: 'Expense',
-  accountType: 'expense',
-  normalBalance: 'debit',
-};
-const BANK_ASSET = {
-  id: 'gl-1010',
-  code: '1010',
-  name: 'Cash',
-  accountType: 'asset',
-  normalBalance: 'debit',
-};
+/**
+ * GET /api/reports/transactions — dedup by journalEntryId.
+ *
+ * DB-fixture suite: the report aggregates in SQL over a UNION of journal entries
+ * and "virtual" entries built from reconciled bank transactions, so the mock
+ * Prisma client this file used to hand-roll no longer exists. The two rules
+ * below are unchanged and still pinned here:
+ *   1. a reconciled transaction already represented by a journal entry is never
+ *      duplicated as a virtual entry;
+ *   2. a reconciled transaction with no journal entry IS reported as a virtual
+ *      entry with its two lines (assigned account + bank asset account).
+ */
 
-function mockContext() {
-  mockDb.user.findUnique.mockResolvedValue({ id: 'user-test', platformRole: 'user' });
-  mockDb.companyMember.findUnique.mockResolvedValue({
-    id: 'member-test',
-    userId: 'user-test',
-    companyId: 'c1',
-  });
-  mockDb.company.findUnique.mockResolvedValue({ isActive: true });
+const EXPENSE = { code: '6000', name: 'Expense', accountType: 'expense', normalBalance: 'debit' } as const;
+const BANK_ASSET = { code: '1010', name: 'Cash', accountType: 'asset', normalBalance: 'debit' } as const;
+
+interface Fixture {
+  token: string;
+  companyId: string;
+  expenseGlId: string;
+  bankAssetGlId: string;
+  statementId: string;
+}
+
+async function seedFixture(email: string): Promise<Fixture> {
+  const user = await createTestUser(email);
+  const company = await createTestCompany('Reports Dedup');
+  await createTestCompanyMember(user.id, company.id);
+  const token = await createSession(user.id);
+
+  const bankAsset = await createTestGlAccount({ companyId: company.id, ...BANK_ASSET });
+  const expense = await createTestGlAccount({ companyId: company.id, ...EXPENSE });
+
+  const bank = await createTestBankAccount(company.id, bankAsset.id, 'Operating');
+  const statement = await createTestBankStatement(company.id, bank.id);
+
+  return {
+    token,
+    companyId: company.id,
+    expenseGlId: expense.id,
+    bankAssetGlId: bankAsset.id,
+    statementId: statement.id,
+  };
+}
+
+function call(ctx: Fixture) {
+  return GET(
+    new NextRequest(`http://localhost/api/reports/transactions?companyId=${ctx.companyId}`, {
+      headers: { Authorization: `Bearer ${ctx.token}` },
+    }),
+    { params: Promise.resolve({}) },
+  );
 }
 
 describe('GET /api/reports/transactions — dedup by journalEntryId', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockContext();
+  beforeEach(async () => {
+    await clearDatabase();
+  });
+
+  afterEach(async () => {
+    await clearDatabase();
   });
 
   it('does not add a reconciled tx WITH journalEntryId as a virtual entry', async () => {
-    mockDb.journalEntry.findMany.mockResolvedValue([
-      {
-        id: 'je-1',
+    const ctx = await seedFixture('reports-dedup-linked@example.com');
+
+    const entry = await db.journalEntry.create({
+      data: {
+        companyId: ctx.companyId,
         date: new Date('2025-03-15T00:00:00.000Z'),
         description: 'Auto-reconcile: Compra (Rule: X)',
-        reference: null,
         status: 'posted',
-        lines: [
-          { id: 'jl-1', glAccount: EXPENSE, description: 'Auto-reconcile: Compra (Rule: X)', debit: 100, credit: 0 },
-          { id: 'jl-2', glAccount: BANK_ASSET, description: 'Auto-reconcile: Compra (Rule: X)', debit: 0, credit: 100 },
-        ],
+        lines: {
+          create: [
+            { glAccountId: ctx.expenseGlId, description: 'Auto-reconcile: Compra (Rule: X)', debit: 100, credit: 0 },
+            { glAccountId: ctx.bankAssetGlId, description: 'Auto-reconcile: Compra (Rule: X)', debit: 0, credit: 100 },
+          ],
+        },
       },
-    ]);
-    mockDb.bankTransaction.findMany.mockResolvedValue([
-      {
-        id: 'tx-1',
+    });
+
+    await db.bankTransaction.create({
+      data: {
+        statementId: ctx.statementId,
+        companyId: ctx.companyId,
         date: new Date('2025-03-15T00:00:00.000Z'),
         amount: -100,
         description: 'Compra',
-        reference: null,
-        journalEntryId: 'je-1',
-        glAccount: EXPENSE,
-        statement: { bankAccount: { glAccount: BANK_ASSET } },
+        isReconciled: true,
+        glAccountId: ctx.expenseGlId,
+        journalEntryId: entry.id,
       },
-    ]);
+    });
 
-    const req = new NextRequest('http://localhost/api/reports/transactions?companyId=c1');
-    const res = await GET(req, { params: Promise.resolve({}) });
+    const res = await call(ctx);
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.data).toHaveLength(1);
-    expect(body.data[0].id).toBe('je-1');
+    expect(body.data[0].id).toBe(entry.id);
+    expect(body.pagination.totalCount).toBe(1);
   });
 
   it('adds a reconciled tx WITHOUT journalEntryId as a virtual entry', async () => {
-    mockDb.journalEntry.findMany.mockResolvedValue([]);
-    mockDb.bankTransaction.findMany.mockResolvedValue([
-      {
-        id: 'tx-2',
+    const ctx = await seedFixture('reports-dedup-virtual@example.com');
+
+    const tx = await db.bankTransaction.create({
+      data: {
+        statementId: ctx.statementId,
+        companyId: ctx.companyId,
         date: new Date('2025-03-16T00:00:00.000Z'),
         amount: -30,
         description: 'Cafe',
-        reference: null,
-        journalEntryId: null,
-        glAccount: EXPENSE,
-        statement: { bankAccount: { glAccount: BANK_ASSET } },
+        isReconciled: true,
+        glAccountId: ctx.expenseGlId,
       },
-    ]);
+    });
 
-    const req = new NextRequest('http://localhost/api/reports/transactions?companyId=c1');
-    const res = await GET(req, { params: Promise.resolve({}) });
+    const res = await call(ctx);
     const body = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.data).toHaveLength(1);
-    expect(body.data[0].id).toBe('tx-2');
+    expect(body.data[0].id).toBe(tx.id);
     expect(body.data[0].lines).toHaveLength(2);
+    expect(body.pagination.totalCount).toBe(1);
   });
 });

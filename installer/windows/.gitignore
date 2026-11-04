@@ -1,0 +1,7 @@
+.checks/
+.cache/
+.build/
+dist/
+# Generated installer artifacts excluded; owned scratch must be cleaned by tests
+*.exe
+AccountExpress-Setup.exe

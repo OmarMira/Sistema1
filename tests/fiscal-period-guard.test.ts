@@ -45,7 +45,7 @@ describe('Fiscal Period Guard', () => {
     });
 
     await expect(assertActiveFiscalPeriod(company.id, '2026-05-15')).rejects.toThrow(
-      'Cannot post transactions to a closed period'
+      'No se pueden registrar transacciones en un período cerrado'
     );
   });
 
@@ -110,6 +110,6 @@ describe('Fiscal Period Guard', () => {
           },
         ],
       })
-    ).rejects.toThrow('Cannot post transactions to a closed period');
+    ).rejects.toThrow('No se pueden registrar transacciones en un período cerrado');
   });
 });

@@ -276,7 +276,7 @@ describe('apiHandler', () => {
 
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body.error).toContain('Database constraint');
+    expect(body.error).toContain('Error de restricción');
     expect(body.code).toBe('DATABASE_ERROR');
   });
 

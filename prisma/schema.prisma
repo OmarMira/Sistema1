@@ -37,6 +37,65 @@ enum DecisionReason {
   FALLBACK_DEFAULT
 }
 
+/// Wave 6 / S3 — `Company.entityType` was a free-form String. These are the only
+/// two values the application ever writes (zod `entityType` enum in
+/// src/lib/validations/auth.ts and the `'INDIVIDUAL' | 'BUSINESS'` union in
+/// src/lib/validation/account-holder-validator.ts).
+enum CompanyEntityType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+/// Wave 6 / S3 — `GlAccount.accountType`. Values mirror rules/account-types.json
+/// exactly (asset, liability, equity, revenue, expense); the JSON config stays
+/// the operator-facing source of truth for the API validation error message and
+/// this enum is the storage authority.
+enum GlAccountAccountType {
+  asset
+  liability
+  equity
+  revenue
+  expense
+}
+
+/// Wave 6 / S3 — `GlAccount.normalBalance`: the only two values the chart of
+/// accounts and the POST/PATCH /api/accounts validators accept.
+enum GlAccountNormalBalance {
+  debit
+  credit
+}
+
+/// Wave 6 / S3 — `BankTransaction.status`. `posted` is the historical default;
+/// `pending_review` and `suspense` are written by the classification and
+/// reconciliation-review paths. `unreviewed`/`reconciled`/`ignored` are kept
+/// because legacy rows and the reconciliation queue UI already use those
+/// names — narrowing the type must never make existing data unreadable.
+enum BankTransactionStatus {
+  unreviewed
+  pending_review
+  reconciled
+  ignored
+  posted
+  suspense
+}
+
+/// Wave 6 / S3 — `JournalEntry.status`. `pending_review` is written by the
+/// reconciliation flow when a generated entry carries warnings and later
+/// promoted to `posted` or voided.
+enum JournalEntryStatus {
+  draft
+  posted
+  void
+  pending_review
+}
+
+/// Wave 6 / S3 — `ReconciliationPeriod.status`: opened, completed, cancelled.
+enum ReconciliationPeriodStatus {
+  open
+  completed
+  cancelled
+}
+
 enum PlatformRole {
   user
   super_admin
@@ -56,6 +115,8 @@ model User {
   lastName              String
   platformRole          PlatformRole           @default(user) @map("role")
   isActive              Boolean                @default(true)
+  emailVerifiedAt       DateTime?
+  legacyUser            Boolean                @default(false)
   phone                 String                 @default("")
   streetLine1           String                 @default("")
   streetLine2           String                 @default("")
@@ -75,7 +136,7 @@ model User {
 model Company {
   id                    String                     @id @default(cuid())
   legalName             String
-  entityType            String                     @default("BUSINESS")
+  entityType            CompanyEntityType          @default(BUSINESS)
   taxId                 String?
   address               String?
   phone                 String?
@@ -93,7 +154,6 @@ model Company {
   maxApplyTransactions  Int?
   createdAt             DateTime                   @default(now())
   updatedAt             DateTime                   @updatedAt
-  auditLogs             AuditLog[]
   bankAccounts          BankAccount[]
   bankRules             BankRule[]
   statements            BankStatement[]
@@ -111,6 +171,32 @@ model Company {
   journalChainHead      JournalChainHead?
   csvLayoutProfiles     CsvLayoutProfile[]
   moduleEntitlements    CompanyModuleEntitlement[]
+  journalCorrections    JournalCorrection[]
+  bankProfiles          BankProfile[]
+}
+
+/// Correction link record (original -> counter + replacement). The table itself
+/// was created by prisma/migrations/20261026142303_journal_correction; this model
+/// pins the Prisma schema to that SQL exactly. S24 — the correction flow is
+/// ENABLED end to end behind company_admin: POST /api/journal/[id]/corregir
+/// writes the counter-entry plus replacement entry, recalculates balances and
+/// seals the new entries into the company journal hash chain.
+model JournalCorrection {
+  id                 String       @id @default(cuid())
+  companyId          String
+  originalEntryId    String
+  counterEntryId     String
+  replacementEntryId String
+  reason             String?
+  correctedByUserId  String?
+  createdAt          DateTime     @default(now())
+  company            Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  originalEntry      JournalEntry @relation("JournalCorrectionOriginalEntry", fields: [originalEntryId], references: [id], onDelete: Cascade)
+  counterEntry       JournalEntry @relation("JournalCorrectionCounterEntry", fields: [counterEntryId], references: [id], onDelete: Cascade)
+  replacementEntry   JournalEntry @relation("JournalCorrectionReplacementEntry", fields: [replacementEntryId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, originalEntryId])
+  @@index([originalEntryId])
 }
 
 /// Serialize the per-company journal hash chain (JH2).
@@ -158,27 +244,27 @@ model CompanyModuleEntitlement {
 }
 
 model GlAccount {
-  id              String            @id @default(cuid())
+  id              String                 @id @default(cuid())
   companyId       String
   code            String
   name            String
-  accountType     String
-  normalBalance   String
+  accountType     GlAccountAccountType
+  normalBalance   GlAccountNormalBalance
   parentId        String?
-  isActive        Boolean           @default(true)
-  isSystem        Boolean           @default(false)
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  isActive        Boolean                @default(true)
+  isSystem        Boolean                @default(false)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   bankAccounts    BankAccount[]
-  creditBankRules BankRule[]        @relation("CreditRuleGlAccount")
-  debitBankRules  BankRule[]        @relation("DebitRuleGlAccount")
-  bankRules       BankRule[]        @relation("LegacyRuleGlAccount")
+  creditBankRules BankRule[]             @relation("CreditRuleGlAccount")
+  debitBankRules  BankRule[]             @relation("DebitRuleGlAccount")
+  bankRules       BankRule[]             @relation("LegacyRuleGlAccount")
   transactions    BankTransaction[]
   entityContexts  EntityContext[]
-  parent          GlAccount?        @relation("AccountHierarchy", fields: [parentId], references: [id])
-  children        GlAccount[]       @relation("AccountHierarchy")
-  balance         Decimal           @default(0) @db.Decimal(18, 2)
-  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent          GlAccount?             @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children        GlAccount[]            @relation("AccountHierarchy")
+  balance         Decimal                @default(0) @db.Decimal(18, 2)
+  company         Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   journalLines    JournalLine[]
 
   @@unique([companyId, code])
@@ -234,6 +320,12 @@ model BankStatement {
 model BankTransaction {
   id                     String                @id @default(cuid())
   statementId            String
+  /// S19(f) — denormalized tenant key, defense in depth. Backfilled from the
+  /// statement's account during migration 20261105000001; written by the
+  /// import path on insert. Hot queries (review queue, dashboards) still
+  /// traverse statement → account → company today; this column lets a later
+  /// optimization filter without that join, and is not an authority yet.
+  companyId              String?
   date                   DateTime
   description            String
   amount                 Decimal               @db.Decimal(18, 2)
@@ -244,7 +336,7 @@ model BankTransaction {
   matchedRuleId          String?
   reconciledAt           DateTime?
   reconciliationPeriodId String?
-  status                 String                @default("posted")
+  status                 BankTransactionStatus @default(posted)
   importHash             String?               @unique
   journalEntryId         String?               @unique
   journalLineId          String?               @unique
@@ -270,25 +362,29 @@ model BankTransaction {
   @@index([importHash])
   @@index([isReconciled, journalEntryId, date])
   @@index([ruleApplyRecordId])
+  /// S19(f) — tenant scope without the statement join.
+  @@index([companyId])
+  /// S19(d) — review-queue path: tenant + GL account + date range.
+  @@index([companyId, glAccountId, date])
 }
 
 model ReconciliationPeriod {
-  id               String            @id @default(cuid())
+  id               String                     @id @default(cuid())
   companyId        String
   bankAccountId    String
   userId           String
-  statementBalance Decimal           @default(0) @db.Decimal(18, 2)
-  bookBalance      Decimal           @default(0) @db.Decimal(18, 2)
-  difference       Decimal           @default(0) @db.Decimal(18, 2)
-  status           String            @default("open")
-  startedAt        DateTime          @default(now())
+  statementBalance Decimal                    @default(0) @db.Decimal(18, 2)
+  bookBalance      Decimal                    @default(0) @db.Decimal(18, 2)
+  difference       Decimal                    @default(0) @db.Decimal(18, 2)
+  status           ReconciliationPeriodStatus @default(open)
+  startedAt        DateTime                   @default(now())
   completedAt      DateTime?
-  transactionCount Int               @default(0)
+  transactionCount Int                        @default(0)
   notes            String?
   transactions     BankTransaction[]
-  bankAccount      BankAccount       @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
-  user             User              @relation("ReconUser", fields: [userId], references: [id])
-  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount      BankAccount                @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  user             User                       @relation("ReconUser", fields: [userId], references: [id])
+  company          Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, bankAccountId])
   @@index([status])
@@ -345,26 +441,29 @@ model RuleExecutionAudit {
 }
 
 model JournalEntry {
-  id                     String            @id @default(cuid())
-  companyId              String
-  date                   DateTime
-  description            String
-  reference              String?
-  status                 String            @default("draft")
-  hash                   String?
-  previousHash           String?
+  id                       String              @id @default(cuid())
+  companyId                String
+  date                     DateTime
+  description              String
+  reference                String?
+  status                   JournalEntryStatus  @default(draft)
+  hash                     String?
+  previousHash             String?
   /// Chain format of `hash`. NULL = legacy/no-hash (pre-JH2, never a v2 append).
   /// "v2" = JH:v2| payload contract (lines included). Never back-filled.
-  hashVersion            String?
-  ruleApplyRecordId      String?
-  idempotencyKey         String?
-  idempotencyRequestHash String?
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  company                Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  lines                  JournalLine[]
-  transactions           BankTransaction[]
-  ruleApplyRecord        RuleApplyRecord?  @relation(fields: [ruleApplyRecordId], references: [id], onDelete: SetNull)
+  hashVersion              String?
+  ruleApplyRecordId        String?
+  idempotencyKey           String?
+  idempotencyRequestHash   String?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  company                  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines                    JournalLine[]
+  transactions             BankTransaction[]
+  ruleApplyRecord          RuleApplyRecord?    @relation(fields: [ruleApplyRecordId], references: [id], onDelete: SetNull)
+  correctionsAsOriginal    JournalCorrection[] @relation("JournalCorrectionOriginalEntry")
+  correctionsAsCounter     JournalCorrection[] @relation("JournalCorrectionCounterEntry")
+  correctionsAsReplacement JournalCorrection[] @relation("JournalCorrectionReplacementEntry")
 
   @@unique([companyId, idempotencyKey])
   @@index([companyId, date])
@@ -400,7 +499,10 @@ model RuleApplyRecord {
   userId         String
   state          String            @default("applied")
   appliedAt      DateTime          @default(now())
-  idempotencyKey String            @unique
+  /// S19(e) — uniqueness is per company: the same caller-supplied key in two
+  /// different tenants must not collide globally (idempotency is a tenant
+  /// concern). Repeats inside one company still fail with P2002.
+  idempotencyKey String
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -409,6 +511,8 @@ model RuleApplyRecord {
   transactions   BankTransaction[]
   journalEntries JournalEntry[]
 
+  /// S19(e) — replaces the former global unique index on idempotencyKey.
+  @@unique([companyId, idempotencyKey])
   @@index([companyId])
   @@index([ruleId])
   @@index([state])
@@ -441,12 +545,21 @@ model AuditLog {
   previousHash String?
   createdAt    DateTime @default(now())
   user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  company      Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  /// S19(c) — evidence rule: audit rows OUTLIVE their company. 'companyId' is a
+  /// historical scope, NOT a foreign key: the former AuditLog_companyId_fkey
+  /// (ON DELETE SET NULL) was dropped in migration 20261105000000. Nulling the
+  /// column on tenant deletion invalidated every stored hash (companyId is part
+  /// of the audit hash payload) and destroyed the global chain, so cleanup is
+  /// explicit in application code and never a cascade — the same shape
+  /// RuleExecutionAudit already uses.
 
   @@index([companyId])
   @@index([createdAt])
   @@index([companyId, createdAt])
   @@index([userId, createdAt])
+  /// S17c: the chain tail is the member no other row links to, selected with a
+  /// NOT EXISTS membership test on `previousHash` (src/lib/audit.ts).
+  @@index([previousHash])
 }
 
 model Session {
@@ -460,6 +573,8 @@ model Session {
   @@index([userId])
   @@index([token])
   @@index([userId, expiresAt])
+  /// S19(d) — session expiry sweeps/cleanup read the raw expiry column.
+  @@index([expiresAt])
 }
 
 model EntityContext {
@@ -503,9 +618,15 @@ model SystemMemory {
   @@index([importance])
 }
 
+/// S1 (Wave 5): bank parsing profiles are company-scoped.
+/// companyId NULL is a GLOBAL read-only seed (shipped/curated definitions that
+/// every tenant may use); a row with a companyId belongs to exactly one tenant.
+/// Lookups resolve company-scoped first, global second. Write paths must always
+/// carry a companyId — nothing in the application ever writes a NULL-company row.
 model BankProfile {
   id             String   @id @default(cuid())
-  bankId         String   @unique
+  bankId         String
+  companyId      String?
   bankName       String
   fingerprints   String
   isActive       Boolean  @default(true)
@@ -513,7 +634,10 @@ model BankProfile {
   config         String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  @@unique([bankId, companyId])
+  @@index([companyId])
   @@index([isActive])
   @@index([requiresReview])
 }
@@ -775,4 +899,52 @@ model CsvLayoutProfile {
   company                Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, fingerprint])
+}
+
+// Dormant identity infrastructure. No existing model fields/relations change.
+// Deployment, User verification/legacy fields and activation require approval.
+model IdentityPendingRegistration {
+  id          String    @id @db.Uuid
+  email       String    @unique
+  expiresAt   DateTime  @db.Timestamptz(3)
+  confirmedAt DateTime? @db.Timestamptz(3)
+  resends     Int       @default(0)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}
+
+model IdentityChallenge {
+  id         String    @id @db.Uuid
+  subjectId  String
+  purpose    String
+  generation Int
+  digest     String
+  attempts   Int       @default(0)
+  expiresAt  DateTime  @db.Timestamptz(3)
+  usedAt     DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([subjectId, purpose])
+  @@index([digest, purpose])
+  @@index([expiresAt])
+}
+
+model IdentityRateLimit {
+  subject     String
+  windowStart DateTime @db.Timestamptz(3)
+  attempts    Int
+  expiresAt   DateTime @db.Timestamptz(3)
+
+  @@id([subject, windowStart])
+  @@index([expiresAt])
+}
+
+model IdentitySecurityEvent {
+  id        String   @id @db.Uuid
+  action    String
+  subject   String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([createdAt])
 }

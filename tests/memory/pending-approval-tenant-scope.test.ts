@@ -17,7 +17,7 @@ import {
 } from '@/lib/services/ai-proposal-approval.service';
 import { excludePendingHumanDecisions } from '@/lib/services/single-rule-apply.service';
 import { matchTransactions, executeApplyAll } from '@/lib/services/apply-all-engine';
-import { revalidateAutoMatchCandidate } from '@/app/api/reconciliation/auto/route';
+import { revalidateAutoMatchCandidate } from '@/app/api/reconciliation/auto/helpers';
 import { ImportService } from '@/lib/services/import.service';
 import { runRuleEngineV2 } from '@/lib/services/rule-engine-adapter';
 import { resolveEntity } from '@/memory/entity-resolution';
@@ -525,17 +525,17 @@ describe('§GAP8-2D — PendingApproval tenant scope (T1–T12)', () => {
   });
 
   // ── T11: admin DELETE removes ALL pendings of the company ────────────────
+  // Evidence contract (c84f312): the tenant delete purges the company's
+  // knowledgeId-NULL pendings, while hash-chained AuditLog rows are preserved.
   it('T11: admin company DELETE purges knowledgeId-NULL pendings of A only', async () => {
     const a = await createTenant(`t11a-${RUN}`);
     const b = await createTenant(`t11b-${RUN}`);
-    const admin = await db.user.create({
-      data: {
-        email: `t11-admin-${RUN}@example.com`,
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'Super',
-        lastName: 'Admin',
-        platformRole: 'super_admin',
-      },
+    // Session guard (86efc5d) only admits verified users: reuse the verified
+    // factory and elevate the platform role for the super_admin route.
+    const createdAdmin = await createTestUser(`t11-admin-${RUN}@example.com`);
+    const admin = await db.user.update({
+      where: { id: createdAdmin.id },
+      data: { platformRole: 'super_admin' },
     });
     await createTestCompanyMember(admin.id, a.company.id);
     const token = await createSession(admin.id);

@@ -37,6 +37,30 @@ function mockHttpsResponseOnce(
   );
 }
 
+/**
+ * T3 (emailVerifiedAt / PENDING flow): session resolution rejects an unverified
+ * account before any route gate runs, so creating a raw pending user turns every
+ * role assertion below into a 401 at admission. This suite tests the ROLE gate,
+ * not the pending-email gate, so the harness creates verified accounts.
+ */
+function createVerifiedUser(data: {
+  email: string;
+  platformRole: 'user' | 'super_admin';
+  firstName?: string;
+  lastName?: string;
+}) {
+  return db.user.create({
+    data: {
+      passwordHash: 'hashed_password_placeholder',
+      firstName: 'Test',
+      lastName: 'User',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
+      ...data,
+    },
+  });
+}
+
 async function callVerifyWithBody(userId: string, mockHttp: boolean, body: string) {
   if (mockHttp) {
     mockDnsPublic();
@@ -372,43 +396,19 @@ describe('RC2-P04 — requireGlobalAdminRole global-only gate', () => {
   }
 
   it('A: User.role=super_admin — access granted to global AI config', async () => {
-    const user = await db.user.create({
-      data: {
-        email: 'rc2-super@example.com',
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'Test',
-        lastName: 'Super',
-        platformRole: 'super_admin',
-      },
-    });
+    const user = await createVerifiedUser({ email: 'rc2-super@example.com', platformRole: 'super_admin' });
     const res = await callVerify(user.id, true);
     expect(res.status).toBe(200);
   });
 
   it('B: User.role=user — 403 on global AI config', async () => {
-    const user = await db.user.create({
-      data: {
-        email: 'rc2-user@example.com',
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'Test',
-        lastName: 'User',
-        platformRole: 'user',
-      },
-    });
+    const user = await createVerifiedUser({ email: 'rc2-user@example.com', platformRole: 'user' });
     const res = await callVerify(user.id, false);
     expect(res.status).toBe(403);
   });
 
   it('C: User.role=user + CompanyMember.role=company_admin — 403 on global AI config (tenant authority does NOT grant global access)', async () => {
-    const user = await db.user.create({
-      data: {
-        email: 'rc2-tenant-admin@example.com',
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'Test',
-        lastName: 'TenantAdmin',
-        platformRole: 'user',
-      },
-    });
+    const user = await createVerifiedUser({ email: 'rc2-tenant-admin@example.com', platformRole: 'user' });
     const company = await createTestCompany('RC2 Tenant');
     await createTestCompanyMember(user.id, company.id);
     createdCompanyIds.push(company.id);
@@ -437,15 +437,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify authorization gate', () => {
   });
 
   it('a non-admin member cannot call verify: status 403 and outbound fetch = 0', async () => {
-    const user = await db.user.create({
-      data: {
-        email: 'g4-viewer@example.com',
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'Test',
-        lastName: 'Viewer',
-        platformRole: 'user',
-      },
-    });
+    const user = await createVerifiedUser({ email: 'g4-viewer@example.com', platformRole: 'user' });
     const company = await createTestCompany('G4 Tenant');
     await createTestCompanyMember(user.id, company.id);
     createdCompanyIds.push(company.id);
@@ -486,15 +478,7 @@ describe('G4-RC1 — SSRF: /api/config/ai/verify provider allowlist', () => {
   });
 
   async function createVerifyAdmin() {
-    return db.user.create({
-      data: {
-        email: 'g4-verify-admin@example.com',
-        passwordHash: 'hashed_password_placeholder',
-        firstName: 'Test',
-        lastName: 'Admin',
-        platformRole: 'super_admin',
-      },
-    });
+    return createVerifiedUser({ email: 'g4-verify-admin@example.com', platformRole: 'super_admin' });
   }
 
   it('rejects an unknown providerId with 400 and no outbound request', async () => {

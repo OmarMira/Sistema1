@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres
+        image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgrespassword
@@ -64,7 +64,8 @@ jobs:
           DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/accountexpress_test?schema=public
           HMAC_SECRET: ci-test-hmac-secret-not-production
           SESSION_SECRET: ci-test-session-secret-not-production
-        run: npx vitest run
+        # Runs the application suite AND all dedicated identity suites in new owned databases.
+        run: node scripts/ci-test-isolated.mjs --run
 
       - name: Build
         run: npm run build

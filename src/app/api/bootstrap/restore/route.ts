@@ -20,6 +20,14 @@ export const POST = apiHandler(
       );
     }
 
+    // DUAL GATE — both must pass for the restore to proceed:
+    //   1. companyCount === 0 (checked above): this endpoint only works on
+    //      a truly empty database — it cannot be called on a live system.
+    //   2. BOOTSTRAP_SETUP_TOKEN: set once by the operator at install time
+    //      and compared with timingSafeEqual. Without it the endpoint is
+    //      disabled (503). The backup payload must also carry a valid
+    //      recovery password (B3.4), checked below. The blast radius is
+    //      intentional: this is the first-install recovery path.
     const setupToken = process.env.BOOTSTRAP_SETUP_TOKEN;
     if (!setupToken) {
       return NextResponse.json(

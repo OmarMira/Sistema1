@@ -51,8 +51,10 @@ export interface ConfirmationContext {
 export interface BlockReason {
   reasonCode: string;
   summary: string;
-  profileId: string;
-  profileVersion: string;
+  // Absent when the block is not produced by a policy decision (for example a
+  // policy evaluation failure on a CONFIRM flow — S22(a)).
+  profileId?: string;
+  profileVersion?: string;
 }
 
 export interface EnforcementResult {
@@ -62,6 +64,16 @@ export interface EnforcementResult {
   decision?: ConfirmationDecision;
   context?: ConfirmationContext;
   block?: BlockReason;
+}
+
+/**
+ * Internal evaluation output. `reviewRequired` is deliberately NOT part of
+ * EnforcementResult: it is an execution instruction, not a policy verdict, so
+ * the public enforcement shape stays byte-identical for existing consumers.
+ */
+interface PolicyEvaluation {
+  enforcement: EnforcementResult;
+  reviewRequired: boolean;
 }
 
 export interface ApplyAllUseCaseResult {
@@ -130,7 +142,7 @@ async function evaluatePolicy(
   companyId: string,
   matchResult: MatchResult,
   confirmed?: boolean,
-): Promise<EnforcementResult> {
+): Promise<PolicyEvaluation> {
   const policyWindow = buildObservationWindow(new Date(), APPLY_ALL_OBSERVATION_CONFIG.windowDays);
   const policyProvider = new ShadowMetricsReader(new PrismaAuditLogRepository(db));
 
@@ -151,9 +163,34 @@ async function evaluatePolicy(
 
     return buildEnforcementResult(decision, matchResult, confirmed);
   } catch (error) {
+    const errorCode = classifyEnforcementError(error);
+
+    // S22(a) — a CONFIRM flow cannot be honoured when the policy that demanded
+    // the confirmation can no longer be evaluated: fail CLOSED instead of
+    // silently executing on an unverifiable policy. The unconfirmed path keeps
+    // its documented fail-open behaviour (S7-11): a policy outage must not stop
+    // a first-time apply whose decision no user has consented to yet.
+    if (confirmed) {
+      return {
+        enforcement: {
+          status: 'BLOCKED',
+          policyUnavailable: { errorCode },
+          block: {
+            reasonCode: 'POLICY_UNAVAILABLE',
+            summary:
+              'Operational policy could not be evaluated; the confirmed apply is refused until the policy is available again.',
+          },
+        },
+        reviewRequired: false,
+      };
+    }
+
     return {
-      status: 'EXECUTED',
-      policyUnavailable: { errorCode: classifyEnforcementError(error) },
+      enforcement: {
+        status: 'EXECUTED',
+        policyUnavailable: { errorCode },
+      },
+      reviewRequired: false,
     };
   }
 }
@@ -162,48 +199,60 @@ function buildEnforcementResult(
   decision: OperationalPolicyDecision,
   matchResult: MatchResult,
   confirmed?: boolean,
-): EnforcementResult {
+): PolicyEvaluation {
   switch (decision.action) {
     case 'ALLOW':
-      return { status: 'EXECUTED' };
+      return { enforcement: { status: 'EXECUTED' }, reviewRequired: false };
 
     case 'WARN':
       return {
-        status: 'EXECUTED',
-        policyWarning: {
-          reasonCode: decision.reasons.reasonCode,
-          transactionCount: matchResult.totalCount,
-          profileId: decision.profileId,
-          profileVersion: decision.profileVersion,
+        enforcement: {
+          status: 'EXECUTED',
+          policyWarning: {
+            reasonCode: decision.reasons.reasonCode,
+            transactionCount: matchResult.totalCount,
+            profileId: decision.profileId,
+            profileVersion: decision.profileVersion,
+          },
         },
+        reviewRequired: false,
       };
 
     case 'CONFIRM':
-      if (confirmed) return { status: 'EXECUTED' };
+      // S22(b) — the policy demands a human decision. Once the user consents the
+      // classification runs, but the generated journal entries must stay
+      // reviewable instead of being silently posted.
+      if (confirmed) return { enforcement: { status: 'EXECUTED' }, reviewRequired: true };
       return {
-        status: 'CONFIRMATION_REQUIRED',
-        decision: {
-          reasonCode: decision.reasons.reasonCode,
-          summary: decision.reasons.summary,
-          profileId: decision.profileId,
-          profileVersion: decision.profileVersion,
-          readinessStatus: decision.readiness.status,
+        enforcement: {
+          status: 'CONFIRMATION_REQUIRED',
+          decision: {
+            reasonCode: decision.reasons.reasonCode,
+            summary: decision.reasons.summary,
+            profileId: decision.profileId,
+            profileVersion: decision.profileVersion,
+            readinessStatus: decision.readiness.status,
+          },
+          context: {
+            transactionCount: matchResult.totalCount,
+            matchedRuleCount: matchResult.matchedRules.length,
+          },
         },
-        context: {
-          transactionCount: matchResult.totalCount,
-          matchedRuleCount: matchResult.matchedRules.length,
-        },
+        reviewRequired: false,
       };
 
     case 'BLOCK':
       return {
-        status: 'BLOCKED',
-        block: {
-          reasonCode: decision.reasons.reasonCode,
-          summary: decision.reasons.summary,
-          profileId: decision.profileId,
-          profileVersion: decision.profileVersion,
+        enforcement: {
+          status: 'BLOCKED',
+          block: {
+            reasonCode: decision.reasons.reasonCode,
+            summary: decision.reasons.summary,
+            profileId: decision.profileId,
+            profileVersion: decision.profileVersion,
+          },
         },
+        reviewRequired: false,
       };
   }
 }
@@ -444,7 +493,7 @@ async function executeSingleUseCase(
 
   const { matchResult } = await resolveCandidateForSingleTx(companyId, bankTx, forcedRule);
 
-  const enforcementResult = await evaluatePolicy(companyId, matchResult, confirmed);
+  const { enforcement: enforcementResult } = await evaluatePolicy(companyId, matchResult, confirmed);
 
   if (enforcementResult.status === 'CONFIRMATION_REQUIRED' || enforcementResult.status === 'BLOCKED') {
     return {
@@ -454,6 +503,10 @@ async function executeSingleUseCase(
     };
   }
 
+  // Single mode is an explicit per-transaction human choice (the operator
+  // selected this one transaction AND this one rule), so it keeps posting
+  // directly. S22(b) review applies to the batch flow, where no human picked
+  // the individual entries.
   const applyResult = await applySingleTransaction(companyId, matchResult, forcedRuleId, transactionId, userId ?? 'system');
 
   return { matchResult, applyResult, enforcement: enforcementResult };
@@ -485,7 +538,11 @@ export async function executeApplyAllUseCase(
   }
 
   // ── S7-11: Enforcement evaluation ──────────────────────
-  const enforcementResult = await evaluatePolicy(companyId, matchResult, options?.confirmed);
+  const { enforcement: enforcementResult, reviewRequired } = await evaluatePolicy(
+    companyId,
+    matchResult,
+    options?.confirmed,
+  );
 
   // ── S7-11: Decision gate ───────────────────────────────
   if (enforcementResult.status === 'CONFIRMATION_REQUIRED' || enforcementResult.status === 'BLOCKED') {
@@ -501,6 +558,7 @@ export async function executeApplyAllUseCase(
     return executeApplyAll(companyId, tx, matchResult, {
       userId: options?.userId ?? 'system',
       origin: 'batch',
+      requiresReview: reviewRequired,
     });
   });
 

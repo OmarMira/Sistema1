@@ -74,8 +74,7 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
             {t('reports.exportModalTitle')}
           </DialogTitle>
           <DialogDescription>
-            Genera balances contables con huella de integridad en CSV, o abrí la vista de
-            impresión del navegador para guardarlos como PDF.
+            {t('reports.exportModalDescription')}
           </DialogDescription>
         </DialogHeader>
 
@@ -83,17 +82,17 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
           {/* Tipo de Reporte */}
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="type" className="text-right text-sm font-medium">
-              Reporte
+              {t('reports.reportType')}
             </Label>
             <div className="col-span-3">
               <Select value={type} onValueChange={setType}>
                 <SelectTrigger id="type">
-                  <SelectValue placeholder="Seleccionar reporte" />
+                  <SelectValue placeholder={t('reports.reportTypePlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="trial_balance">Balanza de Comprobación</SelectItem>
-                  <SelectItem value="income_statement">Estado de Resultados (P&L)</SelectItem>
-                  <SelectItem value="balance_sheet">Balance General</SelectItem>
+                  <SelectItem value="trial_balance">{t('reports.trialBalance')}</SelectItem>
+                  <SelectItem value="income_statement">{t('reports.incomeStatementPL')}</SelectItem>
+                  <SelectItem value="balance_sheet">{t('reports.balanceSheet')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -102,16 +101,16 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
           {/* Formato */}
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="format" className="text-right text-sm font-medium">
-              Formato
+              {t('reports.format')}
             </Label>
             <div className="col-span-3">
               <Select value={format} onValueChange={setFormat}>
                 <SelectTrigger id="format">
-                  <SelectValue placeholder="Seleccionar formato" />
+                  <SelectValue placeholder={t('reports.formatPlaceholder')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="csv">CSV (Con hash SHA-256)</SelectItem>
-                  <SelectItem value="print">Imprimir / Guardar como PDF</SelectItem>
+                  <SelectItem value="csv">{t('reports.formatCsv')}</SelectItem>
+                  <SelectItem value="print">{t('reports.formatPrint')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -120,7 +119,7 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
           {/* Fechas */}
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="startDate" className="text-right text-sm font-medium">
-              Desde
+              {t('reports.from')}
             </Label>
             <input
               id="startDate"
@@ -133,7 +132,7 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
 
           <div className="grid grid-cols-4 items-center gap-4">
             <Label htmlFor="endDate" className="text-right text-sm font-medium">
-              Hasta
+              {t('reports.to')}
             </Label>
             <input
               id="endDate"
@@ -148,22 +147,21 @@ export function ReportExportModal({ isOpen, onClose, companyId }: ReportExportMo
           <Alert className="bg-amber-50 border-amber-200">
             <AlertTriangle className="h-4 w-4 text-amber-600" />
             <AlertTitle className="text-amber-800 text-xs font-bold">
-              USO INTERNO ÚNICAMENTE
+              {t('reports.internalUseOnly')}
             </AlertTitle>
             <AlertDescription className="text-amber-700 text-xxs leading-tight mt-1">
-              Documento de borrador interno. No está firmado digitalmente y no es válido para
-              presentación oficial ante entidades de impuestos o gubernamentales.
+              {t('reports.draftDisclaimer')}
             </AlertDescription>
           </Alert>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button onClick={handleExport} disabled={loading} className="gap-2">
             <Download className="w-4 h-4" />
-            {loading ? 'Exportando...' : 'Exportar Reporte'}
+            {loading ? t('reports.exporting') : t('reports.exportReport')}
           </Button>
         </DialogFooter>
       </DialogContent>

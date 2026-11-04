@@ -39,8 +39,7 @@ const STEPS = [
   { id: 2, title: 'Periodo Fiscal', icon: BookOpen },
   { id: 3, title: 'Plan de Cuentas', icon: BarChart3 },
   { id: 4, title: 'Impuestos', icon: AlertCircle },
-  { id: 5, title: 'Saldos Iniciales', icon: BarChart3 },
-  { id: 6, title: 'Finalizar', icon: CheckCircle2 },
+  { id: 5, title: 'Finalizar', icon: CheckCircle2 },
 ];
 
 export function OnboardingWizard() {
@@ -59,7 +58,6 @@ export function OnboardingWizard() {
     fiscalStartYear: '',
     fiscalStartMonth: '',
     periodType: 'CALENDAR',
-    initialCashBalance: '0',
   });
 
   const handleNext = () => {
@@ -95,7 +93,6 @@ export function OnboardingWizard() {
           fiscalYearStartMonth: parseInt(formData.fiscalStartMonth, 10),
           fiscalYearStartYear: parseInt(formData.fiscalStartYear, 10),
           periodType: formData.periodType,
-          initialCashBalance: parseFloat(formData.initialCashBalance) || 0,
         }),
       });
 
@@ -140,13 +137,6 @@ export function OnboardingWizard() {
           document.getElementById('onboarding-next-btn')?.focus();
           break;
         case 5:
-          const initialCashBalanceInput = document.getElementById('onboarding-initialCashBalance') as HTMLInputElement;
-          if (initialCashBalanceInput) {
-            initialCashBalanceInput.focus();
-            initialCashBalanceInput.select();
-          }
-          break;
-        case 6:
           document.getElementById('onboarding-complete-btn')?.focus();
           break;
         default:
@@ -175,7 +165,7 @@ export function OnboardingWizard() {
         return (
           <div className="space-y-4">
             <div>
-              <Label>{t('onboarding.step1.legalName')}</Label>
+              <Label htmlFor="onboarding-legalName">{t('onboarding.step1.legalName')}</Label>
               <Input
                 id="onboarding-legalName"
                 value={formData.legalName}
@@ -186,12 +176,18 @@ export function OnboardingWizard() {
               />
             </div>
             <div>
-              <Label>{t('onboarding.step1.currency')}</Label>
+              <Label htmlFor="onboarding-currency" id="onboarding-currency-label">
+                {t('onboarding.step1.currency')}
+              </Label>
               <Select
                 value={formData.currency}
                 onValueChange={(v) => setFormData({ ...formData, currency: v })}
               >
-                <SelectTrigger className="mt-1">
+                <SelectTrigger
+                  id="onboarding-currency"
+                  aria-labelledby="onboarding-currency-label"
+                  className="mt-1"
+                >
                   <SelectValue placeholder="Seleccionar Divisa" />
                 </SelectTrigger>
                 <SelectContent>
@@ -210,7 +206,7 @@ export function OnboardingWizard() {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label>{t('onboarding.step2.startYear')}</Label>
+                <Label htmlFor="onboarding-fiscalStartYear">{t('onboarding.step2.startYear')}</Label>
                 <Input
                   id="onboarding-fiscalStartYear"
                   type="number"
@@ -221,12 +217,18 @@ export function OnboardingWizard() {
                 />
               </div>
               <div>
-                <Label>{t('onboarding.step2.startMonth')}</Label>
+                <Label htmlFor="onboarding-fiscalStartMonth" id="onboarding-fiscalStartMonth-label">
+                  {t('onboarding.step2.startMonth')}
+                </Label>
                 <Select
                   value={formData.fiscalStartMonth}
                   onValueChange={(v) => setFormData({ ...formData, fiscalStartMonth: v })}
                 >
-                  <SelectTrigger className="mt-1">
+                  <SelectTrigger
+                    id="onboarding-fiscalStartMonth"
+                    aria-labelledby="onboarding-fiscalStartMonth-label"
+                    className="mt-1"
+                  >
                     <SelectValue placeholder="Mes" />
                   </SelectTrigger>
                   <SelectContent>
@@ -240,12 +242,18 @@ export function OnboardingWizard() {
               </div>
             </div>
             <div>
-              <Label>{t('onboarding.step2.periodType')}</Label>
+              <Label htmlFor="onboarding-periodType" id="onboarding-periodType-label">
+                {t('onboarding.step2.periodType')}
+              </Label>
               <Select
                 value={formData.periodType}
                 onValueChange={(v) => setFormData({ ...formData, periodType: v })}
               >
-                <SelectTrigger className="mt-1">
+                <SelectTrigger
+                  id="onboarding-periodType"
+                  aria-labelledby="onboarding-periodType-label"
+                  className="mt-1"
+                >
                   <SelectValue placeholder="Tipo de Periodo" />
                 </SelectTrigger>
                 <SelectContent>
@@ -275,30 +283,17 @@ export function OnboardingWizard() {
         );
       case 5:
         return (
-          <div className="space-y-4">
-            <Label>{t('onboarding.step5.initialBalance')}</Label>
-            <Input
-              id="onboarding-initialCashBalance"
-              type="number"
-              value={formData.initialCashBalance}
-              onChange={(e) => setFormData({ ...formData, initialCashBalance: e.target.value })}
-              placeholder="0.00"
-              className="mt-1"
-              onKeyDown={handleKeyDown}
-            />
-            <p className="text-xs text-muted-foreground leading-relaxed">
-              {t('onboarding.step5.help')}
-            </p>
-          </div>
-        );
-      case 6:
-        return (
           <div className="text-center space-y-4 py-6">
             <CheckCircle2 className="mx-auto h-16 w-16 text-emerald-500 animate-pulse" />
             <p className="font-semibold text-lg">{t('onboarding.step6.ready')}</p>
             <p className="text-sm text-muted-foreground leading-relaxed">
               {t('onboarding.step6.confirm')}
             </p>
+            <div className="rounded-lg border bg-muted/20 p-4 text-left space-y-2">
+              <p className="font-semibold text-sm">{t('onboarding.bankBalances.title')}</p>
+              <p className="text-sm text-muted-foreground">{t('onboarding.bankBalances.description')}</p>
+              <p className="text-xs text-muted-foreground">{t('onboarding.bankBalances.missing')}</p>
+            </div>
           </div>
         );
       default:

@@ -137,40 +137,54 @@ export const useAuthStore = create<AuthState>()(
           const res = await fetch('/api/auth/me', {
             credentials: 'include',
           });
-          if (res.ok) {
-            const data = await res.json();
-            if (data.user) {
-              const currentStore = get();
+          if (!res.ok) return;
 
-              set({
-                user: data.user,
-                isAuthenticated: true,
-              });
+          const data = await res.json();
+          if (!data.user) return;
 
-              if (!currentStore.activeCompany || currentStore.currentView === 'select-company') {
-                // If no company is active or explicitly on select-company, go to select-company with activeCompany as null
-                set({
-                  activeCompany: null,
-                  currentView: 'select-company',
-                });
-              } else if (currentStore.activeCompany) {
-                // Verify the active company is still valid and refresh its data
-                const freshCompany = data.companies?.find(
-                  (c: Company) => c.id === currentStore.activeCompany?.id,
-                );
-                if (freshCompany) {
-                  set({
-                    activeCompany: freshCompany,
-                    currentView: 'dashboard',
-                  });
-                } else {
-                  set({
-                    activeCompany: data.companies?.[0] || null,
-                    currentView: data.companies?.[0] ? 'dashboard' : 'select-company',
-                  });
-                }
-              }
-            }
+          const currentStore = get();
+          // The server owns the company list. Anything persisted locally that it no
+          // longer grants (deleted company, revoked membership) is revalidated here
+          // and dropped instead of trusted.
+          const companies: Company[] = Array.isArray(data.companies) ? data.companies : [];
+          const ownedCompanies = new Map<string, Company>(
+            companies.map((company) => [company.id, company]),
+          );
+          const persistedCompany = currentStore.activeCompany;
+          const ownedCompany = persistedCompany
+            ? ownedCompanies.get(persistedCompany.id)
+            : undefined;
+
+          set({
+            user: data.user,
+            isAuthenticated: true,
+          });
+
+          if (!persistedCompany || currentStore.currentView === 'select-company') {
+            // No company chosen yet (or explicitly choosing): always ask the user.
+            set({
+              activeCompany: null,
+              currentView: 'select-company',
+            });
+          } else if (ownedCompany) {
+            // Still owned: refresh from the server, keeping the current view.
+            set({
+              activeCompany: ownedCompany,
+              currentView: 'dashboard',
+            });
+          } else {
+            // No longer owned: clear it rather than falling back silently.
+            set({
+              activeCompany: null,
+              currentView: 'select-company',
+            });
+          }
+
+          if (
+            currentStore.adminSelectedCompanyId &&
+            !ownedCompanies.has(currentStore.adminSelectedCompanyId)
+          ) {
+            set({ adminSelectedCompanyId: null });
           }
         } catch {
           // Not authenticated – leave defaults

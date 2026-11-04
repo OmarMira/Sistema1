@@ -1,52 +1,49 @@
 'use client';
-import React, { useState, type FormEvent } from 'react';
+import React, { useId, useState, type FormEvent } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type Company, type User } from '@/store/auth-store';
 import { ThemeToggle } from '@/components/spa/ThemeToggle';
 import { LanguageSelector } from '@/components/spa/LanguageSelector';
+import { getTranslation, translations } from '@/lib/i18n';
 import styles from './InstallationWizard.module.css';
 
-const copy = {
-  es: {
-    title: 'Asistente de instalación', intro: 'Un paso a la vez, sin conocimientos técnicos.',
-    steps: ['Bienvenida', 'Tus datos', 'Inicio contable', 'Correo', 'Revisión'],
-    welcome: 'Todo comienza por acá', welcomeBody: 'Vamos a preparar tu empresa y confirmar tu correo antes de crear el acceso al sistema.',
-    local: 'La aplicación y tus datos contables quedan en esta PC. Solo la confirmación y recuperación de acceso utilizan el servicio de correo.',
-    business: 'Nombre legal de tu empresa', currency: 'Moneda de trabajo', bank: 'Los saldos bancarios se incorporan al importar cada estado de cuenta. No se interpreta un saldo faltante como cero.',
-    fiscal: '¿Cuándo empieza tu ejercicio contable?', year: 'Año de inicio del ejercicio', month: 'Mes de inicio del ejercicio', period: 'Tipo de período contable', calendar: 'Calendario natural', custom: 'Meses personalizados', weeks: 'Semanas 52/53',
-    admin: 'Tu acceso al sistema', first: 'Nombre', last: 'Apellido', email: 'Correo electrónico', password: 'Contraseña', confirm: 'Confirmar contraseña', passwordHelp: 'Usá al menos 8 caracteres. La contraseña no se guarda en este navegador.',
-    review: 'Revisá tus datos', before: 'Primero confirmaremos el correo. La empresa y el acceso se crearán solo cuando se acepte el código.',
-    code: 'Código de verificación', delivered: 'El servicio aceptó el envío. Revisá tu bandeja de entrada y correo no deseado.',
-    mailFailed: 'No se pudo enviar el correo. Revisá la configuración de correo antes de reintentar.',
-    resendNote: 'Se solicitó un nuevo código. Esto no confirma que el correo haya llegado.',
-    start: 'Comenzar', next: 'Continuar', back: 'Volver', reviewButton: 'Revisar', send: 'Enviar código', verify: 'Verificar y completar', resend: 'Solicitar otro código', retry: 'Reintentar configuración', busy: 'Procesando…', error: 'No se pudo completar la operación. Revisá los datos e intentá nuevamente.',
-    mismatch: 'Las contraseñas no coinciden.', complete: 'Configuración completada', ready: 'Los datos guardados fueron confirmados por el sistema.',
-  },
-  en: {
-    title: 'Installation assistant', intro: 'One step at a time. No technical knowledge required.',
-    steps: ['Welcome', 'Your business', 'Accounting start', 'Email', 'Review'],
-    welcome: 'Start here', welcomeBody: 'Prepare your company and verify your email before creating system access.',
-    local: 'The application and accounting records stay on this PC. Only verification and recovery use the email service.',
-    business: 'Company legal name', currency: 'Working currency', bank: 'Bank balances are recorded when each statement is imported. Missing balances are not treated as confirmed zero.',
-    fiscal: 'When does your fiscal year start?', year: 'Fiscal start year', month: 'Fiscal start month', period: 'Accounting period type', calendar: 'Calendar', custom: 'Custom months', weeks: '52/53 weeks',
-    admin: 'Your system access', first: 'First name', last: 'Last name', email: 'Email address', password: 'Password', confirm: 'Confirm password', passwordHelp: 'Use at least 8 characters. Your password is not stored in this browser.',
-    review: 'Review your details', before: 'Verify your email first. The company and account are created only after the code is accepted.',
-    code: 'Verification code', delivered: 'The service accepted the message. Check your inbox and spam folder.',
-    mailFailed: 'Email could not be sent. Check the mail configuration before trying again.',
-    resendNote: 'A new code was requested. This does not confirm inbox delivery.',
-    start: 'Start', next: 'Continue', back: 'Back', reviewButton: 'Review', send: 'Send code', verify: 'Verify and finish', resend: 'Request another code', retry: 'Retry setup', busy: 'Working…', error: 'The operation could not be completed. Check your details and try again.',
-    mismatch: 'Passwords do not match.', complete: 'Setup completed', ready: 'The system confirmed the saved configuration.',
-  },
-};
 interface Verification { companies: Company[]; user: User }
+
+/**
+ * Installation copy lives in the shared locales (`installation.*`). The language
+ * store stays the source of truth: before hydration it holds the default `es`, so
+ * the wizard renders Spanish exactly as it always did, and a later locale switch
+ * re-renders without a reload.
+ */
+function installationTranslator(language: string) {
+  const dictionary = translations[language === 'en' ? 'en' : 'es'] as Record<string, unknown>;
+  return (key: string) => getTranslation(dictionary, `installation.${key}`, `installation.${key}`);
+}
+
 export function InstallationWizard({ onBack }: { onBack: () => void }) {
   const language = useLanguageStore(s => s.language);
-  const text = copy[language === 'en' ? 'en' : 'es'];
+  const t = installationTranslator(language);
+  const text = {
+    title: t('title'), intro: t('intro'),
+    steps: [t('steps.welcome'), t('steps.business'), t('steps.accounting'), t('steps.email'), t('steps.review')],
+    welcome: t('welcome'), welcomeBody: t('welcomeBody'), local: t('local'),
+    business: t('business'), currency: t('currency'), bank: t('bank'),
+    fiscal: t('fiscal'), year: t('year'), month: t('month'), period: t('period'), calendar: t('calendar'), custom: t('custom'), weeks: t('weeks'),
+    admin: t('admin'), first: t('first'), last: t('last'), email: t('email'), password: t('password'), confirm: t('confirm'), passwordHelp: t('passwordHelp'),
+    review: t('review'), before: t('before'), code: t('code'), delivered: t('delivered'),
+    mailFailed: t('mailFailed'), resendNote: t('resendNote'),
+    start: t('start'), next: t('next'), back: t('back'), reviewButton: t('reviewButton'), send: t('send'), verify: t('verify'), resend: t('resend'), retry: t('retry'), busy: t('busy'), error: t('error'),
+    showPassword: t('showPassword'), hidePassword: t('hidePassword'), showConfirmation: t('showConfirmation'), hideConfirmation: t('hideConfirmation'),
+    mismatch: t('mismatch'), complete: t('complete'), ready: t('ready'),
+  };
   const [step, setStep] = useState(0);
   const [business, setBusiness] = useState(''); const [currency, setCurrency] = useState('USD');
   const [year, setYear] = useState(new Date().getFullYear()); const [month, setMonth] = useState(1); const [period, setPeriod] = useState('CALENDAR');
   const [firstName, setFirst] = useState(''); const [lastName, setLast] = useState(''); const [email, setEmail] = useState('');
   const [password, setPassword] = useState(''); const [confirmPassword, setConfirm] = useState(''); const [code, setCode] = useState('');
+  const passwordId = useId(); const confirmationId = useId();
+  const [showPassword, setShowPassword] = useState(false); const [showConfirmation, setShowConfirmation] = useState(false);
   const [sent, setSent] = useState(false); const [verified, setVerified] = useState<Verification | null>(null);
   const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [finished, setFinished] = useState(false);
   const registration = () => ({ email: email.trim().toLowerCase(), password, confirmPassword, firstName: firstName.trim(), lastName: lastName.trim(), companyName: business.trim(), entityType: 'BUSINESS' });
@@ -89,7 +86,7 @@ export function InstallationWizard({ onBack }: { onBack: () => void }) {
     catch (reason) { setError(reason instanceof Error ? reason.message : text.error); }
     finally { setBusy(false); }
   }
-  const label = (name: string, field: React.ReactNode) => <label className={styles.field}>{name}{field}</label>;
+  const label = (name: string, id: string, field: React.ReactNode, fullWidth = false) => <label className={`${styles.field}${fullWidth ? ` ${styles.fullWidth}` : ''}`} htmlFor={id}>{name}{field}</label>;
   return <div className={styles.shell}>
     <header className={styles.header}><strong><span className={styles.badge}>AE</span> AccountExpress Next Gen</strong><div className={styles.controls}><LanguageSelector /><ThemeToggle /></div></header>
     <main className={styles.main}>
@@ -98,10 +95,13 @@ export function InstallationWizard({ onBack }: { onBack: () => void }) {
       <form className={styles.card} onSubmit={submit}>
         {finished ? <section><h2>{text.complete}</h2><p>{text.ready}</p></section> : <>
           {step === 0 && <section><h2>{text.welcome}</h2><p>{text.welcomeBody}</p><aside className={styles.note}>{text.local}</aside></section>}
-          {step === 1 && <section className={styles.layout}><div><h2>{text.steps[1]}</h2><p>{text.bank}</p></div><div>{label(text.business,<input required minLength={3} maxLength={200} value={business} onChange={e=>setBusiness(e.target.value)} autoComplete="organization" />)}{label(text.currency,<select value={currency} onChange={e=>setCurrency(e.target.value)}>{['USD','EUR','MXN','ARS','GBP'].map(value=><option key={value}>{value}</option>)}</select>)}</div></section>}
-          {step === 2 && <section className={styles.layout}><div><h2>{text.fiscal}</h2><p>{text.bank}</p></div><div className={styles.fields}>{label(text.year,<input type="number" required min={2000} max={2100} value={year} onChange={e=>setYear(Number(e.target.value))}/>)}{label(text.month,<select value={month} onChange={e=>setMonth(Number(e.target.value))}>{Array.from({length:12},(_,i)=><option value={i+1} key={i}>{new Intl.DateTimeFormat(language,{month:'long'}).format(new Date(2024,i,1))}</option>)}</select>)}{label(text.period,<select value={period} onChange={e=>setPeriod(e.target.value)}><option value="CALENDAR">{text.calendar}</option><option value="CUSTOM_MONTHS">{text.custom}</option><option value="WEEK_52_53">{text.weeks}</option></select>)}</div></section>}
-          {step === 3 && <section className={styles.layout}><div><h2>{text.admin}</h2><p>{text.passwordHelp}</p></div><div className={styles.fields}>{label(text.first,<input required value={firstName} onChange={e=>setFirst(e.target.value)} autoComplete="given-name"/>)}{label(text.last,<input required value={lastName} onChange={e=>setLast(e.target.value)} autoComplete="family-name"/>)}{label(text.email,<input required type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email"/>)}{label(text.password,<input required type="password" minLength={8} value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/>)}{label(text.confirm,<input required type="password" minLength={8} value={confirmPassword} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/>)}</div></section>}
-          {step === 4 && <section className={styles.layout}><div><h2>{text.review}</h2><p>{text.before}</p></div><div><dl className={styles.summary}><dt>{text.business}</dt><dd>{business}</dd><dt>{text.currency}</dt><dd>{currency}</dd><dt>{text.fiscal}</dt><dd>{year} / {month} · {period}</dd><dt>{text.admin}</dt><dd>{firstName} {lastName} · {email}</dd></dl>{sent && !verified && label(text.code,<input required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={e=>setCode(e.target.value)} autoComplete="one-time-code"/>)}{sent && !verified && <button type="button" disabled={busy} onClick={()=>void resend()}>{text.resend}</button>}</div></section>}
+          {step === 1 && <section className={styles.layout}><div><h2>{text.steps[1]}</h2><p>{text.bank}</p></div><div>{label(text.business,'installation-business',<input id="installation-business" required minLength={3} maxLength={200} value={business} onChange={e=>setBusiness(e.target.value)} autoComplete="organization" />)}{label(text.currency,'installation-currency',<select id="installation-currency" value={currency} onChange={e=>setCurrency(e.target.value)}>{['USD','EUR','MXN','ARS','GBP'].map(value=><option key={value}>{value}</option>)}</select>)}</div></section>}
+          {step === 2 && <section className={styles.layout}><div><h2>{text.fiscal}</h2><p>{text.bank}</p></div><div className={styles.fields}>{label(text.year,'installation-year',<input id="installation-year" type="number" required min={2000} max={2100} value={year} onChange={e=>setYear(Number(e.target.value))}/>)}{label(text.month,'installation-month',<select id="installation-month" value={month} onChange={e=>setMonth(Number(e.target.value))}>{Array.from({length:12},(_,i)=><option value={i+1} key={i}>{new Intl.DateTimeFormat(language,{month:'long'}).format(new Date(2024,i,1))}</option>)}</select>)}{label(text.period,'installation-period',<select id="installation-period" value={period} onChange={e=>setPeriod(e.target.value)}><option value="CALENDAR">{text.calendar}</option><option value="CUSTOM_MONTHS">{text.custom}</option><option value="WEEK_52_53">{text.weeks}</option></select>)}</div></section>}
+          {step === 3 && <section className={styles.layout}><div><h2>{text.admin}</h2><p>{text.passwordHelp}</p></div><div className={styles.fields}>{label(text.first,'installation-first-name',<input id="installation-first-name" required value={firstName} onChange={e=>setFirst(e.target.value)} autoComplete="given-name"/>)}{label(text.last,'installation-last-name',<input id="installation-last-name" required value={lastName} onChange={e=>setLast(e.target.value)} autoComplete="family-name"/>)}
+            {label(text.email,'installation-email',<input id="installation-email" required type="email" value={email} onChange={e=>setEmail(e.target.value)} autoComplete="email"/>,true)}
+            <div className={styles.field}><label htmlFor={passwordId}>{text.password}</label><div className={styles.passwordControl}><input id={passwordId} required type={showPassword ? 'text' : 'password'} minLength={8} value={password} onChange={e=>setPassword(e.target.value)} autoComplete="new-password"/><button type="button" className={styles.passwordToggle} aria-label={showPassword ? text.hidePassword : text.showPassword} title={showPassword ? text.hidePassword : text.showPassword} aria-pressed={showPassword} aria-controls={passwordId} onClick={()=>setShowPassword(value=>!value)}>{showPassword ? <EyeOff size={20} aria-hidden="true"/> : <Eye size={20} aria-hidden="true"/>}</button></div></div>
+            <div className={styles.field}><label htmlFor={confirmationId}>{text.confirm}</label><div className={styles.passwordControl}><input id={confirmationId} required type={showConfirmation ? 'text' : 'password'} minLength={8} value={confirmPassword} onChange={e=>setConfirm(e.target.value)} autoComplete="new-password"/><button type="button" className={styles.passwordToggle} aria-label={showConfirmation ? text.hideConfirmation : text.showConfirmation} title={showConfirmation ? text.hideConfirmation : text.showConfirmation} aria-pressed={showConfirmation} aria-controls={confirmationId} onClick={()=>setShowConfirmation(value=>!value)}>{showConfirmation ? <EyeOff size={20} aria-hidden="true"/> : <Eye size={20} aria-hidden="true"/>}</button></div></div></div></section>}
+          {step === 4 && <section className={styles.layout}><div><h2>{text.review}</h2><p>{text.before}</p></div><div><dl className={styles.summary}><dt>{text.business}</dt><dd>{business}</dd><dt>{text.currency}</dt><dd>{currency}</dd><dt>{text.fiscal}</dt><dd>{year} / {month} · {period}</dd><dt>{text.admin}</dt><dd>{firstName} {lastName} · {email}</dd></dl>{sent && !verified && label(text.code,'installation-code',<input id="installation-code" required inputMode="numeric" pattern="[0-9]{6}" maxLength={6} value={code} onChange={e=>setCode(e.target.value)} autoComplete="one-time-code"/>)}{sent && !verified && <button type="button" disabled={busy} onClick={()=>void resend()}>{text.resend}</button>}</div></section>}
           {error && <p className={styles.error} role="alert">{error}</p>}{notice && <p className={styles.note} role="status">{notice}</p>}
           <nav className={styles.actions}><button type="button" disabled={busy || !!verified} onClick={()=>{setError('');setNotice('');setSent(false);if(step===0)onBack();else setStep(step-1);}}>{text.back}</button><button type="submit" disabled={busy} className={styles.primary}>{busy ? text.busy : step === 0 ? text.start : step < 3 ? text.next : step === 3 ? text.reviewButton : verified ? text.retry : sent ? text.verify : text.send}</button></nav>
         </>}

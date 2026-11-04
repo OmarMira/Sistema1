@@ -367,7 +367,7 @@ export function FiscalPeriodsTab() {
                           <Input
                             value={closingAccountCode}
                             onChange={(e) => setClosingAccountCode(e.target.value)}
-                            placeholder="Ej. 3000"
+                            placeholder={t('settings.periods.closingAccountPlaceholder')}
                           />
                         </div>
                       </div>
@@ -483,7 +483,7 @@ export function FiscalPeriodsTab() {
                         <Input
                           value={newPeriod.name}
                           onChange={(e) => setNewPeriod((p) => ({ ...p, name: e.target.value }))}
-                          placeholder="Ej., Enero 2025"
+                          placeholder={t('settings.periods.periodNamePlaceholder')}
                         />
                       </div>
                       <div className="grid grid-cols-2 gap-4">
@@ -628,9 +628,7 @@ export function FiscalPeriodsTab() {
               </span>
               <span className="block mt-2 font-semibold text-destructive flex items-center gap-1.5">
                 <AlertTriangle className="size-4 text-destructive" />
-                {isEn
-                  ? 'WARNING: This action is irreversible. You will not be able to unlock this period.'
-                  : 'ADVERTENCIA: Esta acción es irreversible. No se podrá volver a abrir este período.'}
+                {t('settings.periods.lockWarning')}
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>

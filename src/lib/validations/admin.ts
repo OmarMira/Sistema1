@@ -5,7 +5,10 @@ const emailField = z
   .email('Formato de correo electrónico inválido')
   .min(1, 'El correo electrónico es requerido');
 const nameField = z.string().min(1, 'Campo requerido').max(100);
-const passwordField = z.string().min(6, 'La contraseña debe tener al menos 6 caracteres');
+// S4: the password minimum is 8 characters on every path (registration,
+// bootstrap recovery, invites and admin user updates). Invites accepted 6 and
+// silently produced weaker accounts than the rest of the product.
+const passwordField = z.string().min(8, 'La contraseña debe tener al menos 8 caracteres');
 
 // Business rule: 'super_admin' is a global system role and can never be assigned
 // from company-level admin flows. Invitations via /api/users may only assign

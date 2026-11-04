@@ -31,7 +31,13 @@ export const POST = apiHandler(
     try {
       const result = await AuthService.login(validated, { resumeVerification: true });
 
-      authRateLimiter.reset(ip, email);
+      // S4: a successful login clears ONLY the per-email failure bucket. The IP
+      // bucket must survive, otherwise an attacker holding one valid account can
+      // spray one password per account from the same IP and reset the IP counter
+      // with a single good login (interleaved spray). `reset(null, ...)` leaves
+      // the IP entry untouched; a mistyping user is still forgiven for their
+      // own email.
+      authRateLimiter.reset(null, email);
 
       const token = await createSession(result.user.id);
 

@@ -72,6 +72,18 @@ async function consumeFirstAdminBootstrapGrant(
   }
 }
 
+/**
+ * S4 — precomputed bcrypt digest (cost 12) used ONLY to flatten login timing.
+ *
+ * Without it, an unknown or deactivated email returned before bcrypt, so a
+ * response for "account does not exist" was measurably faster than
+ * "wrong password" and login became an account-enumeration oracle. The digest
+ * is a real hash of a value nobody can supply, so the comparison always fails
+ * and its result is discarded; the error above stays byte-identical.
+ */
+export const DUMMY_PASSWORD_HASH =
+  '$2b$12$Q6ZTt6dHZdfFXXlo4Esaee6C3XcAESD3dqKpUnik.7SifTASvZfZK';
+
 export class AuthService {
   static login = withTiming(async (input: LoginInput, options?: { resumeVerification: boolean }) => {
     const { email, password } = input;
@@ -105,6 +117,8 @@ export class AuthService {
     });
 
     if (!user || !user.isActive) {
+      // S4: pay the bcrypt cost even when there is no account to compare against.
+      await verifyPassword(password, DUMMY_PASSWORD_HASH);
       throw new AuthError('Correo electrónico o contraseña inválidos');
     }
     const pending = user.emailVerifiedAt === null && !(user.legacyUser ?? false);

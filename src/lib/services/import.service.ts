@@ -861,7 +861,7 @@ export class ImportService {
     const shadowRules = shadowEnabled ? bankRules.map((r) => toRulePrecedenceRule(r)) : [];
     let shadowSummary: ShadowImportSummary | null = null;
 
-    const result = await db.$transaction(async (tx) => {
+    const result = await ImportService.inImportTransaction(async (tx) => {
       // Duplicate check inside TX (atomic — prevents race conditions)
       const existingStatement = await tx.bankStatement.findFirst({
         where: { bankAccountId, startDate, endDate },
@@ -1236,6 +1236,49 @@ export class ImportService {
     };
   }
 
+  /**
+   * S2 — one import file = one transaction.
+   *
+   * The file commits or rolls back as a unit (that is what makes a multi-file
+   * batch per-file atomic), and the statement budget is applied with SET LOCAL
+   * to THIS transaction only, so a long import can never leak a session-wide
+   * statement timeout onto the pooled connection.
+   *
+   * With IMPORT_STATEMENT_TIMEOUT_MS unset, nothing changes: no SET LOCAL and
+   * no transaction options are passed.
+   */
+  private static async inImportTransaction<T>(
+    work: (tx: ImportTransactionClient) => Promise<T>,
+  ): Promise<T> {
+    const statementTimeoutMs = resolveImportStatementTimeoutMs();
+
+    if (statementTimeoutMs === null) {
+      try {
+        return await db.$transaction(work);
+      } catch (error) {
+        throw toImportTransactionError(error);
+      }
+    }
+
+    const withBudget = async (tx: ImportTransactionClient): Promise<T> => {
+      // Integer-validated above, so this cannot carry SQL from the environment.
+      await tx.$executeRawUnsafe(`SET LOCAL statement_timeout = ${statementTimeoutMs}`);
+      return work(tx);
+    };
+
+    try {
+      return await db.$transaction(withBudget, {
+        // The configured value is the per-statement budget. Prisma's interactive
+        // transaction budget must never be tightened below its own default (5s),
+        // and a value above it lifts the budget too — otherwise a large file is
+        // still killed at 5s and rolled back in full.
+        timeout: Math.max(statementTimeoutMs, PRISMA_DEFAULT_TRANSACTION_TIMEOUT_MS),
+      });
+    } catch (error) {
+      throw toImportTransactionError(error);
+    }
+  }
+
   private static extractBankNameFromFilename(fileName: string): string {
     const base = fileName.replace(/\.[^.]+$/, '');
     const parts = base.split(/[-_\s]+/).filter(Boolean);
@@ -1291,6 +1334,59 @@ export class ImportService {
     });
   }
 
+}
+
+// ─── S2 Helpers — import statement budget ───────────────────
+
+/** Prisma's own default interactive-transaction budget (5s). */
+const PRISMA_DEFAULT_TRANSACTION_TIMEOUT_MS = 5_000;
+
+/** The transaction client `db.$transaction(async (tx) => …)` hands to a callback. */
+type ImportTransactionClient = Parameters<Parameters<typeof db.$transaction>[0]>[0];
+
+/**
+ * S2 — statement budget (ms) for the import transaction.
+ *
+ * Unset or invalid → `null`, meaning "apply nothing" and keep the historical
+ * behavior. When set, `inImportTransaction` applies it with SET LOCAL inside
+ * the import transaction only.
+ */
+function resolveImportStatementTimeoutMs(): number | null {
+  const raw = process.env.IMPORT_STATEMENT_TIMEOUT_MS;
+  if (!raw) return null;
+  const parsed = Number(raw.trim());
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return parsed;
+}
+
+/**
+ * Postgres cancels a statement that exceeds `statement_timeout` (57014) and
+ * Prisma reports an expired interactive transaction (P2028) for the same cause.
+ * Both must reach the caller as an actionable Spanish message instead of a raw
+ * driver/ORM dump.
+ */
+function isImportTimeoutError(error: unknown): boolean {
+  const meta = (error as { meta?: { code?: unknown } } | null)?.meta;
+  if (meta?.code === '57014') return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /statement timeout|expired transaction|transaction.*timed out|timed out|Transaction already closed/i.test(
+    message,
+  );
+}
+
+/**
+ * Only timeout-shaped failures are translated; every other error is returned
+ * untouched so the existing contracts (CONFLICT, KE_ERROR, fiscal period guard,
+ * BANK_CREATION_REQUIRED, ImportAiError) keep their exact behavior.
+ */
+function toImportTransactionError(error: unknown): unknown {
+  if (error instanceof AppError) return error;
+  if (!isImportTimeoutError(error)) return error;
+  return new AppError(
+    503,
+    'La importación excedió el tiempo máximo permitido para procesar el archivo y no se guardó ningún dato. Divida el extracto en archivos más pequeños o aumente IMPORT_STATEMENT_TIMEOUT_MS e intente nuevamente.',
+    'IMPORT_TIMEOUT',
+  );
 }
 
 // ─── S7-09 Helpers ──────────────────────────────────────────

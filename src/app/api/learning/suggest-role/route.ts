@@ -4,7 +4,7 @@ import { AppError } from '@/lib/api-error';
 import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { ENTITY_ROLES, EXPECTED_DIRECTION } from '@/lib/constants/entity-roles';
 import type { EntityRole } from '@/lib/constants/entity-roles';
-import { checkPromptInjection } from '@/lib/guardrails';
+import { checkPromptInjection, normalizeGuardrailInput } from '@/lib/guardrails';
 import { normalizeConfidence } from '@/lib/confidence';
 import { db } from '@/lib/db';
 import { logger } from '@/lib/logger';
@@ -400,14 +400,22 @@ ${freshRequest ? 'Also include: "accountCode" (existing catalog code or null), "
         const snippetInjectionCheck = checkPromptInjection(webResult.snippet);
 
         if (titleInjectionCheck.passed && snippetInjectionCheck.passed) {
+          // S10 — web content is untrusted data: the SAME normalization the
+          // blocklist matches on is applied to what actually reaches the
+          // prompt, so invisible/format characters (zero-width, NBSP,
+          // full-width homoglyphs) can never be smuggled into the provider
+          // request. Clean text passes through unchanged.
+          const safeTitle = normalizeGuardrailInput(webResult.title);
+          const safeSnippet = normalizeGuardrailInput(webResult.snippet);
+
           logger.info('[SUGGEST_ROLE WEB_SEARCH_REPROMPT]', {
             entity: trimmedDesc,
-            title: webResult.title,
+            title: safeTitle,
           });
 
           const rePrompt = `Web search result for "${trimmedDesc}":
-Title: ${webResult.title}
-Snippet: ${webResult.snippet}
+Title: ${safeTitle}
+Snippet: ${safeSnippet}
 Source: ${webResult.sourceUrl}
 
 Based on this additional context, re-evaluate the role.`;

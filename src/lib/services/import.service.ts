@@ -108,6 +108,90 @@ export interface ImportDecision {
   matchedRuleId: string | null;
 }
 
+// ─── RuleExecutionAudit on the productive import path (Wave 6 / S8) ────
+
+/**
+ * Provenance label written into `RuleExecutionAudit.engineVersion` for rows
+ * produced by the PRODUCTIVE import path (rule precedence resolver). It is
+ * deliberately distinct from the V2 shadow engine's `RULE_ENGINE_VERSION` so
+ * the two audit families can never be confused during forensics.
+ */
+const IMPORT_RULE_AUDIT_ENGINE_VERSION = 'import-precedence-1.0';
+
+/** One pending audit row, collected inside the import transaction. */
+interface ImportRuleAuditPayload {
+  /** The PERSISTED BankTransaction id (never the import hash). */
+  transactionId: string;
+  ruleId: string;
+  matchedConditions: Prisma.JsonValue;
+}
+
+interface RuleAuditSource {
+  id: string;
+  conditions: Prisma.JsonValue | null;
+  conditionType: string | null;
+  conditionValue: string | null;
+}
+
+/**
+ * Snapshot of the conditions the productive engine actually evaluated: the
+ * structured `conditions` JSON when the rule has one, otherwise the legacy
+ * single (conditionType, conditionValue) pair.
+ */
+function ruleConditionsSnapshot(rule: RuleAuditSource): Prisma.JsonValue {
+  if (rule.conditions !== null && rule.conditions !== undefined) {
+    return rule.conditions;
+  }
+  return { conditionType: rule.conditionType, conditionValue: rule.conditionValue };
+}
+
+/**
+ * Best-effort RuleExecutionAudit write for the productive import path.
+ *
+ * Fire-and-forget by contract: the import transaction has ALREADY committed
+ * when this runs, so a failed audit write is logged and discarded — it can
+ * never fail, block or roll back the import that produced it.
+ */
+function persistImportRuleExecutionAudits(
+  companyId: string,
+  payloads: readonly ImportRuleAuditPayload[],
+): void {
+  if (payloads.length === 0) return;
+
+  void Promise.all(
+    payloads.map((payload) =>
+      db.ruleExecutionAudit
+        .create({
+          data: {
+            engineVersion: IMPORT_RULE_AUDIT_ENGINE_VERSION,
+            transactionId: payload.transactionId,
+            companyId,
+            result: 'MATCHED',
+            winnerRuleId: payload.ruleId,
+            candidateCount: 1,
+            candidateList: JSON.stringify([
+              { ruleId: payload.ruleId, conditions: payload.matchedConditions },
+            ]),
+            trace: JSON.stringify({
+              source: 'IMPORT_PRODUCTIVE_PATH',
+              matchedConditions: payload.matchedConditions,
+            }),
+          },
+        })
+        .catch((error: unknown) => {
+          logger.warn('[IMPORT RULE EXECUTION AUDIT] write failed', {
+            companyId,
+            transactionId: payload.transactionId,
+            ruleId: payload.ruleId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }),
+    ),
+  ).catch(() => {
+    // Never surfaces: the import is already committed at this point.
+  });
+}
+
 /**
  * Resolve import classification using single-memory architecture:
  * Entity Resolution → Treatment Lookup → Rule Engine fallback.
@@ -867,6 +951,10 @@ export class ImportService {
     const shadowEnabled = isRulePrecedenceShadowEnabled();
     const shadowRules = shadowEnabled ? bankRules.map((r) => toRulePrecedenceRule(r)) : [];
     let shadowSummary: ShadowImportSummary | null = null;
+    // Wave 6 / S8 — rule matches are collected INSIDE the transaction and
+    // written AFTER it commits (best-effort, never blocks the import).
+    const ruleAuditPayloads: ImportRuleAuditPayload[] = [];
+    const ruleById = new Map(bankRules.map((rule) => [rule.id, rule]));
 
     const result = await ImportService.inImportTransaction(async (tx) => {
       // Duplicate check inside TX (atomic — prevents race conditions)
@@ -1142,6 +1230,24 @@ export class ImportService {
         }
       }
 
+      // Wave 6 / S8 — collect the rule-classified rows for the post-commit
+      // RuleExecutionAudit write. Rows with no matched rule are NOT audited.
+      if (ruleById.size > 0) {
+        const ruleMatchedTxns = await tx.bankTransaction.findMany({
+          where: { statementId: statement.id, matchedRuleId: { not: null } },
+          select: { id: true, matchedRuleId: true },
+        });
+        for (const ruleMatchedTx of ruleMatchedTxns) {
+          const rule = ruleById.get(ruleMatchedTx.matchedRuleId!);
+          if (!rule) continue;
+          ruleAuditPayloads.push({
+            transactionId: ruleMatchedTx.id,
+            ruleId: rule.id,
+            matchedConditions: ruleConditionsSnapshot(rule),
+          });
+        }
+      }
+
       // Create journal entries for transactions with auto-assigned GL accounts
       const createdTxs = await tx.bankTransaction.findMany({
         where: { statementId: statement.id, glAccountId: { not: null }, journalEntryId: null },
@@ -1179,6 +1285,11 @@ export class ImportService {
         insertedCount: transactionsToInsert.length,
       };
     });
+
+    // ─── Wave 6 / S8 — RuleExecutionAudit on the productive path ─────
+    // Committed already: the writes below are fire-and-forget and can only
+    // ever be lost (logged), never fail the import.
+    persistImportRuleExecutionAudits(companyId, ruleAuditPayloads);
 
     // ─── Persistir resumen shadow post-commit ──────────────────────
     if (shadowSummary) {

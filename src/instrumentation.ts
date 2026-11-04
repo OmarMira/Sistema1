@@ -22,6 +22,13 @@ export async function register() {
 }
 
 async function registerNodeRuntime() {
+  // Lexical runtime guard: Turbopack dead-code-eliminates this whole branch
+  // from the Edge instrumentation bundle, so the Node-only import chain
+  // (cleanupSessions → backup-runtime-maintenance → backup-maintenance.mjs,
+  // init-runtime, etc.) is never traced for Edge and the startup log stays
+  // free of Edge Runtime warnings.
+  if (process.env.NEXT_RUNTIME !== 'nodejs') return;
+
   // Validate required environment before starting any runtime service.
   const { validateEnv } = await import('./lib/env/server');
   validateEnv();

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { compareCents, fromCents, sumCents, toCents } from '@/lib/money';
 import { JournalEntryService } from './journal-entry.service';
 import { appendEntryToJournalChain } from '../journal-chain';
 import { assertActiveFiscalPeriod } from '../fiscal-period-guard';
@@ -159,6 +160,12 @@ async function createCorrectionLink(
  * Exact-cents invariant for the replacement entry: debits === credits (no
  * tolerance, same contract as GET/PUT/POST /api/journal/[id]) and single lines
  * carry a real GL account with finite, non-negative amounts.
+ *
+ * S3: the totals are accumulated as integer cents through src/lib/money.ts
+ * (ROUND_HALF_UP) and compared with `compareCents`, so the accepted/rejected
+ * decision never depends on float accumulation. For every 2-decimal amount this
+ * is identical to the previous `Math.round(x * 100)` sum, and the user-facing
+ * message keeps the same format.
  */
 function assertBalancedCorrectionLines(
   lines: Array<{ glAccountId: string; debit: number; credit: number }>,
@@ -180,12 +187,12 @@ function assertBalancedCorrectionLines(
     if (debit < 0 || credit < 0) {
       throw new Error('CORRECTION_INVALID: debit and credit must be non-negative');
     }
-    debitCents += Math.round(debit * 100);
-    creditCents += Math.round(credit * 100);
+    debitCents = sumCents(debitCents, toCents(debit));
+    creditCents = sumCents(creditCents, toCents(credit));
   }
-  if (debitCents !== creditCents) {
+  if (compareCents(debitCents, creditCents) !== 0) {
     throw new Error(
-      `Correction entry must balance. Total debits (${(debitCents / 100).toFixed(2)}) must equal total credits (${(creditCents / 100).toFixed(2)})`,
+      `Correction entry must balance. Total debits (${fromCents(debitCents).toFixed(2)}) must equal total credits (${fromCents(creditCents).toFixed(2)})`,
     );
   }
 }

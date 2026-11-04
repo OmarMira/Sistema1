@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { fromCents, sumCents, toCents } from '@/lib/money';
 
 export type BudgetComparison = {
   accountCode: string;
@@ -132,13 +133,19 @@ export async function getVarianceReport(
 
     const budgetVal = monthBudgets[code] || 0;
 
-    // Calcular saldo real según normalBalance
+    // Calcular saldo real según normalBalance — S3: the groupBy `_sum` values
+    // arrive as Prisma.Decimal, so the balance is derived in integer cents.
     const realData = actualsAgg.find((a) => accountMap.get(a.glAccountId)?.code === code);
-    const d = realData?._sum.debit ?? 0;
-    const c = realData?._sum.credit ?? 0;
-    const actualVal = account.normalBalance === 'credit' ? c - d : d - c;
+    const debitCents = toCents(realData?._sum.debit ?? 0);
+    const creditCents = toCents(realData?._sum.credit ?? 0);
+    const actualCents =
+      account.normalBalance === 'credit'
+        ? sumCents(creditCents, -debitCents)
+        : sumCents(debitCents, -creditCents);
+    const actualVal = fromCents(actualCents);
 
-    const variance = actualVal - budgetVal;
+    const varianceCents = sumCents(actualCents, -toCents(budgetVal));
+    const variance = fromCents(varianceCents);
     const variancePercent = budgetVal !== 0 ? (variance / Math.abs(budgetVal)) * 100 : 100;
 
     // Determinar estado (Lógica simple para ejemplo, configurable)
@@ -151,7 +158,7 @@ export async function getVarianceReport(
       accountName: account.name,
       budget: budgetVal,
       actual: actualVal,
-      variance: Math.round(variance * 100) / 100,
+      variance,
       variancePercent: Math.round(variancePercent * 100) / 100,
       status,
     });

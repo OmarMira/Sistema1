@@ -5,6 +5,7 @@ if (typeof process === 'undefined' || !process.versions?.node) {
 import crypto from 'crypto';
 import { db } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
+import { fromCents, sumCents, toCents } from '@/lib/money';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
 import {
   loadEntityFirstContext,
@@ -376,7 +377,12 @@ async function executeMatching(
     const matchedTxIds = new Set(matchedRules.flatMap((r) => r.txIds));
     const matchedTransactions = unmatchedTransactions.filter((tx) => matchedTxIds.has(tx.id));
 
-    const totalAmount = matchedTransactions.reduce((sum, tx) => sum + Number(tx.amount), 0);
+    // S3: batch totals accumulate in integer cents; the response keeps the same
+    // number shape, now exact for every valid amount.
+    const totalAmountCents = matchedTransactions.reduce(
+      (total, tx) => sumCents(total, toCents(tx.amount)),
+      0,
+    );
     const totalCount = matchedTransactions.length;
 
     return {
@@ -386,7 +392,7 @@ async function executeMatching(
         amount: Number(tx.amount),
         description: tx.description,
       })),
-      totalAmount,
+      totalAmount: fromCents(totalAmountCents),
       totalCount,
       remaining,
       ambiguousTransactions: ambiguousTxs.length > 0 ? ambiguousTxs : undefined,

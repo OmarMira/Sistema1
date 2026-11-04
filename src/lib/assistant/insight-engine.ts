@@ -1,5 +1,6 @@
 import { db } from '@/lib/db';
 import { getCompanyMonthBudgets } from '@/lib/budget/engine';
+import { fromCents, sumCents, toCents } from '@/lib/money';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -51,15 +52,17 @@ export async function generateInsights(companyId: string): Promise<Insight[]> {
         },
       });
 
-      // Agrupar por mes en memoria
+      // Agrupar por mes en memoria — S3: the monthly cash flow is accumulated
+      // in integer cents and converted back once per period.
       const trendMap = new Map<string, number>();
       for (const l of trendLines) {
         if (!l.entry?.date) continue;
         const d = new Date(l.entry.date);
         const monthKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 
-        const net = (l.debit || 0) - (l.credit || 0); // Débito - Crédito es flujo de efectivo
-        trendMap.set(monthKey, Math.round(((trendMap.get(monthKey) || 0) + net) * 100) / 100);
+        // Débito - Crédito es flujo de efectivo
+        const netCents = sumCents(toCents(l.debit ?? 0), -toCents(l.credit ?? 0));
+        trendMap.set(monthKey, sumCents(trendMap.get(monthKey) ?? 0, netCents));
       }
 
       insights.push({
@@ -67,7 +70,7 @@ export async function generateInsights(companyId: string): Promise<Insight[]> {
         type: 'cash_trend',
         severity: 'info',
         message: `Tendencia de flujo de caja: ${trendMap.size} períodos analizados.`,
-        context: Object.fromEntries(trendMap),
+        context: Object.fromEntries([...trendMap].map(([key, cents]) => [key, fromCents(cents)])),
       });
     }
   }
@@ -93,8 +96,14 @@ export async function generateInsights(companyId: string): Promise<Insight[]> {
         },
       });
 
-      const actualVal = (actual._sum.debit ?? 0) - (actual._sum.credit ?? 0);
-      const variance = Math.abs(actualVal - budgetVal) / Math.max(1, Math.abs(budgetVal));
+      // S3: the aggregate `_sum` values are Prisma.Decimal, so the actual
+      // balance and the variance against the budget are computed in cents.
+      const actualCents = sumCents(
+        toCents(actual._sum.debit ?? 0),
+        -toCents(actual._sum.credit ?? 0),
+      );
+      const actualVal = fromCents(actualCents);
+      const variance = Math.abs(fromCents(sumCents(actualCents, -toCents(budgetVal)))) / Math.max(1, Math.abs(budgetVal));
 
       if (variance > config.healthChecks.budgetVarianceAlert.thresholdPercent / 100) {
         insights.push({
@@ -151,19 +160,22 @@ export async function generateInsights(companyId: string): Promise<Insight[]> {
     include: { glAccount: true },
   });
 
-  let income = 0;
-  let expenses = 0;
+  let incomeCents = 0;
+  let expensesCents = 0;
 
   for (const l of financials) {
-    const net = (l.debit || 0) - (l.credit || 0);
+    const netCents = sumCents(toCents(l.debit ?? 0), -toCents(l.credit ?? 0));
     if (l.glAccount.accountType === 'revenue') {
-      income -= net; // normal balance is credit
+      incomeCents = sumCents(incomeCents, -netCents); // normal balance is credit
     } else if (l.glAccount.accountType === 'expense') {
-      expenses += net; // normal balance is debit
+      expensesCents = sumCents(expensesCents, netCents); // normal balance is debit
     }
   }
 
-  const net = income - expenses;
+  const netCents = sumCents(incomeCents, -expensesCents);
+  const income = fromCents(incomeCents);
+  const expenses = fromCents(expensesCents);
+  const net = fromCents(netCents);
   const budgetAlert = insights.some((i) => i.type === 'budget_alert')
     ? '⚠️ Revisa alertas de presupuesto. '
     : '';

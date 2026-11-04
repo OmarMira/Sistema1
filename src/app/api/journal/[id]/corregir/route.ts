@@ -5,6 +5,7 @@ import { requireCurrentUserId } from '@/lib/context-storage';
 import { assertCompanyModuleEntitlement } from '@/lib/module-entitlement-guard';
 import { requireActiveTenantAccess, requireCompanyRole } from '@/lib/rbac';
 import { assertActiveFiscalPeriod } from '@/lib/fiscal-period-guard';
+import { compareCents, fromCents, sumCents, toCents } from '@/lib/money';
 import { JournalCorrectionService } from '@/lib/services/journal-correction.service';
 import { createAuditLogWithRetry } from '@/lib/audit';
 
@@ -117,18 +118,19 @@ export const POST = apiHandler(
     }
 
     // Exact cents — no ±tolerance (mirrors JournalService.create / PUT).
-    const totalDebitCents = correctedLines.reduce(
-      (sum: number, l: CorrectedLine) => sum + Math.round(l.debit * 100),
-      0,
-    );
-    const totalCreditCents = correctedLines.reduce(
-      (sum: number, l: CorrectedLine) => sum + Math.round(l.credit * 100),
-      0,
-    );
-    if (totalDebitCents !== totalCreditCents) {
+    // S3: accumulated through src/lib/money.ts (ROUND_HALF_UP) exactly like
+    // JournalCorrectionService.assertBalancedCorrectionLines, so the route and
+    // the service that re-checks the same lines can never disagree.
+    let totalDebitCents = 0;
+    let totalCreditCents = 0;
+    for (const line of correctedLines as CorrectedLine[]) {
+      totalDebitCents = sumCents(totalDebitCents, toCents(line.debit));
+      totalCreditCents = sumCents(totalCreditCents, toCents(line.credit));
+    }
+    if (compareCents(totalDebitCents, totalCreditCents) !== 0) {
       return NextResponse.json(
         {
-          error: `Correction entry must balance. Total debits (${(totalDebitCents / 100).toFixed(2)}) must equal total credits (${(totalCreditCents / 100).toFixed(2)})`,
+          error: `Correction entry must balance. Total debits (${fromCents(totalDebitCents).toFixed(2)}) must equal total credits (${fromCents(totalCreditCents).toFixed(2)})`,
         },
         { status: 400 },
       );
@@ -201,7 +203,7 @@ export const POST = apiHandler(
       ) {
         return NextResponse.json({ error: errorMessage }, { status: 400 });
       }
-      if (errorMessage.includes('closed period')) {
+      if (errorMessage.includes('closed period') || errorMessage.includes('período cerrado')) {
         return NextResponse.json({ error: errorMessage }, { status: 403 });
       }
       return NextResponse.json({ error: errorMessage }, { status: 500 });

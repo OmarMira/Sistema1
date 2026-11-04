@@ -9,6 +9,7 @@ import { validateRequest } from '@/lib/validate-request';
 import { journalAccountsCache } from '@/lib/cache';
 import { readJsonConfig } from '@/lib/config-loader';
 import { createAuditLogWithRetry } from '@/lib/audit';
+import { fromCents, sumCents, toCents } from '@/lib/money';
 
 // ─── GET /api/accounts?companyId=xxx&accountType=xxx&search=xxx ─────────
 export const GET = apiHandler(
@@ -50,25 +51,30 @@ export const GET = apiHandler(
     });
 
     // 1. Calculate direct balances for all accounts and build a map
-     
+    //    S3: the lines are accumulated in integer cents (src/lib/money.ts) and
+    //    converted to a number only for the response, so a 0.10 + 0.20 account
+    //    reports 0.3 instead of 0.30000000000000004.
     const accountMap = new Map<string, any>();
     rawAccounts.forEach((acc) => {
-      let balance = 0;
+      let balanceCents = 0;
       for (const line of acc.journalLines) {
-        if (acc.normalBalance === 'debit') {
-          balance += Number(line.debit) - Number(line.credit);
-        } else {
-          balance += Number(line.credit) - Number(line.debit);
-        }
+        const debitCents = toCents(line.debit);
+        const creditCents = toCents(line.credit);
+        balanceCents = sumCents(
+          balanceCents,
+          acc.normalBalance === 'debit'
+            ? sumCents(debitCents, -creditCents)
+            : sumCents(creditCents, -debitCents),
+        );
       }
       accountMap.set(acc.id, {
         ...acc,
-        directBalance: balance,
-        balance: balance, // Will hold the accumulated balance
+        directBalanceCents: balanceCents,
+        balanceCents,
       });
     });
 
-    // 2. Recursive function to aggregate child balances
+    // 2. Recursive function to aggregate child balances (in cents)
     //    S19a: `visited` keeps the aggregation cycle-safe — a pre-existing cycle
     //    in the hierarchy stops the walk instead of recursing forever. The list
     //    is already company-scoped, so the walk never leaves the company.
@@ -78,15 +84,15 @@ export const GET = apiHandler(
       if (visited.has(accId)) return 0; // pre-existing cycle: stop, no loop
       visited.add(accId);
 
-      let total = acc.directBalance as number;
+      let totalCents = acc.directBalanceCents as number;
       // Get all child accounts of this parent
       const children = rawAccounts.filter((a) => a.parentId === accId && a.companyId === companyId);
       for (const child of children) {
-        total += getAccumulatedBalance(child.id, visited);
+        totalCents = sumCents(totalCents, getAccumulatedBalance(child.id, visited));
       }
 
-      acc.balance = total;
-      return total;
+      acc.balanceCents = totalCents;
+      return totalCents;
     }
 
     // 3. Populate accumulated balances for all accounts
@@ -94,11 +100,17 @@ export const GET = apiHandler(
       getAccumulatedBalance(acc.id);
     });
 
-    // 4. Map back and clean up
+    // 4. Map back and clean up — the internal cent fields never leave the API:
+    //    each account exposes the same `directBalance`/`balance` numbers, now
+    //    derived from the exact cent totals.
     const accounts = rawAccounts.map((acc) => {
       const enriched = accountMap.get(acc.id);
-      const { journalLines, ...rest } = enriched;
-      return rest;
+      const { journalLines, directBalanceCents, balanceCents, ...rest } = enriched;
+      return {
+        ...rest,
+        directBalance: fromCents(directBalanceCents as number),
+        balance: fromCents(balanceCents as number),
+      };
     });
 
     return NextResponse.json({ accounts });

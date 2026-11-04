@@ -99,6 +99,11 @@ async function run(args) {
     for (const database of ['accountexpress_test', 'registration_test', 'clean_identity_test', 'accountexpress_bootstraptest']) {
       if (database !== 'accountexpress_test') await sql(`CREATE ROLE ${database} LOGIN PASSWORD '${password}'`);
       if (database === 'accountexpress_test') await sql(`CREATE DATABASE ${database} OWNER identity_test`); else await sql(`CREATE DATABASE ${database} OWNER identity_test`);
+      // PostgreSQL 15+: CREATE TYPE and other DDL in the public schema require
+      // explicit ownership transfer. Without this, Prisma's schema push fails
+      // with "permission denied for schema public" when the enums from
+      // 20261108000000_string_to_enum try to CREATE TYPE.
+      await sql(`ALTER SCHEMA public OWNER TO identity_test`, database);
       await sql('CREATE EXTENSION IF NOT EXISTS pg_trgm', database);
     }
     const url = (database, user = database) => `postgresql://${user}:${password}@127.0.0.1:${port}/${database}`;

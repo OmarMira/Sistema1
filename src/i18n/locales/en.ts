@@ -1906,6 +1906,8 @@ const en = {
     UNAUTHORIZED: 'Invalid email or password',
     RATE_LIMIT_EXCEEDED: 'Too many sign-in attempts. Try again later.',
     VOID_REASON_REQUIRED: 'Enter the void reason: between 5 and 500 characters.',
+    RECOVERY_PASSWORD_REQUIRED:
+      'The recovery password is required and must be at least 8 characters long.',
     INTERNAL_SERVER_ERROR:
       'An unexpected error occurred. Try again; if the problem persists, contact your administrator.',
   },
@@ -2023,6 +2025,14 @@ const en = {
     restoreFailed: 'Failed to restore system',
     dbNotEmpty: 'System already has data. Cannot restore from backup.',
     invalidFile: 'Invalid file. Select a valid AccountExpress backup.',
+    recoveryPasswordLabel: 'Recovery password',
+    recoveryPasswordPlaceholder: 'At least 8 characters',
+    recoveryPasswordHint:
+      'Choose the password you will use to sign in as the owner of the restored system. It is not stored in the backup.',
+    recoveryPasswordTooShort: 'The recovery password must be at least 8 characters long.',
+    overwriteWarning:
+      'This will permanently replace ALL current data. This action cannot be undone.',
+    restoredRecords: 'records restored',
   },
   superAdmin: {
     superAdmin: 'Super Admin',

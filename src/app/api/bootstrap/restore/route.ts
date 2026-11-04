@@ -1,17 +1,85 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { db } from '@/lib/db';
 import { apiHandler } from '@/lib/api-handler';
-import { restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
+import { validateBackupForCoordinatedRestore, type BackupData } from '@/lib/backup';
+import { isCompanyFormat } from '@/lib/backup-format';
+import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
+import { hashPassword } from '@/lib/auth';
 import { createSession } from '@/lib/sessions';
+import { logger } from '@/lib/logger';
 
 // B3.4: recovery password follows the SAME new-password policy as the product
 // (min 8 chars — same rule as registerSchema.password and /api/settings/password).
 const recoveryPasswordSchema = z.string().min(8, 'La contraseña debe tener al menos 8 caracteres');
 
+const MAX_BACKUP_SIZE = 50 * 1024 * 1024;
+
+/** Company entity types the shell company can be created with. */
+const ENTITY_TYPES = ['INDIVIDUAL', 'BUSINESS'] as const;
+function entityTypeOf(backupData: BackupData): (typeof ENTITY_TYPES)[number] {
+  const candidates = [
+    (backupData.data?.company?.[0] as { entityType?: unknown } | undefined)?.entityType,
+    (backupData.manifest?.companyInfo as { entityType?: unknown } | undefined)?.entityType,
+  ];
+  const match = candidates.find((value): value is (typeof ENTITY_TYPES)[number] =>
+    typeof value === 'string' && (ENTITY_TYPES as readonly string[]).includes(value),
+  );
+  return match ?? 'BUSINESS';
+}
+
+/**
+ * Remove the minimum bootstrap state created moments ago by THIS request when
+ * the restore refuses the payload before mutating anything. Without it a failed
+ * attempt would leave a Company row behind and the (correct) empty-system gate
+ * would answer 409 DB_NOT_EMPTY on every retry, bricking the first install.
+ * Only the two rows this handler created are touched — never tenant data.
+ */
+async function discardBootstrapShell(companyId: string, userId: string): Promise<void> {
+  try {
+    await db.$transaction(async (tx) => {
+      await tx.companyMember.deleteMany({ where: { companyId, userId } });
+      await tx.company.deleteMany({ where: { id: companyId } });
+      await tx.user.deleteMany({ where: { id: userId } });
+    });
+  } catch (error) {
+    logger.error('bootstrap.restore: could not discard bootstrap shell', {
+      companyId,
+      userId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * POST /api/bootstrap/restore — first-install restore ("Sistema vacío detectado").
+ *
+ * Admission is the EMPTY DATABASE itself: `company.count() === 0`, checked before
+ * anything else. Nobody can call this endpoint on a system that has data (409
+ * DB_NOT_EMPTY), and a first-install system is empty by definition — that is
+ * enough, so no operator-exported setup token is required any more. Requiring an
+ * environment variable that a non-technical user cannot set made the feature
+ * unusable (503 before the request was even read).
+ *
+ * The payload must be the CURRENT company-format backup (2.x, the only format
+ * this app produces). Legacy 1.x files keep their historical note: they cannot
+ * be ingested on first install.
+ *
+ * A 2.1.0 backup is restored through the battle-tested coordinated path
+ * (`restoreCompanyBackupCoordinated`): HMAC seals, maintenance gate, fidelity,
+ * audit receipt and file reconciliation. That path requires the destination
+ * company + user + membership to exist, so this handler first creates that
+ * minimal shell in one transaction, using the ids/e-mail carried by the backup.
+ * The restore then replaces the rows with the payload's (it never touches the
+ * User credentials) — the recovery password typed by the operator is what makes
+ * the restored installation owner able to log in.
+ *
+ * Body (multipart/form-data): `file` + `recoveryPassword`
+ * Body (JSON): { data: <base64 snapshot>, recoveryPassword }
+ */
 export const POST = apiHandler(
   async (request: NextRequest) => {
+    // 1. The empty-system gate is the whole authorization for this endpoint.
     const companyCount = await db.company.count();
     if (companyCount > 0) {
       return NextResponse.json(
@@ -20,35 +88,8 @@ export const POST = apiHandler(
       );
     }
 
-    // DUAL GATE — both must pass for the restore to proceed:
-    //   1. companyCount === 0 (checked above): this endpoint only works on
-    //      a truly empty database — it cannot be called on a live system.
-    //   2. BOOTSTRAP_SETUP_TOKEN: set once by the operator at install time
-    //      and compared with timingSafeEqual. Without it the endpoint is
-    //      disabled (503). The backup payload must also carry a valid
-    //      recovery password (B3.4), checked below. The blast radius is
-    //      intentional: this is the first-install recovery path.
-    const setupToken = process.env.BOOTSTRAP_SETUP_TOKEN;
-    if (!setupToken) {
-      return NextResponse.json(
-        { error: 'El servicio de inicialización no está habilitado en este servidor.' },
-        { status: 503 },
-      );
-    }
-
-    const receivedToken = request.headers.get('x-bootstrap-token') ?? '';
-    if (!receivedToken) {
-      return NextResponse.json({ error: 'Se requiere un token de inicialización.' }, { status: 403 });
-    }
-
-    const expectedHash = createHash('sha256').update(setupToken).digest();
-    const receivedHash = createHash('sha256').update(receivedToken).digest();
-    if (expectedHash.length !== receivedHash.length || !timingSafeEqual(expectedHash, receivedHash)) {
-      return NextResponse.json({ error: 'Token de inicialización inválido.' }, { status: 403 });
-    }
-
+    // 2. Read the payload (multipart upload or base64 JSON) — unchanged limits.
     let backupData: BackupData;
-    // B3.4: required known recovery password for the first restored user.
     let recoveryPassword: unknown;
 
     const contentType = request.headers.get('content-type') ?? '';
@@ -61,7 +102,6 @@ export const POST = apiHandler(
       }
       recoveryPassword = formData.get('recoveryPassword');
 
-      const MAX_BACKUP_SIZE = 50 * 1024 * 1024;
       if (file.size > MAX_BACKUP_SIZE) {
         return NextResponse.json({ error: 'El archivo de respaldo supera el tamaño máximo (50MB)' }, { status: 400 });
       }
@@ -86,7 +126,7 @@ export const POST = apiHandler(
     } else {
       const body = await request.json();
       const base64Data = body.data;
-      if (!base64Data) {
+      if (typeof base64Data !== 'string' || base64Data.length === 0) {
         return NextResponse.json({ error: 'Se requiere data en base64' }, { status: 400 });
       }
       recoveryPassword = body.recoveryPassword;
@@ -98,47 +138,159 @@ export const POST = apiHandler(
       }
     }
 
-    const validation = validateBackup(backupData);
+    // 3. Structural admission. Company-format snapshots (2.x) are validated in
+    //    depth by parseSnapshot inside the coordinated restore; anything else
+    //    still goes through the legacy structural validator.
+    const validation = validateBackupForCoordinatedRestore(backupData);
     if (!validation.valid) {
       return NextResponse.json(
-        { error: `Respaldo inválido: ${validation.errors.join(', ')}` },
+        { error: `Respaldo inválido: ${validation.errors.join(', ')}`, code: 'BACKUP_INVALID' },
         { status: 400 },
       );
     }
 
-    const companyId = backupData.manifest.companyId;
-    const firstUser = backupData.data.users[0];
-    if (!firstUser?.id) {
-      return NextResponse.json({ error: 'El respaldo no contiene usuarios' }, { status: 400 });
-    }
-
-    // B3.4: required known recovery password — validated AFTER the setup token
-    // and BEFORE any restore mutation. The received value is never echoed or
-    // logged; validation failure is a plain 400 like other request checks.
-    const passwordCheck = recoveryPasswordSchema.safeParse(recoveryPassword);
-    if (!passwordCheck.success) {
+    const version = backupData?.manifest?.version ?? '';
+    if (!isCompanyFormat(version)) {
       return NextResponse.json(
         {
           error:
-            'La contraseña de inicialización es obligatoria (mínimo 8 caracteres) y no se registra.',
+            `Este respaldo usa un formato anterior (${version || 'desconocido'}) que no se puede ` +
+            'restaurar en una instalación nueva. Usá un respaldo generado por esta versión del sistema.',
+          code: 'BACKUP_FORMAT_UNSUPPORTED',
         },
         { status: 400 },
       );
     }
 
-    const result = await restoreBackup(companyId, backupData, firstUser.id as string, {
-      bootstrap: true,
-      bootstrapRecoveryPassword: passwordCheck.data,
-    });
-
-    if (!result.success) {
-      return NextResponse.json({ error: result.message }, { status: 400 });
+    const companyId = backupData.manifest.companyId;
+    const firstUser = backupData.data?.users?.[0] as
+      | { id?: unknown; email?: unknown; firstName?: unknown; lastName?: unknown }
+      | undefined;
+    if (typeof companyId !== 'string' || companyId.length === 0) {
+      return NextResponse.json(
+        { error: 'El respaldo no indica la empresa a restaurar.', code: 'BACKUP_INVALID' },
+        { status: 400 },
+      );
+    }
+    if (typeof firstUser?.id !== 'string' || firstUser.id.length === 0 ||
+        typeof firstUser?.email !== 'string' || firstUser.email.length === 0) {
+      return NextResponse.json(
+        { error: 'El respaldo no contiene usuarios', code: 'BACKUP_INVALID' },
+        { status: 400 },
+      );
     }
 
-    const token = await createSession(firstUser.id as string);
+    // 4. Required known recovery password — validated BEFORE any mutation. The
+    //    received value is never echoed or logged.
+    const passwordCheck = recoveryPasswordSchema.safeParse(recoveryPassword);
+    if (!passwordCheck.success) {
+      return NextResponse.json(
+        {
+          error: 'La contraseña de recuperación es obligatoria y debe tener al menos 8 caracteres.',
+          code: 'RECOVERY_PASSWORD_REQUIRED',
+        },
+        { status: 400 },
+      );
+    }
+
+    const userId = firstUser.id;
+    const companyInfo = backupData.manifest.companyInfo as
+      | { legalName?: unknown; taxId?: unknown }
+      | undefined;
+    const legalName =
+      typeof companyInfo?.legalName === 'string' && companyInfo.legalName
+        ? companyInfo.legalName
+        : companyId;
+    const taxId =
+      typeof companyInfo?.taxId === 'string' && companyInfo.taxId ? companyInfo.taxId : null;
+
+    // 5. Minimum destination state the coordinated restore needs: the company,
+    //    the installation owner (legacyUser so the session guard accepts it
+    //    immediately) and their administrative membership.
+    try {
+      await db.$transaction(async (tx) => {
+        await tx.user.create({
+          data: {
+            id: userId,
+            email: firstUser.email as string,
+            passwordHash: await hashPassword(passwordCheck.data),
+            firstName: typeof firstUser.firstName === 'string' ? firstUser.firstName : '',
+            lastName: typeof firstUser.lastName === 'string' ? firstUser.lastName : '',
+            platformRole: 'super_admin',
+            emailVerifiedAt: new Date(),
+            legacyUser: true,
+          },
+        });
+        await tx.company.create({
+          data: {
+            id: companyId,
+            legalName,
+            entityType: entityTypeOf(backupData),
+            taxId,
+          },
+        });
+        await tx.companyMember.create({
+          data: { userId, companyId, role: 'company_admin' },
+        });
+      });
+    } catch (error) {
+      logger.error('bootstrap.restore: could not create bootstrap state', {
+        companyId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await discardBootstrapShell(companyId, userId);
+      return NextResponse.json(
+        {
+          error: 'No se pudo preparar la restauración. Revisá el respaldo e intentá nuevamente.',
+          code: 'RESTORE_FAILED',
+        },
+        { status: 400 },
+      );
+    }
+
+    // 6. Coordinated restore: it deletes the shell rows and installs the payload.
+    //    A thrown error means it refused the payload BEFORE mutating (any path
+    //    that had already started the recovery journal returns a result object
+    //    instead), so the shell can be discarded and the system stays empty.
+    let result: Awaited<ReturnType<typeof restoreCompanyBackupCoordinated>>;
+    try {
+      result = await restoreCompanyBackupCoordinated(companyId, JSON.stringify(backupData));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      logger.error('bootstrap.restore: coordinated restore refused the payload', { companyId, error: detail });
+      await discardBootstrapShell(companyId, userId);
+      return NextResponse.json(
+        { error: `No se pudo restaurar el sistema: ${detail}`, code: 'RESTORE_FAILED' },
+        { status: 400 },
+      );
+    }
+
+    if (result.status !== 'committed') {
+      // The database outcome is uncertain: never delete evidence, never retry.
+      logger.error('bootstrap.restore: restore needs operator reconciliation', {
+        companyId,
+        status: result.status,
+        operationId: result.operationId,
+        error: result.error,
+      });
+      return NextResponse.json(
+        {
+          error:
+            'La restauración quedó pendiente de reconciliación y el sistema está en mantenimiento. ' +
+            'No reintentes: contactá al soporte técnico con este identificador de operación ' +
+            `${result.operationId}.`,
+          code: 'RESTORE_RECONCILIATION_REQUIRED',
+          operationId: result.operationId,
+        },
+        { status: 500 },
+      );
+    }
+
+    // 7. Session for the restored owner, same contract as the login route.
+    const token = await createSession(userId);
 
     const user = await db.user.findUnique({
-      where: { id: firstUser.id as string },
+      where: { id: userId },
       select: { id: true, email: true, firstName: true, lastName: true, platformRole: true },
     });
 
@@ -163,7 +315,7 @@ export const POST = apiHandler(
       // Tenant contract (mirror /api/auth/me member branch):
       // Company.role = CompanyMember.role, already fetched above — no extra query.
       const memberships = await db.companyMember.findMany({
-        where: { userId: firstUser.id as string },
+        where: { userId },
         include: {
           company: {
             select: { id: true, legalName: true, entityType: true, taxId: true, isOnboardingComplete: true },
@@ -175,8 +327,10 @@ export const POST = apiHandler(
 
     const response = NextResponse.json({
       success: true,
-      message: result.message,
-      restoredCounts: result.restoredCounts,
+      message: 'Sistema restaurado exitosamente',
+      scope: result.scope,
+      operationId: result.operationId,
+      restoredCounts: result.counts,
       user: user
         ? {
             id: user.id,

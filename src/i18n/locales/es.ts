@@ -1940,6 +1940,10 @@ const es = {
     // con details.code = VOID_REASON_REQUIRED para que la UI lo traduzca.
     VOID_REASON_REQUIRED:
       'Indicá el motivo de la anulación: entre 5 y 500 caracteres.',
+    // Restauración en la instalación inicial: la contraseña de recuperación es
+    // obligatoria (mínimo 8 caracteres) y define la clave del dueño restaurado.
+    RECOVERY_PASSWORD_REQUIRED:
+      'La contraseña de recuperación es obligatoria y debe tener al menos 8 caracteres.',
     INTERNAL_SERVER_ERROR:
       'Ocurrió un error inesperado. Intentá nuevamente; si el problema persiste, contactá al administrador.',
   },
@@ -2057,6 +2061,14 @@ const es = {
     restoreFailed: 'Error al restaurar el sistema',
     dbNotEmpty: 'El sistema ya tiene datos. No se puede inicializar desde un respaldo.',
     invalidFile: 'Archivo inválido. Seleccioná un respaldo válido de AccountExpress.',
+    recoveryPasswordLabel: 'Contraseña de recuperación',
+    recoveryPasswordPlaceholder: 'Mínimo 8 caracteres',
+    recoveryPasswordHint:
+      'Definí la contraseña con la que vas a iniciar sesión como dueño del sistema restaurado. No se guarda en el respaldo.',
+    recoveryPasswordTooShort: 'La contraseña de recuperación debe tener al menos 8 caracteres.',
+    overwriteWarning:
+      'Esto reemplazará permanentemente TODOS los datos actuales. Esta acción no se puede deshacer.',
+    restoredRecords: 'registros restaurados',
   },
   superAdmin: {
     superAdmin: 'Super Admin',

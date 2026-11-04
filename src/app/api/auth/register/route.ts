@@ -64,7 +64,12 @@ export const POST = apiHandler(
         }
       }
 
-      authRateLimiter.reset(ip, email);
+      // S8: mirrors the S4 login fix. A successful registration clears ONLY the
+      // per-email bucket; the IP bucket must survive, otherwise an attacker who
+      // can complete one registration from an IP resets that IP's failure counter
+      // and can keep interleaving a spray across many accounts. `reset(null, ...)`
+      // leaves the IP entry untouched while still forgiving the user's own email.
+      authRateLimiter.reset(null, email);
 
       // Only a temporary email challenge exists. Never return a fictitious user/session.
       return NextResponse.json({

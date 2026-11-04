@@ -1900,6 +1900,8 @@ const en = {
     AI_PROVIDER_UNAVAILABLE:
       'The AI provider could not complete the reading. Check the connection, the account and the model before retrying.',
     DATABASE_ERROR: 'The change could not be saved to the database. Review the data and try again.',
+    // S8 — the database is unavailable (outage/overload), not the data: retryable.
+    DATABASE_UNAVAILABLE: 'The database is not available right now. Try again in a few seconds.',
     FORBIDDEN: 'You do not have permission to perform this action.',
     UNAUTHORIZED: 'Invalid email or password',
     RATE_LIMIT_EXCEEDED: 'Too many sign-in attempts. Try again later.',

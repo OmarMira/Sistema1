@@ -1923,6 +1923,10 @@ const es = {
       'El proveedor de IA no pudo completar la lectura. Revisá la conexión, la cuenta y el modelo antes de reintentar.',
     DATABASE_ERROR:
       'No se pudo guardar el cambio en la base de datos. Revisá los datos e intentá nuevamente.',
+    // S8 — la base no está disponible (corte/overload), no un problema de datos:
+    // es reintentable, por eso el 503 y no un 400.
+    DATABASE_UNAVAILABLE:
+      'La base de datos no está disponible en este momento. Intentá nuevamente en unos segundos.',
     FORBIDDEN: 'No tenés permisos para realizar esta acción.',
     // Texto idéntico al que el backend devuelve hoy en el 401 de login, para que
     // el formulario no cambie de mensaje (fijado por tests/identity/registration-ui).

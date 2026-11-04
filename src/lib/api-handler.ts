@@ -15,6 +15,35 @@ const API_SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 };
 
+/**
+ * S8 — Prisma error codes that mean "the database is unavailable", not "your data
+ * violates a constraint". Mapping these to 400 DATABASE_ERROR told every client
+ * their input was wrong and hid a real outage behind a validation error.
+ *
+ * Connection class: P1000 authentication failed, P1001 cannot reach the server,
+ * P1002 the server closed the connection on timeout, P1003 the database does not
+ * exist, P1008 operations timed out, P1010 access denied, P1011 TLS error, P1017
+ * the server closed the connection, P2024 the connection pool timed out.
+ * Constraint/validation codes (P2000-P2034 …) keep answering 400.
+ */
+const PRISMA_UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
+  'P1000',
+  'P1001',
+  'P1002',
+  'P1003',
+  'P1008',
+  'P1010',
+  'P1011',
+  'P1017',
+  'P2024',
+]);
+
+const DATABASE_UNAVAILABLE_MESSAGE =
+  'La base de datos no está disponible en este momento. Intentá nuevamente en unos segundos.';
+
+/** Retry-After hint (seconds) for an unavailable-database answer. */
+const DATABASE_UNAVAILABLE_RETRY_AFTER = '5';
+
 export type RouteParams = Record<string, string>;
 export type RouteContext = { params: Promise<RouteParams> };
 type ApiHandler = (
@@ -241,11 +270,28 @@ function admittedApiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}
         'code' in error &&
         'clientVersion' in error
       ) {
-        logger.error('[PRISMA DB ERROR]', { error: String(error) });
-        errResponse = NextResponse.json(
-          { error: 'Error de restricción o de base de datos.', code: 'DATABASE_ERROR' },
-          { status: 400 },
-        );
+        const prismaCode = (error as { code?: unknown }).code;
+        if (typeof prismaCode === 'string' && PRISMA_UNAVAILABLE_CODES.has(prismaCode)) {
+          // S8: an outage is a 503 the client can retry, not a 400 that blames input.
+          logger.error('[PRISMA DB UNAVAILABLE]', { prismaCode, error: String(error) });
+          errResponse = NextResponse.json(
+            {
+              error: DATABASE_UNAVAILABLE_MESSAGE,
+              code: 'DATABASE_UNAVAILABLE',
+              retryable: true,
+            },
+            {
+              status: 503,
+              headers: { ...API_SECURITY_HEADERS, 'Retry-After': DATABASE_UNAVAILABLE_RETRY_AFTER },
+            },
+          );
+        } else {
+          logger.error('[PRISMA DB ERROR]', { error: String(error) });
+          errResponse = NextResponse.json(
+            { error: 'Error de restricción o de base de datos.', code: 'DATABASE_ERROR' },
+            { status: 400 },
+          );
+        }
       } else {
         logger.error('[UNHANDLED API ERROR]', { error: String(error) });
         errResponse = NextResponse.json(

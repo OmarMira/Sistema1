@@ -20,7 +20,10 @@ export const POST = apiHandler(
       return NextResponse.json({ error: 'Demasiados intentos. Intente nuevamente más tarde.' }, { status: 429 });
     }
     await identity.resendVerification(email, ip ?? undefined);
-    authRateLimiter.reset(ip, email);
+    // S8: mirrors the S4 login fix — a success clears ONLY the per-email bucket.
+    // Resetting the IP bucket here would let one successful resend launder every
+    // failed attempt sprayed from the same IP (login/register share this limiter).
+    authRateLimiter.reset(null, email);
     return NextResponse.json({ message: 'Si hay una cuenta pendiente con ese email, recibirás el código.' });
   },
   { allowAnonymous: true, requireMembership: false },

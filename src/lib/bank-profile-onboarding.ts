@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { logger } from '@/lib/logger';
 import ZAI from 'z-ai-web-dev-sdk';
 import crypto from 'crypto';
@@ -24,6 +28,30 @@ export interface PdfAnalysisData {
 
 function sha256(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
+}
+
+/**
+ * A learned profile that could not be persisted (no tenant scope). It is used for
+ * the current parse only and is never written to the database.
+ */
+function buildTransientProfile(
+  bankId: string,
+  bankName: string,
+  fingerprints: string[],
+  config: BankProfileConfig,
+): BankProfileTyped {
+  const now = new Date();
+  return {
+    id: `transient-${bankId}`,
+    bankId,
+    bankName,
+    fingerprints,
+    isActive: true,
+    requiresReview: true,
+    config,
+    createdAt: now,
+    updatedAt: now,
+  };
 }
 
 /**
@@ -57,11 +85,15 @@ export function validateRegex(regexStr: string, fieldName: string): void {
 /**
  * Uses Jaccard Similarity index (threshold >= 0.6) to find if an existing profile
  * matches the new fingerprints.
+ *
+ * S1 (Wave 5): resolution is tenant-aware — the importing company's own profiles
+ * come first, global read-only seeds are the fallback.
  */
 export async function findExistingProfile(
   newFingerprints: string[],
+  companyId?: string | null,
 ): Promise<BankProfileTyped | null> {
-  const allProfiles = await getAllActiveProfiles();
+  const allProfiles = await getAllActiveProfiles(companyId);
   const set1 = new Set(newFingerprints.map((f) => f.toLowerCase().trim()));
 
   for (const profile of allProfiles) {
@@ -264,6 +296,7 @@ function buildCoordinateSample(
 
 export async function createProfileFromPdf(
   analysisData: PdfAnalysisData,
+  companyId?: string | null,
 ): Promise<BankProfileTyped> {
   const zai = await ZAI.create();
 
@@ -570,31 +603,56 @@ CRITICAL: Do NOT invent or fabricate data. Only use patterns you can clearly ide
     const bankName = parsed.bankName || 'Inferred Bank Profile';
     const fingerprints = parsed.fingerprints;
 
+    // S1 (Wave 5): learned profiles are ALWAYS company-scoped. A tenant's uploaded
+    // PDF can never create or overwrite a global seed (companyId NULL) or another
+    // tenant's profile. Without a tenant scope the learned profile stays transient:
+    // it is used for this parse only and never persisted.
+    const scopeCompanyId =
+      typeof companyId === 'string' && companyId.trim() !== '' ? companyId : null;
+
     // Find if an existing profile is Jaccard matched (>= 0.6)
-    const existingProfile = await findExistingProfile(fingerprints);
+    const existingProfile = await findExistingProfile(fingerprints, scopeCompanyId);
 
     if (existingProfile) {
       logger.info('Updating existing profile with new config', {
         bankId: existingProfile.bankId,
+        companyId: scopeCompanyId,
       });
+      if (!scopeCompanyId) {
+        logger.warn('Bank profile learning is not persisted without a company scope', {
+          bankId: existingProfile.bankId,
+        });
+        return buildTransientProfile(
+          existingProfile.bankId,
+          existingProfile.bankName,
+          fingerprints,
+          validatedConfig,
+        );
+      }
       const profile = await upsertBankProfile(
         existingProfile.bankId,
         existingProfile.bankName,
         fingerprints,
         validatedConfig,
         true,
+        scopeCompanyId,
       );
       return profile;
     } else {
       const sortedFp = [...fingerprints].sort().join('|');
       const bankId = `auto-${sha256(sortedFp).slice(0, 12)}`;
-      logger.info('Creating new profile', { bankId });
+      if (!scopeCompanyId) {
+        logger.warn('Bank profile learning is not persisted without a company scope', { bankId });
+        return buildTransientProfile(bankId, bankName, fingerprints, validatedConfig);
+      }
+      logger.info('Creating new company-scoped profile', { bankId, companyId: scopeCompanyId });
       const profile = await upsertBankProfile(
         bankId,
         bankName,
         fingerprints,
         validatedConfig,
         true,
+        scopeCompanyId,
       );
       return profile;
     }

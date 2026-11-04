@@ -113,6 +113,7 @@ model Company {
   csvLayoutProfiles     CsvLayoutProfile[]
   moduleEntitlements    CompanyModuleEntitlement[]
   journalCorrections    JournalCorrection[]
+  bankProfiles          BankProfile[]
 }
 
 /// Correction link record (original -> counter + replacement). The table itself
@@ -558,9 +559,15 @@ model SystemMemory {
   @@index([importance])
 }
 
+/// S1 (Wave 5): bank parsing profiles are company-scoped.
+/// companyId NULL is a GLOBAL read-only seed (shipped/curated definitions that
+/// every tenant may use); a row with a companyId belongs to exactly one tenant.
+/// Lookups resolve company-scoped first, global second. Write paths must always
+/// carry a companyId — nothing in the application ever writes a NULL-company row.
 model BankProfile {
   id             String   @id @default(cuid())
-  bankId         String   @unique
+  bankId         String
+  companyId      String?
   bankName       String
   fingerprints   String
   isActive       Boolean  @default(true)
@@ -568,7 +575,10 @@ model BankProfile {
   config         String
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
+  company        Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  @@unique([bankId, companyId])
+  @@index([companyId])
   @@index([isActive])
   @@index([requiresReview])
 }

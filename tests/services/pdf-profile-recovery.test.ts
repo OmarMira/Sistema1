@@ -92,8 +92,14 @@ describe('PDF profile recovery through the real loader and public parser', () =>
   });
 
   it('respects explicit deactivation rather than reactivating the packaged definition', async () => {
-    mocks.findUnique.mockResolvedValue(storedProfile(false));
-    mocks.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([{ bankId: packaged.bankId }]);
+    mocks.findUnique.mockResolvedValue(null);
+    // S1 (Wave 5): the global lookup reads through findMany (a nullable companyId is
+    // not addressable by a unique input), so the deactivated row is the first read.
+    mocks.findMany
+      .mockResolvedValueOnce([storedProfile(false)])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ bankId: packaged.bankId }])
+      .mockResolvedValue([]);
     expect((await getBankProfile(packaged.bankId))?.isActive).toBe(false);
     expect(await getAllActiveProfiles()).toEqual([]);
     const result = await parsePDF(Buffer.from('synthetic'));

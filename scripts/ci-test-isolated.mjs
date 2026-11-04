@@ -99,10 +99,11 @@ async function run(args) {
     for (const database of ['accountexpress_test', 'registration_test', 'clean_identity_test', 'accountexpress_bootstraptest']) {
       if (database !== 'accountexpress_test') await sql(`CREATE ROLE ${database} LOGIN PASSWORD '${password}'`);
       if (database === 'accountexpress_test') await sql(`CREATE DATABASE ${database} OWNER identity_test`); else await sql(`CREATE DATABASE ${database} OWNER identity_test`);
-      // PostgreSQL 15+: CREATE TYPE and other DDL in the public schema require
-      // explicit ownership transfer. Must run as the postgres superuser —
-      // identity_test cannot ALTER SCHEMA through pg_database_owner alone.
-      await sql(`ALTER SCHEMA public OWNER TO identity_test`, database, 'postgres');
+      // PostgreSQL 15+: CREATE TYPE requires ownership of the public schema.
+      // Each database connects as its own role (same name as the DB), so the
+      // schema ownership must transfer to that role. Run as identity_test
+      // (the container superuser) which has the authority to transfer.
+      await sql(`GRANT ALL ON SCHEMA public TO ${database}; ALTER SCHEMA public OWNER TO ${database}`, database);
       await sql('CREATE EXTENSION IF NOT EXISTS pg_trgm', database);
     }
     const url = (database, user = database) => `postgresql://${user}:${password}@127.0.0.1:${port}/${database}`;

@@ -243,7 +243,7 @@ function admittedApiHandler(handler: ApiHandler, options: ApiHandlerOptions = {}
       ) {
         logger.error('[PRISMA DB ERROR]', { error: String(error) });
         errResponse = NextResponse.json(
-          { error: 'Database constraint violation or error occurred.', code: 'DATABASE_ERROR' },
+          { error: 'Error de restricción o de base de datos.', code: 'DATABASE_ERROR' },
           { status: 400 },
         );
       } else {

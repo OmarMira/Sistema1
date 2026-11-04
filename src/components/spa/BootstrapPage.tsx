@@ -1,18 +1,24 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, UserPlus, Loader2, AlertTriangle, CheckCircle2, HardDrive } from 'lucide-react';
+import { Upload, UserPlus, Loader2, AlertTriangle, CheckCircle2, HardDrive, KeyRound } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type User } from '@/store/auth-store';
-import { toast } from 'sonner';
+import { toast, Toaster as SonnerToaster } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
 import { ThemeToggle } from '@/components/spa/ThemeToggle';
 import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { formatFileSize } from '@/lib/types/backup';
+import { translateApiError } from '@/i18n/errors';
 import { InstallationWizard } from '@/components/onboarding/InstallationWizard';
+
+/** Product-wide new-password policy (same rule the backend enforces). */
+const MIN_RECOVERY_PASSWORD = 8;
 
 export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
   const t = useLanguageStore((s) => s.t);
@@ -21,6 +27,10 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
   const [mode, setMode] = useState<'choose' | 'restore' | 'restoring' | 'setup'>('choose');
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoreProgress, setRestoreProgress] = useState(0);
+  const [recoveryPassword, setRecoveryPassword] = useState('');
+  // Inline, always-visible error: this page is rendered OUTSIDE the AppShell, so
+  // a toast alone could be the only feedback — and it must never be the only one.
+  const [restoreError, setRestoreError] = useState<string | null>(null);
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -31,10 +41,18 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
       return;
     }
     setRestoreFile(file);
+    setRestoreError(null);
   }
 
   async function handleRestore() {
     if (!restoreFile) return;
+    if (recoveryPassword.trim().length < MIN_RECOVERY_PASSWORD) {
+      setRestoreError(t('bootstrap.recoveryPasswordTooShort'));
+      toast.error(t('bootstrap.recoveryPasswordTooShort'));
+      return;
+    }
+
+    setRestoreError(null);
     setMode('restoring');
     setRestoreProgress(10);
 
@@ -42,8 +60,10 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
       setRestoreProgress(30);
       const formData = new FormData();
       formData.append('file', restoreFile);
+      formData.append('recoveryPassword', recoveryPassword);
 
       setRestoreProgress(50);
+      // No setup token: the empty-database gate is the endpoint's authorization.
       const res = await fetch('/api/bootstrap/restore', {
         method: 'POST',
         credentials: 'include',
@@ -51,16 +71,16 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
       });
 
       setRestoreProgress(80);
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
       if (res.ok) {
         setRestoreProgress(100);
         const totalRecords = (Object.values(data.restoredCounts || {}) as number[]).reduce(
-          (a, b) => a + b,
+          (a: number, b) => a + Number(b || 0),
           0,
         );
         toast.success(t('bootstrap.restoreSuccess'), {
-          description: `${totalRecords} registros`,
+          description: `${totalRecords} ${t('bootstrap.restoredRecords')}`,
         });
 
         const user: User = data.user;
@@ -73,14 +93,22 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
         }
         setCurrentView('dashboard');
       } else if (res.status === 409) {
-        toast.error(t('bootstrap.dbNotEmpty'));
+        const message = t('bootstrap.dbNotEmpty');
+        setRestoreError(message);
+        toast.error(message);
         setMode('choose');
       } else {
-        toast.error(t('bootstrap.restoreFailed'), { description: data.error });
+        // translateApiError: locale-native message for a known code, otherwise
+        // the server's own detail — never a raw key and never a silent failure.
+        const message = translateApiError(data, t, t('bootstrap.restoreFailed'));
+        setRestoreError(message);
+        toast.error(t('bootstrap.restoreFailed'), { description: message });
         setMode('restore');
       }
     } catch {
-      toast.error(t('bootstrap.restoreFailed'));
+      const message = t('bootstrap.restoreFailed');
+      setRestoreError(message);
+      toast.error(message);
       setMode('restore');
     }
     setRestoreProgress(0);
@@ -90,6 +118,10 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
 
   return (
     <div className="flex min-h-screen flex-col">
+      {/* This view renders outside the AppShell, which is what mounts the toaster;
+          without it every toast on the first-install page (including the restore
+          error) is invisible. */}
+      <SonnerToaster position="top-center" richColors closeButton />
       <header className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8">
           <div className="flex items-center gap-2">
@@ -199,18 +231,29 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                 <div className="flex items-start gap-2 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 p-3">
                   <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                   <p className="text-xs text-amber-800 dark:text-amber-300">
-                    Esto reemplazará permanentemente TODOS los datos actuales. Esta acción no se puede deshacer.
+                    {t('bootstrap.overwriteWarning')}
                   </p>
                 </div>
+
+                {restoreError && (
+                  <div
+                    role="alert"
+                    data-testid="bootstrap-restore-error"
+                    className="flex items-start gap-2 rounded-lg bg-destructive/10 border border-destructive/30 p-3"
+                  >
+                    <AlertTriangle className="size-4 text-destructive mt-0.5 shrink-0" />
+                    <p className="text-xs text-destructive break-words">{restoreError}</p>
+                  </div>
+                )}
 
                 <div className="space-y-3">
                   <Button
                     variant="outline"
-                    className="w-full"
+                    className="w-full max-w-full overflow-hidden"
                     onClick={() => document.getElementById('bootstrap-file-input')?.click()}
                   >
-                    <Upload className="size-4 mr-2" />
-                    {restoreFile ? restoreFile.name : t('bootstrap.selectFile')}
+                    <Upload className="size-4 mr-2 shrink-0" />
+                    <span className="truncate">{t('bootstrap.selectFile')}</span>
                   </Button>
                   <input
                     id="bootstrap-file-input"
@@ -222,9 +265,9 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
 
                   {restoreFile && (
                     <div className="rounded-lg border bg-muted/50 p-3">
-                      <div className="flex items-center gap-2">
-                        <CheckCircle2 className="size-4 text-emerald-600" />
-                        <p className="text-sm font-medium truncate flex-1">{restoreFile.name}</p>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CheckCircle2 className="size-4 shrink-0 text-emerald-600" />
+                        <p className="text-sm font-medium truncate flex-1 min-w-0">{restoreFile.name}</p>
                         <span className="text-xs text-muted-foreground shrink-0">
                           {formatFileSize(restoreFile.size)}
                         </span>
@@ -232,13 +275,44 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                     </div>
                   )}
 
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="size-4 text-muted-foreground shrink-0" />
+                      <Label htmlFor="bootstrap-recovery-password">
+                        {t('bootstrap.recoveryPasswordLabel')}
+                      </Label>
+                    </div>
+                    <Input
+                      id="bootstrap-recovery-password"
+                      type="password"
+                      value={recoveryPassword}
+                      minLength={MIN_RECOVERY_PASSWORD}
+                      autoComplete="new-password"
+                      placeholder={t('bootstrap.recoveryPasswordPlaceholder')}
+                      onChange={(e) => {
+                        setRecoveryPassword(e.target.value);
+                        setRestoreError(null);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {t('bootstrap.recoveryPasswordHint')}
+                    </p>
+                  </div>
+
                   <div className="flex gap-2">
-                    <Button variant="ghost" className="flex-1" onClick={() => setMode('choose')}>
+                    <Button
+                      variant="ghost"
+                      className="flex-1"
+                      onClick={() => {
+                        setRestoreError(null);
+                        setMode('choose');
+                      }}
+                    >
                       {t('common.cancel')}
                     </Button>
                     <Button
                       className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      disabled={!restoreFile}
+                      disabled={!restoreFile || recoveryPassword.trim().length < MIN_RECOVERY_PASSWORD}
                       onClick={handleRestore}
                     >
                       {t('bootstrap.restoreBackup')}

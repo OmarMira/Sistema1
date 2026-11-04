@@ -444,7 +444,11 @@ export class ImportService {
           legalName: company?.legalName,
         });
       } else if (company && accountHolder) {
-        const entityType = (company.entityType ?? 'BUSINESS') as 'INDIVIDUAL' | 'BUSINESS';
+        // S3 (Wave 6): `Company.entityType` is a `CompanyEntityType` enum, so the
+        // previous `?? 'BUSINESS'` fallback and the `as` cast that bridged the
+        // free-form String are both dead — the column is NOT NULL with a default
+        // and already carries exactly the union the validator accepts.
+        const entityType = company.entityType;
         const validation = validateAccountHolder(accountHolder, company.legalName, entityType);
         similarityScore = validation.score;
 

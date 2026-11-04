@@ -1,10 +1,14 @@
-import type { Prisma } from '@prisma/client';
+import type { GlAccountAccountType, GlAccountNormalBalance, Prisma } from '@prisma/client';
 
 export interface AccountSeed {
   code: string;
   name: string;
-  type: string;
-  normalBalance: string;
+  // S3 (Wave 6): the seed feeds `tx.glAccount.create`, and both columns are
+  // Prisma enums now — typing the seed with the generated enum types keeps the
+  // single source of truth without a cast at the two call sites
+  // (src/lib/chart-of-accounts.ts and src/lib/services/onboarding.service.ts).
+  type: GlAccountAccountType;
+  normalBalance: GlAccountNormalBalance;
   parentCode?: string;
 }
 

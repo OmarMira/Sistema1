@@ -37,6 +37,65 @@ enum DecisionReason {
   FALLBACK_DEFAULT
 }
 
+/// Wave 6 / S3 — `Company.entityType` was a free-form String. These are the only
+/// two values the application ever writes (zod `entityType` enum in
+/// src/lib/validations/auth.ts and the `'INDIVIDUAL' | 'BUSINESS'` union in
+/// src/lib/validation/account-holder-validator.ts).
+enum CompanyEntityType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+/// Wave 6 / S3 — `GlAccount.accountType`. Values mirror rules/account-types.json
+/// exactly (asset, liability, equity, revenue, expense); the JSON config stays
+/// the operator-facing source of truth for the API validation error message and
+/// this enum is the storage authority.
+enum GlAccountAccountType {
+  asset
+  liability
+  equity
+  revenue
+  expense
+}
+
+/// Wave 6 / S3 — `GlAccount.normalBalance`: the only two values the chart of
+/// accounts and the POST/PATCH /api/accounts validators accept.
+enum GlAccountNormalBalance {
+  debit
+  credit
+}
+
+/// Wave 6 / S3 — `BankTransaction.status`. `posted` is the historical default;
+/// `pending_review` and `suspense` are written by the classification and
+/// reconciliation-review paths. `unreviewed`/`reconciled`/`ignored` are kept
+/// because legacy rows and the reconciliation queue UI already use those
+/// names — narrowing the type must never make existing data unreadable.
+enum BankTransactionStatus {
+  unreviewed
+  pending_review
+  reconciled
+  ignored
+  posted
+  suspense
+}
+
+/// Wave 6 / S3 — `JournalEntry.status`. `pending_review` is written by the
+/// reconciliation flow when a generated entry carries warnings and later
+/// promoted to `posted` or voided.
+enum JournalEntryStatus {
+  draft
+  posted
+  void
+  pending_review
+}
+
+/// Wave 6 / S3 — `ReconciliationPeriod.status`: opened, completed, cancelled.
+enum ReconciliationPeriodStatus {
+  open
+  completed
+  cancelled
+}
+
 enum PlatformRole {
   user
   super_admin
@@ -56,8 +115,8 @@ model User {
   lastName              String
   platformRole          PlatformRole           @default(user) @map("role")
   isActive              Boolean                @default(true)
-  emailVerifiedAt     DateTime?              
-  legacyUser           Boolean                @default(false)
+  emailVerifiedAt       DateTime?
+  legacyUser            Boolean                @default(false)
   phone                 String                 @default("")
   streetLine1           String                 @default("")
   streetLine2           String                 @default("")
@@ -77,7 +136,7 @@ model User {
 model Company {
   id                    String                     @id @default(cuid())
   legalName             String
-  entityType            String                     @default("BUSINESS")
+  entityType            CompanyEntityType          @default(BUSINESS)
   taxId                 String?
   address               String?
   phone                 String?
@@ -123,14 +182,14 @@ model Company {
 /// writes the counter-entry plus replacement entry, recalculates balances and
 /// seals the new entries into the company journal hash chain.
 model JournalCorrection {
-  id                 String   @id @default(cuid())
+  id                 String       @id @default(cuid())
   companyId          String
   originalEntryId    String
   counterEntryId     String
   replacementEntryId String
   reason             String?
   correctedByUserId  String?
-  createdAt          DateTime @default(now())
+  createdAt          DateTime     @default(now())
   company            Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   originalEntry      JournalEntry @relation("JournalCorrectionOriginalEntry", fields: [originalEntryId], references: [id], onDelete: Cascade)
   counterEntry       JournalEntry @relation("JournalCorrectionCounterEntry", fields: [counterEntryId], references: [id], onDelete: Cascade)
@@ -185,27 +244,27 @@ model CompanyModuleEntitlement {
 }
 
 model GlAccount {
-  id              String            @id @default(cuid())
+  id              String                 @id @default(cuid())
   companyId       String
   code            String
   name            String
-  accountType     String
-  normalBalance   String
+  accountType     GlAccountAccountType
+  normalBalance   GlAccountNormalBalance
   parentId        String?
-  isActive        Boolean           @default(true)
-  isSystem        Boolean           @default(false)
-  createdAt       DateTime          @default(now())
-  updatedAt       DateTime          @updatedAt
+  isActive        Boolean                @default(true)
+  isSystem        Boolean                @default(false)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
   bankAccounts    BankAccount[]
-  creditBankRules BankRule[]        @relation("CreditRuleGlAccount")
-  debitBankRules  BankRule[]        @relation("DebitRuleGlAccount")
-  bankRules       BankRule[]        @relation("LegacyRuleGlAccount")
+  creditBankRules BankRule[]             @relation("CreditRuleGlAccount")
+  debitBankRules  BankRule[]             @relation("DebitRuleGlAccount")
+  bankRules       BankRule[]             @relation("LegacyRuleGlAccount")
   transactions    BankTransaction[]
   entityContexts  EntityContext[]
-  parent          GlAccount?        @relation("AccountHierarchy", fields: [parentId], references: [id])
-  children        GlAccount[]       @relation("AccountHierarchy")
-  balance         Decimal           @default(0) @db.Decimal(18, 2)
-  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  parent          GlAccount?             @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children        GlAccount[]            @relation("AccountHierarchy")
+  balance         Decimal                @default(0) @db.Decimal(18, 2)
+  company         Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   journalLines    JournalLine[]
 
   @@unique([companyId, code])
@@ -277,7 +336,7 @@ model BankTransaction {
   matchedRuleId          String?
   reconciledAt           DateTime?
   reconciliationPeriodId String?
-  status                 String                @default("posted")
+  status                 BankTransactionStatus @default(posted)
   importHash             String?               @unique
   journalEntryId         String?               @unique
   journalLineId          String?               @unique
@@ -310,22 +369,22 @@ model BankTransaction {
 }
 
 model ReconciliationPeriod {
-  id               String            @id @default(cuid())
+  id               String                     @id @default(cuid())
   companyId        String
   bankAccountId    String
   userId           String
-  statementBalance Decimal           @default(0) @db.Decimal(18, 2)
-  bookBalance      Decimal           @default(0) @db.Decimal(18, 2)
-  difference       Decimal           @default(0) @db.Decimal(18, 2)
-  status           String            @default("open")
-  startedAt        DateTime          @default(now())
+  statementBalance Decimal                    @default(0) @db.Decimal(18, 2)
+  bookBalance      Decimal                    @default(0) @db.Decimal(18, 2)
+  difference       Decimal                    @default(0) @db.Decimal(18, 2)
+  status           ReconciliationPeriodStatus @default(open)
+  startedAt        DateTime                   @default(now())
   completedAt      DateTime?
-  transactionCount Int               @default(0)
+  transactionCount Int                        @default(0)
   notes            String?
   transactions     BankTransaction[]
-  bankAccount      BankAccount       @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
-  user             User              @relation("ReconUser", fields: [userId], references: [id])
-  company          Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  bankAccount      BankAccount                @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  user             User                       @relation("ReconUser", fields: [userId], references: [id])
+  company          Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, bankAccountId])
   @@index([status])
@@ -382,28 +441,28 @@ model RuleExecutionAudit {
 }
 
 model JournalEntry {
-  id                     String            @id @default(cuid())
-  companyId              String
-  date                   DateTime
-  description            String
-  reference              String?
-  status                 String            @default("draft")
-  hash                   String?
-  previousHash           String?
+  id                       String              @id @default(cuid())
+  companyId                String
+  date                     DateTime
+  description              String
+  reference                String?
+  status                   JournalEntryStatus  @default(draft)
+  hash                     String?
+  previousHash             String?
   /// Chain format of `hash`. NULL = legacy/no-hash (pre-JH2, never a v2 append).
   /// "v2" = JH:v2| payload contract (lines included). Never back-filled.
-  hashVersion            String?
-  ruleApplyRecordId      String?
-  idempotencyKey         String?
-  idempotencyRequestHash String?
-  createdAt              DateTime          @default(now())
-  updatedAt              DateTime          @updatedAt
-  company                Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  lines                  JournalLine[]
-  transactions           BankTransaction[]
-  ruleApplyRecord        RuleApplyRecord?  @relation(fields: [ruleApplyRecordId], references: [id], onDelete: SetNull)
-  correctionsAsOriginal  JournalCorrection[] @relation("JournalCorrectionOriginalEntry")
-  correctionsAsCounter   JournalCorrection[] @relation("JournalCorrectionCounterEntry")
+  hashVersion              String?
+  ruleApplyRecordId        String?
+  idempotencyKey           String?
+  idempotencyRequestHash   String?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  company                  Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  lines                    JournalLine[]
+  transactions             BankTransaction[]
+  ruleApplyRecord          RuleApplyRecord?    @relation(fields: [ruleApplyRecordId], references: [id], onDelete: SetNull)
+  correctionsAsOriginal    JournalCorrection[] @relation("JournalCorrectionOriginalEntry")
+  correctionsAsCounter     JournalCorrection[] @relation("JournalCorrectionCounterEntry")
   correctionsAsReplacement JournalCorrection[] @relation("JournalCorrectionReplacementEntry")
 
   @@unique([companyId, idempotencyKey])
@@ -889,4 +948,3 @@ model IdentitySecurityEvent {
 
   @@index([createdAt])
 }
-

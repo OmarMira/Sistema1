@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { GlAccountAccountType, GlAccountNormalBalance } from '@prisma/client';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireModuleEntitlement } from '@/lib/module-entitlement-guard';
@@ -92,11 +93,13 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     }
 
     // Pre-resolve parent GL account for legacy path
+    // S3 (Wave 6): the annotation mirrors the Prisma enum columns, so the
+    // sub-account create below can copy accountType/normalBalance unchanged.
     let parentAccount: {
       id: string;
       code: string;
-      accountType: string;
-      normalBalance: string;
+      accountType: GlAccountAccountType;
+      normalBalance: GlAccountNormalBalance;
       name: string;
       parentId: string | null;
     } | null = null;

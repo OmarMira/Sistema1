@@ -20,4 +20,5 @@ stopwords = [
   '''sk-test-api-key''',
   '''sk-valid-key''',
   '''badgeSoc2''',
+  '''Clave\.Descarga\.2026''',
 ]

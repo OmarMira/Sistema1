@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import crypto from 'node:crypto';
 import { POST as backupPOST } from '../../src/app/api/backup/route';
@@ -130,6 +130,47 @@ async function createFixture(companyId: string) {
   await db.$transaction((tx) => appendEntryToJournalChain(tx, { companyId, entryId: entry.id }));
   return { gl, entry };
 }
+
+/**
+ * The first-install gate is `company.count() === 0` (bootstrap restore answers
+ * 409 DB_NOT_EMPTY otherwise). `clearDatabase()` only removes companies that
+ * still have a test member, so a company another file left behind without
+ * members — or whose delete was blocked by a child row — survives it and makes
+ * this suite look like an installed system. The fixture database is disposable:
+ * start from an empty installation by removing every company, user, membership,
+ * session and dormant identity row before the first test.
+ */
+async function wipeInstallation() {
+  if (!(process.env.DATABASE_URL ?? '').includes('test')) {
+    throw new Error('wipeInstallation() REFUSED: DATABASE_URL does not point to a test database');
+  }
+  // RESTRICT edges first: these children block the cascade from Company/User.
+  await db.bankTransaction.deleteMany();
+  await db.bankStatement.deleteMany();
+  await db.bankAccount.deleteMany();
+  await db.journalLine.deleteMany();
+  await db.journalEntry.deleteMany();
+  await db.reconciliationPeriod.deleteMany();
+  await db.ruleApplyRecord.deleteMany();
+  // CompanyKnowledge is not cascaded from Company and its children point at it.
+  await db.knowledgeAudit.deleteMany();
+  await db.pendingApproval.deleteMany();
+  await db.companyKnowledge.updateMany({ data: { mergedIntoId: null } });
+  await db.companyKnowledge.deleteMany();
+  // Everything else that hangs off a company cascades with it.
+  await db.company.deleteMany();
+  await db.companyMember.deleteMany();
+  await db.session.deleteMany();
+  await db.user.deleteMany();
+  await db.identityPendingRegistration.deleteMany();
+  await db.identityChallenge.deleteMany();
+  await db.identityRateLimit.deleteMany();
+  await db.identitySecurityEvent.deleteMany();
+}
+
+beforeAll(async () => {
+  await wipeInstallation();
+});
 
 describe('bootstrap restore refusal codes (T7)', () => {
   let user: { id: string };

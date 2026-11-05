@@ -4,6 +4,7 @@ import path from 'path';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { createSession } from '@/lib/sessions';
+import { hashPassword } from '@/lib/auth';
 import { POST as backupPOST, DELETE as backupDELETE } from '@/app/api/backup/route';
 import { createBackup } from '@/lib/backup';
 import { BACKUP_DIR } from '@/lib/config/paths';
@@ -30,6 +31,14 @@ function readManifestFile(): { backups: Array<{ filename: string; companyId: str
 }
 
 const createdFilenames = new Set<string>();
+
+/**
+ * S7 — every backup carries the creating administrator's credential: the HTTP
+ * route verifies the re-entered password, and the library primitive requires it
+ * so a snapshot nobody can prove ownership of is never published. The DELETE
+ * integrity contract under test is unchanged.
+ */
+const ADMIN_PASSWORD = 'Clave.D10C.2026';
 
 function trackCreatedFile(filename: string) {
   createdFilenames.add(filename);
@@ -83,6 +92,10 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
     tenantB = await createTestCompany('D10C Tenant B');
 
     adminA = await createTestUser('admin-a-d10c@example.com');
+    await db.user.update({
+      where: { id: adminA.id },
+      data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
+    });
     await createTestCompanyMember(adminA.id, tenantA.id);
 
     viewerA = await createTestUser('viewer-a-d10c@example.com');
@@ -117,7 +130,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
   });
 
   async function materializeBackup(companyId: string, note = ''): Promise<string> {
-    const backup = await createBackup(companyId);
+    const backup = await createBackup(companyId, undefined, { ownerPassword: ADMIN_PASSWORD });
     trackCreatedFile(backup.filename);
     return backup.filename;
   }
@@ -392,6 +405,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       new NextRequest(`http://localhost/api/backup?companyId=${tenantA.id}`, {
         method: 'POST',
         headers: authHeaders(adminAToken),
+        body: JSON.stringify({ password: ADMIN_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );

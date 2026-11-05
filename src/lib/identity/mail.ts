@@ -53,11 +53,14 @@ export class SmtpAdapter implements IdentitySmtpTransport {
     const fromName = process.env.SMTP_FROM_NAME || '';
 
     // Phase B — T2 SMTP interface activated when SMTP_HOST is configured.
-    // If the adapter is constructed without a configured provider (no SMTP_HOST,
-    // empty SMTP_USER or SMTP_PASS), delivery resolves silently so the
-    // identity mechanism never exposes a token via an unconfigured provider.
+    // An unconfigured provider (no SMTP_HOST, empty SMTP_USER or SMTP_PASS) must
+    // fail honestly instead of resolving: nothing is sent and no transport is
+    // created, but the caller has to observe the failure so it can report
+    // delivery_failed rather than a silent, fictitious success. Only the same
+    // sanitized error as the provider-rejection path escapes here; no host,
+    // user, password or provider payload is ever included.
     if (!host || !user || !pass) {
-      return Promise.resolve();
+      throw new Error('SMTP delivery rejected');
     }
 
     try {

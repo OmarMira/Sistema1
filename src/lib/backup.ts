@@ -11,6 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { RUNTIME_FILES } from '@/lib/config/paths';
 import { COMPANY_BACKUP_VERSION, isCompanyFormat, sealSnapshot, canonicalizeSnapshotMoney, captureSnapshotFidelity, type SnapshotIntegrity, type SnapshotFidelity } from './backup-format';
+import { buildBackupOwnership, type BackupOwnershipVerifier } from './backup-ownership';
 import { readCatalog, writeCatalog, publishBackup, readBackupText, removeBackupFile, readCompanyConfig, validBackupFilename } from './backup-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
@@ -30,6 +31,11 @@ export interface BackupManifest {
   fidelity?: SnapshotFidelity;
   /** Exact external logo bytes, included in the manifest integrity digest. */
   companyLogo?: CompanyLogoImage | null;
+  /** S1/S2/S7: proof of the creating super-admin's password (scrypt verifier).
+   * Created only inside the sealed manifest, never in a plain data section, and
+   * never the password or its bcrypt hash. Absent in backups that predate the
+   * protection: those are refused by every restore path (RESTORE_OWNERSHIP). */
+  ownership?: BackupOwnershipVerifier;
   createdAt: string;
   companyId: string;
   companyInfo: {
@@ -284,8 +290,15 @@ export function filterSensitiveSystemConfig(
 /**
  * Export a versioned company database snapshot and its runtime configuration.
  * Returns identical saved/download bytes; v2 recovery is deliberately gated.
+ *
+ * S7: creating a backup is sudo-style — `options.ownerPassword` is the password
+ * the authenticated administrator just re-entered. Only its scrypt verifier is
+ * embedded (inside the sealed manifest); the password itself is never stored,
+ * logged or copied into the payload.
  */
-export async function createBackup(companyId: string, createdByUserId?: string): Promise<{
+export async function createBackup(companyId: string, createdByUserId?: string, options?: {
+  ownerPassword?: string;
+}): Promise<{
   id: string;
   filename: string;
   size: number;
@@ -294,6 +307,12 @@ export async function createBackup(companyId: string, createdByUserId?: string):
   recordCounts: BackupManifest['recordCounts'];
 }> {
   if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) throw new Error('Invalid company identifier');
+  // Fail closed BEFORE any database read or file write: an unauthenticated
+  // creation must never publish a snapshot nobody can prove ownership of.
+  const ownerPassword = options?.ownerPassword;
+  if (typeof ownerPassword !== 'string' || ownerPassword.length === 0) {
+    throw new Error('BACKUP_PASSWORD_REQUIRED: the creating administrator password is required');
+  }
   const companyConfig = readCompanyConfig(companyId);
   const snapshot = await withCompanyBackupTransaction(
     (tx) => captureCompanySnapshot(tx, companyId, companyConfig),
@@ -309,6 +328,9 @@ export async function createBackup(companyId: string, createdByUserId?: string):
     m.createdBy = createdByUserId ? createdByUserId : (m.createdBy as string | undefined || 'system');
     m.destination = 'db/backups/';
   }
+  // The verifier is derived after the snapshot exists but before sealing, so the
+  // digest covers it and the at-rest envelope encrypts it.
+  backupData.manifest.ownership = buildBackupOwnership(ownerPassword);
   sealSnapshot(backupData);
   const jsonString = JSON.stringify(backupData, null, 2);
   const size = Buffer.byteLength(jsonString, 'utf-8');

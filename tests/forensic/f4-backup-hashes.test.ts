@@ -79,7 +79,8 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        body: JSON.stringify({}),
+        // S7: creation is sudo-style — the administrator re-enters their password.
+        body: JSON.stringify({ password: 'SuperSecret!2026' }),
       }),
       { params: Promise.resolve({}) },
     );
@@ -112,7 +113,8 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        body: JSON.stringify({}),
+        // S7: creation is sudo-style — the administrator re-enters their password.
+        body: JSON.stringify({ password: 'AnotherSecret!2026' }),
       }),
       { params: Promise.resolve({}) },
     );

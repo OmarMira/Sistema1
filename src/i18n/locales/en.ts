@@ -1908,6 +1908,15 @@ const en = {
     VOID_REASON_REQUIRED: 'Enter the void reason: between 5 and 500 characters.',
     RECOVERY_PASSWORD_REQUIRED:
       'The recovery password is required and must be at least 8 characters long.',
+    // S7 — creating a backup is sudo-style: the administrator re-enters their own
+    // password. Only a scrypt verifier is stored.
+    BACKUP_PASSWORD_REQUIRED: 'Enter your password to create the backup.',
+    INVALID_BACKUP_PASSWORD: 'That password is not correct. No backup was created.',
+    // S1/S2 — restoring requires the password of the super admin who CREATED the
+    // backup; a stolen file is not enough. The server message states the concrete
+    // reason (missing credential, wrong credential, or a backup without verifier).
+    RESTORE_OWNERSHIP:
+      'This backup cannot be restored without the password of the super admin who created it.',
     INTERNAL_SERVER_ERROR:
       'An unexpected error occurred. Try again; if the problem persists, contact your administrator.',
   },

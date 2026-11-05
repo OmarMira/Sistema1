@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/db';
-import { createBackup } from '@/lib/backup';
+import { createBackup as createRawBackup } from '@/lib/backup';
 import { BACKUP_DIR } from '@/lib/config/paths';
 import { sealSnapshot } from '@/lib/backup-format';
 import { restoreCompanyBackup } from '@/lib/backup-restore';
@@ -36,6 +36,16 @@ import {
  *    grant platform authority.
  */
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
+
+/**
+ * S1/S2/S7: creating a backup requires the creating administrator's password
+ * and every restore must prove that same credential. The escalation/tenant
+ * fences this PoC exists for are untouched — the credential is supplied so the
+ * payloads reach them instead of stopping at the ownership gate.
+ */
+const OWNER_PASSWORD = 'Clave.Escalation.2026';
+const createBackup = (companyId: string) =>
+  createRawBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
 
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 
@@ -154,7 +164,7 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     target.role = 'super_admin';
     sealSnapshot(backupData);
     await expect(
-      restoreCompanyBackup(company.id, JSON.stringify(backupData)),
+      restoreCompanyBackup(company.id, JSON.stringify(backupData), { ownerPassword: OWNER_PASSWORD }),
     ).rejects.toThrow(/RESTORE_NESTED: CompanyMember\.user/);
     log('BACKUP TAMPERED (users only): refused by the nested-consistency fence');
 
@@ -168,7 +178,9 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
 
     // 3. Restore it through the company recovery path — the tampered role has
     //    no restoration route at all (v2 restores id+email references only).
-    const result = await restoreCompanyBackup(company.id, JSON.stringify(backupData));
+    const result = await restoreCompanyBackup(company.id, JSON.stringify(backupData), {
+      ownerPassword: OWNER_PASSWORD,
+    });
     log('RESTORE result: status =', result.status, '| operationId =', result.operationId);
     expect(result.status).toBe('committed');
 
@@ -227,14 +239,14 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
     // 3a. As saved on disk (stale digest): the tenant fence fires before the
     //     digest check.
     await expect(
-      restoreCompanyBackup(acme.id, JSON.stringify(backupData)),
+      restoreCompanyBackup(acme.id, JSON.stringify(backupData), { ownerPassword: OWNER_PASSWORD }),
     ).rejects.toThrow(/tenant mismatch/i);
 
     // 3b. Attacker recomputes the digest: the SAME tenant fence still refuses
     //     it, because every section row must belong to the selected company.
     sealSnapshot(backupData);
     await expect(
-      restoreCompanyBackup(acme.id, JSON.stringify(backupData)),
+      restoreCompanyBackup(acme.id, JSON.stringify(backupData), { ownerPassword: OWNER_PASSWORD }),
     ).rejects.toThrow(/tenant mismatch/i);
 
     // 4. Verify in PostgreSQL: the row never left Acme and nothing landed in
@@ -282,7 +294,7 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ companyId: company.id, data: tamperedBase64 }),
+      body: JSON.stringify({ companyId: company.id, data: tamperedBase64, ownerPassword: OWNER_PASSWORD }),
     });
     const res = await backupRestorePOST(req, { params: Promise.resolve({}) });
     const body = await res.json();

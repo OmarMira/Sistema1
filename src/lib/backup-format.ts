@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import type { BackupData } from './backup';
 import { Prisma } from '@prisma/client';
 import { validateCompanyLogo } from './backup-assets';
+import { isBackupOwnershipVerifier } from './backup-ownership';
 
 export const COMPANY_BACKUP_VERSION = '2.1.0';
 export const isCompanyFormat = (version: string) => ['2.0.0', COMPANY_BACKUP_VERSION].includes(version);
@@ -324,6 +325,12 @@ export function parseSnapshot(text: string): BackupData {
     if (data.systemConfig.length !== 0 || manifest.recordCounts.companyConfig !== (data.companyConfig !== null)) {
       throw new Error('Invalid company snapshot configuration');
     }
+  }
+  // S1/S2: the ownership verifier travels inside the sealed manifest. A present
+  // but malformed verifier is never trusted (it cannot protect anything), and
+  // the HMAC seal above already rejects a transplanted/edited one.
+  if (manifest.ownership !== undefined && !isBackupOwnershipVerifier(manifest.ownership)) {
+    throw new Error('Invalid backup ownership verifier');
   }
   if (manifest.companyLogo !== undefined) validateCompanyLogo(data.company[0].logo, manifest.companyLogo);
   // Catalogs retain legacy ambiguous files; only the new format promises this

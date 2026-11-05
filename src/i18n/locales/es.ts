@@ -1944,6 +1944,15 @@ const es = {
     // obligatoria (mínimo 8 caracteres) y define la clave del dueño restaurado.
     RECOVERY_PASSWORD_REQUIRED:
       'La contraseña de recuperación es obligatoria y debe tener al menos 8 caracteres.',
+    // S7 — crear un respaldo es estilo sudo: el administrador que lo crea
+    // reingresa su propia contraseña. Sólo se guarda un verificador scrypt.
+    BACKUP_PASSWORD_REQUIRED: 'Ingresá tu contraseña para crear el respaldo.',
+    INVALID_BACKUP_PASSWORD: 'La contraseña no es correcta. No se creó el respaldo.',
+    // S1/S2 — restaurar exige la contraseña del super administrador que CREÓ el
+    // respaldo; un archivo robado no alcanza. El mensaje del servidor detalla el
+    // motivo concreto (credencial ausente, incorrecta o respaldo sin verificador).
+    RESTORE_OWNERSHIP:
+      'No se puede restaurar: se necesita la contraseña del super administrador que creó este respaldo.',
     INTERNAL_SERVER_ERROR:
       'Ocurrió un error inesperado. Intentá nuevamente; si el problema persiste, contactá al administrador.',
   },

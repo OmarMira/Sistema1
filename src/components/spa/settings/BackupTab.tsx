@@ -19,6 +19,8 @@ import { downloadBackup } from '@/lib/backup-download';
 import { translateApiError } from '@/i18n/errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -52,6 +54,10 @@ export function BackupTab() {
   const [loading, setLoading] = useState(true);
   const [restoringFromList, setRestoringFromList] = useState<string | null>(null);
   const [showRestoreHistoryConfirm, setShowRestoreHistoryConfirm] = useState<BackupRecord | null>(null);
+  // S7/S1: sudo-style password for creating a backup, and the credential of the
+  // super admin who CREATED the backup for restoring it. Component state only.
+  const [createPassword, setCreatePassword] = useState('');
+  const [restorePassword, setRestorePassword] = useState('');
   const mountedRef = useRef(true);
 
   const fetchBackups = useCallback(async () => {
@@ -78,15 +84,20 @@ export function BackupTab() {
 
   async function handleCreateBackup() {
     if (!companyId) return;
+    if (createPassword.length === 0) {
+      toast.error('Ingresá tu contraseña para crear el respaldo.');
+      return;
+    }
     setCreating(true);
     try {
       const res = await fetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId }),
+        body: JSON.stringify({ companyId, password: createPassword }),
       });
       if (res.ok) {
         const data = await res.json();
+        setCreatePassword('');
         toast.success(t('settings.backup.backupCreated'), {
           description: `${formatFileSize(data.size)} — ${(Object.values(data.recordCounts) as number[]).reduce((a, b) => a + b, 0)} ${t('settings.backup.records')}`,
         });
@@ -125,6 +136,10 @@ export function BackupTab() {
 
   async function handleRestoreFromHistory(backup: BackupRecord) {
     if (!companyId) return;
+    if (restorePassword.length === 0) {
+      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
+      return;
+    }
     setRestoringFromList(backup.id);
     setShowRestoreHistoryConfirm(null);
 
@@ -139,12 +154,13 @@ export function BackupTab() {
       const restoreRes = await fetch(`/api/backup/restore?companyId=${companyId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: data.data }),
+        body: JSON.stringify({ data: data.data, ownerPassword: restorePassword }),
       });
 
       const result = await restoreRes.json();
 
       if (restoreRes.ok) {
+        setRestorePassword('');
         const totalRecords = (Object.values(result.restoredCounts) as number[]).reduce(
           (a, b) => a + b,
           0,
@@ -166,6 +182,10 @@ export function BackupTab() {
 
   function handleRestore() {
     if (!companyId) return;
+    if (restorePassword.length === 0) {
+      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
+      return;
+    }
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json,.backup';
@@ -178,12 +198,14 @@ export function BackupTab() {
         const formData = new FormData();
         formData.append('companyId', companyId);
         formData.append('file', file);
+        formData.append('ownerPassword', restorePassword);
         const res = await fetch('/api/backup/restore', {
           method: 'POST',
           body: formData,
         });
         const data = await res.json();
         if (res.ok) {
+          setRestorePassword('');
           const totalRecords = (Object.values(data.restoredCounts) as number[]).reduce(
             (a, b) => a + b,
             0,
@@ -233,7 +255,21 @@ export function BackupTab() {
             </CardTitle>
             <CardDescription>{t('settings.backup.createBackupDesc')}</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              <Label htmlFor="settings-backup-create-password">Tu contraseña de administrador</Label>
+              <Input
+                id="settings-backup-create-password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={createPassword}
+                onChange={(event) => setCreatePassword(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                El respaldo queda protegido con tu contraseña: sin ella nadie puede restaurarlo.
+              </p>
+            </div>
             <Button onClick={handleCreateBackup} disabled={creating || !companyId}>
               {creating ? (
                 <>
@@ -264,6 +300,23 @@ export function BackupTab() {
               <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
               <p className="text-sm text-amber-700 dark:text-amber-300">
                 {t('settings.backup.restoreWarning')}
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-backup-restore-password">
+                Contraseña del super administrador que creó el respaldo
+              </Label>
+              <Input
+                id="settings-backup-restore-password"
+                type="password"
+                autoComplete="current-password"
+                required
+                value={restorePassword}
+                onChange={(event) => setRestorePassword(event.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                La restauración exige la contraseña del super administrador que creó este respaldo, no la de
+                cualquier otra cuenta.
               </p>
             </div>
             <Button
@@ -378,6 +431,19 @@ export function BackupTab() {
               </p>
             </div>
           )}
+          <div className="space-y-2">
+            <Label htmlFor="settings-backup-history-password">
+              Contraseña del super administrador que creó el respaldo
+            </Label>
+            <Input
+              id="settings-backup-history-password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={restorePassword}
+              onChange={(event) => setRestorePassword(event.target.value)}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction

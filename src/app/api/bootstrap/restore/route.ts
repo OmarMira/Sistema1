@@ -5,6 +5,7 @@ import { apiHandler } from '@/lib/api-handler';
 import { validateBackupForCoordinatedRestore, type BackupData } from '@/lib/backup';
 import { isCompanyFormat } from '@/lib/backup-format';
 import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
+import { assertBackupOwnership } from '@/lib/backup-ownership';
 import { hashPassword } from '@/lib/auth';
 import { createSession } from '@/lib/sessions';
 import { logger } from '@/lib/logger';
@@ -74,8 +75,12 @@ async function discardBootstrapShell(companyId: string, userId: string): Promise
  * User credentials) — the recovery password typed by the operator is what makes
  * the restored installation owner able to log in.
  *
- * Body (multipart/form-data): `file` + `recoveryPassword`
- * Body (JSON): { data: <base64 snapshot>, recoveryPassword }
+ * Body (multipart/form-data): `file` + `recoveryPassword` + `ownerPassword`
+ * Body (JSON): { data: <base64 snapshot>, recoveryPassword, ownerPassword }
+ *
+ * S1/S2: `ownerPassword` is the credential of the super admin who created the
+ * backup. It is verified BEFORE the bootstrap shell exists, so a stolen file
+ * cannot install itself even on an empty system.
  */
 export const POST = apiHandler(
   async (request: NextRequest) => {
@@ -91,6 +96,7 @@ export const POST = apiHandler(
     // 2. Read the payload (multipart upload or base64 JSON) — unchanged limits.
     let backupData: BackupData;
     let recoveryPassword: unknown;
+    let ownerPassword: unknown;
 
     const contentType = request.headers.get('content-type') ?? '';
 
@@ -101,6 +107,8 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'No se subió ningún archivo' }, { status: 400 });
       }
       recoveryPassword = formData.get('recoveryPassword');
+      const ownership = formData.get('ownerPassword');
+      ownerPassword = typeof ownership === 'string' ? ownership : undefined;
 
       if (file.size > MAX_BACKUP_SIZE) {
         return NextResponse.json({ error: 'El archivo de respaldo supera el tamaño máximo (50MB)' }, { status: 400 });
@@ -130,6 +138,7 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'Se requiere data en base64' }, { status: 400 });
       }
       recoveryPassword = body.recoveryPassword;
+      ownerPassword = typeof body.ownerPassword === 'string' ? body.ownerPassword : undefined;
       try {
         const jsonString = Buffer.from(base64Data, 'base64').toString('utf-8');
         backupData = JSON.parse(jsonString) as BackupData;
@@ -194,6 +203,14 @@ export const POST = apiHandler(
     }
 
     const userId = firstUser.id;
+
+    // 4b. Ownership proof (S1/S2) — the restorer must know the password of the
+    //     super admin who CREATED this backup. Asserted after the required
+    //     recovery password (no plaintext stored anywhere) but BEFORE the
+    //     bootstrap shell is created, so a refused attempt leaves the system
+    //     verifiably empty and never has to be undone.
+    assertBackupOwnership(backupData.manifest, ownerPassword);
+
     const companyInfo = backupData.manifest.companyInfo as
       | { legalName?: unknown; taxId?: unknown }
       | undefined;
@@ -254,7 +271,9 @@ export const POST = apiHandler(
     //    instead), so the shell can be discarded and the system stays empty.
     let result: Awaited<ReturnType<typeof restoreCompanyBackupCoordinated>>;
     try {
-      result = await restoreCompanyBackupCoordinated(companyId, JSON.stringify(backupData));
+      result = await restoreCompanyBackupCoordinated(companyId, JSON.stringify(backupData), {
+        ownerPassword: typeof ownerPassword === 'string' ? ownerPassword : undefined,
+      });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       logger.error('bootstrap.restore: coordinated restore refused the payload', { companyId, error: detail });

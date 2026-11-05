@@ -15,6 +15,7 @@ import { withCompanyBackupTransaction } from '@/lib/db';
 import { ValidationError } from './api-error';
 import { captureCompanySnapshot, type BackupData, type BackupManifest, type CompanySnapshotClient } from './backup';
 import { sealSnapshot } from './backup-format';
+import { assertBackupOwnership, buildBackupOwnership } from './backup-ownership';
 import { publishBackup, readCompanyConfig } from './backup-storage';
 import {
   RESTORE_MODELS, delegate, identity, sameConfig, scalarData,
@@ -114,14 +115,24 @@ export async function previewCompanyRestore(companyId: string, text: string): Pr
  * from conflicting DB writers; serialization errors are surfaced, never retried.
  * Ordinary runtime file writers do not cooperate: configuration equality is a
  * prerequisite check, NOT proof of a coordinated filesystem snapshot.
+ *
+ * S1/S2: `options.ownerPassword` is the creating super-admin's credential. It
+ * is verified (fail-closed) before the transaction, before any destination
+ * validation and before any delete or publication.
  */
-export async function restoreCompanyBackup(companyId: string, text: string): Promise<CompanyRestoreResult> {
-  return restoreDatabase(companyId, text);
+export async function restoreCompanyBackup(companyId: string, text: string, options?: {
+  ownerPassword?: string;
+}): Promise<CompanyRestoreResult> {
+  return restoreDatabase(companyId, text, undefined, options?.ownerPassword);
 }
 
 type PrepareConfiguration = (operationId: string, checksum: string, safetyFilename: string) => void | Promise<void>;
-async function restoreDatabase(companyId: string, text: string, prepareConfiguration?: PrepareConfiguration): Promise<CompanyRestoreResult> {
+async function restoreDatabase(companyId: string, text: string, prepareConfiguration?: PrepareConfiguration, ownerPassword?: string): Promise<CompanyRestoreResult> {
   const source = validated(() => validateRestoreSource(companyId, text));
+  // Fail-closed ownership proof: the source snapshot is already parsed and its
+  // HMAC verified here, so the verifier cannot be forged. Nothing below this
+  // line runs without it — no lock, no destination validation, no delete.
+  assertBackupOwnership(source.snapshot.manifest, ownerPassword);
   const operationId = crypto.randomUUID();
   let safetyFilename = '';
   let mutationStarted = false;
@@ -144,6 +155,11 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       // The same existing snapshot builder enforces export inventory, graph
       // ownership and user-secret exclusion. Every read is in this transaction.
       const safety = await captureCompanySnapshot(tx, companyId, config);
+      // The safety snapshot is the rollback image of THIS operation. It carries
+      // its own fresh verifier for the same credential the restorer just proved,
+      // so a later rollback is possible without weakening S1/S2 (no password is
+      // stored, and a backup created without ownership proof stays impossible).
+      if (ownerPassword) safety.backupData.manifest.ownership = buildBackupOwnership(ownerPassword);
       sealSnapshot(safety.backupData);
       const safetyText = JSON.stringify(safety.backupData, null, 2);
       validateRestoreSource(companyId, safetyText);
@@ -183,9 +199,14 @@ export interface CoordinatedRestoreResult extends Omit<CompanyRestoreResult, 'st
 /** Internal service entry point, not HTTP authority. Keeps admission closed on
  * any uncertain commit/file outcome. Logos require exact checksummed archive
  * bytes and a trusted installed target mapping; legacy missing bytes fail closed.
+ * The ownership credential is verified before the maintenance gate is acquired,
+ * so a refused restore never even publishes a maintenance marker.
  */
-export async function restoreCompanyBackupCoordinated(companyId: string, text: string): Promise<CoordinatedRestoreResult> {
+export async function restoreCompanyBackupCoordinated(companyId: string, text: string, options?: {
+  ownerPassword?: string;
+}): Promise<CoordinatedRestoreResult> {
   const source = validated(() => validateRestoreSource(companyId, text));
+  assertBackupOwnership(source.snapshot.manifest, options?.ownerPassword);
   validated(() => validateCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo));
   const runtime = path.dirname(RUNTIME_FILES.companyConfig);
   const journalRoot = path.join(runtime, 'backup-recovery');
@@ -212,7 +233,7 @@ export async function restoreCompanyBackupCoordinated(companyId: string, text: s
         createRecoveryJournal(journalRoot, { operationId, companyId, checksum, maintenanceId: owner.id, safetyFilename,
           ...(source.snapshot.manifest.companyLogo ? { logoUrl: source.snapshot.manifest.companyLogo.url } : {}),
           files: [...(before === after ? [] : [{ key: 'company-config', before, after }]), ...(logo ? [logo.file] : [])] });
-      });
+      }, options?.ownerPassword);
       if (result.status !== 'committed') return { ...result, status: 'reconciliation_required' as const,
         scope: 'database-and-company-config' as const };
       const journal = readRecoveryJournal(journalRoot, result.operationId);

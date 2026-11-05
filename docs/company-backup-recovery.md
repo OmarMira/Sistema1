@@ -545,6 +545,20 @@ with their own codes and their original Spanish messages instead of flattening
 them into `RESTORE_FAILED`. Only the reported code/message changed: what is
 admitted, the 400 status and the "system stays empty" behaviour are unchanged.
 
+Transport differences by route: the first-install route reports the codes above
+directly, while the in-system `/api/backup/restore` wraps chain- and shell-level
+refusals as `code: "VALIDATION_ERROR"` with the `RESTORE_CHAIN: …` / `RESTORE_SHELL: …`
+prefix inside the `error` message (`RESTORE_OWNERSHIP` and `RESTORE_LEGACY_FORMAT`
+keep their real codes there). Interfaces that key translations off the code should
+match the message prefix on the in-system path.
+
+The ownership credential is bound to the password string present at backup
+creation: after an admin later rotates their password, restoring an older
+archive still requires the password as it was when that archive was generated
+(fail-closed; there is no bypass). Importing an archive whose source company id
+still exists in the installation is refused with `RESTORE_ID_CONFLICT` before the
+new-company branch runs; the documented cross-installation case is unaffected.
+
 `RESTORE_REBASE`, `RESTORE_IMPORT_JOURNAL` and `RESTORE_IMPORT_HISTORICAL` are
 sealed **audit actions**, not error codes.
 

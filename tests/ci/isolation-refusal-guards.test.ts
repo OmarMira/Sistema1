@@ -19,7 +19,9 @@ describe('S1 — isolation guards refuse unowned databases (behavioural)', () =>
     const r = run('vitest.forensic-f9.config.ts', { DATABASE_URL: 'postgresql://u:p@127.0.0.1:1/accountexpress_test' });
     expect(r.status).not.toBe(0);
     expect(r.stdout + r.stderr).toContain('instead of "accountexpress_bootstraptest"');
-    expect(r.stdout).toContain('Tests  no tests');
+    // Vitest summary formatting differs across platforms; only assert that no
+    // test actually ran against the wrong database.
+    expect(r.stdout + r.stderr).toMatch(/Tests\s+no tests/);
   });
   it('dedicated identity configs refuse URLs without ownership proof', { timeout: 180_000 }, () => {
     const reg = run('vitest.registration-integration.config.ts', { DATABASE_URL: 'postgresql://registration_test:x@127.0.0.1:1/registration_test' });

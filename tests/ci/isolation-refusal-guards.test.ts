@@ -9,19 +9,20 @@ import fs from 'node:fs';
 const run = (config: string, env: Record<string, string>) => spawnSync(process.execPath,
   ['node_modules/vitest/vitest.mjs', 'run', '--config', config],
   { encoding: 'utf8', timeout: 120_000, windowsHide: true,
-    env: { ...process.env, NODE_ENV: 'test', CI: '1', DATABASE_URL: '', IDENTITY_TEST_CONTAINER_ID: '',
+    env: { ...process.env, NODE_ENV: 'test', CI: '1', NO_COLOR: '1', FORCE_COLOR: '0', DATABASE_URL: '', IDENTITY_TEST_CONTAINER_ID: '',
       IDENTITY_TEST_OWNER_PROOF: '', REGISTRATION_TEST_PORT: '', REGISTRATION_TEST_OWNED: '',
       CLEAN_IDENTITY_TEST_PORT: '', CLEAN_IDENTITY_TEST_OWNED: '', ...env } });
+const noAnsi = (text: string) => text.replace(/\u001B\[[0-9;]*m/g, '');
 const scratchDataDirs = () => fs.readdirSync(os.tmpdir()).filter(name => name.startsWith('sistema1-ci-data-')).length;
 
 describe('S1 — isolation guards refuse unowned databases (behavioural)', () => {
   it('bootstrap twin refuses accountexpress_test and never connects', { timeout: 120_000 }, () => {
     const r = run('vitest.forensic-f9.config.ts', { DATABASE_URL: 'postgresql://u:p@127.0.0.1:1/accountexpress_test' });
     expect(r.status).not.toBe(0);
-    expect(r.stdout + r.stderr).toContain('instead of "accountexpress_bootstraptest"');
+    expect(noAnsi(r.stdout + r.stderr)).toContain('instead of "accountexpress_bootstraptest"');
     // Vitest summary formatting differs across platforms; only assert that no
     // test actually ran against the wrong database.
-    expect(r.stdout + r.stderr).toMatch(/Tests\s+no tests/);
+    expect(noAnsi(r.stdout + r.stderr)).toMatch(/Tests\s+no tests/);
   });
   it('dedicated identity configs refuse URLs without ownership proof', { timeout: 180_000 }, () => {
     const reg = run('vitest.registration-integration.config.ts', { DATABASE_URL: 'postgresql://registration_test:x@127.0.0.1:1/registration_test' });

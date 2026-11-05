@@ -46,7 +46,11 @@ import {
 export function BackupTab() {
   const t = useLanguageStore((s) => s.t);
   const activeCompany = useAuthStore((s) => s.activeCompany);
+  const user = useAuthStore((s) => s.user);
   const companyId = activeCompany?.id;
+  // S4 (T5): restoring an archive as a NEW company is a platform operation, so
+  // the optional destination selector exists only for a global super_admin.
+  const isSuperAdmin = user?.role === 'super_admin';
 
   const [creating, setCreating] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -58,6 +62,10 @@ export function BackupTab() {
   // super admin who CREATED the backup for restoring it. Component state only.
   const [createPassword, setCreatePassword] = useState('');
   const [restorePassword, setRestorePassword] = useState('');
+  // S4 (T5) — optional destination of a super_admin restore. Empty means "the
+  // caller's own company", which is the unchanged default contract.
+  const [restoreTargets, setRestoreTargets] = useState<{ id: string; legalName: string }[]>([]);
+  const [restoreTargetCompanyId, setRestoreTargetCompanyId] = useState('');
   const mountedRef = useRef(true);
 
   const fetchBackups = useCallback(async () => {
@@ -81,6 +89,38 @@ export function BackupTab() {
       mountedRef.current = false;
     };
   }, [fetchBackups]);
+
+  // S4: the destination list comes from the same admin endpoint the admin
+  // screens use. A non-super_admin never asks for it and never sees the option.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/companies');
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setRestoreTargets(
+            (data.companies ?? []).map((row: { id: string; legalName: string }) => ({
+              id: row.id,
+              legalName: row.legalName,
+            })),
+          );
+        }
+      } catch {
+        /* the selector simply stays on the current company */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
+
+  /** Sent only when a super_admin picked a company other than the current one. */
+  const selectedTargetCompanyId =
+    isSuperAdmin && restoreTargetCompanyId && restoreTargetCompanyId !== companyId
+      ? restoreTargetCompanyId
+      : undefined;
 
   async function handleCreateBackup() {
     if (!companyId) return;
@@ -154,13 +194,18 @@ export function BackupTab() {
       const restoreRes = await fetch(`/api/backup/restore?companyId=${companyId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: data.data, ownerPassword: restorePassword }),
+        body: JSON.stringify({
+          data: data.data,
+          ownerPassword: restorePassword,
+          ...(selectedTargetCompanyId ? { targetCompanyId: selectedTargetCompanyId } : {}),
+        }),
       });
 
       const result = await restoreRes.json();
 
       if (restoreRes.ok) {
         setRestorePassword('');
+        setRestoreTargetCompanyId('');
         const totalRecords = (Object.values(result.restoredCounts) as number[]).reduce(
           (a, b) => a + b,
           0,
@@ -199,6 +244,7 @@ export function BackupTab() {
         formData.append('companyId', companyId);
         formData.append('file', file);
         formData.append('ownerPassword', restorePassword);
+        if (selectedTargetCompanyId) formData.append('targetCompanyId', selectedTargetCompanyId);
         const res = await fetch('/api/backup/restore', {
           method: 'POST',
           body: formData,
@@ -206,6 +252,7 @@ export function BackupTab() {
         const data = await res.json();
         if (res.ok) {
           setRestorePassword('');
+          setRestoreTargetCompanyId('');
           const totalRecords = (Object.values(data.restoredCounts) as number[]).reduce(
             (a, b) => a + b,
             0,
@@ -319,6 +366,31 @@ export function BackupTab() {
                 cualquier otra cuenta.
               </p>
             </div>
+            {isSuperAdmin && (
+              <div className="space-y-2 rounded-lg border border-dashed p-3">
+                <Label htmlFor="settings-backup-target-company">
+                  {t('settings.backup.restoreAsNewCompany')}
+                </Label>
+                <select
+                  id="settings-backup-target-company"
+                  value={restoreTargetCompanyId}
+                  onChange={(event) => setRestoreTargetCompanyId(event.target.value)}
+                  className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  <option value="">{t('settings.backup.restoreTargetCurrent')}</option>
+                  {restoreTargets
+                    .filter((target) => target.id !== companyId)
+                    .map((target) => (
+                      <option key={target.id} value={target.id}>
+                        {target.legalName}
+                      </option>
+                    ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings.backup.restoreAsNewCompanyHint')}
+                </p>
+              </div>
+            )}
             <Button
               variant="outline"
               onClick={handleRestore}
@@ -444,6 +516,31 @@ export function BackupTab() {
               onChange={(event) => setRestorePassword(event.target.value)}
             />
           </div>
+          {isSuperAdmin && (
+            <div className="space-y-2">
+              <Label htmlFor="settings-backup-history-target-company">
+                {t('settings.backup.restoreAsNewCompany')}
+              </Label>
+              <select
+                id="settings-backup-history-target-company"
+                value={restoreTargetCompanyId}
+                onChange={(event) => setRestoreTargetCompanyId(event.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="">{t('settings.backup.restoreTargetCurrent')}</option>
+                {restoreTargets
+                  .filter((target) => target.id !== companyId)
+                  .map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.legalName}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.backup.restoreAsNewCompanyHint')}
+              </p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction

@@ -43,7 +43,11 @@ import { RestoreDropZone } from '@/components/backup/RestoreDropZone';
 export function BackupPage() {
   const t = useLanguageStore((s) => s.t);
   const activeCompany = useAuthStore((s) => s.activeCompany);
+  const user = useAuthStore((s) => s.user);
   const companyId = activeCompany?.id;
+  // S4 (T5): restoring an archive as a NEW company is a platform operation, so
+  // the optional destination selector exists only for a global super_admin.
+  const isSuperAdmin = user?.role === 'super_admin';
 
   // State
   const [backups, setBackups] = useState<BackupRecord[]>([]);
@@ -64,6 +68,10 @@ export function BackupPage() {
   // never logged, and cleared as soon as the operation finishes.
   const [createPassword, setCreatePassword] = useState('');
   const [restorePassword, setRestorePassword] = useState('');
+  // S4 (T5) — optional destination of a super_admin restore. Empty means "the
+  // caller's own company", which is the unchanged default contract.
+  const [restoreTargets, setRestoreTargets] = useState<{ id: string; legalName: string }[]>([]);
+  const [restoreTargetCompanyId, setRestoreTargetCompanyId] = useState('');
   const mountedRef = useRef(true);
 
   // Fetch backups
@@ -88,6 +96,38 @@ export function BackupPage() {
       mountedRef.current = false;
     };
   }, [fetchBackups]);
+
+  // S4: the destination list comes from the same admin endpoint the admin
+  // screens use. A non-super_admin never asks for it and never sees the option.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/companies');
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setRestoreTargets(
+            (data.companies ?? []).map((row: { id: string; legalName: string }) => ({
+              id: row.id,
+              legalName: row.legalName,
+            })),
+          );
+        }
+      } catch {
+        /* the selector simply stays on the current company */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
+
+  /** Sent only when a super_admin picked a company other than the current one. */
+  const selectedTargetCompanyId =
+    isSuperAdmin && restoreTargetCompanyId && restoreTargetCompanyId !== companyId
+      ? restoreTargetCompanyId
+      : undefined;
 
   // Create backup
   async function handleCreateBackup() {
@@ -192,6 +232,16 @@ export function BackupPage() {
       const parsed = JSON.parse(jsonString);
       const previewData = JSON.stringify({ data: parsed.data ?? parsed });
 
+      // S4: a destination other than the current company is certified by the
+      // restore route itself, not by this preview (which is bound to the
+      // caller's company). Go straight to the confirmation.
+      if (selectedTargetCompanyId) {
+        setRestoring(false);
+        setRestoreProgress(0);
+        setShowRestoreConfirm(true);
+        return;
+      }
+
       setRestoreProgress(30);
       const previewRes = await fetch('/api/backup/restore/preview', {
         method: 'POST',
@@ -242,7 +292,11 @@ export function BackupPage() {
       const res = await fetch('/api/backup/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data, ownerPassword: restorePassword }),
+        body: JSON.stringify({
+          data,
+          ownerPassword: restorePassword,
+          ...(selectedTargetCompanyId ? { targetCompanyId: selectedTargetCompanyId } : {}),
+        }),
       });
 
       setRestoreProgress(80);
@@ -251,6 +305,7 @@ export function BackupPage() {
       if (res.ok) {
         setRestoreProgress(100);
         setRestorePassword('');
+        setRestoreTargetCompanyId('');
         const totalRecords = (Object.values(result.counts ?? {} ) as number[]).reduce(
           (a, b) => a + b,
           0,
@@ -542,6 +597,31 @@ export function BackupPage() {
               onChange={(event) => setRestorePassword(event.target.value)}
             />
           </div>
+          {isSuperAdmin && (
+            <div className="space-y-2">
+              <Label htmlFor="backup-confirm-target-company">
+                {t('settings.backup.restoreAsNewCompany')}
+              </Label>
+              <select
+                id="backup-confirm-target-company"
+                value={restoreTargetCompanyId}
+                onChange={(event) => setRestoreTargetCompanyId(event.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="">{t('settings.backup.restoreTargetCurrent')}</option>
+                {restoreTargets
+                  .filter((target) => target.id !== companyId)
+                  .map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.legalName}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.backup.restoreAsNewCompanyHint')}
+              </p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction

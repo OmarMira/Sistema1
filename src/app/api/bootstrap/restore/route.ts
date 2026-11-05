@@ -6,6 +6,7 @@ import { validateBackupForCoordinatedRestore, type BackupData } from '@/lib/back
 import { isCompanyFormat } from '@/lib/backup-format';
 import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
 import { assertBackupOwnership } from '@/lib/backup-ownership';
+import { AppError } from '@/lib/api-error';
 import { hashPassword } from '@/lib/auth';
 import { createSession } from '@/lib/sessions';
 import { logger } from '@/lib/logger';
@@ -15,6 +16,57 @@ import { logger } from '@/lib/logger';
 const recoveryPasswordSchema = z.string().min(8, 'La contraseña debe tener al menos 8 caracteres');
 
 const MAX_BACKUP_SIZE = 50 * 1024 * 1024;
+
+/**
+ * Documented refusals of the restore core. They reach this handler either as a
+ * typed AppError (`LegacyBackupFormatError`, `BackupOwnershipError`) or as the
+ * core's own `RESTORE_<CODE>: <detail>` message, which the shared error handler
+ * cannot recover a code from. Reporting the family code instead of a generic
+ * `RESTORE_FAILED` keeps the operator's Spanish explanation and the machine
+ * code the rest of the product already answers for the same refusal.
+ *
+ * Anything else (an unparsable payload, a missing section, an unexpected
+ * transport fault) keeps the generic handling below: this map never invents a
+ * refusal code and never changes whether a payload is admitted.
+ */
+const KNOWN_RESTORE_REFUSALS = [
+  'RESTORE_LEGACY_FORMAT',
+  'RESTORE_OWNERSHIP',
+  'RESTORE_CHAIN',
+  'RESTORE_SHELL',
+] as const;
+
+type KnownRestoreRefusal = (typeof KNOWN_RESTORE_REFUSALS)[number];
+
+function isKnownRestoreRefusal(code: string): code is KnownRestoreRefusal {
+  return (KNOWN_RESTORE_REFUSALS as readonly string[]).includes(code);
+}
+
+/**
+ * The refusal as the operator should see it, or `null` for unknown errors.
+ * The message is passed through verbatim: no wrapping, no re-translation.
+ */
+function knownRestoreRefusal(
+  error: unknown,
+): { code: KnownRestoreRefusal; message: string; status: number; details?: unknown } | null {
+  const appCode = error instanceof AppError ? error.code : undefined;
+  if (typeof appCode === 'string' && isKnownRestoreRefusal(appCode)) {
+    return {
+      code: appCode,
+      message: (error as AppError).message,
+      status: (error as AppError).statusCode,
+      details: (error as AppError).details,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const prefixed = /^(RESTORE_[A-Z_]+):/.exec(message)?.[1];
+  if (prefixed && isKnownRestoreRefusal(prefixed)) {
+    return { code: prefixed, message, status: 400 };
+  }
+
+  return null;
+}
 
 /** Company entity types the shell company can be created with. */
 const ENTITY_TYPES = ['INDIVIDUAL', 'BUSINESS'] as const;
@@ -278,6 +330,21 @@ export const POST = apiHandler(
       const detail = error instanceof Error ? error.message : String(error);
       logger.error('bootstrap.restore: coordinated restore refused the payload', { companyId, error: detail });
       await discardBootstrapShell(companyId, userId);
+      // T7 (S3): report the refusal the core actually made (legacy plain-text
+      // file, ownership credential, uncertifiable history, non-empty shell)
+      // instead of flattening it into a generic failure. Same 400, same
+      // Spanish message, no change to what is admitted.
+      const refusal = knownRestoreRefusal(error);
+      if (refusal) {
+        return NextResponse.json(
+          {
+            error: refusal.message,
+            code: refusal.code,
+            ...(refusal.details === undefined ? {} : { details: refusal.details }),
+          },
+          { status: refusal.status },
+        );
+      }
       return NextResponse.json(
         { error: `No se pudo restaurar el sistema: ${detail}`, code: 'RESTORE_FAILED' },
         { status: 400 },

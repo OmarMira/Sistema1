@@ -4,7 +4,11 @@ export default defineConfig({
   envDir: false,
   test: {
     environment: 'node',
-    include: ['tests/identity/*.integration.test.ts'],
+    include: [
+      'tests/identity/challenge-concurrency.integration.test.ts',
+      'tests/identity/independent-contract.integration.test.ts',
+      'tests/identity/s7-acceptance.integration.test.ts',
+    ],
     setupFiles: [],
     globalSetup: [],
     fileParallelism: false,

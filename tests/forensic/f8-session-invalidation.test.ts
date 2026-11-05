@@ -58,7 +58,16 @@ function buildRequest(
 async function createUserWithPassword(email: string, password: string, platformRole = 'user') {
   const passwordHash = await hashPassword(password);
   const user = await db.user.create({
-    data: { email, passwordHash, firstName: 'F8', lastName: 'Test', platformRole },
+    data: {
+      email,
+      passwordHash,
+      firstName: 'F8',
+      lastName: 'Test',
+      platformRole,
+      // Verified, non-legacy actor: the sessions resolver rejects pending users.
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
+    },
   });
   createdUserIds.add(user.id);
   return user;

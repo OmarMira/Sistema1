@@ -17,8 +17,14 @@ import { AsyncLocalStorage } from 'async_hooks';
 vi.mock('@/lib/sessions', () => ({
   getSessionUserId: vi.fn(async () => 's92-test-user'),
 }));
+// Mirror the real logger surface (src/lib/logger.ts: info/warn/error/slowQuery).
+// src/lib/db.ts registers a Prisma `query` listener that calls
+// `logger.slowQuery(query, duration)` for every query over 100ms; the
+// concurrency scenarios below trigger that path under load, so an incomplete
+// mock surfaced as `TypeError: logger.slowQuery is not a function` uncaught
+// exceptions from the Prisma client's event emitter.
 vi.mock('@/lib/logger', () => ({
-  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), debug: vi.fn() },
+  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn(), slowQuery: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('@/lib/rbac', () => ({
   requireCompanyRole: vi.fn(async () => undefined),

@@ -14,8 +14,10 @@ import { POST as login } from '../../src/app/api/auth/login/route';
 // Reject the operative destination BEFORE importing/constructing any DB singleton.
 const state = vi.hoisted(() => {
   const url = new URL(process.env.DATABASE_URL || 'http://invalid');
-  if (url.protocol !== 'postgresql:' || url.hostname !== '127.0.0.1' || url.port !== '59521' || url.pathname !== '/registration_test') {
-    throw new Error('Only authorized registration_test@127.0.0.1:59521 is allowed');
+  const port = process.env.REGISTRATION_TEST_PORT;
+  const owner = process.env.REGISTRATION_TEST_OWNED || '';
+  if (url.protocol !== 'postgresql:' || url.hostname !== '127.0.0.1' || !port || url.port !== port || port === '5432' || url.pathname !== '/registration_test' || url.username !== 'registration_test' || !/^proof-[a-f0-9]{32}$/.test(owner) || owner !== process.env.IDENTITY_TEST_OWNER_PROOF) {
+    throw new Error('Only the explicitly owned disposable registration_test database is allowed');
   }
   return { url: url.toString(), db: undefined as unknown as PrismaClient, identity: undefined as unknown as IdentityService,
     messages: [] as Array<{ to: string; code: string }>, mailFails: false, seedFails: false, now: new Date(), sessions: vi.fn() };

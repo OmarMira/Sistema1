@@ -14,6 +14,18 @@ vi.mock('@/lib/db', () => ({
       return cb({
         journalEntry: { create: createEntry },
         fiscalPeriod: { updateMany: vi.fn().mockResolvedValue({ count: 8 }) },
+        // S23h: executeYearClose refreshes GlAccount.balance for every closed
+        // account inside the same transaction via
+        // JournalEntryService.recalculateBalance. This file asserts the closing
+        // math, not the balance refresh, so the account is debit-normal and its
+        // recalculated total is zero.
+        glAccount: {
+          findUnique: vi.fn().mockResolvedValue({ normalBalance: 'debit', companyId: 'c1' }),
+          update: vi.fn().mockResolvedValue({}),
+        },
+        journalLine: {
+          aggregate: vi.fn().mockResolvedValue({ _sum: { debit: 0, credit: 0 } }),
+        },
       });
     }),
   },

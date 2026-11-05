@@ -46,10 +46,10 @@ import { POST as loginPOST } from '@/app/api/auth/login/route';
 import { GET as meGET } from '@/app/api/auth/me/route';
 import es from '@/i18n/locales/es';
 import en from '@/i18n/locales/en';
+import { BACKUP_DIR } from '@/lib/config/paths';
 
 const RECOVERY_PASSWORD = 'Recuperacion!2026';
 const OWNER_EMAIL = 'bootstrap.restore.owner@example.com';
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 
 type CreatedBackup = Awaited<ReturnType<typeof createBackup>>;
 
@@ -72,7 +72,7 @@ async function wipeDatabase() {
   );
 }
 
-/** Remove the files this suite published so db/backups is left as it was found. */
+/** Remove the files this suite published so the backup directory is left as it was found. */
 const publishedBackups: string[] = [];
 let currentSourceCompanyId = '';
 function forgetPublishedBackups() {
@@ -191,7 +191,7 @@ describe('POST /api/bootstrap/restore — first-install restore of a 2.1.0 backu
 
   afterEach(() => {
     // The export under test and the safety snapshot the coordinated restore
-    // publishes for the same company both land in db/backups.
+    // publishes for the same company both land in the shared backup directory.
     collectPublishedBackups(currentSourceCompanyId);
     forgetPublishedBackups();
   });

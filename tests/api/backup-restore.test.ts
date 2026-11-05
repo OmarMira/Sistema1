@@ -90,6 +90,16 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
   beforeEach(async () => {
     await clearDatabase();
     createdBackups.length = 0;
+    // The coordinated restore certifies the INSTALLATION-WIDE audit chain before
+    // it replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN, pinned by
+    // tests/backup-company/restore.test.ts): a predecessor another tenant still
+    // needs must never be deleted or re-signed. Other suites leave hashed
+    // AuditLog rows behind (their tenant is gone, or the hash was sealed with a
+    // stubbed HMAC secret) and such a row can never be certified, so the shared
+    // test DB removes ONLY that hashed residue. Unhashed operational rows — the
+    // BACKUP_CREATED / COMPANY_RESTORE_COMMITTED rows asserted below — are
+    // untouched, and the restore assertions stay exactly as they were.
+    await db.auditLog.deleteMany({ where: { hash: { not: null } } });
   });
 
   afterEach(async () => {

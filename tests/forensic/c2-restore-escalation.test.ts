@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/db';
 import { createBackup } from '@/lib/backup';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import { sealSnapshot } from '@/lib/backup-format';
 import { restoreCompanyBackup } from '@/lib/backup-restore';
 import { verifyPassword } from '@/lib/auth';
@@ -36,7 +37,6 @@ import {
  */
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 
 // createBackup writes real files to db/backups and appends to manifest.json.
@@ -85,6 +85,15 @@ async function cleanupCreatedDbRows(): Promise<void> {
 describe('C2 — Restore role escalation (dynamic PoC)', () => {
   beforeEach(async () => {
     await clearDatabase();
+    // The recovery core certifies the INSTALLATION-WIDE audit chain before it
+    // replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN, pinned by
+    // tests/backup-company/restore.test.ts): a predecessor another tenant still
+    // needs must never be deleted or re-signed. Other suites leave hashed
+    // AuditLog rows behind (their tenant is gone, or the hash was sealed with a
+    // stubbed HMAC secret) and such a row can never be certified, so the shared
+    // test DB removes ONLY that hashed residue. Unhashed operational rows — the
+    // ones this suite asserts on — and every escalation assertion are untouched.
+    await db.auditLog.deleteMany({ where: { hash: { not: null } } });
   });
 
   afterEach(async () => {

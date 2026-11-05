@@ -5,6 +5,7 @@ import { db } from '@/lib/db';
 import { createBackup } from '@/lib/backup';
 import { restoreCompanyBackup } from '@/lib/backup-restore';
 import { sealSnapshot } from '@/lib/backup-format';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import {
   createTestUser,
   createTestCompany,
@@ -15,7 +16,6 @@ import {
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 const diskTestCompanyIds = new Set<string>();
 const createdCompanyIds = new Set<string>();

@@ -4,12 +4,11 @@ import { POST as backupPOST } from '../../src/app/api/backup/route';
 import { POST as previewPOST } from '../../src/app/api/backup/restore/preview/route';
 import { createTestUser, createTestCompany, createTestGlAccount, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
-
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 
 function cleanTestBackups(filenames: string[]) {
   for (const name of filenames) {

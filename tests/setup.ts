@@ -52,7 +52,7 @@ const workerPath = pathToFileURL(
 pdfjs.GlobalWorkerOptions.workerSrc = workerPath;
 
 // Mock the Z AI SDK globally in testing
-import { vi, beforeAll, beforeEach } from 'vitest';
+import { vi, beforeEach } from 'vitest';
 vi.mock('z-ai-web-dev-sdk', () => {
   return {
     default: {
@@ -109,65 +109,5 @@ vi.mock('z-ai-web-dev-sdk', () => {
 });
 
 // Invalidate critical module caches to avoid stale Prisma client instances
-const modulesToClear = ['@prisma/client', '@/lib/db'];
-modulesToClear.forEach((mod) => {
-  try {
-    const resolved = require.resolve(mod);
-    delete require.cache[resolved];
-  } catch (_) {
-    // Module not loaded yet, ignore
-  }
-});
-
-import { db } from '@/lib/db';
-import { BankProfileConfigSchema } from '@/lib/bank-profile-schema';
-import boaProfile from '@/lib/bank-profiles/boa-standard.json';
-
-beforeAll(async () => {
-  const profilesToSeed = [
-    {
-      bankId: boaProfile.bankId,
-      bankName: boaProfile.bankName,
-      fingerprints: boaProfile.fingerprints,
-      config: {
-        layoutType: boaProfile.layoutType,
-        lineGroupingTolerancePx: boaProfile.lineGroupingTolerancePx,
-        numberFormat: boaProfile.numberFormat,
-        rules: boaProfile.rules,
-      },
-    },
-  ];
-
-  for (const item of profilesToSeed) {
-    const validation = BankProfileConfigSchema.safeParse(item.config);
-    if (validation.success) {
-      // S1 (Wave 5): bank profiles are company-scoped and a nullable companyId is
-      // not addressable by a Prisma unique input, so the GLOBAL read-only seed
-      // (companyId NULL) is addressed by id.
-      const existingSeed = await db.bankProfile.findFirst({
-        where: { bankId: item.bankId, companyId: null },
-        select: { id: true },
-      });
-      if (existingSeed) {
-        await db.bankProfile.update({
-          where: { id: existingSeed.id },
-          data: {
-            bankName: item.bankName,
-            fingerprints: JSON.stringify(item.fingerprints),
-            config: JSON.stringify(validation.data),
-          },
-        });
-      } else {
-        await db.bankProfile.create({
-          data: {
-            bankId: item.bankId,
-            bankName: item.bankName,
-            fingerprints: JSON.stringify(item.fingerprints),
-            config: JSON.stringify(validation.data),
-            isActive: true,
-          },
-        });
-      }
-    }
-  }
-});
+// Database schema and global bank-profile fixtures are prepared once by
+// global-setup.ts, outside per-file mocks of @/lib/db and @prisma/client.

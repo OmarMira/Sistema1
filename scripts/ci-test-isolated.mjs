@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import fs from 'node:fs';
+import os from 'node:os';
 import { setTimeout as delay } from 'node:timers/promises';
 
 export const identitySuites = [
@@ -16,9 +17,8 @@ export const identitySuites = [
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const help = 'Usage: node scripts/ci-test-isolated.mjs --help | --plan | --run [--focus] [--checks]\n';
 const focusedFiles = [
-  'tests/api/b3-4-recovery-password.test.ts',
-  'tests/forensic/f9-bootstrap-restore.test.ts',
-  'tests/forensic/hdr1c-memory-backup.test.ts',
+  'tests/api/restore-known-password.test.ts',
+  'tests/wave6/bootstrap-restore.test.ts',
 ];
 export function localDockerHost(value = process.env.DOCKER_HOST) {
   const host = value || (process.platform === 'win32' ? 'npipe:////./pipe/docker_engine' : 'unix:///var/run/docker.sock');
@@ -74,6 +74,10 @@ async function run(args) {
   };
   const tool = async (file, params, stageEnv = env) => exec(process.execPath, [path.join(root, 'node_modules', file), ...params], stageEnv);
   const vitest = (config, stageEnv, files = []) => tool('vitest/vitest.mjs', ['run', '--config', config, ...files], stageEnv);
+  const backupDir = os.tmpdir();
+  const dataDir = fs.mkdtempSync(path.join(backupDir, 'sistema1-ci-data-'));
+  const bootstrapTemp = path.join(dataDir, 'tmp');
+  fs.mkdirSync(bootstrapTemp);
   let id;
   let failure = 0;
   try {
@@ -91,25 +95,52 @@ async function run(args) {
       if (check.code === 0) { ready = true; break; }
       await delay(500);
     }
+    // First-boot race: pg_isready can answer while initdb's temporary server
+    // is still shutting down, so require two consecutive accepting checks.
+    if (ready) {
+      await delay(1000);
+      const confirm = await exec('docker', ['--host', host, 'exec', id, 'pg_isready', '-U', 'identity_test', '-d', 'identity_phase_a'], env, true);
+      ready = confirm.code === 0;
+    }
     if (!ready) throw new Error('New PostgreSQL container did not become ready');
-    const sql = async (statement, database = 'identity_phase_a') => {
+    const sql = async (statement, database = 'identity_phase_a', user = 'identity_test') => {
       proveOwned(await inspect(), id, owner);
-      await docker(['exec', id, 'psql', '-U', 'identity_test', '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', statement]);
+      // Transient first-boot connection refusals surface as psql exit 2; retry
+      // briefly and surface the tool's own stderr in the final failure.
+      let lastCode = 0;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) await delay(1000 * attempt);
+        const result = await exec('docker', ['--host', host, 'exec', id, 'psql', '-U', user, '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', statement], env, true);
+        lastCode = result.code;
+        if (result.code === 0) return;
+      }
+      throw new Error(`psql exited ${lastCode} while preparing ${database} (see runner stderr for the statement's own error output)`);
     };
     for (const database of ['accountexpress_test', 'registration_test', 'clean_identity_test', 'accountexpress_bootstraptest']) {
       if (database !== 'accountexpress_test') await sql(`CREATE ROLE ${database} LOGIN PASSWORD '${password}'`);
       if (database === 'accountexpress_test') await sql(`CREATE DATABASE ${database} OWNER identity_test`); else await sql(`CREATE DATABASE ${database} OWNER identity_test`);
+      // PostgreSQL 15+: CREATE TYPE requires ownership of the public schema.
+      // Each database connects as its own role (identity_test for the main DB,
+      // same-name role for the rest), so ownership must transfer to that role.
+      const dbUser = database === 'accountexpress_test' ? 'identity_test' : database;
+      await sql(`GRANT ALL ON SCHEMA public TO ${dbUser}; ALTER SCHEMA public OWNER TO ${dbUser}`, database);
       await sql('CREATE EXTENSION IF NOT EXISTS pg_trgm', database);
     }
     const url = (database, user = database) => `postgresql://${user}:${password}@127.0.0.1:${port}/${database}`;
-    const backupDir = process.env.TMPDIR || process.env.TEMP || '/tmp';
-    const bootstrapTemp = path.join(backupDir, `bootstrap-${owner}-${Date.now()}`);
-    const common = { ...env, IDENTITY_TEST_CONTAINER_ID: id, IDENTITY_TEST_OWNER_PROOF: owner };
+    const common = { ...env, ACCOUNTEXPRESS_DATA_DIR: dataDir, IDENTITY_TEST_CONTAINER_ID: id, IDENTITY_TEST_OWNER_PROOF: owner };
     const mainEnv = { ...common, DATABASE_URL: url('accountexpress_test', 'identity_test') };
+    const bootstrapEnv = { ...common, DATABASE_URL: url('accountexpress_bootstraptest'), TMPDIR: backupDir, TMPNAME: bootstrapTemp };
     const stages = [
       ['application suite', () => vitest('vitest.config.ts', mainEnv, args.includes('--focus') ? focusedFiles : [])],
+      // The installer node:test suites assert Windows-only behaviour (ACL,
+      // drive paths, packaging); they never executed in CI before and cannot
+      // pass on a Linux runner. They run in full on the authoring platform.
+      ...(process.platform === 'win32' ? [['Node installer tests', () => exec(process.execPath, ['--test', ...fs.readdirSync(path.join(root, 'tests', 'installer')).filter(file => file.endsWith('.test.cjs')).map(file => path.join('tests', 'installer', file))], mainEnv)]] : []),
       ['identity contracts/concurrency', () => vitest('vitest.identity-integration.config.ts', { ...common, DATABASE_URL: url('identity_phase_a', 'identity_test') })],
-      ['bootstrap security/recovery/memory', () => vitest('vitest.config.ts', { ...mainEnv, DATABASE_URL: url('accountexpress_bootstraptest', 'identity_test'), TMPDIR: backupDir, TMPNAME: bootstrapTemp }, ['tests/api/b3-4-recovery-password.test.ts', 'tests/forensic/f9-bootstrap-restore.test.ts', 'tests/forensic/hdr1c-memory-backup.test.ts'])],
+      ['bootstrap security/recovery/memory', async () => {
+        const schema = await tool('prisma/build/index.js', ['db', 'push', '--skip-generate'], bootstrapEnv);
+        return schema.code === 0 ? vitest('vitest.forensic-f9.config.ts', bootstrapEnv) : schema;
+      }],
     ];
     for (const [database, config, prefix] of [
       ['registration_test', 'vitest.registration-integration.config.ts', 'REGISTRATION'],
@@ -143,7 +174,7 @@ async function run(args) {
         await cleanupOwned(async () => JSON.parse(await docker(['inspect', id]))[0],
           ownedId => docker(['rm', '-f', ownedId]), id, owner);
         console.log('Owned test resource removed');
-        const leftoverBackups = (fs.existsSync(path.join(root, 'db', 'backups')) ? fs.readdirSync(path.join(root, 'db', 'backups')).filter(f => /^(hdr1c-|f9-)/.test(f)) : []);
+        const leftoverBackups = (fs.existsSync(path.join(dataDir, 'backups')) ? fs.readdirSync(path.join(dataDir, 'backups')).filter(f => /^(hdr1c-|f9-)/.test(f)) : []);
         const leftoverTemp = (fs.existsSync(bootstrapTemp) ? fs.readdirSync(bootstrapTemp) : []);
         if (leftoverBackups.length > 0 || leftoverTemp.length > 0) { console.error('Cleanup verification failed: leftover backups: ' + leftoverBackups.join(', ') + '; leftover temp: ' + leftoverTemp.join(', ')); failure ||= 2; } else { console.log('Cleanup verification passed'); }
       } catch {
@@ -151,6 +182,7 @@ async function run(args) {
         failure ||= 1;
       }
     }
+    fs.rmSync(dataDir, { recursive: true, force: true });
   }
   return failure;
 }

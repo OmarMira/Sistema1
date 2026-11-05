@@ -384,7 +384,7 @@ describe('H1 — PATCH /api/transactions/[id] (caracterización de validaciones)
     expect(res.status).toBe(403);
 
     const body = await res.json();
-    expect(body.error).toContain('closed period');
+    expect(body.error).toContain('período cerrado');
 
     const reloadedTx = await db.bankTransaction.findUnique({
       where: { id: tx.id },

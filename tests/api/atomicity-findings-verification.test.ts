@@ -14,6 +14,10 @@ const m = vi.hoisted(() => ({
   requestContextRun: vi.fn(),
   saveLogo: vi.fn(),
   writeFileSync: vi.fn(),
+  // S17b: routes write their audit row through the chained writer
+  // (createAuditLogWithRetry), so the audit-module spy and the db delegate the
+  // tests assert on must be the same function.
+  auditLogCreate: vi.fn(),
 }));
 
 vi.mock('@/lib/sessions', () => ({ getSessionUserId: m.getSessionUserId }));
@@ -47,7 +51,7 @@ vi.mock('@/lib/validate-request', () => ({
   validateRequest: vi.fn(async (req: NextRequest) => { const b = await req.json(); return b; }),
 }));
 vi.mock('@/lib/chart-of-accounts', () => ({ seedChartOfAccounts: vi.fn(), CHART_OF_ACCOUNTS: [] }));
-vi.mock('@/lib/audit', () => ({ createAuditLogWithRetry: vi.fn() }));
+vi.mock('@/lib/audit', () => ({ createAuditLogWithRetry: m.auditLogCreate }));
 vi.mock('@/lib/fiscal-period/strategies', () => ({
   getPeriodStrategy: vi.fn(() => ({
     calculate: () => [
@@ -60,13 +64,18 @@ vi.mock('fs', async () => {
   const actual = await vi.importActual<typeof import('fs')>('fs');
   return { ...actual, writeFileSync: m.writeFileSync, existsSync: vi.fn(() => true), readFileSync: vi.fn(() => '{"companies":{}}') };
 });
-vi.mock('@/lib/config/paths', () => ({ RUNTIME_FILES: { companyConfig: '/tmp/test-config.json' } }));
+vi.mock('@/lib/config/paths', () => ({
+  RUNTIME_FILES: { companyConfig: '/tmp/test-config.json' },
+  // api-handler → backup-runtime-maintenance constructs its maintenance gate
+  // from RUNTIME_DIR at import time; it performs no storage access there.
+  RUNTIME_DIR: '/tmp/test-runtime',
+}));
 
 // ── Mock db methods ──────────────────────────────────────────────
 const dbMocks = {
   userFindUnique: vi.fn(),
   userCreate: vi.fn(),
-  auditLogCreate: vi.fn(),
+  auditLogCreate: m.auditLogCreate,
   cmFindFirst: vi.fn(),
   cmFindUnique: vi.fn(),
   cmCreate: vi.fn(),

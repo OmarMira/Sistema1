@@ -126,7 +126,18 @@ function createMockDb() {
         ...data,
         createdAt: new Date(),
       })),
+      // src/lib/audit.ts seals the row it just inserted (hash + previousHash).
+      update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'audit-test-id',
+        ...data,
+        createdAt: new Date(),
+      })),
     },
+    // src/lib/audit.ts writes the FINAL_DECISION_SOURCE trace on this same tx:
+    // it takes a transaction-scoped advisory lock ($executeRaw) and reads the
+    // chain tail ($queryRaw) before sealing the row. No tail = chain head.
+    $executeRaw: vi.fn(async () => 1),
+    $queryRaw: vi.fn(async () => [] as Array<{ hash: string }>),
     $transaction: async <T>(fn: (tx: typeof self) => Promise<T>): Promise<T> => fn(self),
     reset: () => {
       memStore.clear();
@@ -141,7 +152,18 @@ function createMockDb() {
   return self;
 }
 
-vi.mock('@/lib/db', () => ({ db: createMockDb() }));
+vi.mock('@/lib/db', () => {
+  const db = createMockDb();
+  return {
+    db,
+    // Same signature as the real client (src/lib/db.ts): callers that admit a
+    // company backup transaction must still reach this test's single client.
+    withCompanyBackupTransaction: async (
+      callback: (tx: typeof db) => unknown,
+      _options?: unknown,
+    ) => callback(db),
+  };
+});
 vi.mock('@/lib/api-handler', () => ({
   apiHandler: (handler: (request: NextRequest, context: unknown) => Promise<Response>) => handler,
 }));

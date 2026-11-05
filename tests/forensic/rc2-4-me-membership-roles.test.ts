@@ -45,6 +45,9 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         firstName: 'RC24',
         lastName: 'MeOne',
         platformRole: 'user',
+        // Verified, non-legacy actor: the sessions resolver rejects pending users.
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
     const companyA = await db.company.create({
@@ -96,6 +99,9 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         firstName: 'RC24',
         lastName: 'Super',
         platformRole: 'super_admin',
+        // Verified, non-legacy actor: the sessions resolver rejects pending users.
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
     const c1 = await db.company.create({
@@ -162,6 +168,10 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         firstName: 'RC24',
         lastName: 'MeThree',
         platformRole: 'user',
+        // Verified, non-legacy actor: the sessions resolver rejects pending users.
+        // (The inactive entity in ME-3 is the company/membership, not the user.)
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
     const activeCo = await db.company.create({
@@ -215,6 +225,9 @@ describe('RC2-4 — /api/auth/me exposes CompanyMember.role per membership', () 
         firstName: 'RC24',
         lastName: 'Fresh',
         platformRole: 'user',
+        // Verified, non-legacy actor: the sessions resolver rejects pending users.
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
     const company = await db.company.create({

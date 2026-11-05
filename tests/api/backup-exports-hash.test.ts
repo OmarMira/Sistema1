@@ -3,13 +3,13 @@ import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/db';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import { createSession } from '@/lib/sessions';
 import { POST as backupPOST } from '@/app/api/backup/route';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 const diskTestCompanyIds = new Set<string>();
 

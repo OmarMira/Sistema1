@@ -123,6 +123,9 @@ describe('DIAGNOSTICS SUPER_ADMIN GATE — /api/diagnostics is INSTANCE_GLOBAL, 
         firstName: 'Super',
         lastName: 'Admin',
         platformRole: 'super_admin',
+        // Verified, non-legacy actor: the sessions resolver rejects pending users.
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
     expect(await db.companyMember.count({ where: { userId: superUser.id } })).toBe(0);

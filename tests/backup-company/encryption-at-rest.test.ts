@@ -34,9 +34,19 @@ const database = vi.hoisted(() => new Proxy({}, {
 vi.mock('@/lib/db', () => ({ db: database, withCompanyBackupTransaction: (callback: any, options: any) => state.transaction(callback, options) }));
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth must not run'); }) }));
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
-import { createBackup, getBackupFile, listBackups, deleteBackup } from '@/lib/backup';
+import { createBackup as createSealedBackup, getBackupFile, listBackups, deleteBackup } from '@/lib/backup';
 import { decrypt } from '@/lib/crypto';
 import { parseSnapshot, SEAL_KEY_DERIVATION } from '@/lib/backup-format';
+
+/**
+ * S7: creating a backup is sudo-style — it requires the creating administrator's
+ * password and embeds only its verifier inside the sealed manifest. Every
+ * envelope/seal assertion below is unchanged; this helper only supplies the
+ * credential the new contract demands.
+ */
+const OWNER_PASSWORD = 'Clave.AtRest.2026';
+const createBackup = (companyId: string) =>
+  createSealedBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
 
 const dir = path.join(state.root, 'backups');
 const config = path.join(state.root, 'company-config.json');

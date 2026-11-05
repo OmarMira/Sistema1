@@ -85,6 +85,17 @@ import { db } from '@/lib/db';
 import * as dbModule from '@/lib/db';
 import { sealSnapshot } from '@/lib/backup-format';
 
+/**
+ * S7/S1: creation requires the administrator's re-entered password and restores
+ * must prove the same credential. Only the credential the new contract demands
+ * is supplied here; every fidelity assertion stays exactly as it was.
+ */
+const OWNER_PASSWORD = 'Clave.Fidelity.2026';
+const createOwnerBackup = (companyId: string) =>
+  createBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
+const restoreAsOwner = (companyId: string, text: string) =>
+  restoreCompanyBackup(companyId, text, { ownerPassword: OWNER_PASSWORD });
+
 function fixtureRow(model: string, id: string) {
   const fields = Prisma.dmmf.datamodel.models.find(m => m.name === model)!.fields.filter(f => f.kind !== 'object');
   return Object.fromEntries(fields.map(f => [f.name, f.name === 'id' ? id : f.name === 'companyId' ? 'tenant' : f.isList ? [] : !f.isRequired ? null :
@@ -137,12 +148,12 @@ it.each(['9999999999999999.99', '-9999999999999999.99'])('public export keeps ex
   expect((failure as Error).message).toMatch(/money value exceeds the safe cent range/);
   expect((failure as Error).message).toMatch(/9007199254740991/);
   // Nothing was silently coerced: the exact string still round-trips through backup/restore.
-  const saved = await createBackup('tenant'), source = body(saved);
+  const saved = await createOwnerBackup('tenant'), source = body(saved);
   expect(source.manifest.version).toBe('2.1.0');
   expect(source.data.glAccounts[0].balance).toBe(amount);
   expect(state.options).toEqual([{ isolationLevel: 'RepeatableRead' }]);
   await previewCompanyRestore('tenant', JSON.stringify(source));
-  const result = await restoreCompanyBackup('tenant', JSON.stringify(source));
+  const result = await restoreAsOwner('tenant', JSON.stringify(source));
   expect(result.status).toBe('committed');
   expect(state.writes.find(([model, data]) => model === 'glAccount' && 'balance' in data)[1].balance).toBe(amount);
   const safety = JSON.parse(getBackupFile(result.safetyFilename)!.data);
@@ -152,13 +163,13 @@ it.each(['9999999999999999.99', '-9999999999999999.99'])('public export keeps ex
 it.each(['0.01', '-0.01', '0.00'])('public export -> JSON -> preview/restore preserves exact %s and ordinary Number results', async amount => {
   state.rows.glAccount[0].balance = amount;
   expect(typeof (await db.glAccount.findMany())[0].balance).toBe('number');
-  const saved = await createBackup('tenant'), source = body(saved);
+  const saved = await createOwnerBackup('tenant'), source = body(saved);
   expect(source.manifest.version).toBe('2.1.0');
   expect(source.data.glAccounts[0].balance).toBe(amount);
   expect(state.options).toEqual([{ isolationLevel: 'RepeatableRead' }]);
   expect(getBackupFile(saved.filename)?.data).toBe(Buffer.from(saved.data, 'base64').toString('utf8'));
   await previewCompanyRestore('tenant', JSON.stringify(source));
-  const result = await restoreCompanyBackup('tenant', JSON.stringify(source));
+  const result = await restoreAsOwner('tenant', JSON.stringify(source));
   expect(result.status).toBe('committed');
   expect(state.writes.find(([model, data]) => model === 'glAccount' && 'balance' in data)[1].balance).toBe(amount);
   const safety = JSON.parse(getBackupFile(result.safetyFilename)!.data);
@@ -189,18 +200,18 @@ it('covers every installed Decimal(18,2) column and accounting link through publ
     }
   }
   expect(expected).toHaveLength(13);
-  const source = body(await createBackup('tenant'));
+  const source = body(await createOwnerBackup('tenant'));
   expect(source.data.users[0]).not.toHaveProperty('passwordHash');
   expect(source.data.systemConfig).toEqual([]);
   expect(source.data.bankTransactions[0]).toMatchObject({ journalEntryId: 'JournalEntry', journalLineId: 'JournalLine' });
   await previewCompanyRestore('tenant', JSON.stringify(source));
-  const result = await restoreCompanyBackup('tenant', JSON.stringify(source));
+  const result = await restoreAsOwner('tenant', JSON.stringify(source));
   expect(result.status).toBe('committed');
   for (const [model, field, amount] of expected) expect(state.writes.find(([m, data]) => m === model && field in data)[1][field]).toBe(amount);
 });
 
 it('captures typed SQL NULL/JSON null provenance, recreates both deliberately, and leaves nested null untouched', async () => {
-  const source = body(await createBackup('tenant'));
+  const source = body(await createOwnerBackup('tenant'));
   expect(source.manifest.fidelity).toEqual({ monetary: 'decimal-18,2', jsonNulls: [
     { model: 'BankRule', key: { id: 'rule' }, field: 'conditions', kind: 'db-null' },
     { model: 'KnowledgeAudit', key: { id: 'audit' }, field: 'beforeValue', kind: 'json-null' },
@@ -209,7 +220,7 @@ it('captures typed SQL NULL/JSON null provenance, recreates both deliberately, a
   await previewCompanyRestore('tenant', before);
   expect(JSON.stringify(source)).toBe(before);
   expect(state.writes).toEqual([]);
-  const result = await restoreCompanyBackup('tenant', before);
+  const result = await restoreAsOwner('tenant', before);
   expect(result.status).toBe('committed');
   expect(state.writes.find(([model, data]) => model === 'bankRule' && 'conditions' in data)[1].conditions).toBe(Prisma.DbNull);
   expect(state.writes.find(([model, data]) => model === 'knowledgeAudit' && 'beforeValue' in data)[1].beforeValue).toBe(Prisma.JsonNull);
@@ -217,7 +228,7 @@ it('captures typed SQL NULL/JSON null provenance, recreates both deliberately, a
 });
 
 it.each(['missing', 'missing-reference', 'missing-jsonNulls', 'monetary-tag', 'duplicate', 'unknown-model', 'foreign-key', 'wrong-field', 'wrong-kind', 'extra-key', 'non-null-field', 'legacy-null', 'legacy-loss', 'range', 'scale', 'nonfinite', 'new-number'])('rejects %s fidelity ambiguity/tampering without DB/files/counter mutation', async damage => {
-  const source = body(await createBackup('tenant'));
+  const source = body(await createOwnerBackup('tenant'));
   const ref = source.manifest.fidelity?.jsonNulls[0];
   if (damage === 'missing') delete source.manifest.fidelity;
   if (damage === 'missing-reference') source.manifest.fidelity.jsonNulls = [];
@@ -241,45 +252,45 @@ it.each(['missing', 'missing-reference', 'missing-jsonNulls', 'monetary-tag', 'd
     ? 'RESTORE_FIDELITY: unsupported 2.0.0 nullable JSON fidelity: BankRule.conditions; SQL NULL versus JSON null provenance is missing'
     : damage === 'legacy-loss' ? 'RESTORE_FIDELITY: unsupported 2.0.0 monetary fidelity: GlAccount.balance' : /RESTORE_(FIDELITY|SCHEMA)/;
   await expect(previewCompanyRestore('tenant', text(source))).rejects.toThrow(expected);
-  await expect(restoreCompanyBackup('tenant', text(source))).rejects.toThrow(expected);
+  await expect(restoreAsOwner('tenant', text(source))).rejects.toThrow(expected);
   expect(state.rows).toEqual(rows); expect(disk()).toEqual(files); expect(state.writes).toEqual([]);
   expect(state.options).toHaveLength(options); expect(state.queries).toHaveLength(queries);
 });
 
 it('keeps required JSON field null as JSON null without nullable-field provenance', async () => {
   state.rows.companyKnowledge[0].metadata = null;
-  const source = body(await createBackup('tenant'));
+  const source = body(await createOwnerBackup('tenant'));
   expect(source.manifest.fidelity.jsonNulls).not.toContainEqual(expect.objectContaining({ field: 'metadata' }));
-  const result = await restoreCompanyBackup('tenant', JSON.stringify(source));
+  const result = await restoreAsOwner('tenant', JSON.stringify(source));
   expect(result.status).toBe('committed');
   expect(state.writes.find(([m, data]) => m === 'companyKnowledge' && 'metadata' in data)[1].metadata).toBe(Prisma.JsonNull);
 });
 
 it('fails capture closed when metadata SQL fails instead of assuming SQL NULL', async () => {
   state.metadataFailure = true;
-  await expect(createBackup('tenant')).rejects.toThrow('null metadata unavailable');
+  await expect(createOwnerBackup('tenant')).rejects.toThrow('null metadata unavailable');
   expect(disk()).toEqual([]); expect(state.writes).toEqual([]);
 });
 
 it('refuses restore before writes/publication when raw safety null metadata cannot be certified', async () => {
-  const source = body(await createBackup('tenant'));
+  const source = body(await createOwnerBackup('tenant'));
   const rows = structuredClone(state.rows), files = disk();
   state.metadataFailure = true;
-  await expect(restoreCompanyBackup('tenant', JSON.stringify(source))).rejects.toThrow('null metadata unavailable');
+  await expect(restoreAsOwner('tenant', JSON.stringify(source))).rejects.toThrow('null metadata unavailable');
   expect(state.rows).toEqual(rows); expect(state.writes).toEqual([]); expect(disk()).toEqual(files);
 });
 
 it.each(['missing-operation', 'incomplete', 'invalid', 'duplicate'])('rejects %s metadata instead of manufacturing null provenance', async mode => {
   state.metadataMode = mode;
   const rows = structuredClone(state.rows);
-  await expect(createBackup('tenant')).rejects.toThrow();
+  await expect(createOwnerBackup('tenant')).rejects.toThrow();
   expect(state.rows).toEqual(rows); expect(state.writes).toEqual([]); expect(disk()).toEqual([]);
 });
 
 it.each(['10000000000000000.00', '0.001', 'Infinity'])('rejects invalid raw snapshot money %s before publication', async value => {
   state.rows.glAccount[0].balance = value;
   const rows = structuredClone(state.rows);
-  await expect(createBackup('tenant')).rejects.toThrow('RESTORE_FIDELITY');
+  await expect(createOwnerBackup('tenant')).rejects.toThrow('RESTORE_FIDELITY');
   expect(state.rows).toEqual(rows); expect(state.writes).toEqual([]); expect(disk()).toEqual([]);
 });
 
@@ -287,7 +298,7 @@ it('preserves unambiguous v2 literal safe amounts and catalog/read/delete suppor
   state.rows.bankRule[0].conditions = {};
   state.nulls['BankRule:rule:conditions'] = false;
   state.rows.knowledgeAudit[0].beforeValue = {};
-  const source = body(await createBackup('tenant'));
+  const source = body(await createOwnerBackup('tenant'));
   for (const version of ['1.0.0', '1.1.0', '2.0.0']) {
     source.manifest.version = version; delete source.manifest.fidelity;
     source.data.glAccounts[0].balance = 10.01;
@@ -297,7 +308,7 @@ it('preserves unambiguous v2 literal safe amounts and catalog/read/delete suppor
     expect(getBackupFile(filename)?.data).toBe(raw);
     if (version === '2.0.0') {
       await previewCompanyRestore('tenant', raw);
-      const result = await restoreCompanyBackup('tenant', raw);
+      const result = await restoreAsOwner('tenant', raw);
       expect(result.status).toBe('committed');
       expect(state.writes.find(([model, data]) => model === 'glAccount' && 'balance' in data)[1].balance).toBe(10.01);
     }

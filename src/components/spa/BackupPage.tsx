@@ -33,6 +33,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { containerVariants, itemVariants, formatFileSize, formatDate, type BackupRecord } from '@/lib/types/backup';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { BackupItem } from '@/components/backup/BackupItem';
 import { RestoreDropZone } from '@/components/backup/RestoreDropZone';
 
@@ -41,7 +43,11 @@ import { RestoreDropZone } from '@/components/backup/RestoreDropZone';
 export function BackupPage() {
   const t = useLanguageStore((s) => s.t);
   const activeCompany = useAuthStore((s) => s.activeCompany);
+  const user = useAuthStore((s) => s.user);
   const companyId = activeCompany?.id;
+  // S4 (T5): restoring an archive as a NEW company is a platform operation, so
+  // the optional destination selector exists only for a global super_admin.
+  const isSuperAdmin = user?.role === 'super_admin';
 
   // State
   const [backups, setBackups] = useState<BackupRecord[]>([]);
@@ -57,6 +63,15 @@ export function BackupPage() {
   const [restoringFromList, setRestoringFromList] = useState<string | null>(null);
   const [showRestoreHistoryConfirm, setShowRestoreHistoryConfirm] = useState<BackupRecord | null>(null);
   const [restorePreview, setRestorePreview] = useState<{ checksum: string; counts: BackupRecord; ids: object; blockers: string[] } | null>(null);
+  // S7/S1: creating a backup and restoring one both require the administrator's
+  // own password (sudo style). Kept in component state only: never persisted,
+  // never logged, and cleared as soon as the operation finishes.
+  const [createPassword, setCreatePassword] = useState('');
+  const [restorePassword, setRestorePassword] = useState('');
+  // S4 (T5) — optional destination of a super_admin restore. Empty means "the
+  // caller's own company", which is the unchanged default contract.
+  const [restoreTargets, setRestoreTargets] = useState<{ id: string; legalName: string }[]>([]);
+  const [restoreTargetCompanyId, setRestoreTargetCompanyId] = useState('');
   const mountedRef = useRef(true);
 
   // Fetch backups
@@ -82,19 +97,56 @@ export function BackupPage() {
     };
   }, [fetchBackups]);
 
+  // S4: the destination list comes from the same admin endpoint the admin
+  // screens use. A non-super_admin never asks for it and never sees the option.
+  useEffect(() => {
+    if (!isSuperAdmin) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch('/api/admin/companies');
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setRestoreTargets(
+            (data.companies ?? []).map((row: { id: string; legalName: string }) => ({
+              id: row.id,
+              legalName: row.legalName,
+            })),
+          );
+        }
+      } catch {
+        /* the selector simply stays on the current company */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isSuperAdmin]);
+
+  /** Sent only when a super_admin picked a company other than the current one. */
+  const selectedTargetCompanyId =
+    isSuperAdmin && restoreTargetCompanyId && restoreTargetCompanyId !== companyId
+      ? restoreTargetCompanyId
+      : undefined;
+
   // Create backup
   async function handleCreateBackup() {
     if (!companyId) return;
+    if (createPassword.length === 0) {
+      toast.error('Ingresá tu contraseña para crear el respaldo.');
+      return;
+    }
     setCreating(true);
     try {
       const res = await fetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId }),
+        body: JSON.stringify({ companyId, password: createPassword }),
       });
 
       if (res.ok) {
         const data = await res.json();
+        setCreatePassword('');
         toast.success(t('settings.backup.backupCreated'), {
           description: `${formatFileSize(data.size)} — ${(Object.values(data.recordCounts) as number[]).reduce((a, b) => a + b, 0)} ${t('settings.backup.records')}`,
         });
@@ -165,6 +217,10 @@ export function BackupPage() {
   // Restore from file
   async function handleRestore() {
     if (!companyId || !restoreFile) return;
+    if (restorePassword.length === 0) {
+      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
+      return;
+    }
 
     try {
       setRestoring(true);
@@ -175,6 +231,16 @@ export function BackupPage() {
       const jsonString = new TextDecoder().decode(fileBuffer);
       const parsed = JSON.parse(jsonString);
       const previewData = JSON.stringify({ data: parsed.data ?? parsed });
+
+      // S4: a destination other than the current company is certified by the
+      // restore route itself, not by this preview (which is bound to the
+      // caller's company). Go straight to the confirmation.
+      if (selectedTargetCompanyId) {
+        setRestoring(false);
+        setRestoreProgress(0);
+        setShowRestoreConfirm(true);
+        return;
+      }
 
       setRestoreProgress(30);
       const previewRes = await fetch('/api/backup/restore/preview', {
@@ -207,6 +273,10 @@ export function BackupPage() {
 
   async function executeRestore() {
     if (!companyId || !restoreFile) return;
+    if (restorePassword.length === 0) {
+      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
+      return;
+    }
     setShowRestoreConfirm(false);
     setRestorePreview(null);
 
@@ -222,7 +292,11 @@ export function BackupPage() {
       const res = await fetch('/api/backup/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data }),
+        body: JSON.stringify({
+          data,
+          ownerPassword: restorePassword,
+          ...(selectedTargetCompanyId ? { targetCompanyId: selectedTargetCompanyId } : {}),
+        }),
       });
 
       setRestoreProgress(80);
@@ -230,6 +304,8 @@ export function BackupPage() {
 
       if (res.ok) {
         setRestoreProgress(100);
+        setRestorePassword('');
+        setRestoreTargetCompanyId('');
         const totalRecords = (Object.values(result.counts ?? {} ) as number[]).reduce(
           (a, b) => a + b,
           0,
@@ -255,6 +331,10 @@ export function BackupPage() {
   // Restore from history
   async function handleRestoreFromHistory(backup: BackupRecord) {
     if (!companyId) return;
+    if (restorePassword.length === 0) {
+      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
+      return;
+    }
 
     try {
       setRestoringFromList(backup.id);
@@ -369,7 +449,21 @@ export function BackupPage() {
               </CardTitle>
               <CardDescription>{t('settings.backup.createBackupDesc')}</CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="backup-create-password">Tu contraseña de administrador</Label>
+                <Input
+                  id="backup-create-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={createPassword}
+                  onChange={(event) => setCreatePassword(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  El respaldo queda protegido con tu contraseña: sin ella nadie puede restaurarlo.
+                </p>
+              </div>
               <Button onClick={handleCreateBackup} disabled={creating} className="w-full sm:w-auto">
                 {creating ? (
                   <>
@@ -401,6 +495,24 @@ export function BackupPage() {
                 <AlertTriangle className="size-4 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
                 <p className="text-xs text-amber-800 dark:text-amber-300">
                   {t('settings.backup.restoreWarning')}
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="backup-restore-password">
+                  Contraseña del super administrador que creó el respaldo
+                </Label>
+                <Input
+                  id="backup-restore-password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={restorePassword}
+                  onChange={(event) => setRestorePassword(event.target.value)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  La restauración exige la contraseña del super administrador que creó este respaldo, no la
+                  de cualquier otra cuenta.
                 </p>
               </div>
 
@@ -474,6 +586,42 @@ export function BackupPage() {
               <p className="text-xs text-muted-foreground">{formatFileSize(restoreFile.size)}</p>
             </div>
           )}
+          <div className="space-y-2">
+            <Label htmlFor="backup-confirm-password">Contraseña del super administrador que creó el respaldo</Label>
+            <Input
+              id="backup-confirm-password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={restorePassword}
+              onChange={(event) => setRestorePassword(event.target.value)}
+            />
+          </div>
+          {isSuperAdmin && (
+            <div className="space-y-2">
+              <Label htmlFor="backup-confirm-target-company">
+                {t('settings.backup.restoreAsNewCompany')}
+              </Label>
+              <select
+                id="backup-confirm-target-company"
+                value={restoreTargetCompanyId}
+                onChange={(event) => setRestoreTargetCompanyId(event.target.value)}
+                className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                <option value="">{t('settings.backup.restoreTargetCurrent')}</option>
+                {restoreTargets
+                  .filter((target) => target.id !== companyId)
+                  .map((target) => (
+                    <option key={target.id} value={target.id}>
+                      {target.legalName}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-xs text-muted-foreground">
+                {t('settings.backup.restoreAsNewCompanyHint')}
+              </p>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
@@ -513,6 +661,17 @@ export function BackupPage() {
               </p>
             </div>
           )}
+          <div className="space-y-2">
+            <Label htmlFor="backup-history-password">Contraseña del super administrador que creó el respaldo</Label>
+            <Input
+              id="backup-history-password"
+              type="password"
+              autoComplete="current-password"
+              required
+              value={restorePassword}
+              onChange={(event) => setRestorePassword(event.target.value)}
+            />
+          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction

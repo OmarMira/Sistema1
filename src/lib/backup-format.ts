@@ -5,7 +5,9 @@ if (typeof process === 'undefined' || !process.versions?.node) {
 import crypto from 'node:crypto';
 import type { BackupData } from './backup';
 import { Prisma } from '@prisma/client';
+import { AppError } from './api-error';
 import { validateCompanyLogo } from './backup-assets';
+import { isBackupOwnershipVerifier } from './backup-ownership';
 
 export const COMPANY_BACKUP_VERSION = '2.1.0';
 export const isCompanyFormat = (version: string) => ['2.0.0', COMPANY_BACKUP_VERSION].includes(version);
@@ -275,6 +277,43 @@ function integrityVerified(snapshot: BackupData, integrity: SnapshotIntegrity): 
   return false;
 }
 
+/* ─── S5 (T4): only CURRENT, sealed backups are restorable ─────────────
+ * Older installations wrote the whole snapshot as plain JSON on disk (no
+ * ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 envelope) and sealed it with an UNKEYED
+ * sha256 digest. That shape proves nothing about authorship and cannot be
+ * carried into the current certified pipeline (typed fidelity, keyed seal,
+ * ownership credential), so it is refused instead of silently accepted. The
+ * refusal is a client error with its own machine code and a Spanish
+ * explanation, thrown BEFORE any row, file or maintenance marker is written.
+ *
+ * The at-rest envelope never reaches this layer: restore receives the already
+ * unsealed snapshot JSON (the download payload), so the readable equivalent of
+ * "no ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 envelope" is "no keyed HMAC seal from
+ * the current writer". Read-legacy seals still PARSE (the catalog and the
+ * download keep working); only RESTORE refuses them.
+ */
+export const LEGACY_BACKUP_MESSAGE =
+  'No se puede restaurar este respaldo: es un archivo de texto plano anterior a los respaldos sellados, ' +
+  'sin el sobre ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 con el que la versión actual protege cada archivo. ' +
+  'Hay que volver a generar un respaldo nuevo desde el sistema actual y restaurar ese archivo.';
+
+export class LegacyBackupFormatError extends AppError {
+  constructor() {
+    super(400, LEGACY_BACKUP_MESSAGE, 'RESTORE_LEGACY_FORMAT');
+    this.name = 'LegacyBackupFormatError';
+  }
+}
+
+/** TRUE only for the current writer's keyed seal (`hmac-sha256`, authenticated). */
+export function isSealedBackupFormat(integrity: SnapshotIntegrity | undefined): boolean {
+  return integrity?.algorithm === 'hmac-sha256' && integrity.authenticated === true;
+}
+
+/** Fail closed on a legacy plain-text file; never downgrade to the legacy seal. */
+export function assertSealedBackupFormat(snapshot: BackupData): void {
+  if (!isSealedBackupFormat(snapshot.manifest.integrity)) throw new LegacyBackupFormatError();
+}
+
 /** Catalog validation is NOT restore authorization or authenticity verification. */
 export function parseSnapshot(text: string): BackupData {
   const snapshot = JSON.parse(text) as BackupData;
@@ -324,6 +363,12 @@ export function parseSnapshot(text: string): BackupData {
     if (data.systemConfig.length !== 0 || manifest.recordCounts.companyConfig !== (data.companyConfig !== null)) {
       throw new Error('Invalid company snapshot configuration');
     }
+  }
+  // S1/S2: the ownership verifier travels inside the sealed manifest. A present
+  // but malformed verifier is never trusted (it cannot protect anything), and
+  // the HMAC seal above already rejects a transplanted/edited one.
+  if (manifest.ownership !== undefined && !isBackupOwnershipVerifier(manifest.ownership)) {
+    throw new Error('Invalid backup ownership verifier');
   }
   if (manifest.companyLogo !== undefined) validateCompanyLogo(data.company[0].logo, manifest.companyLogo);
   // Catalogs retain legacy ambiguous files; only the new format promises this

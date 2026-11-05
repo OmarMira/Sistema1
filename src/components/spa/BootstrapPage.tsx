@@ -28,6 +28,11 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoreProgress, setRestoreProgress] = useState(0);
   const [recoveryPassword, setRecoveryPassword] = useState('');
+  // S1/S2: restoring — even from zero — must prove that the operator knows the
+  // password of the super admin who CREATED the backup, so a stolen file cannot
+  // install itself on an empty installation. Component state only: never
+  // persisted, never logged, cleared as soon as the restore succeeds.
+  const [ownerPassword, setOwnerPassword] = useState('');
   // Inline, always-visible error: this page is rendered OUTSIDE the AppShell, so
   // a toast alone could be the only feedback — and it must never be the only one.
   const [restoreError, setRestoreError] = useState<string | null>(null);
@@ -51,6 +56,12 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
       toast.error(t('bootstrap.recoveryPasswordTooShort'));
       return;
     }
+    if (ownerPassword.trim().length === 0) {
+      const message = t('errors.RESTORE_OWNERSHIP');
+      setRestoreError(message);
+      toast.error(message);
+      return;
+    }
 
     setRestoreError(null);
     setMode('restoring');
@@ -61,6 +72,9 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
       const formData = new FormData();
       formData.append('file', restoreFile);
       formData.append('recoveryPassword', recoveryPassword);
+      // The creating super-admin's credential: verified by the route BEFORE the
+      // bootstrap shell exists, so a stolen file never installs anything.
+      formData.append('ownerPassword', ownerPassword);
 
       setRestoreProgress(50);
       // No setup token: the empty-database gate is the endpoint's authorization.
@@ -75,6 +89,7 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
 
       if (res.ok) {
         setRestoreProgress(100);
+        setOwnerPassword('');
         const totalRecords = (Object.values(data.restoredCounts || {}) as number[]).reduce(
           (a: number, b) => a + Number(b || 0),
           0,
@@ -299,6 +314,30 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                     </p>
                   </div>
 
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <KeyRound className="size-4 text-muted-foreground shrink-0" />
+                      <Label htmlFor="bootstrap-owner-password">
+                        Contraseña del administrador que creó el backup
+                      </Label>
+                    </div>
+                    <Input
+                      id="bootstrap-owner-password"
+                      type="password"
+                      required
+                      value={ownerPassword}
+                      autoComplete="current-password"
+                      onChange={(e) => {
+                        setOwnerPassword(e.target.value);
+                        setRestoreError(null);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      La restauración exige la contraseña del super administrador que creó este respaldo, no la
+                      de cualquier otra cuenta. Sin ella el archivo no se restaura.
+                    </p>
+                  </div>
+
                   <div className="flex gap-2">
                     <Button
                       variant="ghost"
@@ -312,7 +351,11 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                     </Button>
                     <Button
                       className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      disabled={!restoreFile || recoveryPassword.trim().length < MIN_RECOVERY_PASSWORD}
+                      disabled={
+                        !restoreFile ||
+                        recoveryPassword.trim().length < MIN_RECOVERY_PASSWORD ||
+                        ownerPassword.trim().length === 0
+                      }
                       onClick={handleRestore}
                     >
                       {t('bootstrap.restoreBackup')}

@@ -910,6 +910,12 @@ const es = {
       backupFailed: 'Error al crear el respaldo',
       restoreBackup: 'Restaurar Respaldo',
       restoreBackupDesc: 'Restaura los datos desde un archivo de respaldo previo.',
+      // S4 (T5) — sólo un superadministrador puede restaurar un respaldo como
+      // una empresa NUEVA; el destino tiene que estar vacío.
+      restoreAsNewCompany: 'Restaurar como empresa nueva (solo superadministrador)',
+      restoreAsNewCompanyHint:
+        'La empresa destino tiene que estar vacía (sin movimientos, sin cadena de auditoría propia y sin historial contable). Si no elegís ninguna, el respaldo se restaura sobre la empresa actual.',
+      restoreTargetCurrent: 'Mantener la empresa actual',
       restoreWarning:
         'ADVERTENCIA: Esto reemplazará todos los datos actuales. Esta acción no se puede deshacer.',
       selectFile: 'Seleccionar archivo de respaldo',
@@ -1944,6 +1950,29 @@ const es = {
     // obligatoria (mínimo 8 caracteres) y define la clave del dueño restaurado.
     RECOVERY_PASSWORD_REQUIRED:
       'La contraseña de recuperación es obligatoria y debe tener al menos 8 caracteres.',
+    // S7 — crear un respaldo es estilo sudo: el administrador que lo crea
+    // reingresa su propia contraseña. Sólo se guarda un verificador scrypt.
+    BACKUP_PASSWORD_REQUIRED: 'Ingresá tu contraseña para crear el respaldo.',
+    INVALID_BACKUP_PASSWORD: 'La contraseña no es correcta. No se creó el respaldo.',
+    // S1/S2 — restaurar exige la contraseña del super administrador que CREÓ el
+    // respaldo; un archivo robado no alcanza. El mensaje del servidor detalla el
+    // motivo concreto (credencial ausente, incorrecta o respaldo sin verificador).
+    RESTORE_OWNERSHIP:
+      'No se puede restaurar: se necesita la contraseña del super administrador que creó este respaldo.',
+    // S5 — un respaldo de texto plano anterior a los respaldos sellados no se
+    // restaura: hay que generar uno nuevo con la versión actual del sistema.
+    // Texto idéntico al que devuelve el servidor (LEGACY_BACKUP_MESSAGE).
+    RESTORE_LEGACY_FORMAT:
+      'No se puede restaurar este respaldo: es un archivo de texto plano anterior a los respaldos sellados, ' +
+      'sin el sobre ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 con el que la versión actual protege cada archivo. ' +
+      'Hay que volver a generar un respaldo nuevo desde el sistema actual y restaurar ese archivo.',
+    // S4 — restaurar como empresa nueva sólo es admisible sobre un destino vacío.
+    RESTORE_SHELL:
+      'La empresa destino debe estar vacía (sin movimientos, sin cadena de auditoría propia y sin historial contable) para restaurar un respaldo como empresa nueva.',
+    // S3/S6 — el historial del respaldo no se puede certificar en esta
+    // instalación y el sistema no vuelve a firmar evidencia ajena.
+    RESTORE_CHAIN:
+      'No se puede restaurar: el historial de auditoría del respaldo no se puede certificar en esta instalación sin volver a firmarlo. No se modificó ningún dato.',
     INTERNAL_SERVER_ERROR:
       'Ocurrió un error inesperado. Intentá nuevamente; si el problema persiste, contactá al administrador.',
   },

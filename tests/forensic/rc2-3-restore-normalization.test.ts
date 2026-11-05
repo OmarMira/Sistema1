@@ -14,6 +14,13 @@ import { createTestUser, createTestCompany, createTestCompanyMember, clearDataba
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
+/**
+ * S1/S2/S7: creating a backup requires the creating administrator's password and
+ * a real createBackup→restore round trip must prove that credential. The role
+ * normalization under test is untouched.
+ */
+const OWNER_PASSWORD = 'Clave.Rc23.2026';
+
 function buildBackup(
   company: { id: string; legalName: string },
   overrides: Partial<{
@@ -356,7 +363,7 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     // A real backup of this user therefore contains 'user' on the wire role key,
     // and restore must preserve it end-to-end (round-trip integrity).
     const userInDb = await db.user.findUnique({ where: { id: user.id } });
-    const backup = await createBackup(company.id);
+    const backup = await createBackup(company.id, undefined, { ownerPassword: OWNER_PASSWORD });
     const backupData = JSON.parse(Buffer.from(backup.data, 'base64').toString('utf-8')) as BackupData;
     const target = backupData.data.users.find((u) => u.id === user.id);
     log('N12: backup user role =', target?.role, '| db user role =', userInDb?.platformRole);
@@ -387,7 +394,9 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     // the chain it does recreate. No assertion of this suite is relaxed.
     await db.auditLog.deleteMany({ where: { hash: { not: null } } });
 
-    const result = await restoreCompanyBackup(company.id, JSON.stringify(backupData));
+    const result = await restoreCompanyBackup(company.id, JSON.stringify(backupData), {
+      ownerPassword: OWNER_PASSWORD,
+    });
     const stored = await db.user.findUnique({ where: { id: user.id } });
 
     log('N12: restore status =', result.status, '| stored user role =', stored?.platformRole);

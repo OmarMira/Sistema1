@@ -898,6 +898,12 @@ const en = {
       backupFailed: 'Failed to create backup',
       restoreBackup: 'Restore Backup',
       restoreBackupDesc: 'Restore data from a previous backup file.',
+      // S4 (T5) — only a super admin may restore an archive as a NEW company;
+      // the destination must be empty.
+      restoreAsNewCompany: 'Restore as a new company (super admin only)',
+      restoreAsNewCompanyHint:
+        'The destination company must be empty (no movements, no audit chain of its own and no accounting history). If you pick none, the backup is restored over the current company.',
+      restoreTargetCurrent: 'Keep the current company',
       restoreWarning: 'WARNING: This will replace all current data. This action cannot be undone.',
       selectFile: 'Select backup file',
       restoring: 'Restoring...',
@@ -1908,6 +1914,28 @@ const en = {
     VOID_REASON_REQUIRED: 'Enter the void reason: between 5 and 500 characters.',
     RECOVERY_PASSWORD_REQUIRED:
       'The recovery password is required and must be at least 8 characters long.',
+    // S7 — creating a backup is sudo-style: the administrator re-enters their own
+    // password. Only a scrypt verifier is stored.
+    BACKUP_PASSWORD_REQUIRED: 'Enter your password to create the backup.',
+    INVALID_BACKUP_PASSWORD: 'That password is not correct. No backup was created.',
+    // S1/S2 — restoring requires the password of the super admin who CREATED the
+    // backup; a stolen file is not enough. The server message states the concrete
+    // reason (missing credential, wrong credential, or a backup without verifier).
+    RESTORE_OWNERSHIP:
+      'This backup cannot be restored without the password of the super admin who created it.',
+    // S5 — a plain-text backup predating the sealed format is not restorable:
+    // a new one must be produced by the current system.
+    RESTORE_LEGACY_FORMAT:
+      'This backup cannot be restored: it is a plain-text file that predates sealed backups, without the ' +
+      'ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 envelope the current version uses to protect every file. ' +
+      'Create a new backup from the current system and restore that file.',
+    // S4 — restoring as a new company is only admissible on an empty destination.
+    RESTORE_SHELL:
+      'The destination company must be empty (no movements, no audit chain of its own and no accounting history) to restore a backup as a new company.',
+    // S3/S6 — the archive history cannot be certified in this installation and
+    // the system never re-signs foreign evidence.
+    RESTORE_CHAIN:
+      'This backup cannot be restored: its audit history cannot be certified in this installation without re-signing it. No data was modified.',
     INTERNAL_SERVER_ERROR:
       'An unexpected error occurred. Try again; if the problem persists, contact your administrator.',
   },

@@ -26,6 +26,12 @@ import { previewCompanyRestore, restoreCompanyBackup, restoreCompanyBackupCoordi
 import { sealSnapshot } from '@/lib/backup-format';
 import { beginMaintenance, maintenanceStatus } from '@/lib/backup-maintenance.ts';
 import { BACKUP_DIR } from '@/lib/config/paths';
+/**
+ * S1/S2/S7: the snapshot under test is the real exporter output and every
+ * restore must prove the creating administrator's credential. Fixtures, probes
+ * and assertions are otherwise untouched.
+ */
+const OWNER_PASSWORD = 'Clave.PublicPg.2026';
 const raw = new PrismaClient();
 const prefix = 'verify_' + crypto.randomUUID().replaceAll('-', '');
 const ids = Object.fromEntries(['a','b','u','ga','gb','bank','statement','entry','line','tx','recon','ruleD','ruleJ','knowledge','audit1','audit2'].map(k => [k, prefix+'_'+k]));
@@ -79,7 +85,7 @@ beforeAll(async()=>{
 afterAll(async()=>{if(identityVerified) fs.writeFileSync(path.join(fixture.dataDir, 'pg-evidence.json'),JSON.stringify(evidence,null,2));await raw.$disconnect();await db.$disconnect();});
 it('S2/S3/S4 real public roundtrip all 13 columns and NULL kinds',async()=>{
  const foreign=await foreignState();
- saved=await createBackup(ids.a); const text=getBackupFile(saved.filename)!.data;
+ saved=await createBackup(ids.a, undefined, { ownerPassword: OWNER_PASSWORD }); const text=getBackupFile(saved.filename)!.data;
  expect(Buffer.from(saved.data,'base64').toString('utf8')).toBe(text); source=JSON.parse(text);
  const monetary:any[]=[];
  const modelIds:any={GlAccount:ids.ga,BankAccount:ids.bank,BankStatement:ids.statement,BankTransaction:ids.tx,ReconciliationPeriod:ids.recon,JournalLine:ids.line};
@@ -94,7 +100,7 @@ it('S2/S3/S4 real public roundtrip all 13 columns and NULL kinds',async()=>{
  expect((await previewCompanyRestore(ids.a,text)).blockers).toEqual([]);
  expect(await fingerprint()).toBe(previewBefore);expect(backupBytes()).toEqual(bytes);
  await raw.glAccount.update({where:{id:ids.ga},data:{balance:'0.01'}});
- const result=await restoreCompanyBackup(ids.a,text);expect(result.status,JSON.stringify(result)).toBe('committed');
+ const result=await restoreCompanyBackup(ids.a,text,{ ownerPassword: OWNER_PASSWORD });expect(result.status,JSON.stringify(result)).toBe('committed');
  for(const [model,field,id,value] of monetary) {const row:any=await (raw as any)[model[0].toLowerCase()+model.slice(1)].findUnique({where:{id}});expect(row[field].toFixed(2),model+'.'+field).toBe(value);}
  expect(await raw.bankTransaction.findUnique({where:{id:ids.tx}})).toMatchObject({journalEntryId:ids.entry,journalLineId:ids.line,reconciliationPeriodId:ids.recon});
  const rules:any=await raw.$queryRawUnsafe('SELECT id, (conditions IS NULL) sqlnull, (conditions = '+"'null'"+'::jsonb) jsonnull FROM "BankRule" WHERE id IN ($1,$2)',ids.ruleD,ids.ruleJ);
@@ -140,14 +146,14 @@ it('S2/S4 coordinates real DB/config/logo recovery and reconciles a crashed owne
   const config = { marker: 'preserve-global', companies: { [ids.a]: { currency: 'ARS' }, [ids.b]: { currency: 'EUR' } } };
   fs.writeFileSync(configPath, JSON.stringify(config));
   await raw.company.update({ where: { id: ids.a }, data: { logo: logoUrl } });
-  const archive = await createBackup(ids.a);
+  const archive = await createBackup(ids.a, undefined, { ownerPassword: OWNER_PASSWORD });
   const archiveText = getBackupFile(archive.filename)!.data;
   expect(JSON.parse(archiveText).manifest.companyLogo.base64).toBe(logoBytes.toString('base64'));
   const foreign = await foreignState();
   fs.writeFileSync(logoPath, 'changed-logo');
   fs.writeFileSync(configPath, JSON.stringify({ ...config, companies: { ...config.companies, [ids.a]: { currency: 'USD' } } }));
   await raw.glAccount.update({ where: { id: ids.ga }, data: { balance: '0.01' } });
-  const restored = await restoreCompanyBackupCoordinated(ids.a, archiveText);
+  const restored = await restoreCompanyBackupCoordinated(ids.a, archiveText, { ownerPassword: OWNER_PASSWORD });
   expect(restored.status, JSON.stringify(restored)).toBe('committed');
   expect(fs.readFileSync(logoPath)).toEqual(logoBytes);
   expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual(config);
@@ -168,7 +174,7 @@ it('S2/S4 coordinates real DB/config/logo recovery and reconciles a crashed owne
     return rename(from, to);
   });
   let interrupted;
-  try { interrupted = await restoreCompanyBackupCoordinated(ids.a, archiveText); } finally { spy.mockRestore(); }
+  try { interrupted = await restoreCompanyBackupCoordinated(ids.a, archiveText, { ownerPassword: OWNER_PASSWORD }); } finally { spy.mockRestore(); }
   expect(interrupted.status, JSON.stringify(interrupted)).toBe('reconciliation_required');
   expect(fs.readFileSync(configPath)).toEqual(configBefore);
   const journal = JSON.parse(fs.readFileSync(path.join(fixture.dataDir, 'config', 'backup-recovery', interrupted.operationId + '.json'), 'utf8')).payload;

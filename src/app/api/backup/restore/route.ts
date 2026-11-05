@@ -2,20 +2,36 @@ import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
-import { requireCompanyRole } from '@/lib/rbac';
+import { requireCompanyRole, requireGlobalAdminRole } from '@/lib/rbac';
 import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
 import { validateBackupForCoordinatedRestore, type BackupData } from '@/lib/backup';
+import { assertBackupOwnership } from '@/lib/backup-ownership';
 
 /**
  * POST /api/backup/restore — Restore from backup
- * Body (JSON): { companyId: string, data: string (base64) }
- * Body (FormData): companyId (field) + file (File attachment)
+ * Body (JSON): { companyId: string, data: string (base64), ownerPassword: string,
+ *                targetCompanyId?: string }
+ * Body (FormData): companyId (field) + file (File attachment) + ownerPassword
+ *                  + optional targetCompanyId
+ *
+ * S1/S2: the restorer must supply the credential of the super admin who CREATED
+ * the backup (not any other account). It is verified below — and again inside
+ * the coordinated restore — before any row is deleted or any file published, so
+ * a stolen file is useless without the owner's password.
+ *
+ * S4: `targetCompanyId` restores the archive as a NEW company (the "5 companies
+ * and the 6th from a backup" case). It is a platform operation: only a
+ * super_admin may name a company other than its own, and the target must be an
+ * empty shell (enforced by the restore core). Omitting it keeps the previous
+ * behaviour byte-for-byte: the caller's own company is the destination.
  */
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
   await requireCompanyRole(companyId, ['company_admin']);
 
   let backupData: BackupData;
+  let ownerPassword: string | undefined;
+  let targetCompanyId: string | undefined;
 
   const contentType = request.headers.get('content-type') ?? '';
 
@@ -24,6 +40,10 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     const formData = await request.formData();
 
     const file = formData.get('file') as File | null;
+    const ownership = formData.get('ownerPassword');
+    ownerPassword = typeof ownership === 'string' ? ownership : undefined;
+    const requestedTarget = formData.get('targetCompanyId');
+    targetCompanyId = typeof requestedTarget === 'string' && requestedTarget ? requestedTarget : undefined;
     if (!file) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     }
@@ -61,6 +81,8 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     // Handle JSON body with base64 data
     const body = await request.json();
     const base64Data = body.data;
+    ownerPassword = typeof body.ownerPassword === 'string' ? body.ownerPassword : undefined;
+    targetCompanyId = typeof body.targetCompanyId === 'string' && body.targetCompanyId ? body.targetCompanyId : undefined;
 
     if (!base64Data) {
       return NextResponse.json({ error: 'companyId and data are required' }, { status: 400 });
@@ -77,6 +99,16 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     }
   }
 
+  // S4: restore-as-new-company is a platform operation. Naming a company other
+  // than the caller's own requires a global super_admin; the company_admin
+  // path of the caller's own company is untouched. The ownership gate below
+  // still runs first among the backup verifications.
+  const restoringAsNewCompany = targetCompanyId !== undefined && targetCompanyId !== companyId;
+  if (restoringAsNewCompany) {
+    await requireGlobalAdminRole(userId,
+      'Solo un super administrador puede restaurar un respaldo como una empresa nueva.');
+  }
+
   // Validate backup structure. Company-format snapshots (2.x) are admitted here
   // and validated in depth by parseSnapshot inside the coordinated restore;
   // legacy versions still pass the full structural validator.
@@ -88,11 +120,19 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
     );
   }
 
+  // S1/S2 ownership proof. Refused here (400 RESTORE_OWNERSHIP) before the
+  // coordinated path runs, so a stolen/mismatched file never reaches the
+  // destination validation, the maintenance gate or any delete.
+  assertBackupOwnership(backupData.manifest, ownerPassword);
+
   // Execute restore. The restored user role 'super_admin' is only preserved
   // when the authenticated actor is itself a global super_admin (RC2-3). The
   // authority context is derived from the current DB user, never from the
   // backup payload.
-  const result = await restoreCompanyBackupCoordinated(companyId, JSON.stringify(backupData));
+  const result = await restoreCompanyBackupCoordinated(targetCompanyId ?? companyId, JSON.stringify(backupData), {
+    ownerPassword,
+    importAsNewCompany: restoringAsNewCompany,
+  });
 
   if (result.status === 'aborted' || result.status === 'reconciliation_required') {
     return NextResponse.json({ error: result.error ?? 'Restore failed', status: result.status }, { status: 400 });

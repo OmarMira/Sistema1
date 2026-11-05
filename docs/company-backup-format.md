@@ -4,7 +4,11 @@ Company exports preserve exact monetary values and SQL-NULL/JSON-null provenance
 without changing the application's public Number results. This slice contains
 export, catalog, storage and the guarded raw transaction helper. It does **not**
 enable company recovery routes or complete coordinated DB/files recovery.
-Legacy/bootstrap restoration rejects company formats before restore side effects.
+Legacy/bootstrap restoration of `1.x` snapshots is refused before restore side effects.
+Company-format restore itself is documented in
+[per-company backup and bounded database recovery](company-backup-recovery.md): the
+first-install (bootstrap) route restores `2.x` snapshots through the coordinated
+path once the ownership credential is proved.
 
 ## Public export and history
 
@@ -81,8 +85,50 @@ Catalog/read/delete still support `1.0.0`, `1.1.0` and `2.0.0`. Legacy 1.x has n
 new checksum guarantee. Both company formats retain embedded UUID IDs after index
 loss. The 2.1.0 version/metadata requirements cannot be waived by omitting fields.
 A recovery reader must reject legacy 2.0 nulls without nullable-JSON provenance
-and unsafe numeric money rather than invent lost state. Legacy/bootstrap restore
-continues to refuse both company formats.
+and unsafe numeric money rather than invent lost state. Legacy `1.x` snapshots are
+refused by both restore paths — the first-install route answers
+`BACKUP_FORMAT_UNSUPPORTED`, the in-system route refuses the payload before any
+mutation — while a `2.0.0` archive is admitted only when its fidelity is
+unambiguous. Catalog/read/delete keep supporting all four versions.
+
+## Ownership credential (`manifest.ownership`)
+
+A company snapshot is a complete company: its PII and its whole ledger. Holding
+the file must not be the same as owning the company, so every file carries proof
+of **who created it** and every restore has to prove that credential again
+(S1/S2/S7).
+
+- **Creation is sudo-style.** `POST /api/backup` requires the authenticated
+  caller (a `company_admin` of that company, or a `super_admin`) to re-enter their
+  own password. Missing:
+  `400 BACKUP_PASSWORD_REQUIRED`; wrong: `400 INVALID_BACKUP_PASSWORD`. In both
+  cases nothing is published — no file, no catalog entry, no `BACKUP_CREATED`
+  audit row.
+- **Only a verifier is stored**, under `manifest.ownership`:
+  `{ kdf: 'scrypt', salt, hash, params: { N: 32768, r: 8, p: 1, keyLength: 32 } }`.
+  `salt` is 16 random bytes per backup, `hash` is the 32-byte scrypt-derived key,
+  both base64. The parameters travel WITH the verifier, so a later parameter
+  change never invalidates an existing file.
+- **Never stored:** the password, its bcrypt hash, or the verifier in any plain
+  data section. The verifier lives only inside the digest-covered manifest, i.e.
+  inside the HMAC seal and inside the AES-256-GCM at-rest envelope. A hand-edited
+  or transplanted verifier therefore fails the seal before it is ever consulted,
+  and a malformed one fails parsing (`Invalid backup ownership verifier`).
+- **scrypt, not argon2id.** Argon2id would need a native runtime dependency the
+  project does not add for a credential primitive; memory-hard scrypt from
+  `node:crypto` (N=2^15) is the equivalent-strength choice with zero new
+  dependencies.
+- **A file without a verifier** (created before this protection) is refused by
+  every restore path with `RESTORE_OWNERSHIP`, and the Spanish message says the
+  file predates ownership protection. Catalog/read/download keep working.
+- The safety snapshot a restore publishes carries a **fresh verifier for the same
+  credential** the restorer just proved, so that rollback image stays restorable
+  without weakening the protection.
+
+The readable equivalent of "no verifier" is a pre-ownership file once it has
+been unsealed; the at-rest envelope is not consulted for this decision. Refusal
+happens before any row is deleted, before the maintenance marker and before the
+safety snapshot is published.
 
 ## Consistency and guarded transactions
 

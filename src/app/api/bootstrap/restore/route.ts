@@ -5,6 +5,8 @@ import { apiHandler } from '@/lib/api-handler';
 import { validateBackupForCoordinatedRestore, type BackupData } from '@/lib/backup';
 import { isCompanyFormat } from '@/lib/backup-format';
 import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
+import { assertBackupOwnership } from '@/lib/backup-ownership';
+import { AppError } from '@/lib/api-error';
 import { hashPassword } from '@/lib/auth';
 import { createSession } from '@/lib/sessions';
 import { logger } from '@/lib/logger';
@@ -14,6 +16,57 @@ import { logger } from '@/lib/logger';
 const recoveryPasswordSchema = z.string().min(8, 'La contraseña debe tener al menos 8 caracteres');
 
 const MAX_BACKUP_SIZE = 50 * 1024 * 1024;
+
+/**
+ * Documented refusals of the restore core. They reach this handler either as a
+ * typed AppError (`LegacyBackupFormatError`, `BackupOwnershipError`) or as the
+ * core's own `RESTORE_<CODE>: <detail>` message, which the shared error handler
+ * cannot recover a code from. Reporting the family code instead of a generic
+ * `RESTORE_FAILED` keeps the operator's Spanish explanation and the machine
+ * code the rest of the product already answers for the same refusal.
+ *
+ * Anything else (an unparsable payload, a missing section, an unexpected
+ * transport fault) keeps the generic handling below: this map never invents a
+ * refusal code and never changes whether a payload is admitted.
+ */
+const KNOWN_RESTORE_REFUSALS = [
+  'RESTORE_LEGACY_FORMAT',
+  'RESTORE_OWNERSHIP',
+  'RESTORE_CHAIN',
+  'RESTORE_SHELL',
+] as const;
+
+type KnownRestoreRefusal = (typeof KNOWN_RESTORE_REFUSALS)[number];
+
+function isKnownRestoreRefusal(code: string): code is KnownRestoreRefusal {
+  return (KNOWN_RESTORE_REFUSALS as readonly string[]).includes(code);
+}
+
+/**
+ * The refusal as the operator should see it, or `null` for unknown errors.
+ * The message is passed through verbatim: no wrapping, no re-translation.
+ */
+function knownRestoreRefusal(
+  error: unknown,
+): { code: KnownRestoreRefusal; message: string; status: number; details?: unknown } | null {
+  const appCode = error instanceof AppError ? error.code : undefined;
+  if (typeof appCode === 'string' && isKnownRestoreRefusal(appCode)) {
+    return {
+      code: appCode,
+      message: (error as AppError).message,
+      status: (error as AppError).statusCode,
+      details: (error as AppError).details,
+    };
+  }
+
+  const message = error instanceof Error ? error.message : String(error);
+  const prefixed = /^(RESTORE_[A-Z_]+):/.exec(message)?.[1];
+  if (prefixed && isKnownRestoreRefusal(prefixed)) {
+    return { code: prefixed, message, status: 400 };
+  }
+
+  return null;
+}
 
 /** Company entity types the shell company can be created with. */
 const ENTITY_TYPES = ['INDIVIDUAL', 'BUSINESS'] as const;
@@ -74,8 +127,12 @@ async function discardBootstrapShell(companyId: string, userId: string): Promise
  * User credentials) — the recovery password typed by the operator is what makes
  * the restored installation owner able to log in.
  *
- * Body (multipart/form-data): `file` + `recoveryPassword`
- * Body (JSON): { data: <base64 snapshot>, recoveryPassword }
+ * Body (multipart/form-data): `file` + `recoveryPassword` + `ownerPassword`
+ * Body (JSON): { data: <base64 snapshot>, recoveryPassword, ownerPassword }
+ *
+ * S1/S2: `ownerPassword` is the credential of the super admin who created the
+ * backup. It is verified BEFORE the bootstrap shell exists, so a stolen file
+ * cannot install itself even on an empty system.
  */
 export const POST = apiHandler(
   async (request: NextRequest) => {
@@ -91,6 +148,7 @@ export const POST = apiHandler(
     // 2. Read the payload (multipart upload or base64 JSON) — unchanged limits.
     let backupData: BackupData;
     let recoveryPassword: unknown;
+    let ownerPassword: unknown;
 
     const contentType = request.headers.get('content-type') ?? '';
 
@@ -101,6 +159,8 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'No se subió ningún archivo' }, { status: 400 });
       }
       recoveryPassword = formData.get('recoveryPassword');
+      const ownership = formData.get('ownerPassword');
+      ownerPassword = typeof ownership === 'string' ? ownership : undefined;
 
       if (file.size > MAX_BACKUP_SIZE) {
         return NextResponse.json({ error: 'El archivo de respaldo supera el tamaño máximo (50MB)' }, { status: 400 });
@@ -130,6 +190,7 @@ export const POST = apiHandler(
         return NextResponse.json({ error: 'Se requiere data en base64' }, { status: 400 });
       }
       recoveryPassword = body.recoveryPassword;
+      ownerPassword = typeof body.ownerPassword === 'string' ? body.ownerPassword : undefined;
       try {
         const jsonString = Buffer.from(base64Data, 'base64').toString('utf-8');
         backupData = JSON.parse(jsonString) as BackupData;
@@ -194,6 +255,14 @@ export const POST = apiHandler(
     }
 
     const userId = firstUser.id;
+
+    // 4b. Ownership proof (S1/S2) — the restorer must know the password of the
+    //     super admin who CREATED this backup. Asserted after the required
+    //     recovery password (no plaintext stored anywhere) but BEFORE the
+    //     bootstrap shell is created, so a refused attempt leaves the system
+    //     verifiably empty and never has to be undone.
+    assertBackupOwnership(backupData.manifest, ownerPassword);
+
     const companyInfo = backupData.manifest.companyInfo as
       | { legalName?: unknown; taxId?: unknown }
       | undefined;
@@ -254,11 +323,28 @@ export const POST = apiHandler(
     //    instead), so the shell can be discarded and the system stays empty.
     let result: Awaited<ReturnType<typeof restoreCompanyBackupCoordinated>>;
     try {
-      result = await restoreCompanyBackupCoordinated(companyId, JSON.stringify(backupData));
+      result = await restoreCompanyBackupCoordinated(companyId, JSON.stringify(backupData), {
+        ownerPassword: typeof ownerPassword === 'string' ? ownerPassword : undefined,
+      });
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       logger.error('bootstrap.restore: coordinated restore refused the payload', { companyId, error: detail });
       await discardBootstrapShell(companyId, userId);
+      // T7 (S3): report the refusal the core actually made (legacy plain-text
+      // file, ownership credential, uncertifiable history, non-empty shell)
+      // instead of flattening it into a generic failure. Same 400, same
+      // Spanish message, no change to what is admitted.
+      const refusal = knownRestoreRefusal(error);
+      if (refusal) {
+        return NextResponse.json(
+          {
+            error: refusal.message,
+            code: refusal.code,
+            ...(refusal.details === undefined ? {} : { details: refusal.details }),
+          },
+          { status: refusal.status },
+        );
+      }
       return NextResponse.json(
         { error: `No se pudo restaurar el sistema: ${detail}`, code: 'RESTORE_FAILED' },
         { status: 400 },

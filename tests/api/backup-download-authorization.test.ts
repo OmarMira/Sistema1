@@ -4,11 +4,29 @@ import { POST as backupPOST } from '../../src/app/api/backup/route';
 import { POST as previewPOST } from '../../src/app/api/backup/restore/preview/route';
 import { createTestUser, createTestCompany, createTestGlAccount, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
+import { hashPassword } from '@/lib/auth';
 import { BACKUP_DIR } from '@/lib/config/paths';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import fs from 'fs';
 import path from 'path';
+
+/**
+ * S7 — creating a backup is sudo-style: the route asks the authenticated
+ * administrator to re-enter their own password. This suite tests the
+ * download/preview ROLE gate, so the fixture owner simply has a real password
+ * and every POST /api/backup carries it.
+ */
+const ADMIN_PASSWORD = 'Clave.Descarga.2026';
+
+async function createBackupAdmin(email: string) {
+  const user = await createTestUser(email);
+  await db.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
+  });
+  return user;
+}
 
 function cleanTestBackups(filenames: string[]) {
   for (const name of filenames) {
@@ -46,7 +64,8 @@ describe('backup download/preview authorization', () => {
     const res = await backupPOST(
       new NextRequest(`http://localhost/api/backup?companyId=${companyId}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: { Authorization: `Bearer ${adminToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: ADMIN_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );
@@ -57,7 +76,7 @@ describe('backup download/preview authorization', () => {
   }
 
   it('rejects backup download for a viewer (company_admin required)', async () => {
-    const owner = await createTestUser('dl-admin@example.com');
+    const owner = await createBackupAdmin('dl-admin@example.com');
     const viewer = await createTestUser('dl-viewer@example.com');
     const company = await createTestCompany('Download Auth Test');
     await db.companyMember.create({ data: { userId: owner.id, companyId: company.id, role: 'company_admin' } });
@@ -78,7 +97,7 @@ describe('backup download/preview authorization', () => {
   });
 
   it('still allows company_admin to download their own backup', async () => {
-    const owner = await createTestUser('dl-admin-ok@example.com');
+    const owner = await createBackupAdmin('dl-admin-ok@example.com');
     const company = await createTestCompany('Download Auth Admin Test');
     await db.companyMember.create({ data: { userId: owner.id, companyId: company.id, role: 'company_admin' } });
     await createTestGlAccount({ companyId: company.id, code: '1010', name: 'Cash', accountType: 'asset', normalBalance: 'debit' });
@@ -99,7 +118,7 @@ describe('backup download/preview authorization', () => {
   });
 
   it('rejects restore preview for a viewer (company_admin required)', async () => {
-    const owner = await createTestUser('pv-admin@example.com');
+    const owner = await createBackupAdmin('pv-admin@example.com');
     const viewer = await createTestUser('pv-viewer@example.com');
     const company = await createTestCompany('Preview Auth Test');
     await db.companyMember.create({ data: { userId: owner.id, companyId: company.id, role: 'company_admin' } });

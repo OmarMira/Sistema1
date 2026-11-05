@@ -33,6 +33,7 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { createBackup } from '@/lib/backup';
+import { hashPassword } from '@/lib/auth';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import {
   createTestCompany,
@@ -44,11 +45,19 @@ import {
 import { POST as bootstrapRestorePOST } from '@/app/api/bootstrap/restore/route';
 import { POST as loginPOST } from '@/app/api/auth/login/route';
 import { GET as meGET } from '@/app/api/auth/me/route';
+import { translateApiError } from '@/i18n/errors';
 import es from '@/i18n/locales/es';
 import en from '@/i18n/locales/en';
 import { BACKUP_DIR } from '@/lib/config/paths';
 
 const RECOVERY_PASSWORD = 'Recuperacion!2026';
+/**
+ * S1/S2/S7: this is the password of the super admin who CREATED the backup. The
+ * restore refuses any file whose creating administrator did not prove ownership,
+ * so the fixture owner really has this password and every restore supplies it —
+ * exactly what the from-zero form now asks for next to the recovery password.
+ */
+const OWNER_PASSWORD = 'Propietario!2026';
 const OWNER_EMAIL = 'bootstrap.restore.owner@example.com';
 
 type CreatedBackup = Awaited<ReturnType<typeof createBackup>>;
@@ -105,6 +114,10 @@ function collectPublishedBackups(companyId: string) {
 /** Production export path: snapshot + JH2 seal + published 2.1.0 payload. */
 async function createSourceBackup() {
   const owner = await createTestUser(OWNER_EMAIL);
+  await db.user.update({
+    where: { id: owner.id },
+    data: { passwordHash: await hashPassword(OWNER_PASSWORD) },
+  });
   const company = await createTestCompany('Bootstrap Restore SA');
   await createTestCompanyMember(owner.id, company.id);
   const cash = await createTestGlAccount({
@@ -136,7 +149,9 @@ async function createSourceBackup() {
     entryId: entry.id,
   }));
 
-  const backup: CreatedBackup = await createBackup(company.id, owner.id);
+  const backup: CreatedBackup = await createBackup(company.id, owner.id, {
+    ownerPassword: OWNER_PASSWORD,
+  });
   publishedBackups.push(backup.filename);
   return { backup, owner, company };
 }
@@ -153,7 +168,9 @@ function restoreRequest(body: Record<string, unknown>) {
 
 async function restoreWithPassword(backup: CreatedBackup, password: string | undefined) {
   return restoreRequest(
-    password === undefined ? { data: backup.data } : { data: backup.data, recoveryPassword: password },
+    password === undefined
+      ? { data: backup.data }
+      : { data: backup.data, recoveryPassword: password, ownerPassword: OWNER_PASSWORD },
   );
 }
 
@@ -316,7 +333,7 @@ describe('POST /api/bootstrap/restore — first-install restore of a 2.1.0 backu
     expect((meBody.companies as Array<{ id: string }>).map((c) => c.id)).toContain(sourceCompanyId);
   });
 
-  it('restores from the multipart upload the page actually sends (file + recoveryPassword)', async () => {
+  it('restores from the multipart upload the page actually sends (file + recoveryPassword + ownerPassword)', async () => {
     const formData = new FormData();
     const snapshot = JSON.parse(Buffer.from(backup.data, 'base64').toString('utf-8')) as unknown;
     formData.append(
@@ -324,6 +341,7 @@ describe('POST /api/bootstrap/restore — first-install restore of a 2.1.0 backu
       new File([JSON.stringify(snapshot)], 'bootstrap-restore.json', { type: 'application/json' }),
     );
     formData.append('recoveryPassword', RECOVERY_PASSWORD);
+    formData.append('ownerPassword', OWNER_PASSWORD);
 
     const response = await bootstrapRestorePOST(
       new NextRequest('http://localhost/api/bootstrap/restore', { method: 'POST', body: formData }),
@@ -340,6 +358,7 @@ describe('POST /api/bootstrap/restore — first-install restore of a 2.1.0 backu
     const formData = new FormData();
     formData.append('file', new File(['{}'], 'backup.txt', { type: 'text/plain' }));
     formData.append('recoveryPassword', RECOVERY_PASSWORD);
+    formData.append('ownerPassword', OWNER_PASSWORD);
 
     const response = await bootstrapRestorePOST(
       new NextRequest('http://localhost/api/bootstrap/restore', { method: 'POST', body: formData }),
@@ -362,5 +381,59 @@ describe('POST /api/bootstrap/restore — first-install restore of a 2.1.0 backu
       expect(enText.trim().length).toBeGreaterThan(0);
       expect(enText).not.toBe(esText);
     }
+  });
+
+  /**
+   * S1/S2/S7 — the credential the from-zero form now asks for (and the sudo-style
+   * password creating a backup requires) reaches the page as a translated
+   * message in the operator's language, never as a raw code or a Spanish-only
+   * string.
+   */
+  it('translates the ownership and backup-password codes in both locales', () => {
+    const codes = ['BACKUP_PASSWORD_REQUIRED', 'INVALID_BACKUP_PASSWORD', 'RESTORE_OWNERSHIP'] as const;
+    const tEs = (key: string) =>
+      key.split('.').reduce<unknown>((acc, part) => (acc as Record<string, unknown>)?.[part], es) as string;
+    const tEn = (key: string) =>
+      key.split('.').reduce<unknown>((acc, part) => (acc as Record<string, unknown>)?.[part], en) as string;
+
+    for (const code of codes) {
+      const esText = (es.errors as Record<string, string>)[code];
+      const enText = (en.errors as Record<string, string>)[code];
+      expect(typeof esText, `${code} [es]`).toBe('string');
+      expect(typeof enText, `${code} [en]`).toBe('string');
+      expect(esText.trim().length, `${code} [es] non-empty`).toBeGreaterThan(0);
+      expect(enText.trim().length, `${code} [en] non-empty`).toBeGreaterThan(0);
+      expect(enText, `${code} must be English, not Spanish`).not.toBe(esText);
+      // The page resolves these codes through translateApiError.
+      expect(translateApiError({ error: 'mensaje del servidor', code }, tEs)).toBe(esText);
+      expect(translateApiError({ error: 'server message', code }, tEn)).toBe(enText);
+    }
+  });
+
+  /**
+   * The defect this unit fixes: the from-zero form sent no ownership credential,
+   * so a bootstrap restore was refused. The page must now send `ownerPassword`
+   * with the file; without it the endpoint refuses before the bootstrap shell and
+   * the installation stays verifiably empty.
+   */
+  it('PRESERVE: the pre-fix multipart upload (no ownerPassword) is refused and writes nothing', async () => {
+    const formData = new FormData();
+    const snapshot = JSON.parse(Buffer.from(backup.data, 'base64').toString('utf-8')) as unknown;
+    formData.append(
+      'file',
+      new File([JSON.stringify(snapshot)], 'bootstrap-restore.json', { type: 'application/json' }),
+    );
+    formData.append('recoveryPassword', RECOVERY_PASSWORD);
+
+    const response = await bootstrapRestorePOST(
+      new NextRequest('http://localhost/api/bootstrap/restore', { method: 'POST', body: formData }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body.code).toBe('RESTORE_OWNERSHIP');
+    expect(response.cookies.get('session')).toBeUndefined();
+    expect(await db.company.count()).toBe(0);
+    expect(await db.user.count()).toBe(0);
   });
 });

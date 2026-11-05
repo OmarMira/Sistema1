@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryRows, queryNullMetadata, fixtureNullReferences } from './helpers';
@@ -65,9 +66,17 @@ vi.mock('@/lib/db', () => ({ db: database, withCompanyBackupTransaction: (callba
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth must not run'); }) }));
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 import { sealSnapshot, SNAPSHOT_SECTIONS } from '@/lib/backup-format';
+import { buildBackupOwnership } from '@/lib/backup-ownership';
 import { previewCompanyRestore, restoreCompanyBackup, restoreCompanyBackupCoordinated, reconcileCompanyBackupRecovery } from '@/lib/backup-restore';
 import { validateBackup, getBackupFile } from '@/lib/backup';
 import { computeEntryHashV2, computeAuditHash } from '@/lib/journal-hash';
+
+/**
+ * S1/S2/S7: the snapshot under test carries the ownership verifier the real
+ * exporter writes, and every restore proves that credential. Fixtures, counts,
+ * orderings and assertions are otherwise untouched.
+ */
+const OWNER_PASSWORD = 'Clave.Restore.2026';
 
 const models: Record<string, string> = {
   company: 'Company', glAccounts: 'GlAccount', bankAccounts: 'BankAccount', bankStatements: 'BankStatement',
@@ -118,7 +127,8 @@ function fixture(): any {
   const body = { manifest: { version: '2.1.0', fidelity: { monetary: 'decimal-18,2', jsonNulls: fixtureNullReferences(data, models) }, id: '11111111-1111-4111-8111-111111111111',
     createdAt: '2026-01-01T00:00:00.000Z', companyId: 'tenant',
     companyInfo: { id: 'tenant', legalName: data.company[0].legalName, taxId: data.company[0].taxId },
-    recordCounts: { ...Object.fromEntries(SNAPSHOT_SECTIONS.map(s => [s, data[s].length])), companyConfig: false } }, data };
+    recordCounts: { ...Object.fromEntries(SNAPSHOT_SECTIONS.map(s => [s, data[s].length])), companyConfig: false },
+    ownership: buildBackupOwnership(OWNER_PASSWORD) }, data };
   sealSnapshot(body as any);
   return body;
 }
@@ -179,7 +189,7 @@ async function rejected(body: any, error: string, raw?: string) {
     await expect(previewCompanyRestore('tenant', input)).rejects.toThrow(error);
     expect(state.rows).toEqual(before); expect(files()).toEqual(disk); expect(state.writes).toEqual([]);
   }
-  await expect(restoreCompanyBackup('tenant', input)).rejects.toThrow(error);
+  await expect(restoreCompanyBackup('tenant', input, { ownerPassword: OWNER_PASSWORD })).rejects.toThrow(error);
   expect(state.rows).toEqual(before);
   expect(files()).toEqual(disk);
   expect(state.writes).toEqual([]);
@@ -190,7 +200,7 @@ describe('coordinated company configuration recovery', () => {
     backup.manifest.recordCounts.companyConfig = true;
     const configPath = path.join(state.root, 'company-config.json');
     const before = fs.readFileSync(configPath);
-    const result = await restoreCompanyBackupCoordinated('tenant', text(backup));
+    const result = await restoreCompanyBackupCoordinated('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('committed');
     expect(JSON.parse(fs.readFileSync(configPath, 'utf8'))).toEqual({ marker: 'global', companies: { other: { currency: 'USD' }, tenant: { currency: 'ARS' } } });
     const journal = JSON.parse(fs.readFileSync(path.join(state.root, 'backup-recovery', result.operationId + '.json'), 'utf8')).payload;
@@ -205,7 +215,7 @@ describe('coordinated company configuration recovery', () => {
     state.ambiguous = true;
     const configPath = path.join(state.root, 'company-config.json');
     const before = fs.readFileSync(configPath);
-    const result = await restoreCompanyBackupCoordinated('tenant', text(backup));
+    const result = await restoreCompanyBackupCoordinated('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('reconciliation_required');
     expect(fs.readFileSync(configPath)).toEqual(before);
     expect(fs.existsSync(path.join(state.root, 'backup-maintenance', 'maintenance.json'))).toBe(true);
@@ -222,7 +232,7 @@ describe('coordinated company configuration recovery', () => {
     const before = structuredClone(state.rows);
     const configPath = path.join(state.root, 'company-config.json');
     const original = fs.readFileSync(configPath);
-    const result = await restoreCompanyBackupCoordinated('tenant', text(backup));
+    const result = await restoreCompanyBackupCoordinated('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('reconciliation_required');
     expect(state.rows).toEqual(before);
     state.failInsert = '';
@@ -253,7 +263,7 @@ describe('public company recovery core', () => {
     const shared = structuredClone({ user: state.rows.user, config: state.rows.systemConfig, bank: state.rows.bankProfile,
       company: state.rows.company[1], gl: state.rows.glAccount[1] });
     const config = fs.readFileSync(path.join(state.root, 'company-config.json'), 'utf8');
-    const result = await restoreCompanyBackup('tenant', JSON.stringify(backup));
+    const result = await restoreCompanyBackup('tenant', JSON.stringify(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('committed');
     expect(result.counts).toEqual(backup.manifest.recordCounts);
     for (const [section, model] of Object.entries(models)) {
@@ -306,7 +316,7 @@ describe('public company recovery core', () => {
   it('rejects a different selected company and an ID/email identity collision without side effects', async () => {
     const before = structuredClone(state.rows), disk = files();
     await expect(previewCompanyRestore('other', text(backup))).rejects.toThrow('RESTORE_IDENTITY');
-    await expect(restoreCompanyBackup('other', text(backup))).rejects.toThrow('RESTORE_IDENTITY');
+    await expect(restoreCompanyBackup('other', text(backup), { ownerPassword: OWNER_PASSWORD })).rejects.toThrow('RESTORE_IDENTITY');
     expect(state.rows).toEqual(before); expect(files()).toEqual(disk); expect(state.writes).toEqual([]);
     state.rows.user[0].email = 'different@example.invalid';
     await rejected(backup, 'RESTORE_MISSING_IDENTITY');
@@ -325,7 +335,7 @@ describe('public company recovery core', () => {
   it('rolls back DB insertion failure while retaining the consistent safety backup and unchanged runtime configuration', async () => {
     const before = structuredClone(state.rows), config = fs.readFileSync(path.join(state.root, 'company-config.json'), 'utf8');
     state.failInsert = 'journalLine';
-    const result = await restoreCompanyBackup('tenant', JSON.stringify(backup));
+    const result = await restoreCompanyBackup('tenant', JSON.stringify(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('not_confirmed');
     expect(result.error).toContain('insertion failed');
     expect(state.rows).toEqual(before);
@@ -335,7 +345,7 @@ describe('public company recovery core', () => {
 
   it('reports commit ambiguity honestly and never replays configuration after a later operation', async () => {
     state.ambiguous = true;
-    const result = await restoreCompanyBackup('tenant', JSON.stringify(backup));
+    const result = await restoreCompanyBackup('tenant', JSON.stringify(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('not_confirmed');
     expect(result.error).toContain('COMMIT');
     expect(state.rows.company[0].legalName).toBe(backup.data.company[0].legalName);
@@ -383,7 +393,7 @@ describe('public company recovery core', () => {
     backup.data.journalChainHead = { companyId: 'tenant', lastHash: entry.hash, lastEntryId: entry.id };
     const audit = backup.data.auditLogs[0];
     audit.hash = computeAuditHash(audit);
-    const result = await restoreCompanyBackup('tenant', text(backup));
+    const result = await restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('committed');
     expect(state.rows.journalEntry[0].hash).toBe(entry.hash);
     expect(state.rows.journalChainHead[0]).toEqual(backup.data.journalChainHead);
@@ -414,7 +424,7 @@ describe('public company recovery core', () => {
     backup.data.glAccounts[0].parentId = 'parent-gl'; backup.manifest.recordCounts.glAccounts++;
     backup.data.companyKnowledge.push({ ...backup.data.companyKnowledge[0], id: 'merged-target' });
     backup.data.companyKnowledge[0].mergedIntoId = 'merged-target'; backup.manifest.recordCounts.companyKnowledge++;
-    const result = await restoreCompanyBackup('tenant', text(backup));
+    const result = await restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('committed');
     expect(state.rows.glAccount.find(r => r.id === 'glAccounts')?.parentId).toBe('parent-gl');
     expect(state.rows.companyKnowledge.find(r => r.id === 'companyKnowledge')?.mergedIntoId).toBe('merged-target');
@@ -424,7 +434,7 @@ describe('public company recovery core', () => {
     const before = structuredClone(state.rows);
     if (kind === 'flush') vi.spyOn(fs, 'fsyncSync').mockImplementationOnce(() => { throw new Error('safety flush failed'); });
     else vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw new Error('safety index failed'); });
-    await expect(restoreCompanyBackup('tenant', text(backup))).rejects.toThrow(`safety ${kind}`);
+    await expect(restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD })).rejects.toThrow(`safety ${kind}`);
     expect(state.rows).toEqual(before); expect(state.writes).toEqual([]);
     const names = fs.readdirSync(path.join(state.root, 'backups'));
     expect(names.filter(n => n.endsWith('.tmp'))).toEqual([]);
@@ -435,7 +445,7 @@ describe('public company recovery core', () => {
     const config = { companies: { tenant: { currency: 'ARS' }, other: { currency: 'USD' } }, marker: 'global' };
     fs.writeFileSync(path.join(state.root, 'company-config.json'), JSON.stringify(config));
     backup.data.companyConfig = config.companies.tenant; backup.manifest.recordCounts.companyConfig = true;
-    const result = await restoreCompanyBackup('tenant', text(backup));
+    const result = await restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
     expect(result.status).toBe('committed');
     expect(JSON.parse(fs.readFileSync(path.join(state.root, 'company-config.json'), 'utf8'))).toEqual(config);
   });
@@ -452,5 +462,151 @@ describe('public company recovery core', () => {
     const old = structuredClone(backup); old.manifest.version = '1.1.0';
     expect(validateBackup(old)).toEqual({ valid: true, errors: [] });
     expect(validateBackup(backup).valid).toBe(false);
+  });
+});
+
+/**
+ * S5 (T4): a legacy plain-text file — the raw JSON snapshot sealed with the old
+ * UNKEYED sha256 digest, i.e. without the current sealed (HMAC) format — is
+ * refused by every restore entry point before a single row or file is written.
+ */
+function legacyPlainText(body: any): string {
+  const { integrity: _integrity, ...manifest } = body.manifest;
+  const digest = crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ manifest, data: body.data }), 'utf8')
+    .digest('hex');
+  return JSON.stringify({
+    ...body,
+    manifest: {
+      ...manifest,
+      integrity: {
+        algorithm: 'sha256',
+        encoding: 'utf8',
+        scope: 'JSON.stringify({manifest-without-integrity,data})',
+        authenticated: false,
+        digest,
+      },
+    },
+  });
+}
+
+describe('legacy plain-text backups (S5)', () => {
+  it('refuses the unsealed legacy format on both restore entry points without writes or publication', async () => {
+    const before = structuredClone(state.rows), disk = files();
+    const input = legacyPlainText(backup);
+
+    const database = await restoreCompanyBackup('tenant', input, { ownerPassword: OWNER_PASSWORD }).catch(error => error);
+    expect(database).toMatchObject({ code: 'RESTORE_LEGACY_FORMAT' });
+    expect(database.statusCode).toBe(400);
+    expect(database.message).toContain('ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1');
+    expect(database.message).toContain('volver a generar');
+
+    const coordinated = await restoreCompanyBackupCoordinated('tenant', input, { ownerPassword: OWNER_PASSWORD })
+      .catch(error => error);
+    expect(coordinated).toMatchObject({ code: 'RESTORE_LEGACY_FORMAT' });
+
+    expect(state.rows).toEqual(before);
+    expect(files()).toEqual(disk);
+    expect(state.writes).toEqual([]);
+
+    // Read-only preview of a legacy file keeps working: only RESTORE refuses it.
+    const preview = await previewCompanyRestore('tenant', input);
+    expect(preview.checksum).toBe(JSON.parse(input).manifest.integrity.digest);
+    expect(files()).toEqual(disk);
+    expect(state.writes).toEqual([]);
+  });
+
+  it('keeps the ownership refusal first when the legacy file carries no verifier either', async () => {
+    const plain = { ...backup, manifest: { ...backup.manifest } };
+    delete plain.manifest.ownership;
+    const error = await restoreCompanyBackup('tenant', legacyPlainText(plain), { ownerPassword: OWNER_PASSWORD })
+      .catch(reason => reason);
+    expect(error).toMatchObject({ code: 'RESTORE_OWNERSHIP' });
+  });
+});
+
+/**
+ * S6 (T3): a historical segment whose first row chains to a predecessor that
+ * the old installation took with it. Re-anchoring is only admissible on a
+ * verifiably empty destination AND when the segment itself is intact except for
+ * that root; everything else keeps the unchanged RESTORE_CHAIN refusal.
+ */
+const EMPTY_DESTINATION_MODELS = ['glAccount', 'bankAccount', 'bankStatement', 'bankTransaction', 'bankRule',
+  'journalEntry', 'journalLine', 'fiscalPeriod', 'reconciliationPeriod', 'companyKnowledge', 'knowledgeAudit',
+  'systemMemory', 'memoryItem', 'memoryVersion', 'relationship', 'contradiction', 'evolutionLink',
+  'traceabilityLog', 'confidenceLog', 'entityContext', 'detectionConfig', 'csvLayoutProfile',
+  'ruleApplyRecord', 'ruleExecutionAudit', 'pendingApproval', 'auditLog', 'journalChainHead'];
+
+const LOST_PREDECESSOR = 'f'.repeat(64);
+
+function auditMember(id: string, previousHash: string | null, createdAt: string): any {
+  const member = { ...row('auditLogs'), id, companyId: 'tenant', previousHash, createdAt, hash: null };
+  member.hash = computeAuditHash(member);
+  return member;
+}
+
+function withAuditSegment(segment: any[]): void {
+  backup.data.auditLogs = segment;
+  backup.manifest.recordCounts.auditLogs = segment.length;
+}
+
+describe('historical audit re-anchoring (S6)', () => {
+  it('re-bases an unrooted segment on an empty destination behind a sealed RESTORE_REBASE root', async () => {
+    const first = auditMember('segment-first', LOST_PREDECESSOR, '2025-01-01T00:00:00.000Z');
+    const second = auditMember('segment-second', first.hash, '2025-01-02T00:00:00.000Z');
+    withAuditSegment([first, second]);
+    for (const model of EMPTY_DESTINATION_MODELS) state.rows[model] = [];
+
+    const result = await restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
+    expect(result.status).toBe('committed');
+
+    const inserted = state.rows.auditLog.filter((audit: any) => audit.hash != null);
+    expect(inserted).toHaveLength(3);
+    const [rebase, rebasedFirst, rebasedSecond] = inserted;
+    expect(rebase.action).toBe('RESTORE_REBASE');
+    expect(rebase.previousHash).toBeNull();
+    expect(rebase.hash).toBe(computeAuditHash(rebase));
+    expect(JSON.parse(rebase.details)).toEqual({
+      backupId: backup.manifest.id,
+      originalPredecessorHash: LOST_PREDECESSOR,
+      rebasedAt: expect.any(String),
+    });
+    expect(rebasedFirst.id).toBe('segment-first');
+    expect(rebasedFirst.previousHash).toBe(rebase.hash);
+    expect(rebasedFirst.hash).toBe(computeAuditHash(rebasedFirst));
+    expect(rebasedFirst.hash).not.toBe(first.hash);
+    expect(rebasedSecond.previousHash).toBe(rebasedFirst.hash);
+    expect(rebasedSecond.hash).toBe(computeAuditHash(rebasedSecond));
+  });
+
+  it('refuses to re-anchor an archive whose segment is broken, even on an empty destination', async () => {
+    const first = auditMember('segment-first', LOST_PREDECESSOR, '2025-01-01T00:00:00.000Z');
+    // Not a lost root: the second row points at a hash that is not its predecessor.
+    const second = auditMember('segment-second', 'no-such-predecessor', '2025-01-02T00:00:00.000Z');
+    withAuditSegment([first, second]);
+    for (const model of EMPTY_DESTINATION_MODELS) state.rows[model] = [];
+
+    const before = structuredClone(state.rows), disk = files();
+    await expect(restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD })).rejects.toThrow(
+      'RESTORE_CHAIN: replacement cannot certify installation-wide audit order; preserve other tenants and do not re-sign',
+    );
+    expect(state.rows).toEqual(before);
+    expect(files()).toEqual(disk);
+    expect(state.writes).toEqual([]);
+  });
+
+  it('never re-anchors on a destination that already has audit history', async () => {
+    const first = auditMember('segment-first', LOST_PREDECESSOR, '2025-01-01T00:00:00.000Z');
+    withAuditSegment([first]);
+    const existing = auditMember('already-here', null, '2025-06-01T00:00:00.000Z');
+    state.rows.auditLog = [existing];
+
+    const error = await restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD })
+      .catch(reason => reason);
+    expect(error.message).toBe(
+      'RESTORE_CHAIN: replacement cannot certify installation-wide audit order; preserve other tenants and do not re-sign',
+    );
+    expect(String(error.message)).not.toContain('RESTORE_REBASE');
   });
 });

@@ -161,7 +161,12 @@ describe('createBackup AI config protection', () => {
 
   it('excludes global systemConfig from backups entirely, so AI config keys can never leak (createBackup con implementación real, dependencias mockeadas)', async () => {
     const { createBackup } = await import('@/lib/backup');
-    const result = await createBackup('test-company');
+    // S7: creating a backup is sudo-style — the creating administrator's password
+    // is required and only its verifier is embedded. This assertion (AI config
+    // exclusion) is unchanged; only the credential is supplied.
+    const result = await createBackup('test-company', undefined, {
+      ownerPassword: 'Clave.Unit.2026',
+    });
 
     const raw = Buffer.from(result.data, 'base64').toString('utf-8');
     const backupData = JSON.parse(raw);

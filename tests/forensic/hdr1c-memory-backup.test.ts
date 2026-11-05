@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { db } from '@/lib/db';
-import { createBackup, restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
+import { createBackup as createRawBackup, restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
 import { restoreCompanyBackup } from '@/lib/backup-restore';
 import { sealSnapshot } from '@/lib/backup-format';
 import { clearDatabase } from '../helpers/factories';
@@ -26,6 +26,15 @@ const CO_B = 'hdr1c-co-B';
 const ACTOR_ID = 'hdr1c-actor-user';
 const ACTOR_EMAIL = 'hdr1c-actor@example.com';
 const baseDate = new Date('2026-01-01T00:00:00.000Z');
+
+/**
+ * S1/S2/S7: creating a backup requires the creating administrator's password, and
+ * a company-recovery restore must prove that same credential. The memory-core
+ * contract under test is untouched; this helper supplies the credential.
+ */
+const OWNER_PASSWORD = 'Clave.MemoryCore.2026';
+const createBackup = (companyId: string) =>
+  createRawBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
 
 const EXPECTED_SET = {
   systemMemories: 1,
@@ -216,7 +225,7 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
    * afterEach leaves the backup inventory as it found it.
    */
   async function restoreCurrent(payload: BackupData) {
-    const result = await restoreCompanyBackup(CO_A, JSON.stringify(payload));
+    const result = await restoreCompanyBackup(CO_A, JSON.stringify(payload), { ownerPassword: OWNER_PASSWORD });
     if (result.safetyFilename) createdBackups.push({ filename: result.safetyFilename, companyId: CO_A });
     return result;
   }
@@ -550,7 +559,9 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
     const preItems = await db.memoryItem.count({ where: { companyId: CO_A } });
     const preCounts = await memoryCounts(CO_A);
-    await expect(restoreCompanyBackup(CO_A, JSON.stringify(poisoned))).rejects.toThrow(/RESTORE_REFERENCE/);
+    await expect(
+      restoreCompanyBackup(CO_A, JSON.stringify(poisoned), { ownerPassword: OWNER_PASSWORD }),
+    ).rejects.toThrow(/RESTORE_REFERENCE/);
     const postItems = await db.memoryItem.count({ where: { companyId: CO_A } });
     expect(postItems).toBe(preItems);
     expect(await memoryCounts(CO_A)).toEqual(preCounts);

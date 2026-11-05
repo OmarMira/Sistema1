@@ -10,6 +10,7 @@ import { RUNTIME_DIR } from '@/lib/config/paths';
 import { createRecoveryJournal } from '@/lib/backup-recovery-journal';
 import { reconcileCompanyBackupRecovery } from '@/lib/backup-restore';
 import { createSession } from '@/lib/sessions';
+import { hashPassword } from '@/lib/auth';
 import { db } from '@/lib/db';
 import { cleanupBackupFiles } from '../helpers/backup-files';
 import {
@@ -40,6 +41,9 @@ const authHeaders = (token: string) => ({
   Authorization: `Bearer ${token}`,
 });
 
+/** Password of the administrator who creates and restores the fixture backups (S1/S2/S7). */
+const ADMIN_PASSWORD = 'Clave.Mantenimiento.2026';
+
 function listRequest(companyId: string, token: string): NextRequest {
   return new NextRequest(`http://localhost/api/backup?companyId=${companyId}`, {
     method: 'GET',
@@ -48,15 +52,24 @@ function listRequest(companyId: string, token: string): NextRequest {
 }
 
 function restoreRequest(companyId: string, token: string, data: string): NextRequest {
+  // S1/S2 — a restore must prove the credential of the administrator who created
+  // the backup, so the fixture supplies it; the maintenance transition contract
+  // under test is unchanged.
   return new NextRequest(`http://localhost/api/backup/restore?companyId=${companyId}`, {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify({ data }),
+    body: JSON.stringify({ data, ownerPassword: ADMIN_PASSWORD }),
   });
 }
 
 async function seedCompanyWithBackupOwner(email: string) {
   const user = await createTestUser(email);
+  // S7 — creating a backup is sudo-style: the administrator re-enters their own
+  // password, so the fixture owner holds a real hash and supplies it below.
+  await db.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
+  });
   const company = await createTestCompany('Maintenance Transition Co');
   await createTestCompanyMember(user.id, company.id);
   const token = await createSession(user.id);
@@ -113,6 +126,7 @@ describe('/api/backup/restore — maintenance transition', () => {
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
+        body: JSON.stringify({ password: ADMIN_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );
@@ -144,6 +158,7 @@ describe('/api/backup/restore — maintenance transition', () => {
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
+        body: JSON.stringify({ password: ADMIN_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );

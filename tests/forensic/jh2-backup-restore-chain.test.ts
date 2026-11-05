@@ -38,6 +38,13 @@ type Seeded = {
   gl2: { id: string };
 };
 
+/**
+ * S1/S2/S7: creating a backup requires the creating administrator's password and
+ * every company-recovery restore must prove that same credential. The chain
+ * continuity contract under test is untouched; only the credential is supplied.
+ */
+const OWNER_PASSWORD = 'Clave.JournalChain.2026';
+
 let seq = 0;
 
 async function seedCompany(label: string): Promise<Seeded> {
@@ -87,7 +94,7 @@ async function appendViaTx(seeded: Seeded, description: string) {
 }
 
 async function buildBackup(p: Seeded): Promise<BackupData> {
-  const result = await createBackup(p.companyId);
+  const result = await createBackup(p.companyId, undefined, { ownerPassword: OWNER_PASSWORD });
   return JSON.parse(Buffer.from(result.data, 'base64').toString('utf-8')) as BackupData;
 }
 
@@ -99,13 +106,15 @@ async function buildBackup(p: Seeded): Promise<BackupData> {
  */
 async function restoreFrom(p: Seeded, backupData: BackupData) {
   sealSnapshot(backupData);
-  return restoreCompanyBackup(p.companyId, JSON.stringify(backupData));
+  return restoreCompanyBackup(p.companyId, JSON.stringify(backupData), { ownerPassword: OWNER_PASSWORD });
 }
 
 /** Refused payloads must not be observable as a partial restore. */
 async function rejectedRestore(p: Seeded, backupData: BackupData, expected: RegExp) {
   sealSnapshot(backupData);
-  await expect(restoreCompanyBackup(p.companyId, JSON.stringify(backupData))).rejects.toThrow(expected);
+  await expect(
+    restoreCompanyBackup(p.companyId, JSON.stringify(backupData), { ownerPassword: OWNER_PASSWORD }),
+  ).rejects.toThrow(expected);
 }
 
 async function headOf(companyId: string) {

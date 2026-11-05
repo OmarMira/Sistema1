@@ -13,6 +13,13 @@ have passed independent PostgreSQL 16 probes; that is not full option C.
 For the independently committable export/catalog contract, start with
 [Company snapshot format 2.1.0](company-backup-format.md).
 
+> The paragraphs above describe the T1/T2 slice. Both restore paths ARE wired to
+> HTTP now, and the ownership credential, the legacy-format refusal, the
+> historical re-anchor and restore-as-new-company are implemented and pinned by
+> tests — see [Ownership credential, certified historical restore and
+> restore-as-new-company](#ownership-credential-certified-historical-restore-and-restore-as-new-company-s1s6)
+> for the current contract. Real browser/crash acceptance is still open.
+
 ## Coordinated recovery and interrupted operations
 
 The coordinated service closes maintenance admission and drains existing writers
@@ -500,3 +507,129 @@ Signed posted-journal recovery, adversarial concurrency, browser flows, external
 assets, persistent reconciliation, crash/power-loss and complete option C remain
 outside this observed proof. Passing this artifact is not permission to use an
 ambient database or claim full recovery acceptance.
+
+## Ownership credential, certified historical restore and restore-as-new-company (S1–S6)
+
+A backup file is a complete company, so a file alone must never be enough to
+install it somewhere else. Three implemented guarantees close that hole, and one
+of them changes the HTTP surface.
+
+### HTTP contract
+
+| Route | Request | Contract |
+| --- | --- | --- |
+| `POST /api/backup?companyId=<id>` | `{ companyId, password }` | Sudo-style creation: the creating `company_admin`/`super_admin` re-enters their own password. `400 BACKUP_PASSWORD_REQUIRED` (missing) or `400 INVALID_BACKUP_PASSWORD` (wrong) publish nothing — no file, no catalog entry, no `BACKUP_CREATED` audit row. |
+| `POST /api/backup/restore?companyId=<id>` | JSON `{ data (base64), ownerPassword, targetCompanyId? }` or multipart `companyId`, `file`, `ownerPassword`, `targetCompanyId?` | Restores into the caller's company by default. The caller needs `company_admin` on that company. |
+| `POST /api/backup/restore/preview?companyId=<id>` | `{ data }` | Read-only preview of the **caller's** company. It is not an import preview: a cross-company archive is refused there with `RESTORE_IDENTITY`, while the restore route certifies the destination itself. |
+| `POST /api/bootstrap/restore` | multipart `file` + `recoveryPassword` + `ownerPassword`, or JSON `{ data, recoveryPassword, ownerPassword }` | First install only. Admission is the empty database (`409 DB_NOT_EMPTY` otherwise); `recoveryPassword` (min 8) becomes the restored owner's password. |
+
+`targetCompanyId` is the S4 switch: omitted (or equal to the caller's company)
+keeps the previous behaviour byte-for-byte; a DIFFERENT company is a platform
+operation that requires a global `super_admin` (`403 FORBIDDEN` otherwise) and an
+empty destination shell.
+
+### Error codes
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `RESTORE_OWNERSHIP` | 400 | Missing/wrong credential, or an archive created before ownership protection (no verifier). The Spanish message states which. |
+| `RESTORE_LEGACY_FORMAT` | 400 | Legacy plain-text archive: no `ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1` keyed seal. A new backup must be produced by the current system. |
+| `RESTORE_CHAIN` | 400 | The archive history cannot be certified here (broken/forked segment, wrong key, uncertifiable installation-wide audit order) and is never re-signed. |
+| `RESTORE_SHELL` | 400 | `targetCompanyId` named a company that already holds history; restore-as-new-company needs an empty shell. |
+| `RESTORE_IDENTITY` | 400 | Archive identity and destination disagree (or the destination company is missing). |
+| `RESTORE_FAILED` | 400 | First-install route only: an UNKNOWN refusal (unparsable payload, missing section, unexpected fault). The message keeps its `No se pudo restaurar el sistema: …` wrapper. |
+
+The first-install route now reports the four documented refusals
+(`RESTORE_LEGACY_FORMAT`, `RESTORE_OWNERSHIP`, `RESTORE_CHAIN`, `RESTORE_SHELL`)
+with their own codes and their original Spanish messages instead of flattening
+them into `RESTORE_FAILED`. Only the reported code/message changed: what is
+admitted, the 400 status and the "system stays empty" behaviour are unchanged.
+
+Transport differences by route: the first-install route reports the codes above
+directly, while the in-system `/api/backup/restore` wraps chain- and shell-level
+refusals as `code: "VALIDATION_ERROR"` with the `RESTORE_CHAIN: …` / `RESTORE_SHELL: …`
+prefix inside the `error` message (`RESTORE_OWNERSHIP` and `RESTORE_LEGACY_FORMAT`
+keep their real codes there). Interfaces that key translations off the code should
+match the message prefix on the in-system path.
+
+The ownership credential is bound to the password string present at backup
+creation: after an admin later rotates their password, restoring an older
+archive still requires the password as it was when that archive was generated
+(fail-closed; there is no bypass). Importing an archive whose source company id
+still exists in the installation is refused with `RESTORE_ID_CONFLICT` before the
+new-company branch runs; the documented cross-installation case is unaffected.
+
+`RESTORE_REBASE`, `RESTORE_IMPORT_JOURNAL` and `RESTORE_IMPORT_HISTORICAL` are
+sealed **audit actions**, not error codes.
+
+### Ownership proof on every path
+
+`assertBackupOwnership` runs before any mutation: before the bootstrap shell
+rows, before destination validation, before the maintenance gate, before the
+safety snapshot and before any delete or publication. The verifier travels in
+`manifest.ownership` (scrypt, per-backup salt, parameters stored with the file —
+see [the format document](company-backup-format.md#ownership-credential-manifestownership)),
+so a stolen file is inert without the creating super-admin's password and a wrong
+password mutates nothing. Refusal messages never echo the attempt or archive
+contents.
+
+### Legacy plain-text archives
+
+An archive without the current keyed seal (the old plain JSON plus unkeyed SHA-256
+digest) is refused with `RESTORE_LEGACY_FORMAT` **after** the ownership gate and
+before the maintenance marker, the safety snapshot or any row. Catalog, download
+and preview keep working: only restore refuses it. `BACKUP_FORMAT_UNSUPPORTED`
+remains the answer for `1.x` versions, which are not company snapshots at all.
+
+### Historical re-anchor (`RESTORE_REBASE`)
+
+The audit chain is installation-wide, so an archive restored on a fresh machine
+(or after the signing secret changed) can carry a segment whose first row points
+at a predecessor that went away with the old installation. When the destination
+is **provably empty** and the segment is a single linear chain whose own HMACs
+certify, the segment is re-anchored: one sealed `RESTORE_REBASE` audit root
+documents `{ backupId, originalPredecessorHash, rebasedAt }` and the segment is
+re-linked under the current secret. Nothing is dropped and no row changes
+substance. On a non-empty destination the historical `RESTORE_CHAIN` refusal
+stands unchanged.
+
+### Restore as a new company (`RESTORE_IMPORT_JOURNAL`)
+
+`targetCompanyId` pointing at a different company creates the archive's contents
+as a NEW company without touching any existing one:
+
+- the destination company keeps **its own id** (the archive id is never written);
+- journal entries are re-sealed under the destination identity (company id is
+  part of the entry HMAC) and one sealed `RESTORE_IMPORT_JOURNAL` row documents
+  `{ backupId, sourceCompanyId, targetCompanyId, importedAt, sourceRootHash,
+  sourceTailHash, sourceMembers }`;
+- audit rows are stored as **closed historical evidence**: one
+  `RESTORE_IMPORT_HISTORICAL` row per source row with `hash`/`previousHash` NULL
+  and the certified original preserved inside `details.record`, so the live
+  installation-wide chain is never forked;
+- the destination must pass the empty-shell predicate (no movements, no
+  journal-chain tail, no own audit member) or the restore answers
+  `RESTORE_SHELL`; every other tenant is left byte-identical.
+
+### UI
+
+For a global `super_admin`, the restore dialog of both backup screens
+(`BackupPage`, `Settings → Backup`) offers the optional destination selector
+("Restaurar como empresa nueva (solo superadministrador)") filled from the
+existing `GET /api/admin/companies` endpoint, with the explicit hint that the
+target must be empty. `targetCompanyId` is sent only when a company different
+from the current one is chosen. Non-`super_admin` users see the unchanged dialog.
+
+### Verification
+
+```text
+tests/api/backup-ownership.test.ts   ownership credential, both restore paths
+tests/api/bootstrap-restore.test.ts  refusal codes surfaced by the first-install route
+tests/api/restore-reanchor.test.ts   RESTORE_REBASE, RESTORE_CHAIN, RESTORE_LEGACY_FORMAT, RESTORE_SHELL
+tests/api/backup-restore.test.ts     in-system restore contract
+tests/backup-company/restore.test.ts core admission/refusal matrix
+```
+
+Browser/crash acceptance of a real restore, and recovery from an ambiguous commit
+(`RESTORE_RECONCILIATION_REQUIRED`), remain open acceptance items — this section
+documents implemented behaviour, not full disaster-recovery proof.

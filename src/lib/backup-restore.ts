@@ -19,7 +19,7 @@ import { assertBackupOwnership, buildBackupOwnership } from './backup-ownership'
 import { publishBackup, readCompanyConfig } from './backup-storage';
 import {
   RESTORE_MODELS, delegate, identity, sameConfig, scalarData,
-  validateRestoreSource, validateRestoreDestination, type AuditRebase, type Tables,
+  validateRestoreSource, validateRestoreDestination, type AuditRebase, type CompanyImport, type Row, type Tables,
 } from './backup-validation';
 
 export interface CompanyRestorePreview {
@@ -87,15 +87,36 @@ function blockers(snapshot: ReturnType<typeof validateRestoreSource>['snapshot']
 }
 
 /**
+ * S4 (T5): `importAsNewCompany` lets `companyId` be a company that does NOT own
+ * the archive, so a super_admin can restore a backup as a new company inside an
+ * installation that keeps running. It never weakens a check: the destination
+ * must be an empty shell, the ownership credential is verified first, and every
+ * other tenant is left byte-identical. Absent (default) the destination must be
+ * the archive's own company, exactly as before.
+ */
+export interface CompanyRestoreOptions {
+  /** S1/S2: credential of the super admin who created the backup. */
+  ownerPassword?: string;
+  /** S4: restore the archive as this company (may differ from its companyId). */
+  importAsNewCompany?: boolean;
+}
+
+/**
  * Read-only, destination-aware preview. Does not authorize a later restore:
  * restore repeats every check under its own transaction/locks. Caller must
  * authorize the exact company; this module does not establish sessions/RBAC.
  */
-export async function previewCompanyRestore(companyId: string, text: string): Promise<CompanyRestorePreview> {
-  const source = validated(() => validateRestoreSource(companyId, text));
+export async function previewCompanyRestore(companyId: string, text: string,
+  options: CompanyRestoreOptions = {}): Promise<CompanyRestorePreview> {
+  const source = validated(() => validateRestoreSource(companyId, text, options));
+  // Only an admitted NEW-company import (S4) relaxes the destination rule; when
+  // the archive already belongs to this company nothing changes.
+  const importing = options.importAsNewCompany === true && source.snapshot.manifest.companyId !== companyId;
   const destination = await withCompanyBackupTransaction(async tx => {
     const current = await readDestination(tx);
-    return validated(() => validateRestoreDestination(source.tables, current, companyId, source.snapshot.manifest.id!).owned);
+    return validated(() => validateRestoreDestination(source.tables, current, companyId, source.snapshot.manifest.id!, {
+      importSourceCompanyId: importing ? source.snapshot.manifest.companyId : null,
+    }).owned);
   }, { isolationLevel: 'RepeatableRead' });
   return frozen({ companyId, checksum: source.snapshot.manifest.integrity!.digest,
     counts: source.snapshot.manifest.recordCounts,
@@ -120,15 +141,14 @@ export async function previewCompanyRestore(companyId: string, text: string): Pr
  * is verified (fail-closed) before the transaction, before any destination
  * validation and before any delete or publication.
  */
-export async function restoreCompanyBackup(companyId: string, text: string, options?: {
-  ownerPassword?: string;
-}): Promise<CompanyRestoreResult> {
-  return restoreDatabase(companyId, text, undefined, options?.ownerPassword);
+export async function restoreCompanyBackup(companyId: string, text: string, options?: CompanyRestoreOptions): Promise<CompanyRestoreResult> {
+  return restoreDatabase(companyId, text, undefined, options?.ownerPassword, options?.importAsNewCompany);
 }
 
 type PrepareConfiguration = (operationId: string, checksum: string, safetyFilename: string) => void | Promise<void>;
-async function restoreDatabase(companyId: string, text: string, prepareConfiguration?: PrepareConfiguration, ownerPassword?: string): Promise<CompanyRestoreResult> {
-  const source = validated(() => validateRestoreSource(companyId, text));
+async function restoreDatabase(companyId: string, text: string, prepareConfiguration?: PrepareConfiguration, ownerPassword?: string,
+  importAsNewCompany = false): Promise<CompanyRestoreResult> {
+  const source = validated(() => validateRestoreSource(companyId, text, { importAsNewCompany }));
   // Fail-closed ownership proof: the source snapshot is already parsed and its
   // HMAC verified here, so the verifier cannot be forged. Nothing below this
   // line runs without it — no lock, no destination validation, no delete.
@@ -145,10 +165,18 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       // Parameterized server-side, transaction-scoped lock; no process mutex.
       await tx.$queryRaw(Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${companyId}, 729104))`);
       const companies = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM "Company" WHERE id = ${companyId} FOR UPDATE`);
-      if (companies.length !== 1) throw new Error('RESTORE_IDENTITY: destination company missing');
+      // A missing destination is an admission refusal, never a server fault: the
+      // routes answer the documented RESTORE_ contract instead of a generic 500.
+      if (companies.length !== 1) throw new ValidationError('RESTORE_IDENTITY: destination company missing');
       const current = await readDestination(tx);
-      const { owned, reanchor } = validated(() => validateRestoreDestination(
-        source.tables, current, companyId, source.snapshot.manifest.id!));
+      // S4 (T5): only an explicitly admitted new-company import may target a
+      // company that does not own the archive. Everything else keeps the
+      // original rule (destination === archive identity).
+      const importing = importAsNewCompany && source.snapshot.manifest.companyId !== companyId;
+      const { owned, reanchor, imported } = validated(() => validateRestoreDestination(
+        source.tables, current, companyId, source.snapshot.manifest.id!, {
+          importSourceCompanyId: importing ? source.snapshot.manifest.companyId : null,
+        }));
       const config = readCompanyConfig(companyId);
       const refused = blockers(source.snapshot, config, owned).filter(() => !prepareConfiguration);
       if (prepareConfiguration) {
@@ -175,9 +203,16 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       if (!sameConfig(config, readCompanyConfig(companyId))) throw new Error('RESTORE_FILES_REQUIRED: configuration changed during safety publication');
       await prepareConfiguration?.(operationId, source.snapshot.manifest.integrity!.digest, safetyFilename);
       mutationStarted = true;
-      await replaceRows(tx, source.tables, owned, companyId, source.snapshot, reanchor);
+      await replaceRows(tx, source.tables, owned, companyId, source.snapshot, reanchor, imported);
       const head = source.snapshot.data.journalChainHead;
-      if (head) await tx.journalChainHead.create({ data: head });
+      if (head) {
+        // An imported company certifies under ITS destination identity, so the
+        // declared tail is the re-sealed one (documented by
+        // RESTORE_IMPORT_JOURNAL); every other path stores the archive tail.
+        await tx.journalChainHead.create({ data: imported
+          ? { companyId, lastEntryId: imported.journalTail?.lastEntryId ?? null, lastHash: imported.journalTail?.lastHash ?? null }
+          : head });
+      }
       // Durable commit evidence, atomic with replacement. Unsigned operational
       // event, not a fabricated accounting-chain signature. It is NOT a claim
       // that external files were restored. No auto-recovery replay consumes it.
@@ -207,10 +242,8 @@ export interface CoordinatedRestoreResult extends Omit<CompanyRestoreResult, 'st
  * The ownership credential is verified before the maintenance gate is acquired,
  * so a refused restore never even publishes a maintenance marker.
  */
-export async function restoreCompanyBackupCoordinated(companyId: string, text: string, options?: {
-  ownerPassword?: string;
-}): Promise<CoordinatedRestoreResult> {
-  const source = validated(() => validateRestoreSource(companyId, text));
+export async function restoreCompanyBackupCoordinated(companyId: string, text: string, options?: CompanyRestoreOptions): Promise<CoordinatedRestoreResult> {
+  const source = validated(() => validateRestoreSource(companyId, text, { importAsNewCompany: options?.importAsNewCompany }));
   assertBackupOwnership(source.snapshot.manifest, options?.ownerPassword);
   // S5 (T4): refused before the maintenance gate, so a legacy plain-text file
   // never even publishes a maintenance marker (the ownership gate stays FIRST).
@@ -241,7 +274,7 @@ export async function restoreCompanyBackupCoordinated(companyId: string, text: s
         createRecoveryJournal(journalRoot, { operationId, companyId, checksum, maintenanceId: owner.id, safetyFilename,
           ...(source.snapshot.manifest.companyLogo ? { logoUrl: source.snapshot.manifest.companyLogo.url } : {}),
           files: [...(before === after ? [] : [{ key: 'company-config', before, after }]), ...(logo ? [logo.file] : [])] });
-      }, options?.ownerPassword);
+      }, options?.ownerPassword, options?.importAsNewCompany);
       if (result.status !== 'committed') return { ...result, status: 'reconciliation_required' as const,
         scope: 'database-and-company-config' as const };
       const journal = readRecoveryJournal(journalRoot, result.operationId);
@@ -311,7 +344,7 @@ export async function reconcileCompanyBackupRecovery(companyId: string, operatio
 }
 
 async function replaceRows(tx: CompanySnapshotClient, source: Tables, owned: Tables, companyId: string, snapshot: BackupData,
-  reanchor: AuditRebase | null = null): Promise<void> {
+  reanchor: AuditRebase | null = null, imported: CompanyImport | null = null): Promise<void> {
   // The schema's two nullable self-references need a separate unlink/link pass.
   // Validation has already rejected foreign inbound references and cycles.
   for (const [model, field] of [['GlAccount', 'parentId'], ['CompanyKnowledge', 'mergedIntoId']]) {
@@ -326,14 +359,32 @@ async function replaceRows(tx: CompanySnapshotClient, source: Tables, owned: Tab
     const key = model === 'DetectionConfig' ? 'companyId' : 'id';
     await modelWriter(tx, model).deleteMany({ where: { [key]: { in: owned[model].map(row => row[key]) } } });
   }
-  await tx.company.update({ where: { id: companyId }, data: scalarData('Company', source.Company[0], snapshot) as Prisma.CompanyUncheckedUpdateInput });
+  const companyData = scalarData('Company', source.Company[0], snapshot);
+  // An imported company KEEPS its destination id and takes the archive's
+  // substance; the archive id is never written into the Company row.
+  if (imported) delete companyData.id;
+  await tx.company.update({ where: { id: companyId }, data: companyData as Prisma.CompanyUncheckedUpdateInput });
   for (const model of models) {
     // S6 (T3): a re-based audit segment is inserted INSTEAD of the archive rows:
     // the sealed RESTORE_REBASE entry first, then the same segment re-linked
     // under this installation's secret. Every other model is untouched.
-    const rows = model === 'AuditLog' && reanchor ? reanchor.rows : source[model];
+    // S4 (T5): an imported company inserts its CLOSED HISTORICAL audit records
+    // (never chain members) and its journal entries re-sealed under the
+    // destination identity, in place of the archive's own rows.
+    const rows = model === 'AuditLog' && reanchor ? reanchor.rows
+      : model === 'AuditLog' && imported ? imported.auditRows
+      : model === 'JournalEntry' && imported ? imported.journalEntries
+      : source[model];
     for (const row of rows) {
       const data = scalarData(model, row, snapshot);
+      if (imported && data.companyId === imported.sourceCompanyId) data.companyId = companyId;
+      // The approval payload carries the tenant id the action belongs to; a
+      // NEW company must own its pending actions (validated on every later
+      // backup of this company). Only this tenant's own value is rewritten.
+      if (imported && model === 'PendingApproval' && data.payload && typeof data.payload === 'object' &&
+          (data.payload as Row).companyId === imported.sourceCompanyId) {
+        data.payload = { ...(data.payload as Row), companyId };
+      }
       if (model === 'GlAccount') data.parentId = null;
       if (model === 'CompanyKnowledge') data.mergedIntoId = null;
       await modelWriter(tx, model).create({ data });

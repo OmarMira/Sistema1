@@ -5,6 +5,7 @@ import * as path from 'path';
 import { db } from '@/lib/db';
 import { clearDatabase, createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction } from '../helpers/factories';
 import { createBackup } from '@/lib/backup';
+import { BACKUP_DIR } from '@/lib/config/paths';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE-G4-AB-EXPORT]', ...args);
 
@@ -27,7 +28,6 @@ vi.mock('@/lib/audit', async (importOriginal) => {
 const createdCompanyIds = new Set<string>();
 const diskTestCompanyIds = new Set<string>();
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 
 function readManifestFile(): { companies?: Array<{ id?: string; name?: string }> } {

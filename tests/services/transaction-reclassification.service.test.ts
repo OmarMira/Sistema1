@@ -308,7 +308,13 @@ function buildFakeCallerTx(opts: {
     // trace through the caller's tx; the fake must expose auditLog.
     auditLog: {
       create: vi.fn().mockResolvedValue({ id: 'audit-fake' }),
+      // audit.ts seals the inserted row (hash + previousHash) after the create.
+      update: vi.fn().mockResolvedValue({ id: 'audit-fake' }),
     },
+    // Same raw surface a real transaction client exposes: audit.ts takes a
+    // transaction-scoped advisory lock then reads the chain tail. No tail = head.
+    $executeRaw: vi.fn().mockResolvedValue(1),
+    $queryRaw: vi.fn().mockResolvedValue([]),
   } as unknown as Prisma.TransactionClient;
 
   return {

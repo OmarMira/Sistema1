@@ -8,6 +8,7 @@
  * concurrent requests without HTTP/auth overhead.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { GlAccountAccountType, GlAccountNormalBalance } from '@prisma/client';
 import { db } from '@/lib/db';
 
 // ── Test setup ─────────────────────────────────────────────────
@@ -229,8 +230,8 @@ describe('C-03: Journal Entry Post TOCTOU', () => {
         companyId,
         code: '1000',
         name: 'Cash',
-        accountType: 'ASSET',
-        normalBalance: 'DEBIT',
+        accountType: GlAccountAccountType.asset,
+        normalBalance: GlAccountNormalBalance.debit,
         isActive: true,
       },
     });
@@ -301,8 +302,8 @@ describe('C-04: Account Delete TOCTOU', () => {
         companyId,
         code: '2000',
         name: 'Payable',
-        accountType: 'LIABILITY',
-        normalBalance: 'CREDIT',
+        accountType: GlAccountAccountType.liability,
+        normalBalance: GlAccountNormalBalance.credit,
         isActive: true,
       },
     });
@@ -346,8 +347,8 @@ describe('C-04: Account Delete TOCTOU', () => {
         companyId,
         code: '3000',
         name: 'Equity',
-        accountType: 'EQUITY',
-        normalBalance: 'CREDIT',
+        accountType: GlAccountAccountType.equity,
+        normalBalance: GlAccountNormalBalance.credit,
         isActive: true,
       },
     });
@@ -416,8 +417,8 @@ describe('C-05: Account Update TOCTOU', () => {
         companyId,
         code: '4000',
         name: 'Revenue',
-        accountType: 'REVENUE',
-        normalBalance: 'CREDIT',
+        accountType: GlAccountAccountType.revenue,
+        normalBalance: GlAccountNormalBalance.credit,
         isActive: true,
       },
     });
@@ -428,8 +429,8 @@ describe('C-05: Account Update TOCTOU', () => {
         companyId,
         code: '4001',
         name: 'Sales',
-        accountType: 'REVENUE',
-        normalBalance: 'CREDIT',
+        accountType: GlAccountAccountType.revenue,
+        normalBalance: GlAccountNormalBalance.credit,
         parentId: parent.id,
         isActive: true,
       },
@@ -460,8 +461,8 @@ describe('C-05: Account Update TOCTOU', () => {
         companyId,
         code: '5000',
         name: 'Expense',
-        accountType: 'EXPENSE',
-        normalBalance: 'DEBIT',
+        accountType: GlAccountAccountType.expense,
+        normalBalance: GlAccountNormalBalance.debit,
         isActive: true,
       },
     });
@@ -471,8 +472,8 @@ describe('C-05: Account Update TOCTOU', () => {
         companyId,
         code: '5001',
         name: 'Rent',
-        accountType: 'EXPENSE',
-        normalBalance: 'DEBIT',
+        accountType: GlAccountAccountType.expense,
+        normalBalance: GlAccountNormalBalance.debit,
         isActive: true,
       },
     });

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 afterEach(() => cleanup());
 
@@ -25,6 +25,14 @@ vi.mock('@/store/auth-store', () => ({
 
 vi.mock('framer-motion', () => ({
   motion: { div: (props: any) => <div {...props} /> },
+}));
+
+// The stylesheet goes through PostCSS, which this test environment cannot load.
+// Stub the CSS module the rendered components import.
+vi.mock('@/components/onboarding/InstallationWizard.module.css', () => ({ default: {} }));
+
+vi.mock('@/components/onboarding/InstallationWizard', () => ({
+  InstallationWizard: () => <div data-testid="installation-wizard" />,
 }));
 
 import { BootstrapPage } from '@/components/spa/BootstrapPage';
@@ -53,17 +61,17 @@ describe('BootstrapPage — conditional card rendering', () => {
     expect(screen.queryByText('auth.login')).not.toBeInTheDocument();
   });
 
-  it('register button click → setCurrentView("register")', () => {
+  it('register button click → opens the installation wizard', () => {
     render(<BootstrapPage hasUsers={false} />);
     const btn = screen.getByRole('button', { name: 'auth.register' });
-    btn.click();
-    expect(mockSetCurrentView).toHaveBeenCalledWith('register');
+    fireEvent.click(btn);
+    expect(screen.getByTestId('installation-wizard')).toBeInTheDocument();
   });
 
   it('login button click → setCurrentView("login")', () => {
     render(<BootstrapPage hasUsers={true} />);
     const btn = screen.getByRole('button', { name: 'auth.login' });
-    btn.click();
+    fireEvent.click(btn);
     expect(mockSetCurrentView).toHaveBeenCalledWith('login');
   });
 

@@ -15,10 +15,10 @@ import {
   clearDatabase,
 } from '../helpers/factories';
 import config from '../../rules/rbac-config.json';
+import { BACKUP_DIR } from '@/lib/config/paths';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = 'db/backups';
 const fs = require('fs');
 const path = require('path');
 

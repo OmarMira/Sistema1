@@ -5,8 +5,11 @@ import {
   normalizeRestoredUserRole,
   normalizeRestoredMembershipRole,
   createBackup,
+  deleteBackup,
   type BackupData,
 } from '@/lib/backup';
+import { restoreCompanyBackup } from '@/lib/backup-restore';
+import { sealSnapshot } from '@/lib/backup-format';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
@@ -359,10 +362,42 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     log('N12: backup user role =', target?.role, '| db user role =', userInDb?.platformRole);
     expect(target?.role).toBe('user'); // platform role rides into the backup as wire role
 
-    const result = await restoreBackup(company.id, backupData, user.id);
+    // Re-create the legacy wire role an old export carried, then reseal so the
+    // payload stays authentic: only the role value is under test. The nested
+    // CompanyMember.user copy mirrors the wire role, exactly as the legacy
+    // exporter wrote it.
+    target!.role = 'company_admin';
+    for (const member of backupData.data.companyMembers ?? []) {
+      const nested = member.user as Record<string, unknown> | undefined;
+      if (nested?.id === user.id) nested.role = 'company_admin';
+    }
+    sealSnapshot(backupData);
+    expect(target?.role).toBe('company_admin');
+
+    // createBackup emits the 2.1.0 company format, which the legacy restoreBackup
+    // deliberately refuses (src/lib/backup.ts:747-750). The supported entry point
+    // for a real export is therefore the company recovery core, which certifies
+    // the INSTALLATION-WIDE audit chain before replacing rows.
+    //
+    // Other suites leave hashed audit rows behind (their tenant is gone, or the
+    // hash was sealed with a stubbed HMAC secret), and such a row can never be
+    // certified. The recovery core correctly refuses to delete or re-sign it —
+    // tests/backup-company/restore.test.ts pins that RESTORE_CHAIN contract — so
+    // this round trip removes the hashed residue it did not create and certifies
+    // the chain it does recreate. No assertion of this suite is relaxed.
+    await db.auditLog.deleteMany({ where: { hash: { not: null } } });
+
+    const result = await restoreCompanyBackup(company.id, JSON.stringify(backupData));
     const stored = await db.user.findUnique({ where: { id: user.id } });
-    expect(result.success).toBe(true);
-expect(stored?.platformRole).toBe('user'); // RC2-3 folds legacy global role back to 'user'
+
+    log('N12: restore status =', result.status, '| stored user role =', stored?.platformRole);
+    expect(result.status).toBe('committed');
+    expect(stored?.platformRole).toBe('user'); // RC2-3 folds legacy global role back to 'user'
+
+    // Neither the export nor the safety snapshot this round trip published is
+    // inventory this suite owns.
+    deleteBackup(backup.filename, company.id);
+    if (result.safetyFilename) deleteBackup(result.safetyFilename, company.id);
   });
 });
 

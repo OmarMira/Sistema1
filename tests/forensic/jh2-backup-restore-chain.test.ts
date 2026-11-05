@@ -123,6 +123,16 @@ async function sealedMembers(companyId: string) {
 describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
   beforeEach(async () => {
     await clearDatabase();
+    // The recovery core certifies the INSTALLATION-WIDE audit chain before it
+    // replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN, pinned by
+    // tests/backup-company/restore.test.ts): a predecessor another tenant still
+    // needs must never be deleted or re-signed. Other suites leave hashed
+    // AuditLog rows behind (their tenant is gone, or the hash was sealed with a
+    // stubbed HMAC secret) and such a row can never be certified, so the shared
+    // test DB removes ONLY that hashed residue. Unhashed operational rows — the
+    // COMPANY_RESTORE_COMMITTED receipt this suite asserts on — are untouched,
+    // and no chain-continuity assertion is relaxed.
+    await db.auditLog.deleteMany({ where: { hash: { not: null } } });
   });
   afterEach(async () => {
     await clearDatabase();

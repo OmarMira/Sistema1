@@ -100,3 +100,6 @@ agent-ctx/
 # Local Pi runtime state
 .atl/
 .engram/
+
+# Local test scratch state produced by backup-company suites
+tests/backup-company/.scratch/

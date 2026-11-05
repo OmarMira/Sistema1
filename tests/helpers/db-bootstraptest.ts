@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { trackQueryDuration } from '../../src/lib/metrics';
 import { logger } from '../../src/lib/logger';
+import { withRuntimeOperation } from '../../src/lib/backup-runtime-maintenance';
 
 // Bootstrap-restore isolated-database twin of src/lib/db.ts.
 // Only used by the F-9 PoC via the vitest.forensic-f9.config.ts alias, so the
@@ -169,5 +170,13 @@ export const db = base.$extends({
     },
   },
 });
+
+// Match the production backup capability while retaining this client's dedicated DB gate.
+export function withCompanyBackupTransaction<T>(
+  callback: (tx: Prisma.TransactionClient) => Promise<T>,
+  options?: { maxWait?: number; timeout?: number; isolationLevel?: Prisma.TransactionIsolationLevel },
+): Promise<T> {
+  return withRuntimeOperation(() => base.$transaction(callback, options));
+}
 
 export type ExtendedPrismaClient = typeof db;

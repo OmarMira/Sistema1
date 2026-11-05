@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import path from 'path';
 
 export default defineConfig({
+  envDir: false,
   resolve: {
     alias: {
       '@/lib/db': path.resolve(__dirname, './tests/helpers/db-bootstraptest.ts'),
@@ -9,9 +10,7 @@ export default defineConfig({
     },
   },
   test: {
-    env: {
-      DATABASE_URL: 'postgresql://postgres:postgrespassword@localhost:5432/accountexpress_bootstraptest?schema=public',
-    },
+    include: ['tests/forensic/hdr1c-memory-backup.test.ts'],
     setupFiles: ['./tests/setup.ts'],
     globals: true,
     fileParallelism: false,

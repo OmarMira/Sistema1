@@ -8,10 +8,10 @@ useDefault = true
 # Applied to every rule so CI-equivalent scans are fast and clean.
 [allowlist]
 paths = [
-  '''^\.next/''',
+  '''^\.next[/\\]''',
   '''^\.env$''',
   '''^\.env\.local$''',
-  '''^node_modules/''',
+  '''^node_modules[/\\]''',
 ]
 # Known non-secret values present in the committed tree:
 # - Test fixtures using explicit sk-test-* / sk-valid-key-* placeholders

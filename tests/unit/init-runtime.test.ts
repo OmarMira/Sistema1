@@ -6,6 +6,7 @@ const LEGACY_COMPANY_CONFIG = '/rules/company-config.json';
 const DEFAULT_COMPANY_CONFIG = '/rules/defaults/company-config.default.json';
 
 vi.mock('@/lib/config/paths', () => ({
+  DATA_ROOT: undefined,
   RUNTIME_DIR,
   RUNTIME_FILES: {
     companyConfig: RUNTIME_COMPANY_CONFIG,
@@ -20,6 +21,14 @@ vi.mock('@/lib/config/paths', () => ({
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+}));
+
+// The runtime-maintenance gate needs real filesystem access for its marker, which
+// the mocked `fs` above does not provide. Pass the work straight through so this
+// unit tests init-runtime's file behavior, not the (separately tested) gate.
+vi.mock('@/lib/backup-runtime-maintenance', () => ({
+  withRuntimeOperation: (fn: () => Promise<unknown>) => fn(),
+  withRuntimeOperationSync: (fn: () => unknown) => fn(),
 }));
 
 const { mockCheckAiConfigIntegrity } = vi.hoisted(() => ({

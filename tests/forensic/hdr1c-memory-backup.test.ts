@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { db } from '@/lib/db';
 import { createBackup, restoreBackup, validateBackup, type BackupData } from '@/lib/backup';
+import { restoreCompanyBackup } from '@/lib/backup-restore';
+import { sealSnapshot } from '@/lib/backup-format';
 import { clearDatabase } from '../helpers/factories';
 import { deleteBackup } from '@/lib/backup';
 
@@ -206,6 +208,19 @@ async function cleanupHdr1c(): Promise<void> {
 describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_A)', () => {
   let createdBackups: Array<{ filename: string; companyId: string }> = [];
 
+  /**
+   * The current restore contract: `createBackup` emits the 2.1.0 company format,
+   * which the legacy restore path deliberately refuses (src/lib/backup.ts:747-750),
+   * so a real createBackup→restore round-trip runs through the company recovery
+   * core. The safety snapshot it publishes for this tenant is registered here so
+   * afterEach leaves the backup inventory as it found it.
+   */
+  async function restoreCurrent(payload: BackupData) {
+    const result = await restoreCompanyBackup(CO_A, JSON.stringify(payload));
+    if (result.safetyFilename) createdBackups.push({ filename: result.safetyFilename, companyId: CO_A });
+    return result;
+  }
+
   beforeEach(async () => {
     await cleanupHdr1c();
     await clearDatabase();
@@ -267,9 +282,9 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
     expect(await db.memoryItem.count({ where: { companyId: CO_B } })).toBe(1);
   });
 
-  it('T3 — TOTAL LOSS: bootstrap restore onto empty destination recovers all 8 collections', async () => {
+  it('T3 — TOTAL LOSS: restore onto an empty destination recovers all 8 collections', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
-    const actor = await createActor();
+    await createActor();
     await seedMemoryCore(CO_A, 't3');
     const backup = await createBackup(CO_A);
     createdBackups.push({ filename: backup.filename, companyId: CO_A });
@@ -279,8 +294,8 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
     await db.memoryItem.deleteMany({ where: { companyId: CO_A } });
     await db.systemMemory.deleteMany({ where: { companyId: CO_A } });
 
-    const result = await restoreBackup(CO_A, parsed, actor, { bootstrap: true });
-    expect(result.success).toBe(true);
+    const result = await restoreCurrent(parsed);
+    expect(result.status).toBe('committed');
 
     const after = await memoryCounts(CO_A);
     expect(after).toEqual(EXPECTED_SET);
@@ -288,7 +303,7 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
   it('T4 — POINT-IN-TIME ROLLBACK: memory T1 restored, learning T2 gone', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
-    const actor = await createActor();
+    await createActor();
     await seedMemoryCore(CO_A, 't4');
     const t1Backup = await createBackup(CO_A);
     createdBackups.push({ filename: t1Backup.filename, companyId: CO_A });
@@ -310,8 +325,8 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
       data: { content: 'MODIFICADO post-backup' },
     });
 
-    const result = await restoreBackup(CO_A, t1, actor, {});
-    expect(result.success).toBe(true);
+    const result = await restoreCurrent(t1);
+    expect(result.status).toBe('committed');
 
     const items = await db.memoryItem.findMany({ where: { companyId: CO_A } });
     expect(items.some((i) => i.id === 'hdr1c-item-t4-new')).toBe(false);
@@ -323,7 +338,7 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
   it('T5 — STALE MEMORY ELIMINATION: destination-only memory disappears on restore', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
-    const actor = await createActor();
+    await createActor();
     // Snapshot from an empty memory state.
     const fresh = await createBackup(CO_A);
     createdBackups.push({ filename: fresh.filename, companyId: CO_A });
@@ -341,8 +356,8 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
       },
     });
 
-    const result = await restoreBackup(CO_A, t1, actor, {});
-    expect(result.success).toBe(true);
+    const result = await restoreCurrent(t1);
+    expect(result.status).toBe('committed');
 
     const stale = await db.memoryItem.findUnique({ where: { id: 'hdr1c-item-t5-later' } });
     expect(stale).toBeNull();
@@ -352,7 +367,7 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
   it('T6 — OTHER TENANT PRESERVATION: restore of Co A does not touch Co B memory', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
     await seedCompany(CO_B, 'HDR1C Co B');
-    const actor = await createActor();
+    await createActor();
     await seedMemoryCore(CO_A, 't6');
     await seedMemoryCore(CO_B, 'b6');
 
@@ -360,8 +375,8 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
     createdBackups.push({ filename: backup.filename, companyId: CO_A });
     const parsed = parseBackup(backup.data);
 
-    const result = await restoreBackup(CO_A, parsed, actor, {});
-    expect(result.success).toBe(true);
+    const result = await restoreCurrent(parsed);
+    expect(result.status).toBe('committed');
 
     const afterB = await memoryCounts(CO_B);
     expect(afterB).toEqual(EXPECTED_SET);
@@ -369,7 +384,7 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
   it('T7 — HISTORY: MemoryVersion/TraceabilityLog/ConfidenceLog recover exactly', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
-    const actor = await createActor();
+    await createActor();
     await seedMemoryCore(CO_A, 't7');
     const backup = await createBackup(CO_A);
     createdBackups.push({ filename: backup.filename, companyId: CO_A });
@@ -378,8 +393,8 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
     await db.memoryItem.deleteMany({ where: { companyId: CO_A } });
     await db.systemMemory.deleteMany({ where: { companyId: CO_A } });
 
-    const result = await restoreBackup(CO_A, parsed, actor, {});
-    expect(result.success).toBe(true);
+    const result = await restoreCurrent(parsed);
+    expect(result.status).toBe('committed');
 
     const version = await db.memoryVersion.findUnique({ where: { id: 'hdr1c-ver-t7-v1' } });
     expect(version?.versionNumber).toBe(1);
@@ -402,15 +417,15 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
   it('T8 — GRAPH INTEGRITY: edges reference restored MemoryItems', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
-    const actor = await createActor();
+    await createActor();
     await seedMemoryCore(CO_A, 't8');
     const backup = await createBackup(CO_A);
     createdBackups.push({ filename: backup.filename, companyId: CO_A });
     const parsed = parseBackup(backup.data);
 
     await db.memoryItem.deleteMany({ where: { companyId: CO_A } });
-    const result = await restoreBackup(CO_A, parsed, actor, {});
-    expect(result.success).toBe(true);
+    const result = await restoreCurrent(parsed);
+    expect(result.status).toBe('committed');
 
     const item = await db.memoryItem.findUnique({ where: { id: 'hdr1c-item-t8-main' } });
     expect(item?.id).toBe('hdr1c-item-t8-main');
@@ -418,15 +433,15 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
   it('T9 — SYSTEM MEMORY: recovered with tenant scope and persisted state', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
-    const actor = await createActor();
+    await createActor();
     await seedMemoryCore(CO_A, 't9');
     const backup = await createBackup(CO_A);
     createdBackups.push({ filename: backup.filename, companyId: CO_A });
     const parsed = parseBackup(backup.data);
     await db.systemMemory.deleteMany({ where: { companyId: CO_A } });
 
-    const result = await restoreBackup(CO_A, parsed, actor, {});
-    expect(result.success).toBe(true);
+    const result = await restoreCurrent(parsed);
+    expect(result.status).toBe('committed');
 
     const mem = await db.systemMemory.findUnique({ where: { id: 'hdr1c-sysmem-t9' } });
     expect(mem?.companyId).toBe(CO_A);
@@ -485,7 +500,7 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
     // New-format backup missing memoryVersions → malformed (no silent legacy degrade).
     const invalid: BackupData = {
-      manifest: payload.manifest,
+      manifest: { ...payload.manifest, version: '1.1.0' },
       data: { ...payload.data, memoryVersions: undefined as unknown as Record<string, unknown>[] },
     };
     const validation = validateBackup(invalid);
@@ -502,7 +517,7 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
   it('T12 — ATOMIC FAILURE: memory-core failure leaves no partial restore', async () => {
     await seedCompany(CO_A, 'HDR1C Co A');
-    const actor = await createActor();
+    await createActor();
     await seedMemoryCore(CO_A, 't12');
     const backup = await createBackup(CO_A);
     createdBackups.push({ filename: backup.filename, companyId: CO_A });
@@ -510,30 +525,36 @@ describe.skipIf(!isBootstrapDb)('H-DR-1C — Memory Core backup/restore (POLICY_
 
     // Poison: a contradiction referencing an item NOT part of the snapshot →
     // restore must fail closed and roll back (no partial memory or accounting).
-    const poisoned: BackupData = {
-      manifest: parsed.manifest,
-      data: {
-        ...parsed.data,
-        contradictions: [
-          ...((parsed.data.contradictions ?? []) as Array<Record<string, unknown>>),
-          {
-            id: 'hdr1c-ctd-poison',
-            itemAId: 'hdr1c-item-t12-main',
-            itemBId: 'hdr1c-ghost-item',
-            evidence: 'poison',
-            confidence: 1,
-            detectedAt: baseDate,
-            resolved: false,
-          },
-        ],
+    // The payload is resealed afterwards, so only the poisoned reference is ever
+    // under test — never the checksum.
+    const contradictions = [
+      ...((parsed.data.contradictions ?? []) as Array<Record<string, unknown>>),
+      {
+        id: 'hdr1c-ctd-poison',
+        itemAId: 'hdr1c-item-t12-main',
+        itemBId: 'hdr1c-ghost-item',
+        evidence: 'poison',
+        confidence: 1,
+        detectedAt: baseDate.toISOString(),
+        resolved: false,
       },
+    ];
+    const poisoned: BackupData = {
+      manifest: {
+        ...parsed.manifest,
+        recordCounts: { ...parsed.manifest.recordCounts, contradictions: contradictions.length },
+      },
+      data: { ...parsed.data, contradictions },
     };
+    sealSnapshot(poisoned);
 
     const preItems = await db.memoryItem.count({ where: { companyId: CO_A } });
-    const result = await restoreBackup(CO_A, poisoned, actor, {});
-    expect(result.success).toBe(false);
+    const preCounts = await memoryCounts(CO_A);
+    await expect(restoreCompanyBackup(CO_A, JSON.stringify(poisoned))).rejects.toThrow(/RESTORE_REFERENCE/);
     const postItems = await db.memoryItem.count({ where: { companyId: CO_A } });
     expect(postItems).toBe(preItems);
-    expect(result.restoredCounts.memoryItems ?? 0).toBe(0);
+    expect(await memoryCounts(CO_A)).toEqual(preCounts);
+    // No commit receipt: the refused restore never reached a mutation.
+    expect(await db.auditLog.count({ where: { companyId: CO_A, action: 'COMPANY_RESTORE_COMMITTED' } })).toBe(0);
   });
 });

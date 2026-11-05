@@ -28,6 +28,8 @@ async function asSuperAdmin(email: string) {
     data: {
       email,
       passwordHash: 'hashed_password_placeholder',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
       firstName: 'Super',
       lastName: 'Admin',
       platformRole: 'super_admin',
@@ -125,6 +127,8 @@ const created = await db.user.findUnique({
       data: {
         email: 'rc22-invite-exists@example.com',
         passwordHash: 'hashed_password_placeholder',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
         firstName: 'Exist',
         lastName: 'User',
         platformRole: 'super_admin',
@@ -258,6 +262,8 @@ describe('RC2-2 — ADMIN USERS write path (User.role whitelist)', () => {
       data: {
         email: 'rc22-patch-admin@example.com',
         passwordHash: 'hashed_password_placeholder',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
         firstName: 'Patch',
         lastName: 'Base',
         platformRole: 'user',

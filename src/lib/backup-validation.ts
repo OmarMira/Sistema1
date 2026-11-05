@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import type { BackupData } from './backup';
 import { isCompanyFormat, parseSnapshot, RESTORE_MODELS, monetaryValid, validateSnapshotFidelity, jsonNullKind } from './backup-format';
@@ -215,7 +216,175 @@ export function ownedRows(companyId: string, all: Tables): Tables {
   return owned;
 }
 
-export function validateRestoreDestination(source: Tables, all: Tables, companyId: string): Tables {
+/* ─── S6 (T3): historical audit re-anchoring ──────────────────────────
+ * The AuditLog chain is INSTALLATION-wide, so a company archive cannot carry a
+ * certified root: on a fresh machine (or after the signing secret changed) a
+ * historical segment starts at a predecessor that went away with the old
+ * installation. The row topology is intact and every stored HMAC certifies
+ * against the link it declares — only the ROOT is missing (L2: 302 intact
+ * transactions, chain unrootable).
+ *
+ * Owner decision (S6): such a segment may be re-based ONLY on a provably empty
+ * destination and ONLY after the ownership credential was verified (that gate
+ * runs before any of this). The re-anchor writes a FIRST, itself-hashed
+ * RESTORE_REBASE audit entry documenting { backupId, originalPredecessorHash,
+ * rebasedAt }, and the segment is re-based under the current secret from that
+ * root. On a non-empty destination nothing changes: the existing RESTORE_CHAIN
+ * refusal stands, byte for byte.
+ */
+export interface AuditRebase {
+  /** Backup identity documented by the sealed RESTORE_REBASE entry. */
+  readonly backupId: string;
+  /** The predecessor hash the segment pointed at, now recorded instead of lost. */
+  readonly originalPredecessorHash: string;
+  /** Real instant of the re-anchor (ISO); the row's createdAt is its position. */
+  readonly rebasedAt: string;
+  /** RESTORE_REBASE first, then the re-based segment; inserts INSTEAD of source AuditLog rows. */
+  readonly rows: Row[];
+}
+
+/** Chain members (rows carrying a hash) in stored chronological order. */
+function auditMembers(rows: Row[]): Row[] {
+  return rows
+    .filter(row => row.hash != null)
+    .sort((a, b) => new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime());
+}
+
+/**
+ * TRUE only for a segment that is whole except for its root: every row has a
+ * predecessor link, the links form one increasing linear chain, every stored
+ * HMAC certifies, and the first row points at a hash no member carries.
+ * Anything else (fork, cycle, two roots, broken HMAC) is NOT a lost root and
+ * must keep failing the strict RESTORE_CHAIN check.
+ */
+export function isUnrootedAuditSegment(rows: Row[]): boolean {
+  const members = auditMembers(rows);
+  if (members.length === 0) return false;
+  // A member without a predecessor IS a root: the segment is rooted (or has
+  // more than one root, which the strict walk rejects on its own).
+  if (members.some(row => row.previousHash == null)) return false;
+  let previousHash: string | null = null;
+  let previousTime: number | undefined;
+  for (const row of members) {
+    const time = new Date(row.createdAt as string).getTime();
+    if (!Number.isFinite(time) || time === previousTime) return false;
+    if (previousHash !== null && row.previousHash !== previousHash) return false;
+    if (computeAuditHash(row as unknown as Parameters<typeof computeAuditHash>[0]) !== row.hash) return false;
+    previousHash = row.hash as string;
+    previousTime = time;
+  }
+  const first = members[0].previousHash;
+  return typeof first === 'string' && first.length > 0 && !members.some(row => row.hash === first);
+}
+
+/**
+ * Build the sealed re-anchor: a RESTORE_REBASE root plus the same segment rows
+ * re-linked (and therefore re-hashed) under THIS installation's secret. Every
+ * non-member row of the archive is preserved untouched; nothing is dropped and
+ * no row changes its substance.
+ */
+export function planAuditRebase(
+  segment: Row[],
+  companyId: string,
+  backupId: string,
+  rebasedAt: Date = new Date(),
+): AuditRebase {
+  const members = auditMembers(segment);
+  const originalPredecessorHash = String(members[0].previousHash);
+  const rebasedAtIso = rebasedAt.toISOString();
+  // The entry becomes the FIRST row of the restored timeline, so its createdAt
+  // sits one millisecond before the segment it re-anchors: chain order and
+  // chronological order must agree, or the merged-timeline certification (and
+  // every later restore of this installation) would reject its own history.
+  // The real instant is documented in details.rebasedAt.
+  const createdAt = new Date(new Date(members[0].createdAt as string).getTime() - 1).toISOString();
+  const rebase: Row = {
+    id: crypto.randomUUID(),
+    companyId,
+    userId: null,
+    action: 'RESTORE_REBASE',
+    entity: 'Backup',
+    entityId: backupId,
+    details: JSON.stringify({ backupId, originalPredecessorHash, rebasedAt: rebasedAtIso }),
+    hash: null,
+    previousHash: null,
+    createdAt,
+  };
+  rebase.hash = computeAuditHash(rebase as unknown as Parameters<typeof computeAuditHash>[0]);
+  let previousHash = rebase.hash as string;
+  const rebased = members.map(row => {
+    const next: Row = { ...row, previousHash, hash: null };
+    next.hash = computeAuditHash(next as unknown as Parameters<typeof computeAuditHash>[0]);
+    previousHash = next.hash as string;
+    return next;
+  });
+  const preserved = segment.filter(row => row.hash == null);
+  return { backupId, originalPredecessorHash, rebasedAt: rebasedAtIso, rows: [rebase, ...rebased, ...preserved] };
+}
+
+/**
+ * Company rows the product itself creates for a company: identity, membership,
+ * module switches and per-company configuration. They carry no ledger and no
+ * audit substance, so an installation holding only these holds no history a
+ * re-anchored chain could falsify. EVERY other model is treated as history —
+ * a model added to the schema later is history by default, never by omission.
+ */
+const COMPANY_SHELL_MODELS: ReadonlySet<string> = new Set([
+  'Company', 'CompanyMember', 'CompanyModuleEntitlement', 'DetectionConfig', 'CsvLayoutProfile', 'EntityContext', 'SystemConfig',
+]);
+
+/** TRUE when the given company owns ledger/audit substance or a certified tail. */
+function companyHasHistory(companyId: string, tables: Tables): boolean {
+  const owned = ownedRows(companyId, tables);
+  if (Object.entries(owned).some(([model, rows]) => !COMPANY_SHELL_MODELS.has(model) && rows.length > 0)) return true;
+  if ((tables.AuditLog ?? []).some(row => row.companyId === companyId && row.hash != null)) return true;
+  return (tables.JournalChainHead ?? []).some(head => head.companyId === companyId);
+}
+
+/**
+ * S6 — "verifiably empty destination". Re-anchoring must never sit on top of
+ * certified state it cannot certify, so it is admissible only when:
+ *  1. NOT ONE AuditLog chain member exists anywhere. The chain is
+ *     installation-wide, so a single hashed row anywhere means there is already
+ *     a root this archive would falsify.
+ *  2. No OTHER company of the installation carries history (ledger rows, chain
+ *     members or a certified tail). Restoring into a live installation is a
+ *     different operation (S4), never a silent re-anchor. Company shells that
+ *     only carry the product's own configuration are not history, so a stale
+ *     empty tenant cannot block a legitimate first restore.
+ *  3. The destination users are exactly the ones this backup declares (the
+ *     protocol shell); anybody else is real state, not a shell.
+ *  4. The target has no journal chain head: no certified per-company tail is
+ *     replaced by a re-based audit root.
+ * Unhashed AuditLog rows are pre-chaining legacy history that no verification
+ * walk consults, and the restore target's own rows are precisely what a restore
+ * replaces under the existing ID/reference/inbound checks. Neither is "history".
+ *
+ * Returns null when the destination is verifiably empty, otherwise the reason.
+ */
+export function destinationEmptiness(source: Tables, destination: Tables, companyId: string): string | null {
+  if ((destination.AuditLog ?? []).some(row => row.hash != null)) {
+    return 'the destination audit chain already has members';
+  }
+  for (const company of destination.Company ?? []) {
+    if (String(company.id) === companyId) continue;
+    if (companyHasHistory(String(company.id), destination)) return 'the destination has another company with history';
+  }
+  const declared = new Set(source.User.map(row => row.id));
+  if ((destination.User ?? []).some(row => !declared.has(row.id))) {
+    return 'the destination has users outside the backup';
+  }
+  if ((destination.JournalChainHead ?? []).some(head => head.companyId === companyId)) {
+    return 'the destination already has a journal chain head';
+  }
+  return null;
+}
+
+export function validateRestoreDestination(source: Tables, all: Tables, companyId: string, backupId: string): {
+  owned: Tables;
+  /** Set only when the historical audit segment had to be re-based (S6). */
+  reanchor: AuditRebase | null;
+} {
   const owned = ownedRows(companyId, all);
   if (owned.Company.length !== 1) fail('RESTORE_IDENTITY', 'destination company must already exist; not bootstrap');
   for (const user of source.User) {
@@ -257,15 +426,27 @@ export function validateRestoreDestination(source: Tables, all: Tables, companyI
     .sort((a, b) => new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime());
   let previousHash: string | null = null;
   let previousTime: number | undefined;
+  let certified = true;
   for (const row of mergedAudit) {
     const time = new Date(row.createdAt as string).getTime();
     if (!Number.isFinite(time) || time === previousTime || row.previousHash !== previousHash ||
         computeAuditHash({ ...row, previousHash } as unknown as Parameters<typeof computeAuditHash>[0]) !== row.hash) {
-      fail('RESTORE_CHAIN', 'replacement cannot certify installation-wide audit order; preserve other tenants and do not re-sign');
+      certified = false;
+      break;
     }
     previousHash = row.hash as string; previousTime = time;
   }
-  return owned;
+  if (certified) return { owned, reanchor: null };
+  // S6 (T3): the archive's segment is whole except for the root it lost with the
+  // old installation. Re-anchoring is admissible only when there is NOTHING to
+  // certify against (empty destination) and the segment really is a single
+  // linear chain whose own HMACs certify; the ownership credential was already
+  // proved by the caller, before this validation ran. Everything else keeps the
+  // unchanged refusal below.
+  if (destinationEmptiness(source, all, companyId) === null && isUnrootedAuditSegment(source.AuditLog)) {
+    return { owned, reanchor: planAuditRebase(source.AuditLog, companyId, backupId) };
+  }
+  fail('RESTORE_CHAIN', 'replacement cannot certify installation-wide audit order; preserve other tenants and do not re-sign');
 }
 
 export function scalarData(model: string, row: Row, snapshot: BackupData): Row {

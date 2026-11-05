@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { queryRows, queryNullMetadata, fixtureNullReferences } from './helpers';
@@ -461,5 +462,151 @@ describe('public company recovery core', () => {
     const old = structuredClone(backup); old.manifest.version = '1.1.0';
     expect(validateBackup(old)).toEqual({ valid: true, errors: [] });
     expect(validateBackup(backup).valid).toBe(false);
+  });
+});
+
+/**
+ * S5 (T4): a legacy plain-text file — the raw JSON snapshot sealed with the old
+ * UNKEYED sha256 digest, i.e. without the current sealed (HMAC) format — is
+ * refused by every restore entry point before a single row or file is written.
+ */
+function legacyPlainText(body: any): string {
+  const { integrity: _integrity, ...manifest } = body.manifest;
+  const digest = crypto
+    .createHash('sha256')
+    .update(JSON.stringify({ manifest, data: body.data }), 'utf8')
+    .digest('hex');
+  return JSON.stringify({
+    ...body,
+    manifest: {
+      ...manifest,
+      integrity: {
+        algorithm: 'sha256',
+        encoding: 'utf8',
+        scope: 'JSON.stringify({manifest-without-integrity,data})',
+        authenticated: false,
+        digest,
+      },
+    },
+  });
+}
+
+describe('legacy plain-text backups (S5)', () => {
+  it('refuses the unsealed legacy format on both restore entry points without writes or publication', async () => {
+    const before = structuredClone(state.rows), disk = files();
+    const input = legacyPlainText(backup);
+
+    const database = await restoreCompanyBackup('tenant', input, { ownerPassword: OWNER_PASSWORD }).catch(error => error);
+    expect(database).toMatchObject({ code: 'RESTORE_LEGACY_FORMAT' });
+    expect(database.statusCode).toBe(400);
+    expect(database.message).toContain('ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1');
+    expect(database.message).toContain('volver a generar');
+
+    const coordinated = await restoreCompanyBackupCoordinated('tenant', input, { ownerPassword: OWNER_PASSWORD })
+      .catch(error => error);
+    expect(coordinated).toMatchObject({ code: 'RESTORE_LEGACY_FORMAT' });
+
+    expect(state.rows).toEqual(before);
+    expect(files()).toEqual(disk);
+    expect(state.writes).toEqual([]);
+
+    // Read-only preview of a legacy file keeps working: only RESTORE refuses it.
+    const preview = await previewCompanyRestore('tenant', input);
+    expect(preview.checksum).toBe(JSON.parse(input).manifest.integrity.digest);
+    expect(files()).toEqual(disk);
+    expect(state.writes).toEqual([]);
+  });
+
+  it('keeps the ownership refusal first when the legacy file carries no verifier either', async () => {
+    const plain = { ...backup, manifest: { ...backup.manifest } };
+    delete plain.manifest.ownership;
+    const error = await restoreCompanyBackup('tenant', legacyPlainText(plain), { ownerPassword: OWNER_PASSWORD })
+      .catch(reason => reason);
+    expect(error).toMatchObject({ code: 'RESTORE_OWNERSHIP' });
+  });
+});
+
+/**
+ * S6 (T3): a historical segment whose first row chains to a predecessor that
+ * the old installation took with it. Re-anchoring is only admissible on a
+ * verifiably empty destination AND when the segment itself is intact except for
+ * that root; everything else keeps the unchanged RESTORE_CHAIN refusal.
+ */
+const EMPTY_DESTINATION_MODELS = ['glAccount', 'bankAccount', 'bankStatement', 'bankTransaction', 'bankRule',
+  'journalEntry', 'journalLine', 'fiscalPeriod', 'reconciliationPeriod', 'companyKnowledge', 'knowledgeAudit',
+  'systemMemory', 'memoryItem', 'memoryVersion', 'relationship', 'contradiction', 'evolutionLink',
+  'traceabilityLog', 'confidenceLog', 'entityContext', 'detectionConfig', 'csvLayoutProfile',
+  'ruleApplyRecord', 'ruleExecutionAudit', 'pendingApproval', 'auditLog', 'journalChainHead'];
+
+const LOST_PREDECESSOR = 'f'.repeat(64);
+
+function auditMember(id: string, previousHash: string | null, createdAt: string): any {
+  const member = { ...row('auditLogs'), id, companyId: 'tenant', previousHash, createdAt, hash: null };
+  member.hash = computeAuditHash(member);
+  return member;
+}
+
+function withAuditSegment(segment: any[]): void {
+  backup.data.auditLogs = segment;
+  backup.manifest.recordCounts.auditLogs = segment.length;
+}
+
+describe('historical audit re-anchoring (S6)', () => {
+  it('re-bases an unrooted segment on an empty destination behind a sealed RESTORE_REBASE root', async () => {
+    const first = auditMember('segment-first', LOST_PREDECESSOR, '2025-01-01T00:00:00.000Z');
+    const second = auditMember('segment-second', first.hash, '2025-01-02T00:00:00.000Z');
+    withAuditSegment([first, second]);
+    for (const model of EMPTY_DESTINATION_MODELS) state.rows[model] = [];
+
+    const result = await restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD });
+    expect(result.status).toBe('committed');
+
+    const inserted = state.rows.auditLog.filter((audit: any) => audit.hash != null);
+    expect(inserted).toHaveLength(3);
+    const [rebase, rebasedFirst, rebasedSecond] = inserted;
+    expect(rebase.action).toBe('RESTORE_REBASE');
+    expect(rebase.previousHash).toBeNull();
+    expect(rebase.hash).toBe(computeAuditHash(rebase));
+    expect(JSON.parse(rebase.details)).toEqual({
+      backupId: backup.manifest.id,
+      originalPredecessorHash: LOST_PREDECESSOR,
+      rebasedAt: expect.any(String),
+    });
+    expect(rebasedFirst.id).toBe('segment-first');
+    expect(rebasedFirst.previousHash).toBe(rebase.hash);
+    expect(rebasedFirst.hash).toBe(computeAuditHash(rebasedFirst));
+    expect(rebasedFirst.hash).not.toBe(first.hash);
+    expect(rebasedSecond.previousHash).toBe(rebasedFirst.hash);
+    expect(rebasedSecond.hash).toBe(computeAuditHash(rebasedSecond));
+  });
+
+  it('refuses to re-anchor an archive whose segment is broken, even on an empty destination', async () => {
+    const first = auditMember('segment-first', LOST_PREDECESSOR, '2025-01-01T00:00:00.000Z');
+    // Not a lost root: the second row points at a hash that is not its predecessor.
+    const second = auditMember('segment-second', 'no-such-predecessor', '2025-01-02T00:00:00.000Z');
+    withAuditSegment([first, second]);
+    for (const model of EMPTY_DESTINATION_MODELS) state.rows[model] = [];
+
+    const before = structuredClone(state.rows), disk = files();
+    await expect(restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD })).rejects.toThrow(
+      'RESTORE_CHAIN: replacement cannot certify installation-wide audit order; preserve other tenants and do not re-sign',
+    );
+    expect(state.rows).toEqual(before);
+    expect(files()).toEqual(disk);
+    expect(state.writes).toEqual([]);
+  });
+
+  it('never re-anchors on a destination that already has audit history', async () => {
+    const first = auditMember('segment-first', LOST_PREDECESSOR, '2025-01-01T00:00:00.000Z');
+    withAuditSegment([first]);
+    const existing = auditMember('already-here', null, '2025-06-01T00:00:00.000Z');
+    state.rows.auditLog = [existing];
+
+    const error = await restoreCompanyBackup('tenant', text(backup), { ownerPassword: OWNER_PASSWORD })
+      .catch(reason => reason);
+    expect(error.message).toBe(
+      'RESTORE_CHAIN: replacement cannot certify installation-wide audit order; preserve other tenants and do not re-sign',
+    );
+    expect(String(error.message)).not.toContain('RESTORE_REBASE');
   });
 });

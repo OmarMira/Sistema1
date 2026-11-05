@@ -14,12 +14,12 @@ import { Prisma } from '@prisma/client';
 import { withCompanyBackupTransaction } from '@/lib/db';
 import { ValidationError } from './api-error';
 import { captureCompanySnapshot, type BackupData, type BackupManifest, type CompanySnapshotClient } from './backup';
-import { sealSnapshot } from './backup-format';
+import { sealSnapshot, assertSealedBackupFormat } from './backup-format';
 import { assertBackupOwnership, buildBackupOwnership } from './backup-ownership';
 import { publishBackup, readCompanyConfig } from './backup-storage';
 import {
   RESTORE_MODELS, delegate, identity, sameConfig, scalarData,
-  validateRestoreSource, validateRestoreDestination, type Tables,
+  validateRestoreSource, validateRestoreDestination, type AuditRebase, type Tables,
 } from './backup-validation';
 
 export interface CompanyRestorePreview {
@@ -95,7 +95,7 @@ export async function previewCompanyRestore(companyId: string, text: string): Pr
   const source = validated(() => validateRestoreSource(companyId, text));
   const destination = await withCompanyBackupTransaction(async tx => {
     const current = await readDestination(tx);
-    return validated(() => validateRestoreDestination(source.tables, current, companyId));
+    return validated(() => validateRestoreDestination(source.tables, current, companyId, source.snapshot.manifest.id!).owned);
   }, { isolationLevel: 'RepeatableRead' });
   return frozen({ companyId, checksum: source.snapshot.manifest.integrity!.digest,
     counts: source.snapshot.manifest.recordCounts,
@@ -133,6 +133,10 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
   // HMAC verified here, so the verifier cannot be forged. Nothing below this
   // line runs without it — no lock, no destination validation, no delete.
   assertBackupOwnership(source.snapshot.manifest, ownerPassword);
+  // S5 (T4): a legacy plain-text file (no sealed current-system format) is
+  // refused here, before the transaction, before any delete and before the
+  // safety snapshot is published. The ownership gate above stays FIRST.
+  assertSealedBackupFormat(source.snapshot);
   const operationId = crypto.randomUUID();
   let safetyFilename = '';
   let mutationStarted = false;
@@ -143,7 +147,8 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       const companies = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM "Company" WHERE id = ${companyId} FOR UPDATE`);
       if (companies.length !== 1) throw new Error('RESTORE_IDENTITY: destination company missing');
       const current = await readDestination(tx);
-      const owned = validated(() => validateRestoreDestination(source.tables, current, companyId));
+      const { owned, reanchor } = validated(() => validateRestoreDestination(
+        source.tables, current, companyId, source.snapshot.manifest.id!));
       const config = readCompanyConfig(companyId);
       const refused = blockers(source.snapshot, config, owned).filter(() => !prepareConfiguration);
       if (prepareConfiguration) {
@@ -170,7 +175,7 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       if (!sameConfig(config, readCompanyConfig(companyId))) throw new Error('RESTORE_FILES_REQUIRED: configuration changed during safety publication');
       await prepareConfiguration?.(operationId, source.snapshot.manifest.integrity!.digest, safetyFilename);
       mutationStarted = true;
-      await replaceRows(tx, source.tables, owned, companyId, source.snapshot);
+      await replaceRows(tx, source.tables, owned, companyId, source.snapshot, reanchor);
       const head = source.snapshot.data.journalChainHead;
       if (head) await tx.journalChainHead.create({ data: head });
       // Durable commit evidence, atomic with replacement. Unsigned operational
@@ -207,6 +212,9 @@ export async function restoreCompanyBackupCoordinated(companyId: string, text: s
 }): Promise<CoordinatedRestoreResult> {
   const source = validated(() => validateRestoreSource(companyId, text));
   assertBackupOwnership(source.snapshot.manifest, options?.ownerPassword);
+  // S5 (T4): refused before the maintenance gate, so a legacy plain-text file
+  // never even publishes a maintenance marker (the ownership gate stays FIRST).
+  assertSealedBackupFormat(source.snapshot);
   validated(() => validateCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo));
   const runtime = path.dirname(RUNTIME_FILES.companyConfig);
   const journalRoot = path.join(runtime, 'backup-recovery');
@@ -302,7 +310,8 @@ export async function reconcileCompanyBackupRecovery(companyId: string, operatio
   }
 }
 
-async function replaceRows(tx: CompanySnapshotClient, source: Tables, owned: Tables, companyId: string, snapshot: BackupData): Promise<void> {
+async function replaceRows(tx: CompanySnapshotClient, source: Tables, owned: Tables, companyId: string, snapshot: BackupData,
+  reanchor: AuditRebase | null = null): Promise<void> {
   // The schema's two nullable self-references need a separate unlink/link pass.
   // Validation has already rejected foreign inbound references and cycles.
   for (const [model, field] of [['GlAccount', 'parentId'], ['CompanyKnowledge', 'mergedIntoId']]) {
@@ -319,7 +328,11 @@ async function replaceRows(tx: CompanySnapshotClient, source: Tables, owned: Tab
   }
   await tx.company.update({ where: { id: companyId }, data: scalarData('Company', source.Company[0], snapshot) as Prisma.CompanyUncheckedUpdateInput });
   for (const model of models) {
-    for (const row of source[model]) {
+    // S6 (T3): a re-based audit segment is inserted INSTEAD of the archive rows:
+    // the sealed RESTORE_REBASE entry first, then the same segment re-linked
+    // under this installation's secret. Every other model is untouched.
+    const rows = model === 'AuditLog' && reanchor ? reanchor.rows : source[model];
+    for (const row of rows) {
       const data = scalarData(model, row, snapshot);
       if (model === 'GlAccount') data.parentId = null;
       if (model === 'CompanyKnowledge') data.mergedIntoId = null;

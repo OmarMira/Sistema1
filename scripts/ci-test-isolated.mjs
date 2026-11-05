@@ -95,10 +95,26 @@ async function run(args) {
       if (check.code === 0) { ready = true; break; }
       await delay(500);
     }
+    // First-boot race: pg_isready can answer while initdb's temporary server
+    // is still shutting down, so require two consecutive accepting checks.
+    if (ready) {
+      await delay(1000);
+      const confirm = await exec('docker', ['--host', host, 'exec', id, 'pg_isready', '-U', 'identity_test', '-d', 'identity_phase_a'], env, true);
+      ready = confirm.code === 0;
+    }
     if (!ready) throw new Error('New PostgreSQL container did not become ready');
     const sql = async (statement, database = 'identity_phase_a', user = 'identity_test') => {
       proveOwned(await inspect(), id, owner);
-      await docker(['exec', id, 'psql', '-U', user, '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', statement]);
+      // Transient first-boot connection refusals surface as psql exit 2; retry
+      // briefly and surface the tool's own stderr in the final failure.
+      let lastCode = 0;
+      for (let attempt = 0; attempt < 5; attempt++) {
+        if (attempt > 0) await delay(1000 * attempt);
+        const result = await exec('docker', ['--host', host, 'exec', id, 'psql', '-U', user, '-d', database, '-v', 'ON_ERROR_STOP=1', '-c', statement], env, true);
+        lastCode = result.code;
+        if (result.code === 0) return;
+      }
+      throw new Error(`psql exited ${lastCode} while preparing ${database} (see runner stderr for the statement's own error output)`);
     };
     for (const database of ['accountexpress_test', 'registration_test', 'clean_identity_test', 'accountexpress_bootstraptest']) {
       if (database !== 'accountexpress_test') await sql(`CREATE ROLE ${database} LOGIN PASSWORD '${password}'`);

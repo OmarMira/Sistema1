@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { createHash } from 'crypto';
 import { logger } from '../logger';
 import type { DashboardKPI, DashboardAlert, DashboardTrendPoint } from '@/lib/types/shared';

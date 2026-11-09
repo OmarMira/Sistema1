@@ -20,6 +20,7 @@ import { previewCompanyRestore } from '@/lib/backup-restore';
 import { translateApiError } from '@/i18n/errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -47,7 +48,13 @@ export function BackupPage() {
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  // The backup is protected with the SOURCE owner password (S3): without it the
+  // file cannot be recovered on a new machine, so it is required here.
+  const [ownerPassword, setOwnerPassword] = useState('');
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  // S11: history restores name a stored backup; the server resolves the snapshot
+  // so its plaintext never reaches the browser.
+  const [restoreFilename, setRestoreFilename] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState(0);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -90,7 +97,7 @@ export function BackupPage() {
       const res = await fetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId }),
+        body: JSON.stringify({ companyId, password: ownerPassword }),
       });
 
       if (res.ok) {
@@ -99,9 +106,10 @@ export function BackupPage() {
           description: `${formatFileSize(data.size)} — ${(Object.values(data.recordCounts) as number[]).reduce((a, b) => a + b, 0)} ${t('settings.backup.records')}`,
         });
 
-        // Auto-download the backup
+        // Auto-download the ENCRYPTED portable file (the server never hands out
+        // the internal plaintext snapshot as a saved file).
         if (data.data) {
-          downloadBackup(data.data, data.filename);
+          downloadBackup(data.data, data.recoveryFilename || data.filename);
         }
 
         await fetchBackups();
@@ -117,21 +125,28 @@ export function BackupPage() {
     setCreating(false);
   }
 
-  // Download existing backup
+  // Download an existing backup as the encrypted portable file.
   async function handleDownload(backup: BackupRecord) {
     if (!companyId) return;
+    if (ownerPassword.trim().length === 0) {
+      toast.error(t('settings.backup.recoveryPasswordRequired'));
+      return;
+    }
     setDownloading(backup.id);
     try {
-      const res = await fetch(
-        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
-      );
+      const res = await fetch(`/api/backup/${encodeURIComponent(backup.filename)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, password: ownerPassword }),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.data) {
-          downloadBackup(data.data, backup.filename);
+          downloadBackup(data.data, data.filename || backup.filename);
         }
       } else {
-        toast.error(t('common.error'));
+        const data = await res.json().catch(() => null);
+        toast.error(t('common.error'), { description: translateApiError(data, t) });
       }
     } catch {
       toast.error(t('common.error'));
@@ -206,7 +221,7 @@ export function BackupPage() {
   }
 
   async function executeRestore() {
-    if (!companyId || !restoreFile) return;
+    if (!companyId || (!restoreFile && !restoreFilename)) return;
     setShowRestoreConfirm(false);
     setRestorePreview(null);
 
@@ -214,15 +229,22 @@ export function BackupPage() {
       setRestoring(true);
       setRestoreProgress(30);
 
-      const fileBuffer = await restoreFile.arrayBuffer();
-      const jsonString = new TextDecoder().decode(fileBuffer);
-      const parsed = JSON.parse(jsonString);
-      const data = parsed.data ?? parsed;
+      // Either the browser names a stored backup (server-side lookup) or an
+      // uploaded file is sent inline.
+      let payload: { filename: string } | { data: unknown };
+      if (restoreFile) {
+        const fileBuffer = await restoreFile.arrayBuffer();
+        const jsonString = new TextDecoder().decode(fileBuffer);
+        const parsed = JSON.parse(jsonString);
+        payload = { data: parsed.data ?? parsed };
+      } else {
+        payload = { filename: restoreFilename as string };
+      }
 
       const res = await fetch('/api/backup/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data }),
+        body: JSON.stringify(payload),
       });
 
       setRestoreProgress(80);
@@ -238,6 +260,7 @@ export function BackupPage() {
           description: `${totalRecords} ${t('settings.backup.records')}`,
         });
         setRestoreFile(null);
+        setRestoreFilename(null);
         await fetchBackups();
         window.location.href = '/';
       } else {
@@ -249,6 +272,7 @@ export function BackupPage() {
       toast.error(t('settings.backup.restoreFailed'));
     }
     setRestoring(false);
+    setRestoringFromList(null);
     setRestoreProgress(0);
   }
 
@@ -262,20 +286,12 @@ export function BackupPage() {
       setShowRestoreHistoryConfirm(null);
 
       setRestoreProgress(30);
-      const res = await fetch(
-        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
-      );
-      if (!res.ok) throw new Error('Failed to fetch backup');
-
-      setRestoreProgress(50);
-      const data = await res.json();
-      if (!data.data) throw new Error('No backup data');
-
-      setRestoreProgress(60);
+      // S11: preview resolves the stored snapshot on the server; the response is
+      // counts/checksum/ids only and never echoes the file content.
       const previewRes = await fetch('/api/backup/restore/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: data.data }),
+        body: JSON.stringify({ filename: backup.filename }),
       });
 
       if (!previewRes.ok) {
@@ -287,6 +303,7 @@ export function BackupPage() {
       }
 
       const preview = await previewRes.json();
+      setRestoreFilename(backup.filename);
       setRestorePreview({
         checksum: preview.checksum,
         counts: preview.counts,
@@ -369,8 +386,22 @@ export function BackupPage() {
               </CardTitle>
               <CardDescription>{t('settings.backup.createBackupDesc')}</CardDescription>
             </CardHeader>
-            <CardContent>
-              <Button onClick={handleCreateBackup} disabled={creating} className="w-full sm:w-auto">
+            <CardContent className="space-y-3">
+              <Input
+                type="password"
+                value={ownerPassword}
+                autoComplete="current-password"
+                placeholder={t('settings.backup.recoveryPasswordLabel')}
+                onChange={(e) => setOwnerPassword(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.backup.recoveryPasswordHint')}
+              </p>
+              <Button
+                onClick={handleCreateBackup}
+                disabled={creating || ownerPassword.trim().length === 0}
+                className="w-full sm:w-auto"
+              >
                 {creating ? (
                   <>
                     <Loader2 className="size-4 mr-2 animate-spin" />
@@ -406,7 +437,11 @@ export function BackupPage() {
 
               <RestoreDropZone
                 restoreFile={restoreFile}
-                onFileSelect={setRestoreFile}
+                onFileSelect={(file) => {
+                  // An uploaded file supersedes a pending history selection.
+                  setRestoreFile(file);
+                  setRestoreFilename(null);
+                }}
                 onRestoreClick={() => setShowRestoreConfirm(true)}
               />
             </CardContent>

@@ -1,39 +1,52 @@
 /**
- * Wave 6 (zero open items) — first-install restore of a CURRENT-format backup.
- *
- * The reported user flow: create a backup (format 2.1.0) → delete all the data →
- * from the "Sistema vacío detectado" page, restore that same backup. That flow
- * could not succeed:
- *   (1) the route answered 503 unless the operator had exported
- *       BOOTSTRAP_SETUP_TOKEN (a non-technical user cannot),
- *   (2) even with the token, `validateBackup` only admits 1.0.0/1.1.0 and
- *       rejected the 2.1.0 file the running app itself produces,
- *   (3) the route demanded `recoveryPassword` while the page never sent it.
+ * Wave 6 (rewritten for portable owner-verified recovery) — first-install
+ * restore of a 2.1.0 backup on a NEW machine.
  *
  * The contract pinned here:
- *   - the ONLY admission gate is `companyCount === 0` (checked first): a system
- *     that already has data answers 409 DB_NOT_EMPTY and writes nothing —
- *     no environment token exists any more, so a first install works offline;
- *   - a 2.1.0 backup + a recovery password (min 8 chars) restores through the
- *     coordinated path: session cookie, company/user/account/journal counts
- *     equal to the backup, company administrative membership kept;
- *   - a missing or too-short recovery password answers 400 in Spanish and
- *     leaves the database untouched (nothing created, nothing restored);
- *   - the restored owner logs in with that recovery password and reads their
- *     company back through /api/auth/me (the session really works).
+ *  - the export produces a downloadable file whose whole accounting payload is
+ *    AEAD-encrypted under the source owner password, and opening it ALSO demands
+ *    the owner email and the company legal name: all three are inputs of the
+ *    password KDF, so the password alone can never open a file; the internal
+ *    catalog still lists a sealed internal snapshot (same retention semantics);
+ *  - the PUBLIC route refuses the old internal-snapshot payload, refuses a fresh
+ *    install without a configured mail channel (fail closed, never a silent
+ *    skip) and refuses a non-empty installation;
+ *  - a full authorized recovery (owner email + password + company name + token)
+ *    restores through the coordinated path and creates an owner session ON AN
+ *    INSTALLATION WITH NO LOCAL ACCOUNT: the source owner is proven by the
+ *    authenticated backup credential, never by an account that must exist here
+ *    (T15);
+ *  - journal/audit history restored from ANOTHER installation key still verifies
+ *    through the authenticated provenance archive, and truthfully fails when the
+ *    archive is bypassed; a second certified lineage is accepted only because
+ *    that archive exists (T15);
+ *  - a same-email local account with a different id is reused only after its own
+ *    password proves it, keeping its credentials/role intact (S4).
  *
- * The source tenant is exported through the PRODUCTION path (`createBackup`,
- * with `appendEntryToJournalChain` sealing the JH2 tail) and then deleted, so
- * the payload under test is the app's own output and the database is empty —
- * exactly the situation of the reported defect.
+ * This suite requires disposable PostgreSQL (tests/global-setup.ts). It is never
+ * executed by the isolated bootstrap runner.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
-import { createBackup } from '@/lib/backup';
+import { hashPassword, verifyPassword } from '@/lib/auth';
+import { createBackup, createPortableBackup } from '@/lib/backup';
+import { openPortableContainer } from '@/lib/backup-portable';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
+import { verifyAuditChain, verifyJournalChain } from '@/lib/journal-hash';
+import { restoreCompanyBackupCoordinated } from '@/lib/backup-restore';
+import {
+  completePortableRecovery, createMemoryRecoveryChallengeStore,
+  requestPortableRecoveryChallenge, type PortableRecoveryDeps,
+} from '@/lib/backup-recovery-auth';
+import { createMemoryRecoveryLockStore } from '@/lib/backup-recovery-lock';
+import {
+  createPortableDestinationRestore, createPostgresProvenanceRecorder, loadRecoveryEvidence,
+  RecoveryProvenanceError,
+  type PortableDestinationClient, type ProvenanceRawClient,
+} from '@/lib/backup-recovery-provenance';
 import {
   createTestCompany,
   createTestCompanyMember,
@@ -42,16 +55,10 @@ import {
   createTestUser,
 } from '../helpers/factories';
 import { POST as bootstrapRestorePOST } from '@/app/api/bootstrap/restore/route';
-import { POST as loginPOST } from '@/app/api/auth/login/route';
-import { GET as meGET } from '@/app/api/auth/me/route';
-import es from '@/i18n/locales/es';
-import en from '@/i18n/locales/en';
 
 const RECOVERY_PASSWORD = 'Recuperacion!2026';
 const OWNER_EMAIL = 'bootstrap.restore.owner@example.com';
 const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
-
-type CreatedBackup = Awaited<ReturnType<typeof createBackup>>;
 
 /**
  * The fixture database exists only for these suites, but earlier files in the
@@ -102,24 +109,16 @@ function collectPublishedBackups(companyId: string) {
   }
 }
 
-/** Production export path: snapshot + JH2 seal + published 2.1.0 payload. */
+/** Production export path: internal snapshot + portable AEAD container. */
 async function createSourceBackup() {
   const owner = await createTestUser(OWNER_EMAIL);
   const company = await createTestCompany('Bootstrap Restore SA');
   await createTestCompanyMember(owner.id, company.id);
   const cash = await createTestGlAccount({
-    companyId: company.id,
-    code: '1010',
-    name: 'Cash',
-    accountType: 'asset',
-    normalBalance: 'debit',
+    companyId: company.id, code: '1010', name: 'Cash', accountType: 'asset', normalBalance: 'debit',
   });
   const revenue = await createTestGlAccount({
-    companyId: company.id,
-    code: '4010',
-    name: 'Revenue',
-    accountType: 'revenue',
-    normalBalance: 'credit',
+    companyId: company.id, code: '4010', name: 'Revenue', accountType: 'revenue', normalBalance: 'credit',
   });
   const entry = await createTestJournalEntry(company.id, {
     date: '2025-04-10',
@@ -136,9 +135,34 @@ async function createSourceBackup() {
     entryId: entry.id,
   }));
 
-  const backup: CreatedBackup = await createBackup(company.id, owner.id);
-  publishedBackups.push(backup.filename);
-  return { backup, owner, company };
+  // Owner re-authentication: the export demands the password of the PROVEN
+  // source owner, i.e. the active, email-verified super administrator of the
+  // company, whose email is stamped into the sealed file identity.
+  await db.user.update({
+    where: { id: owner.id },
+    data: {
+      passwordHash: await hashPassword(RECOVERY_PASSWORD),
+      emailVerifiedAt: new Date(),
+      platformRole: 'super_admin',
+    },
+  });
+  const internal = await createBackup(company.id, owner.id);
+  const portable = await createPortableBackup({
+    companyId: company.id, createdByUserId: owner.id, password: RECOVERY_PASSWORD,
+  });
+  publishedBackups.push(internal.filename);
+  return { internal, portable, owner, company };
+}
+
+/**
+ * The "new machine" fixture: zero companies and NO owner account at all, which
+ * is the reported case. The portable container seals the source owner identity
+ * and the recovery proves it from that authenticated credential, so the flow
+ * never needs an existing destination account (it used to answer
+ * RECOVERY_OWNER_UNAVAILABLE 403 here).
+ */
+function assertNoOwnerAccount() {
+  return db.user.count();
 }
 
 function restoreRequest(body: Record<string, unknown>) {
@@ -151,12 +175,6 @@ function restoreRequest(body: Record<string, unknown>) {
   );
 }
 
-async function restoreWithPassword(backup: CreatedBackup, password: string | undefined) {
-  return restoreRequest(
-    password === undefined ? { data: backup.data } : { data: backup.data, recoveryPassword: password },
-  );
-}
-
 async function countRestored() {
   return {
     companies: await db.company.count(),
@@ -165,202 +183,177 @@ async function countRestored() {
     journalEntries: await db.journalEntry.count(),
     journalLines: await db.journalLine.count(),
     companyMembers: await db.companyMember.count(),
-    entitlements: await db.companyModuleEntitlement.count(),
     sessions: await db.session.count(),
   };
 }
 
-describe('POST /api/bootstrap/restore — first-install restore of a 2.1.0 backup', () => {
-  let backup: CreatedBackup;
-  let sourceCompanyId: string;
-  let sourceUserId: string;
+/** Full authorized recovery with injected mail/challenge stores and REAL db work. */
+async function runAuthorizedRecovery(input: {
+  portable: Awaited<ReturnType<typeof createSourceBackup>>['portable'];
+  password?: string;
+}) {
+  const store = createMemoryRecoveryChallengeStore();
+  const lock = createMemoryRecoveryLockStore();
+  const mail: Array<{ to: string; token: string }> = [];
+  const deps: PortableRecoveryDeps = {
+    now: () => new Date(),
+    challenges: store,
+    lock,
+    mail: { send: async (message) => { mail.push(message as { to: string; token: string }); } },
+    installationState: async () => {
+      const [companies, audits] = await Promise.all([db.company.count(), db.auditLog.count()]);
+      return { companies, audits };
+    },
+    restore: createPortableDestinationRestore({
+      client: db as unknown as PortableDestinationClient,
+      provenance: createPostgresProvenanceRecorder(db as unknown as ProvenanceRawClient),
+      hashPassword,
+      verifyPassword,
+      readAuditArchive: async () => {
+        try {
+          const archive = await loadRecoveryEvidence('audit', null);
+          return archive.size > 0 ? archive : undefined;
+        } catch (error) {
+          if (error instanceof RecoveryProvenanceError && error.code === 'RECOVERY_PROVENANCE_ABSENT') return undefined;
+          throw error;
+        }
+      },
+      coordinatedRestore: (companyId, text, mode, identityMap) =>
+        restoreCompanyBackupCoordinated(companyId, text, mode, identityMap),
+    }),
+  };
+  const fileText = Buffer.from(input.portable.data, 'base64').toString('utf8');
+  const password = input.password ?? RECOVERY_PASSWORD;
+  const requested = await requestPortableRecoveryChallenge(deps, {
+    fileText, password, companyLegalName: 'Bootstrap Restore SA', ownerEmail: OWNER_EMAIL,
+  });
+  expect(requested.status).toBe('challenge_sent');
+  const token = mail.at(-1)!.token;
+  const completed = await completePortableRecovery(deps, {
+    fileText, password, companyLegalName: 'Bootstrap Restore SA', ownerEmail: OWNER_EMAIL, token,
+  });
+  return { requested, completed, token, store };
+}
+
+describe('portable owner-verified recovery (first install)', () => {
+  let source: Awaited<ReturnType<typeof createSourceBackup>>;
 
   beforeEach(async () => {
     await wipeDatabase();
-    const source = await createSourceBackup();
-    backup = source.backup;
-    sourceCompanyId = source.company.id;
-    sourceUserId = source.owner.id;
-    currentSourceCompanyId = sourceCompanyId;
-    expect(backup.recordCounts.glAccounts).toBe(2);
-    expect(backup.recordCounts.journalEntries).toBe(1);
-    // The user backs up and then deletes all the data: the system is empty.
-    await wipeDatabase();
-    expect(await db.company.count()).toBe(0);
+    source = await createSourceBackup();
+    currentSourceCompanyId = source.company.id;
+    expect(source.portable.recordCounts.glAccounts).toBe(2);
+    expect(source.portable.recordCounts.journalEntries).toBe(1);
   });
 
   afterEach(() => {
-    // The export under test and the safety snapshot the coordinated restore
-    // publishes for the same company both land in db/backups.
     collectPublishedBackups(currentSourceCompanyId);
     forgetPublishedBackups();
   });
 
-  it('restores the 2.1.0 backup with a recovery password and opens a session', async () => {
-    const response = await restoreWithPassword(backup, RECOVERY_PASSWORD);
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.success).toBe(true);
-
-    // Session cookie: same name/attributes the login route issues in tests.
-    const cookie = response.cookies.get('session');
-    expect(cookie?.value ?? '').not.toBe('');
-
-    // Data restored exactly as the backup declares it.
-    const restored = await countRestored();
-    expect(restored.companies).toBe(1);
-    expect(restored.users).toBe(backup.recordCounts.users);
-    expect(restored.glAccounts).toBe(backup.recordCounts.glAccounts);
-    expect(restored.journalEntries).toBe(backup.recordCounts.journalEntries);
-    expect(restored.journalLines).toBe(backup.recordCounts.journalLines);
-    expect(restored.companyMembers).toBe(backup.recordCounts.companyMembers);
-    expect(restored.entitlements).toBe(backup.recordCounts.companyModuleEntitlements);
-    expect(restored.sessions).toBe(1);
-
-    const company = await db.company.findUnique({ where: { id: sourceCompanyId } });
-    expect(company?.legalName).toBe('Bootstrap Restore SA');
-    const membership = await db.companyMember.findFirst({ where: { companyId: sourceCompanyId } });
-    expect(membership?.userId).toBe(sourceUserId);
-    expect(membership?.role).toBe('company_admin');
-
-    // The first restored user is the installation owner, immediately usable.
-    const owner = await db.user.findUnique({ where: { id: sourceUserId } });
-    expect(owner?.email).toBe(OWNER_EMAIL);
-    expect(owner?.platformRole).toBe('super_admin');
-    expect(owner?.legacyUser).toBe(true);
-    expect(owner?.emailVerifiedAt).not.toBeNull();
-
-    expect(body.user.id).toBe(sourceUserId);
-    expect((body.companies as Array<{ id: string }>).map((c) => c.id)).toContain(sourceCompanyId);
+  it('exports an encrypted portable file and keeps the internal catalog entry', async () => {
+    const bytes = Buffer.from(source.portable.data, 'base64').toString('utf8');
+    expect(bytes).not.toContain('Bootstrap Restore SA');
+    expect(bytes).not.toContain(OWNER_EMAIL);
+    expect(source.portable.recoveryFilename).toMatch(/_recovery\.json$/);
+    // The owner email and the company name are KDF inputs: the password alone
+    // cannot open the file any more.
+    const opened = openPortableContainer(bytes, RECOVERY_PASSWORD, {
+      ownerEmail: OWNER_EMAIL, companyLegalName: 'Bootstrap Restore SA',
+    });
+    expect(opened.payload.companyId).toBe(source.company.id);
+    expect(opened.payload.snapshot.data.journalEntries).toHaveLength(1);
+    expect(fs.existsSync(path.join(BACKUP_DIR, source.internal.filename))).toBe(true);
   });
 
-  it('rejects a missing recovery password with a Spanish 400 and writes nothing', async () => {
-    const response = await restoreWithPassword(backup, undefined);
-    const body = await response.json();
-
+  it('refuses the old internal-snapshot payload on the public route', async () => {
+    await wipeDatabase();
+    const response = await restoreRequest({
+      data: source.internal.data, password: RECOVERY_PASSWORD,
+      companyName: 'Bootstrap Restore SA', ownerEmail: OWNER_EMAIL,
+    });
     expect(response.status).toBe(400);
-    expect(body.code).toBe('RECOVERY_PASSWORD_REQUIRED');
-    expect(body.error).toBe(es.errors.RECOVERY_PASSWORD_REQUIRED);
-    expect(body.error).toMatch(/contraseña/i);
-    expect(response.cookies.get('session')).toBeUndefined();
-
-    const untouched = await countRestored();
-    expect(untouched.companies).toBe(0);
-    expect(untouched.users).toBe(0);
-    expect(untouched.glAccounts).toBe(0);
-    expect(untouched.journalEntries).toBe(0);
-  });
-
-  it('rejects a recovery password shorter than 8 characters and writes nothing', async () => {
-    const response = await restoreWithPassword(backup, 'short7!');
-    const body = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(body.code).toBe('RECOVERY_PASSWORD_REQUIRED');
-    expect(body.error).toBe(es.errors.RECOVERY_PASSWORD_REQUIRED);
-
-    const untouched = await countRestored();
-    expect(untouched.companies).toBe(0);
-    expect(untouched.users).toBe(0);
-  });
-
-  it('PRESERVE: a system that already has data answers 409 DB_NOT_EMPTY and writes nothing', async () => {
-    const existing = await createTestCompany('Already Installed SA');
-    const existingUser = await createTestUser('already.installed@example.com');
-    await createTestCompanyMember(existingUser.id, existing.id);
-    const before = await countRestored();
-
-    // Even a perfectly valid payload must be refused: the empty-system gate is
-    // the whole authorization for this endpoint.
-    const response = await restoreWithPassword(backup, RECOVERY_PASSWORD);
-    const body = await response.json();
-
-    expect(response.status).toBe(409);
-    expect(body.code).toBe('DB_NOT_EMPTY');
-    expect(response.cookies.get('session')).toBeUndefined();
-
-    const after = await countRestored();
-    expect(after).toEqual(before);
-    expect(await db.company.findUnique({ where: { id: sourceCompanyId } })).toBeNull();
-  });
-
-  it('lets the restored owner log in with the recovery password and read their company', async () => {
-    const restored = await restoreWithPassword(backup, RECOVERY_PASSWORD);
-    expect(restored.status).toBe(200);
-
-    const login = await loginPOST(
-      new NextRequest('http://localhost/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: OWNER_EMAIL, password: RECOVERY_PASSWORD }),
-      }),
-    );
-    const loginBody = await login.json();
-    expect(login.status).toBe(200);
-    expect(loginBody.user.email).toBe(OWNER_EMAIL);
-    expect(
-      (loginBody.companies as Array<{ id: string }>).map((c) => c.id),
-    ).toContain(sourceCompanyId);
-
-    const token = login.cookies.get('session')?.value as string;
-    const me = await meGET(
-      new NextRequest('http://localhost/api/auth/me', {
-        method: 'GET',
-        headers: { cookie: `session=${token}` },
-      }),
-    );
-    const meBody = await me.json();
-    expect(me.status).toBe(200);
-    expect(meBody.user.id).toBe(sourceUserId);
-    expect((meBody.companies as Array<{ id: string }>).map((c) => c.id)).toContain(sourceCompanyId);
-  });
-
-  it('restores from the multipart upload the page actually sends (file + recoveryPassword)', async () => {
-    const formData = new FormData();
-    const snapshot = JSON.parse(Buffer.from(backup.data, 'base64').toString('utf-8')) as unknown;
-    formData.append(
-      'file',
-      new File([JSON.stringify(snapshot)], 'bootstrap-restore.json', { type: 'application/json' }),
-    );
-    formData.append('recoveryPassword', RECOVERY_PASSWORD);
-
-    const response = await bootstrapRestorePOST(
-      new NextRequest('http://localhost/api/bootstrap/restore', { method: 'POST', body: formData }),
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(200);
-    expect(body.success).toBe(true);
-    expect(response.cookies.get('session')?.value ?? '').not.toBe('');
-    expect(await db.glAccount.count()).toBe(backup.recordCounts.glAccounts);
-  });
-
-  it('PRESERVE: multipart upload keeps the extension guard and writes nothing', async () => {
-    const formData = new FormData();
-    formData.append('file', new File(['{}'], 'backup.txt', { type: 'text/plain' }));
-    formData.append('recoveryPassword', RECOVERY_PASSWORD);
-
-    const response = await bootstrapRestorePOST(
-      new NextRequest('http://localhost/api/bootstrap/restore', { method: 'POST', body: formData }),
-    );
-    const body = await response.json();
-
-    expect(response.status).toBe(400);
-    expect(body.error).toBe('Extensión inválida. Solo archivos .json y .backup');
+    expect((await response.json()).code).toBe('RECOVERY_FILE_UNSUPPORTED');
     expect(await db.company.count()).toBe(0);
-    expect(await db.user.count()).toBe(0);
   });
 
-  it('translates the bootstrap error codes in both locales', () => {
-    for (const code of ['RECOVERY_PASSWORD_REQUIRED']) {
-      const esText = (es.errors as Record<string, string>)[code];
-      const enText = (en.errors as Record<string, string>)[code];
-      expect(typeof esText, `${code} [es]`).toBe('string');
-      expect(typeof enText, `${code} [en]`).toBe('string');
-      expect(esText.trim().length).toBeGreaterThan(0);
-      expect(enText.trim().length).toBeGreaterThan(0);
-      expect(enText).not.toBe(esText);
+  it('fails closed when no mail channel is configured on the public route', async () => {
+    await wipeDatabase();
+    const response = await restoreRequest({
+      data: source.portable.data, password: RECOVERY_PASSWORD,
+      companyName: 'Bootstrap Restore SA', ownerEmail: OWNER_EMAIL,
+    });
+    expect(response.status).toBe(503);
+    expect((await response.json()).code).toBe('RECOVERY_MAIL_UNAVAILABLE');
+    expect(await db.company.count()).toBe(0);
+  });
+
+  it('refuses a non-empty installation', async () => {
+    const response = await restoreRequest({
+      data: source.portable.data, password: RECOVERY_PASSWORD,
+      companyName: 'Bootstrap Restore SA', ownerEmail: OWNER_EMAIL,
+    });
+    expect(response.status).toBe(409);
+    expect((await response.json()).code).toBe('DB_NOT_EMPTY');
+  });
+
+  it('restores the whole accounting snapshot and keeps history verifiable', async () => {
+    await wipeDatabase();
+    expect(await assertNoOwnerAccount()).toBe(0);
+    expect(await db.company.count()).toBe(0);
+    const { completed, token } = await runAuthorizedRecovery({ portable: source.portable });
+    expect(completed.status).toBe('restored');
+    expect(JSON.stringify(completed)).not.toContain(token);
+
+    const counts = await countRestored();
+    expect(counts).toMatchObject({
+      companies: 1, glAccounts: 2, journalEntries: 1, journalLines: 2, companyMembers: 1,
+    });
+    expect(counts.users).toBe(1);
+
+    // Recovered history was signed by the SOURCE installation key. Rotating the
+    // destination key proves that only the authenticated archive can certify it.
+    const originalSecret = process.env.HMAC_SECRET;
+    process.env.HMAC_SECRET = 'rotated-destination-hmac-secret';
+    try {
+      const journal = await verifyJournalChain(source.company.id);
+      expect(journal.valid).toBe(true);
+      const audit = await verifyAuditChain({ companyId: source.company.id });
+      expect(audit.valid).toBe(true);
+    } finally {
+      if (originalSecret === undefined) delete process.env.HMAC_SECRET;
+      else process.env.HMAC_SECRET = originalSecret;
     }
+
+    const provenance = await db.$queryRawUnsafe<Array<{ provenance: { identityMap: unknown; fileDigest: string } }>>(
+      `SELECT provenance FROM "BootstrapRecoveryProvenance" WHERE "companyId" = $1`, source.company.id);
+    expect(provenance).toHaveLength(1);
+    expect(provenance[0].provenance.identityMap).toEqual({});
+    expect(provenance[0].provenance.fileDigest).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it('reuses a same-email local account only after proving its own password', async () => {
+    const localId = 'bootstrap-local-owner';
+    const localEmail = OWNER_EMAIL;
+    const localPasswordHash = await hashPassword('LocalAccountPass!1');
+    // The source backup of this test keeps the owner email; the destination only
+    // holds a local account registered with that same email under another id.
+    await wipeDatabase();
+    await db.user.create({
+      data: {
+        id: localId, email: localEmail, passwordHash: localPasswordHash,
+        firstName: 'Local', lastName: 'Owner', platformRole: 'user',
+        emailVerifiedAt: new Date(),
+      },
+    });
+
+    // Wrong local password: explicit refusal, nothing mutated.
+    const refused = await runAuthorizedRecovery({
+      portable: source.portable, password: RECOVERY_PASSWORD,
+    });
+    expect(refused.completed).toMatchObject({ status: 409, code: 'RECOVERY_LOCAL_ACCOUNT_LOGIN_REQUIRED' });
+    expect(await db.company.count()).toBe(0);
+    const untouched = await db.user.findUnique({ where: { id: localId }, select: { passwordHash: true, platformRole: true } });
+    expect(untouched).toMatchObject({ passwordHash: localPasswordHash, platformRole: 'user' });
   });
 });

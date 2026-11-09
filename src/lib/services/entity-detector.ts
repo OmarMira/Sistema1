@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import crypto from 'crypto';
 import { logger } from '../logger';
 import { normalizePattern } from '@/lib/services/pattern-normalizer';

@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { createHash } from 'crypto';
 
 export function generateHash(payload: string | Record<string, unknown>): string {

@@ -853,6 +853,17 @@ const es = {
     passwordMismatch: 'Las nuevas contraseñas no coinciden.',
     wrongPassword: 'La contraseña actual es incorrecta.',
     userProfile: 'Perfil de Usuario',
+    userProfileTooltip: 'Datos personales y contraseña de tu acceso',
+    companyDataTooltip: 'Información legal y fiscal de tu empresa',
+    userManagementTooltip: 'Creá y administrá las cuentas del equipo',
+    rolesPermissionsTooltip: 'Permisos y niveles de acceso de cada usuario',
+    modulesTabTooltip: 'Activá o desactivá las funcionalidades del sistema',
+    entityManagementTooltip: 'Proveedores, clientes y otras entidades',
+    knowledgeEngineTooltip: 'Aprendizaje automático de tu contabilidad',
+    fiscalPeriodsTabTooltip: 'Ejercicios y períodos contables',
+    systemBackupTooltip: 'Copias de seguridad y restauración',
+    diagnosticsTabTooltip: 'Estado y salud del sistema',
+    aiConfigTabTooltip: 'Configuración del asistente inteligente',
     memberCount: 'Miembros',
     accountCount: 'Cuentas Contables',
     periodCount: 'Períodos Fiscales',
@@ -918,6 +929,12 @@ const es = {
       restoreFailed: 'Error al restaurar el respaldo',
       backupHistory: 'Historial de Respaldos',
       noBackups: 'No hay respaldos anteriores.',
+      unreadableBackupsTitle: 'Algunos respaldos no se pueden leer',
+      unreadableBackupsDesc:
+        'Estos archivos se conservan sin cambios en el disco, pero no se pueden listar, descargar ni restaurar hasta corregir la causa.',
+      catalogUnverifiedTitle: 'Respaldo creado, con una advertencia de almacenamiento',
+      catalogUnverifiedDesc:
+        'Al menos un archivo de respaldo guardado no se pudo leer, así que se omitieron el índice de respaldos y la limpieza de retención. Tu nuevo respaldo quedó guardado y listado; ningún archivo existente se modificó ni se eliminó.',
       download: 'Descargar',
       date: 'Fecha',
       size: 'Tamaño',
@@ -933,6 +950,10 @@ const es = {
       restoredCounts: 'Registros restaurados',
       dragDrop: 'Arrastra y suelta un archivo de respaldo aquí, o haz clic para seleccionar',
       supportedFormats: 'Formato soportado: .json (respaldo de AccountExpress)',
+      recoveryPasswordLabel: 'Contraseña del propietario',
+      recoveryPasswordHint:
+        'El respaldo se protege con la contraseña del superadministrador original. Sin ella no se puede recuperar en otra máquina.',
+      recoveryPasswordRequired: 'Ingresá la contraseña del propietario para crear el respaldo.',
       records: 'registros',
       confirmRestore: 'Confirmar Restauración',
       confirmRestoreDesc:
@@ -942,6 +963,27 @@ const es = {
       errorInvalidFile:
         'Archivo de respaldo inválido. Selecciona un respaldo válido de AccountExpress.',
       errorCompanyIdMismatch: 'Este respaldo pertenece a una empresa diferente.',
+      portableDetected: 'Archivo de recuperación del propietario detectado',
+      portableDesc:
+        'Este archivo es un respaldo cifrado del propietario. La contraseña, el email del propietario y el nombre exacto de la empresa abren el archivo, y el sistema envía un código de confirmación al email registrado en el respaldo.',
+      portableActiveCompanyNotice:
+        'Esta restauración reemplaza los datos de la empresa activa. Si el archivo pertenece a otra empresa, el sistema lo rechaza antes de enviar cualquier código.',
+      portableOwnerEmailLabel: 'Email del propietario registrado en el respaldo',
+      portableCompanyNameLabel: 'Nombre de la empresa tal como estaba en el respaldo',
+      portableOwnerPasswordLabel: 'Contraseña del propietario',
+      portableSendCode: 'Enviar código de confirmación',
+      portableCodeLabel: 'Código recibido por email',
+      portableRestore: 'Restaurar desde este archivo',
+      portableCodeSent: 'Te enviamos un código al email del propietario registrado en el respaldo.',
+      portableRestoreSuccess: 'Información restaurada para la empresa activa',
+      portableRestoreFailed: 'No se pudo restaurar el respaldo portable',
+      portableIdentityMismatch:
+        'La sesión iniciada no es la del propietario registrado en este respaldo. Iniciá sesión con ese email y volvé a intentar.',
+      portableActiveCompanyMismatch:
+        'Este respaldo pertenece a otra empresa, no a la empresa activa. Activá esa empresa y volvé a intentar desde Configuración → Respaldos del Sistema, o agregalo desde Administración de Empresas.',
+      portableCompanyExists:
+        'Este sistema ya tiene esa empresa. Restaurá sus datos desde Configuración → Respaldos del Sistema en lugar de agregarla otra vez.',
+      portableCompanyNotFound: 'La empresa destino de esta restauración no existe en este sistema.',
     },
     aiRules: {
       title: 'Generador de Reglas IA',
@@ -1944,6 +1986,39 @@ const es = {
     // obligatoria (mínimo 8 caracteres) y define la clave del dueño restaurado.
     RECOVERY_PASSWORD_REQUIRED:
       'La contraseña de recuperación es obligatoria y debe tener al menos 8 caracteres.',
+    // Recuperación portable (S2/S3/S15): cada rechazo del flujo se muestra en el
+    // idioma elegido y con la acción concreta que destraba el caso. El código
+    // `RECOVERY_PASSWORD_MISMATCH` queda FUERA a propósito: el mismo código lo
+    // devuelve la exportación del propietario por una contraseña realmente
+    // incorrecta, así que su guía vive en `BootstrapPage` (contexto del
+    // formulario) y no en este catálogo global.
+    RECOVERY_TOKEN_EXPIRED:
+      'El código de confirmación venció. Pedí uno nuevo para continuar con la recuperación.',
+    RECOVERY_TOKEN_USED:
+      'Ese código de confirmación ya se usó. Pedí uno nuevo: cada recuperación necesita un código distinto.',
+    RECOVERY_TOO_MANY_ATTEMPTS:
+      'Hubo demasiados intentos con este archivo. Esperá unos minutos y volvé a intentarlo.',
+    RECOVERY_MAIL_UNAVAILABLE:
+      'No se pudo enviar el correo con el código de confirmación. Revisá el canal de correo configurado y volvé a intentarlo: sin ese código no se recupera nada.',
+    RECOVERY_FILE_UNSUPPORTED:
+      'Este archivo no se puede leer como un respaldo cifrado válido. Verificá que sea el archivo completo que descargaste y volvé a intentarlo.',
+    RECOVERY_FORMAT_UNSUPPORTED:
+      'Este respaldo se creó con un formato anterior. Generá un respaldo cifrado nuevo desde el sistema de origen y usá ese archivo.',
+    RECOVERY_CHALLENGE_ROTATED:
+      'Otro pedido de recuperación reemplazó este código. Pedí uno nuevo.',
+    RECOVERY_IDENTITY_REQUIRED:
+      'Faltan datos para abrir el respaldo: escribí el email del propietario, el nombre exacto de la empresa y la contraseña del propietario.',
+    RECOVERY_COMPANY_MISMATCH:
+      'El nombre de la empresa no coincide con el que está guardado en el respaldo. Escribilo exactamente como figura en el sistema de origen.',
+    RECOVERY_OWNER_UNAVAILABLE:
+      'Este respaldo no permite demostrar un superadministrador propietario con email verificado, así que no se puede enviar el código de recuperación.',
+    RECOVERY_IN_PROGRESS:
+      'Ya hay otra recuperación en curso en esta instalación. Esperá a que termine.',
+    // S4: la cuenta local ya existe y su contraseña es distinta de la que abre el
+    // respaldo. Entrar a la sesión local no cambia nada: lo que destraba el caso
+    // es que AMBAS contraseñas coincidan.
+    RECOVERY_LOCAL_ACCOUNT_LOGIN_REQUIRED:
+      'Esta instalación ya tiene una cuenta local con el email del propietario y su contraseña es distinta de la que abre este respaldo. La recuperación necesita que sea la misma contraseña: entrá en la cuenta local, cambiala por la que abre el respaldo y volvé a iniciar la recuperación. No se modificó nada.',
     INTERNAL_SERVER_ERROR:
       'Ocurrió un error inesperado. Intentá nuevamente; si el problema persiste, contactá al administrador.',
   },
@@ -1996,6 +2071,27 @@ const es = {
     searchPlaceholder: 'Buscar empresa por nombre o EIN/Tax ID...',
     loading: 'Cargando catálogo de empresas...',
     noCompanies: 'No se encontraron empresas.',
+    restoreBackupTitle: 'Restaurar desde backup',
+    restoreBackupDesc:
+      'Recupera una empresa desde un archivo portable cifrado del propietario. La empresa del respaldo se crea si todavía no existe; si ya existe, sus datos se restauran desde Configuración → Respaldos del Sistema.',
+    restoreBackupZeroHint:
+      'Este sistema todavía no tiene empresas: podés recuperar la información desde un backup del propietario.',
+    restoreOwnerEmailLabel: 'Email del propietario registrado en el respaldo',
+    restoreCompanyNameLabel: 'Nombre de la empresa tal como estaba en el respaldo',
+    restoreOwnerPasswordLabel: 'Contraseña del propietario',
+    restoreSendCode: 'Enviar código de confirmación',
+    restoreCodeLabel: 'Código recibido por email',
+    restoreConfirm: 'Restaurar la empresa desde este archivo',
+    restoreCodeSent: 'Te enviamos un código al email del propietario registrado en el respaldo.',
+    restoreSuccess: 'Empresa restaurada desde el backup',
+    restoreFailed: 'No se pudo restaurar el backup del propietario',
+    restoreCredentialsInvalid:
+      'No se pudo abrir el respaldo. Verificá el correo del propietario, el nombre de la empresa tal como figura en el respaldo y la contraseña original. Si los datos son correctos, el archivo podría estar incompleto o dañado.',
+    restoreIdentityMismatch:
+      'La sesión iniciada no es la del propietario registrado en este respaldo. Iniciá sesión con ese email y volvé a intentar.',
+    restoreCompanyExists:
+      'Este sistema ya tiene esa empresa. Restaurá sus datos desde Configuración → Respaldos del Sistema en lugar de agregarla otra vez.',
+    restoreFileUnsupported: 'El archivo seleccionado no es un respaldo portable cifrado del propietario.',
     statusActive: 'Activa',
     statusInactive: 'Inactiva',
     createdDate: 'Creado el:',
@@ -2069,6 +2165,40 @@ const es = {
     overwriteWarning:
       'Esto reemplazará permanentemente TODOS los datos actuales. Esta acción no se puede deshacer.',
     restoredRecords: 'registros restaurados',
+    ownerPasswordLabel: 'Contraseña del propietario en el respaldo',
+    ownerPasswordHint:
+      'Es la contraseña del superadministrador original, la misma que tenía en la máquina de origen. No se guarda en el respaldo.',
+    ownerEmailLabel: 'Email del propietario en el respaldo',
+    ownerEmailPlaceholder: 'superadmin@tuempresa.com',
+    ownerEmailHint:
+      'Es el email del superadministrador que creó el respaldo. Junto con la contraseña y el nombre de la empresa abre el archivo cifrado.',
+    ownerEmailRequired: 'Escribí el email del propietario registrado en el respaldo.',
+    companyNameLabel: 'Nombre de la empresa',
+    companyNamePlaceholder: 'Tal como estaba cargado en el respaldo',
+    companyNameHint:
+      'Escribí el nombre exacto de la empresa del respaldo: confirma que sos el mismo dueño de la misma empresa.',
+    companyNameRequired: 'Escribí el nombre de la empresa para continuar.',
+    // S20 — texto solo para el formulario de recuperación. El código de la API
+    // es `RECOVERY_PASSWORD_MISMATCH` (nombre heredado por compatibilidad), pero
+    // ese código también lo devuelve la exportación del propietario de origen,
+    // donde la contraseña sí es el único dato incorrecto. Por eso NO es una
+    // entrada `errors.<CODE>`: `BootstrapPage` lo mapea a esta clave de contexto
+    // y el resto de las pantallas conserva el fallback al mensaje del servidor.
+    recoveryCredentialMismatch:
+      'No se pudo abrir el archivo de respaldo. Tienen que coincidir la contraseña del superadministrador propietario, su email, el nombre exacto de la empresa tal como estaba cargado en el respaldo y la integridad del archivo (completo y sin modificar). El archivo está cifrado, así que no se puede saber cuál de esos datos es el incorrecto: revisá los tres datos y, si el archivo está dañado, volvé a descargar el respaldo.',
+    sendToken: 'Enviar código al email del propietario',
+    tokenLabel: 'Código de confirmación',
+    tokenPlaceholder: 'Código recibido por email',
+    tokenHint:
+      'Se envió un código de un solo uso al email del propietario registrado en el respaldo. Vence en 15 minutos.',
+    tokenRequired: 'Ingresá el código que recibió el propietario.',
+    ownerUnavailable:
+      'El respaldo no acredita un superadministrador propietario con email verificado. No se puede enviar el código de recuperación.',
+    retainedHistoryUnverified:
+      'La instalación conserva auditoría que no se puede certificar con esta clave ni con el archivo de recuperación. No se restauró nada.',
+    tokenSent: 'Código enviado',
+    tokenSentDesc: 'Revisá el email del propietario para completar la recuperación.',
+    completeRestore: 'Completar recuperación',
   },
   superAdmin: {
     superAdmin: 'Super Admin',

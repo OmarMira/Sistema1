@@ -40,6 +40,7 @@ vi.mock('@/lib/db', () => ({ db: database, withCompanyBackupTransaction: (callba
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth must not run'); }) }));
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
 import { createBackup, listBackups, getBackupFile, deleteBackup, validateBackup, validateBackupForCoordinatedRestore } from '@/lib/backup';
+import { readCompanyCatalog } from '@/lib/backup-storage';
 
 const dir = path.join(state.root, 'backups');
 const config = path.join(state.root, 'company-config.json');
@@ -337,7 +338,10 @@ describe('recoverable catalog and existing read/delete contracts', () => {
     body.data.company[0].legalName = 'tampered';
     fs.writeFileSync(path.join(dir, saved.filename), JSON.stringify(body));
     const before = snapshot();
-    expect(() => listBackups('tenant')).toThrow();
+    // A damaged file is never listed as a valid backup and never dropped
+    // silently: the company read reports it as unreadable and changes nothing.
+    expect(listBackups('tenant')).toEqual([]);
+    expect(readCompanyCatalog('tenant').unreadable.map(file => file.filename)).toEqual([saved.filename]);
     expect(snapshot()).toEqual(before);
   });
 
@@ -385,7 +389,9 @@ describe('recoverable catalog and existing read/delete contracts', () => {
     if (damage === 'tenant') body.manifest.companyId = 'other';
     fs.writeFileSync(path.join(dir, saved.filename), damage === 'truncation' ? '{' : JSON.stringify(body));
     const before = snapshot();
-    expect(() => listBackups('tenant')).toThrow();
+    // Rejected as readable history, reported as unreadable, and never rewritten.
+    expect(listBackups('tenant')).toEqual([]);
+    expect(readCompanyCatalog('tenant').unreadable.map(file => file.filename)).toEqual([saved.filename]);
     expect(snapshot()).toEqual(before);
   });
 

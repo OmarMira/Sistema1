@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { promises as fs } from 'fs';
 import { dirname, join, relative } from 'path';
 import { DATA_ROOT } from '@/lib/config/paths';

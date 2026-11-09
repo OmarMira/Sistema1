@@ -13,8 +13,8 @@ const mockFSSync = {
 
 // ─── Mocks (hoisted by vitest) ───────────────────────────────────────────
 
-vi.mock('@/lib/db', () => ({
-  db: {
+vi.mock('@/lib/db', () => {
+  const db = {
     company: {
       findUnique: vi.fn(() => Promise.resolve(mockCompany)),
     },
@@ -47,8 +47,9 @@ vi.mock('@/lib/db', () => ({
     // under test is the AI-config exclusion of createBackup — not the chain
     // head (fully covered against real PostgreSQL by tests/forensic/jh2-*).
     journalChainHead: { findUnique: vi.fn(() => Promise.resolve(null)) },
-  },
-}));
+  };
+  return { db, withCompanyBackupTransaction: (callback: (tx: typeof db) => unknown) => callback(db) };
+});
 
 vi.mock('@/lib/logger', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },

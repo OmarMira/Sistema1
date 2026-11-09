@@ -841,6 +841,17 @@ const en = {
     passwordMismatch: 'New passwords do not match.',
     wrongPassword: 'Current password is incorrect.',
     userProfile: 'User Profile',
+    userProfileTooltip: 'Personal data and your login password',
+    companyDataTooltip: 'Your company legal and tax information',
+    userManagementTooltip: 'Create and manage team accounts',
+    rolesPermissionsTooltip: 'Permissions and access level for each user',
+    modulesTabTooltip: 'Enable or disable system features',
+    entityManagementTooltip: 'Vendors, customers and other entities',
+    knowledgeEngineTooltip: 'Automatic learning of your accounting',
+    fiscalPeriodsTabTooltip: 'Fiscal years and accounting periods',
+    systemBackupTooltip: 'Backups and restore',
+    diagnosticsTabTooltip: 'System health and status',
+    aiConfigTabTooltip: 'AI assistant configuration',
     memberCount: 'Members',
     accountCount: 'GL Accounts',
     periodCount: 'Fiscal Periods',
@@ -905,6 +916,12 @@ const en = {
       restoreFailed: 'Failed to restore backup',
       backupHistory: 'Backup History',
       noBackups: 'No previous backups available.',
+      unreadableBackupsTitle: 'Some backups cannot be read',
+      unreadableBackupsDesc:
+        'These files are kept unchanged on disk, but they cannot be listed, downloaded or restored until the cause is fixed.',
+      catalogUnverifiedTitle: 'Backup created, with a storage warning',
+      catalogUnverifiedDesc:
+        'At least one stored backup file could not be read, so the backup index and retention cleanup were skipped. Your new backup is saved and listed; no existing file was changed or deleted.',
       download: 'Download',
       date: 'Date',
       size: 'Size',
@@ -920,6 +937,10 @@ const en = {
       restoredCounts: 'Records restored',
       dragDrop: 'Drag & drop a backup file here, or click to browse',
       supportedFormats: 'Supported format: .json (AccountExpress backup)',
+      recoveryPasswordLabel: 'Owner password',
+      recoveryPasswordHint:
+        'The backup is protected with the original super administrator password. Without it the backup cannot be recovered on another machine.',
+      recoveryPasswordRequired: 'Enter the owner password to create the backup.',
       records: 'records',
       confirmRestore: 'Confirm Restore',
       confirmRestoreDesc:
@@ -928,6 +949,27 @@ const en = {
       noRecords: 'No records',
       errorInvalidFile: 'Invalid backup file. Please select a valid AccountExpress backup.',
       errorCompanyIdMismatch: 'This backup belongs to a different company.',
+      portableDetected: 'Owner recovery file detected',
+      portableDesc:
+        'This file is an encrypted owner backup. The owner password, the owner email and the exact company name open it, and the system sends a confirmation code to the email registered in the backup.',
+      portableActiveCompanyNotice:
+        'This restore replaces the data of the active company. If the file belongs to another company, the system refuses it before sending any code.',
+      portableOwnerEmailLabel: 'Owner email registered in the backup',
+      portableCompanyNameLabel: 'Company name exactly as it was in the backup',
+      portableOwnerPasswordLabel: 'Owner password',
+      portableSendCode: 'Send confirmation code',
+      portableCodeLabel: 'Code received by email',
+      portableRestore: 'Restore from this file',
+      portableCodeSent: 'We sent a code to the owner email registered in the backup.',
+      portableRestoreSuccess: 'Information restored for the active company',
+      portableRestoreFailed: 'The portable backup could not be restored',
+      portableIdentityMismatch:
+        'The signed-in session is not the owner recorded in this backup. Sign in with that email and try again.',
+      portableActiveCompanyMismatch:
+        'This backup belongs to a different company than the active one. Activate that company and try again from Settings → System backups, or add it from Company administration.',
+      portableCompanyExists:
+        'This system already has that company. Restore its data from Settings → System backups instead of adding it again.',
+      portableCompanyNotFound: 'The target company of this restore does not exist on this system.',
     },
     aiRules: {
       title: 'AI Rule Generator',
@@ -1908,6 +1950,36 @@ const en = {
     VOID_REASON_REQUIRED: 'Enter the void reason: between 5 and 500 characters.',
     RECOVERY_PASSWORD_REQUIRED:
       'The recovery password is required and must be at least 8 characters long.',
+    // Portable recovery (S2/S3/S15): every refusal states the action that
+    // unblocks it. `RECOVERY_PASSWORD_MISMATCH` is deliberately NOT listed here:
+    // the source-owner export flow answers a genuinely password-only mismatch
+    // with the same code, so its multi-input guidance stays in `BootstrapPage`.
+    RECOVERY_TOKEN_EXPIRED:
+      'The confirmation code has expired. Request a new one to continue with the recovery.',
+    RECOVERY_TOKEN_USED:
+      'That confirmation code was already used. Request a new one: every recovery needs a different code.',
+    RECOVERY_TOO_MANY_ATTEMPTS:
+      'Too many attempts with this file. Wait a few minutes and try again.',
+    RECOVERY_MAIL_UNAVAILABLE:
+      'The confirmation email could not be sent. Check the configured mail channel and try again: without that code nothing is recovered.',
+    RECOVERY_FILE_UNSUPPORTED:
+      'This file cannot be read as a valid encrypted backup. Check that it is the complete file you downloaded and try again.',
+    RECOVERY_FORMAT_UNSUPPORTED:
+      'This backup was created with an older format. Export a new encrypted backup from the source system and use that file.',
+    RECOVERY_CHALLENGE_ROTATED:
+      'Another recovery request replaced this code. Request a new one.',
+    RECOVERY_IDENTITY_REQUIRED:
+      'Some data needed to open the backup is missing: enter the owner email, the exact company name and the owner password.',
+    RECOVERY_COMPANY_MISMATCH:
+      'The company name does not match the one recorded in the backup. Type it exactly as it appears in the source system.',
+    RECOVERY_OWNER_UNAVAILABLE:
+      'This backup does not prove a super administrator owner with a verified email, so no recovery code can be sent.',
+    RECOVERY_IN_PROGRESS:
+      'Another recovery is already running on this installation. Wait for it to finish.',
+    // S4: the local account already exists with a DIFFERENT password. Signing in
+    // to it changes nothing; what unblocks the case is that both passwords match.
+    RECOVERY_LOCAL_ACCOUNT_LOGIN_REQUIRED:
+      'This installation already has a local account with the owner email and its password differs from the one that opens this backup. Recovery needs BOTH to be the same password: sign in to the local account, change it to the password that opens the backup and start the recovery again. Nothing was changed.',
     INTERNAL_SERVER_ERROR:
       'An unexpected error occurred. Try again; if the problem persists, contact your administrator.',
   },
@@ -1960,6 +2032,27 @@ const en = {
     searchPlaceholder: 'Search company by name or EIN/Tax ID...',
     loading: 'Loading companies catalog...',
     noCompanies: 'No companies found.',
+    restoreBackupTitle: 'Restore from backup',
+    restoreBackupDesc:
+      'Recovers a company from an encrypted owner backup file. The backup company is created when it does not exist yet; when it already exists, its data is restored from Settings → System backups.',
+    restoreBackupZeroHint:
+      'This system has no companies yet: you can recover the information from an owner backup.',
+    restoreOwnerEmailLabel: 'Owner email registered in the backup',
+    restoreCompanyNameLabel: 'Company name exactly as it was in the backup',
+    restoreOwnerPasswordLabel: 'Owner password',
+    restoreSendCode: 'Send confirmation code',
+    restoreCodeLabel: 'Code received by email',
+    restoreConfirm: 'Restore the company from this file',
+    restoreCodeSent: 'We sent a code to the owner email registered in the backup.',
+    restoreSuccess: 'Company restored from the backup',
+    restoreFailed: 'The owner backup could not be restored',
+    restoreCredentialsInvalid:
+      'The backup could not be opened. Check the owner email, the company name as recorded in the backup, and the original password. If these details are correct, the file may be incomplete or damaged.',
+    restoreIdentityMismatch:
+      'The signed-in session is not the owner recorded in this backup. Sign in with that email and try again.',
+    restoreCompanyExists:
+      'This system already has that company. Restore its data from Settings → System backups instead of adding it again.',
+    restoreFileUnsupported: 'The selected file is not an encrypted owner recovery backup.',
     statusActive: 'Active',
     statusInactive: 'Inactive',
     createdDate: 'Created:',
@@ -2033,6 +2126,40 @@ const en = {
     overwriteWarning:
       'This will permanently replace ALL current data. This action cannot be undone.',
     restoredRecords: 'records restored',
+    ownerPasswordLabel: 'Owner password in the backup',
+    ownerPasswordHint:
+      'This is the original super administrator password, the same one used on the source machine. It is never stored in the backup.',
+    ownerEmailLabel: 'Owner email in the backup',
+    ownerEmailPlaceholder: 'superadmin@yourcompany.com',
+    ownerEmailHint:
+      'The email of the super administrator who created the backup. Together with the password and the company name it unlocks the encrypted file.',
+    ownerEmailRequired: 'Type the owner email recorded in the backup.',
+    companyNameLabel: 'Company name',
+    companyNamePlaceholder: 'Exactly as it was loaded in the backup',
+    companyNameHint:
+      'Type the exact company name from the backup: it confirms you are the same owner of the same company.',
+    companyNameRequired: 'Type the company name to continue.',
+    // S20 — recovery-form copy only. The API code is `RECOVERY_PASSWORD_MISMATCH`
+    // (legacy compatibility name), but that code is ALSO returned by the
+    // source-owner export flow, where the password really is the only failing
+    // input. It is therefore NOT an `errors.<CODE>` entry: `BootstrapPage` maps
+    // it to this context key, and every other surface keeps the shared
+    // translator's fallback to the server message.
+    recoveryCredentialMismatch:
+      'The backup file could not be opened. The owner password, the owner email, the exact company name recorded in the backup and the integrity of the file (complete and unmodified) must all match. The file is encrypted, so the specific input that failed cannot be identified: check all three values and, if the file is damaged, download the backup again.',
+    sendToken: 'Send code to the owner email',
+    tokenLabel: 'Confirmation code',
+    tokenPlaceholder: 'Code received by email',
+    tokenHint:
+      'A single-use code was sent to the owner email recorded in the backup. It expires in 15 minutes.',
+    tokenRequired: 'Enter the code the owner received.',
+    ownerUnavailable:
+      'This backup does not prove a super administrator owner with a verified email, so no recovery code can be sent.',
+    retainedHistoryUnverified:
+      'This installation keeps audit history that cannot be certified with this key or with the recovery archive. Nothing was restored.',
+    tokenSent: 'Code sent',
+    tokenSentDesc: 'Check the owner email to complete the recovery.',
+    completeRestore: 'Complete recovery',
   },
   superAdmin: {
     superAdmin: 'Super Admin',

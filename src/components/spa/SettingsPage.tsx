@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
   Settings,
   Building2,
@@ -38,21 +39,22 @@ import { EntityManagementPage } from '@/components/spa/EntityManagementPage';
 interface NavItem {
   id: string;
   labelKey: string;
+  tooltipKey?: string;
   icon: React.ElementType;
 }
 
 const navItems: NavItem[] = [
-  { id: 'user-profile', labelKey: 'settings.userProfile', icon: Users },
-  { id: 'company', labelKey: 'settings.companyData', icon: Building2 },
-  { id: 'users', labelKey: 'settings.userManagement', icon: Users },
-  { id: 'roles', labelKey: 'settings.rolesPermissions', icon: Shield },
-  { id: 'modules', labelKey: 'settings.modulesTab', icon: Box },
-  { id: 'entity-management', labelKey: 'entityManagement.title', icon: Sparkles },
-  { id: 'knowledge-engine', labelKey: 'settings.knowledgeEngine', icon: Brain },
-  { id: 'periods', labelKey: 'settings.fiscalPeriodsTab', icon: Calendar },
-  { id: 'backup', labelKey: 'settings.systemBackup', icon: Database },
-  { id: 'diagnostics', labelKey: 'settings.diagnosticsTab', icon: Activity },
-  { id: 'ai-config', labelKey: 'settings.aiConfigTab', icon: Bot },
+  { id: 'user-profile', labelKey: 'settings.userProfile', tooltipKey: 'settings.userProfileTooltip', icon: Users },
+  { id: 'company', labelKey: 'settings.companyData', tooltipKey: 'settings.companyDataTooltip', icon: Building2 },
+  { id: 'users', labelKey: 'settings.userManagement', tooltipKey: 'settings.userManagementTooltip', icon: Users },
+  { id: 'roles', labelKey: 'settings.rolesPermissions', tooltipKey: 'settings.rolesPermissionsTooltip', icon: Shield },
+  { id: 'modules', labelKey: 'settings.modulesTab', tooltipKey: 'settings.modulesTabTooltip', icon: Box },
+  { id: 'entity-management', labelKey: 'entityManagement.title', tooltipKey: 'settings.entityManagementTooltip', icon: Sparkles },
+  { id: 'knowledge-engine', labelKey: 'settings.knowledgeEngine', tooltipKey: 'settings.knowledgeEngineTooltip', icon: Brain },
+  { id: 'periods', labelKey: 'settings.fiscalPeriodsTab', tooltipKey: 'settings.fiscalPeriodsTabTooltip', icon: Calendar },
+  { id: 'backup', labelKey: 'settings.systemBackup', tooltipKey: 'settings.systemBackupTooltip', icon: Database },
+  { id: 'diagnostics', labelKey: 'settings.diagnosticsTab', tooltipKey: 'settings.diagnosticsTabTooltip', icon: Activity },
+  { id: 'ai-config', labelKey: 'settings.aiConfigTab', tooltipKey: 'settings.aiConfigTabTooltip', icon: Bot },
 ];
 
 /* ─── Animation Variants ──────────────────────────────────────── */
@@ -143,12 +145,15 @@ export function SettingsPage() {
         {/* Left Sidebar */}
         <motion.div variants={itemVariants} className="lg:w-64 shrink-0">
           <nav className="rounded-xl border bg-card p-2 space-y-1">
+            <TooltipProvider delayDuration={400}>
             {navItems
               .filter((item) => !(item.id === 'diagnostics' && !isDiagnosticsAllowed))
               .map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
+                <Tooltip key={item.id}>
+                  <TooltipTrigger asChild>
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
@@ -162,8 +167,14 @@ export function SettingsPage() {
                   <Icon className={cn('size-4 shrink-0', isActive && 'text-primary')} />
                   <span>{t(item.labelKey)}</span>
                 </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">
+                    <p>{item.tooltipKey ? t(item.tooltipKey) : ''}</p>
+                  </TooltipContent>
+                </Tooltip>
               );
             })}
+            </TooltipProvider>
           </nav>
         </motion.div>
 

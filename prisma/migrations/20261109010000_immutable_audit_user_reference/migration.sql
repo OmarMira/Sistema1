@@ -1,0 +1,26 @@
+-- T19 / S18 — audit attribution must survive the account it names.
+--
+-- "AuditLog"."userId" was a foreign key to "User" with ON DELETE SET NULL.
+-- Deleting an account therefore erased that column on every surviving audit row,
+-- while the row kept the HMAC that was computed over the ORIGINAL payload
+-- (computeAuditHash includes userId). The evidence then no longer matched its own
+-- content: verifyAuditChain reported HASH_MISMATCH and a later recovery could not
+-- certify the retained row without accepting an arbitrary null (refused).
+--
+-- Audit rows are evidence: they keep the attribution recorded when they were
+-- written. The column, its values and its indexes stay EXACTLY as they are; only
+-- the referential action is removed, so future account deletions can never rewrite
+-- signed evidence again.
+--
+-- Additive and data-preserving: no row is updated, deleted or re-signed, and no
+-- historical drift is "repaired" here. Already-nulled rows remain exactly as the
+-- old constraint left them; they are handled at verification time by the
+-- signature-proven attribution check, never by mutating stored rows.
+--
+-- ON DELETE NO ACTION was deliberately NOT used: it would block deleting an
+-- account for as long as any audit row still references it.
+--
+-- Same precedent as "AuditLog_companyId_fkey", dropped in
+-- 20261105000000_hot_path_indexes so tenant deletion could not rewrite audit
+-- scope either.
+ALTER TABLE "AuditLog" DROP CONSTRAINT IF EXISTS "AuditLog_userId_fkey";

@@ -198,6 +198,7 @@ export function LandingPage() {
                       src="/hero-dashboard.png"
                       alt={t('auth.landingTitle')}
                       fill
+                      sizes="(max-width: 768px) 100vw, 50vw"
                       className="object-cover"
                       priority
                     />

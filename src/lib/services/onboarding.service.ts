@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { logger } from '@/lib/logger';
 import { db } from '@/lib/db';
 import { withRuntimeOperation } from '../backup-runtime-maintenance';

@@ -236,7 +236,10 @@ function sealKey(): Buffer {
   return sealKeyCache.key;
 }
 
-/** Canonical bytes both seal modes cover, with `integrity` removed. */
+/** Canonical bytes the local seal covers, with `integrity` removed.
+ * The portable container encrypts the whole snapshot, so it does not need to
+ * re-derive this payload; it is kept here as the single local contract.
+ */
 function integrityPayload(snapshot: BackupData): string {
   const { integrity: _integrity, ...manifest } = snapshot.manifest;
   return JSON.stringify({ manifest, data: snapshot.data });
@@ -275,8 +278,25 @@ function integrityVerified(snapshot: BackupData, integrity: SnapshotIntegrity): 
   return false;
 }
 
-/** Catalog validation is NOT restore authorization or authenticity verification. */
-export function parseSnapshot(text: string): BackupData {
+export interface SnapshotReadOptions {
+  recovery?: 'local' | 'portable';
+  /**
+   * Required in portable mode: the SHA-256 of the exact container bytes the
+   * caller already authenticated with the portable AEAD envelope. Without it the
+   * portable reader refuses, so it is never a blanket "skip the seal" switch.
+   */
+  authenticatedDigest?: string;
+}
+
+/** Catalog validation is NOT restore authorization or authenticity verification.
+ *
+ * `recovery: 'portable'` is the only reader that accepts a snapshot sealed by
+ * another installation. It cannot verify the source key, so it relies on the
+ * caller having authenticated the exact bytes (portable AEAD container) and
+ * requires the digest of those bytes as proof. Every other caller keeps the
+ * local-seal contract.
+ */
+export function parseSnapshot(text: string, options?: SnapshotReadOptions): BackupData {
   const snapshot = JSON.parse(text) as BackupData;
   const { manifest, data } = snapshot ?? {};
   if (!manifest || !data || !['1.0.0', '1.1.0', '2.0.0', COMPANY_BACKUP_VERSION].includes(manifest.version)) {
@@ -318,7 +338,18 @@ export function parseSnapshot(text: string): BackupData {
       : integrity?.algorithm === 'sha256' && integrity.authenticated === false;
     if (typeof manifest.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(manifest.id) ||
         !integrity || !authenticatedShape || integrity.encoding !== 'utf8' ||
-        integrity.scope !== INTEGRITY_SCOPE || !integrityVerified(snapshot, integrity)) {
+        integrity.scope !== INTEGRITY_SCOPE) {
+      throw new Error('Backup checksum or metadata mismatch');
+    }
+    if (options?.recovery === 'portable') {
+      // Source installations seal with a key this machine does not hold. The
+      // portable container AEAD authenticated these exact bytes, and the caller
+      // must prove it by presenting the digest it authenticated.
+      if (typeof options.authenticatedDigest !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(options.authenticatedDigest)) {
+        throw new Error('PORTABLE_RECOVERY_UNAUTHENTICATED: portable reading requires an authenticated file digest');
+      }
+    } else if (!integrityVerified(snapshot, integrity)) {
       throw new Error('Backup checksum or metadata mismatch');
     }
     if (data.systemConfig.length !== 0 || manifest.recordCounts.companyConfig !== (data.companyConfig !== null)) {

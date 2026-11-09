@@ -11,7 +11,7 @@ import * as identityCrypto from '../../src/lib/identity/crypto';
 const state = vi.hoisted(() => {
   const url = new URL(process.env.DATABASE_URL || 'http://invalid');
   const port = process.env.CLEAN_IDENTITY_TEST_PORT;
-  if (url.protocol !== 'postgresql:' || url.hostname !== '127.0.0.1' || !port || url.port !== port || port === '5432' || url.pathname !== '/clean_identity_test' || url.username !== 'clean_identity_test' || process.env.CLEAN_IDENTITY_TEST_OWNED !== '01a1602d') {
+  if (url.protocol !== 'postgresql:' || url.hostname !== '127.0.0.1' || !port || url.port !== port || port === '5432' || url.pathname !== '/clean_identity_test' || url.username !== 'clean_identity_test' || !/^proof-[a-f0-9]{32}$/.test(process.env.CLEAN_IDENTITY_TEST_OWNED || '') || process.env.CLEAN_IDENTITY_TEST_OWNED !== process.env.IDENTITY_TEST_OWNER_PROOF) {
     throw new Error('Only the explicitly owned disposable clean_identity_test database is allowed');
   }
   return { url: url.toString(), db: undefined as unknown as PrismaClient, identity: undefined as unknown as IdentityService,

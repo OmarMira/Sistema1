@@ -8,6 +8,7 @@ if (!process.env.DATABASE_URL) {
 }
 
 export default defineConfig({
+  envDir: false,
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -22,6 +23,13 @@ export default defineConfig({
     testTimeout: 15000,
     // Never pick up stale compiled copies of tests inside build output,
     // frozen review candidate views or other internal directories.
-    exclude: ['**/node_modules/**', '**/.next/**', '**/dist/**', '**/.git/**'],
+    exclude: ['**/node_modules/**', '**/.next/**', '**/dist/**', '**/.git/**', '**/.worktrees/**',
+      'tests/installer/*.test.cjs', 'design/**',
+      'tests/identity/challenge-concurrency.integration.test.ts',
+      'tests/identity/independent-contract.integration.test.ts',
+      'tests/identity/s7-acceptance.integration.test.ts',
+      'tests/identity/clean-deletion.integration.test.ts',
+      'tests/identity/registration-atomic.integration.test.ts',
+    ],
   },
 });

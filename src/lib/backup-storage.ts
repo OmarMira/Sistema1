@@ -21,6 +21,18 @@ export interface CatalogEntry {
 }
 export interface BackupCatalog { backups: CatalogEntry[] }
 
+/** A stored file that exists but cannot be read or parsed. Preserved untouched. */
+export interface UnreadableCatalogFile {
+  filename: string;
+  error: string;
+}
+
+/** Catalog view limited to ONE company, plus its unreadable files. */
+export interface CompanyBackupCatalog {
+  backups: CatalogEntry[];
+  unreadable: UnreadableCatalogFile[];
+}
+
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
 }
@@ -191,31 +203,107 @@ function readIndex(): BackupCatalog {
   } catch { return { backups: [] }; }
 }
 
-/** Files are authoritative; index is a replaceable cache and legacy ID hint. No read-side writes. */
-export function readCatalog(): BackupCatalog {
+/** Sorted backup filenames on disk. A missing directory is an empty catalog. */
+function listBackupFilenames(): string[] {
   assertNoLinks(BACKUP_DIR);
   let names: string[];
   try { names = fs.readdirSync(BACKUP_DIR); }
-  catch (error) { if (missing(error)) return { backups: [] }; throw error; }
-  const index = readIndex();
-  const backups: CatalogEntry[] = [];
-  for (const filename of names.sort()) {
-    if (!validBackupFilename(filename)) continue;
-    const file = readBackupText(filename);
-    if (!file) continue; // Concurrent deletion, not a storage error.
-    let snapshot;
-    try { snapshot = parseSnapshot(file.data); }
-    catch (error) { throw new Error(`Invalid backup file ${filename}: ${String(error)}`); }
-    const { manifest } = snapshot;
-    const hint = index.backups.find(entry => entry.filename === filename && entry.companyId === manifest.companyId);
-    backups.push({
+  catch (error) { if (missing(error)) return []; throw error; }
+  return names.sort().filter(validBackupFilename);
+}
+
+type InspectedFile =
+  | { kind: 'entry'; entry: CatalogEntry }
+  // Owned by another company (index evidence) or unattributable: never claimed.
+  | { kind: 'foreign' }
+  | { kind: 'absent' }
+  | { kind: 'unreadable'; message: string; error: Error };
+
+/**
+ * Inspect ONE stored file. `companyId` limits the inspection to one tenant;
+ * without it the whole catalog is inspected and a failure is reported so the
+ * caller can stay fail-closed.
+ */
+function inspectCatalogFile(filename: string, index: BackupCatalog, companyId?: string): InspectedFile {
+  const hints = index.backups.filter(entry => entry.filename === filename);
+  if (companyId !== undefined && hints.length > 0 && !hints.some(entry => entry.companyId === companyId)) {
+    // Listing one tenant never decrypts another tenant's bytes.
+    return { kind: 'foreign' };
+  }
+  const ownsHint = companyId === undefined || hints.some(entry => entry.companyId === companyId);
+  const unreadable = (message: string, error: Error): InspectedFile =>
+    ownsHint ? { kind: 'unreadable', message, error } : { kind: 'absent' };
+
+  let file: { data: string; size: number } | null;
+  try { file = readBackupText(filename); }
+  catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    return unreadable(failure.message, failure);
+  }
+  if (!file) return { kind: 'absent' }; // Concurrent deletion, not a storage error.
+  let snapshot;
+  try { snapshot = parseSnapshot(file.data); }
+  catch (error) {
+    // Same message the whole-catalog read has always thrown.
+    const message = `Invalid backup file ${filename}: ${String(error)}`;
+    return unreadable(message, new Error(message));
+  }
+  const { manifest } = snapshot;
+  if (companyId !== undefined && manifest.companyId !== companyId) return { kind: 'foreign' };
+  const hint = index.backups.find(entry => entry.filename === filename && entry.companyId === manifest.companyId);
+  return {
+    kind: 'entry',
+    entry: {
       id: isCompanyFormat(manifest.version) ? manifest.id! : hint?.id ?? `legacy-${crypto.createHash('sha256').update(filename).digest('hex')}`,
       filename, companyId: manifest.companyId, size: file.size,
       createdAt: manifest.createdAt, companyLegalName: manifest.companyInfo.legalName,
       recordCounts: manifest.recordCounts,
-    });
+    },
+  };
+}
+
+/** Files are authoritative; index is a replaceable cache and legacy ID hint. No read-side writes. */
+export function readCatalog(): BackupCatalog {
+  const names = listBackupFilenames();
+  const index = readIndex();
+  const backups: CatalogEntry[] = [];
+  for (const filename of names) {
+    const inspected = inspectCatalogFile(filename, index);
+    // The whole-catalog read is the publication/pruning safeguard: an unreadable
+    // file stays fatal there, because rewriting the index over it would drop
+    // history nobody asked to lose.
+    if (inspected.kind === 'unreadable') throw inspected.error;
+    if (inspected.kind === 'entry') backups.push(inspected.entry);
   }
   return { backups };
+}
+
+/**
+ * Catalog view SCOPED to one company.
+ *
+ * Listing is a read of ONE tenant's history, so it must never depend on the
+ * readability of another tenant's bytes: files the index attributes to another
+ * company are skipped without being decrypted. Per-file failures are isolated —
+ * a file of THIS company that cannot be decrypted or parsed is reported in
+ * `unreadable` (the operator sees the integrity loss) instead of failing the
+ * whole request, and the file itself is never modified or removed.
+ *
+ * Attribution for an unreadable file requires catalog evidence: only an index
+ * entry for the caller company surfaces it. A file the index cannot attribute is
+ * never claimed by a tenant, because the manifest that would prove ownership is
+ * exactly the part that cannot be read.
+ */
+export function readCompanyCatalog(companyId: string): CompanyBackupCatalog {
+  const names = listBackupFilenames();
+  const index = readIndex();
+  const backups: CatalogEntry[] = [];
+  const unreadable: UnreadableCatalogFile[] = [];
+  for (const filename of names) {
+    const inspected = inspectCatalogFile(filename, index, companyId);
+    if (inspected.kind === 'entry') backups.push(inspected.entry);
+    else if (inspected.kind === 'unreadable') unreadable.push({ filename, error: inspected.message });
+  }
+  return { backups, unreadable };
 }
 
 /** Windows can transiently deny atomic replacement of an existing index.
@@ -267,14 +355,67 @@ export function writeCatalog(catalog: BackupCatalog): void {
   writeAtomic(path.join(BACKUP_DIR, 'manifest.json'), JSON.stringify(catalog, null, 2), true);
 }
 
-export function publishBackup(filename: string, text: string): void {
+/** A published snapshot whose catalog/retention maintenance had to be skipped. */
+export interface PublishWarning {
+  code: 'BACKUP_CATALOG_UNVERIFIED';
+  message: string;
+}
+
+export interface PublishResult {
+  /** false when the catalog index was left untouched (uncertain inventory). */
+  catalogUpdated: boolean;
+  /** Explicit, surfaced uncertainty; null when the catalog was fully verified. */
+  warning: PublishWarning | null;
+}
+
+export const BACKUP_CATALOG_UNVERIFIED_WARNING: PublishWarning = {
+  code: 'BACKUP_CATALOG_UNVERIFIED',
+  message:
+    'The new backup was stored, but the backup catalog and retention cleanup were skipped because at least one ' +
+    'stored backup file could not be read. Existing backup files were not changed or deleted.',
+};
+
+/**
+ * Classify the stored files for publication WITHOUT trusting the index and
+ * WITHOUT failing on a single damaged file.
+ *
+ * `unreadable > 0` means the inventory is UNCERTAIN: the owner of a file that
+ * cannot be authenticated is unknowable, so no safe catalog rewrite or retention
+ * decision exists. `readIndex()` storage faults still throw, because that is a
+ * storage failure rather than a per-file integrity problem.
+ */
+function classifyCatalog(): { unreadable: number } {
+  const index = readIndex();
+  let unreadable = 0;
+  for (const filename of listBackupFilenames()) {
+    if (inspectCatalogFile(filename, index).kind === 'unreadable') unreadable += 1;
+  }
+  return { unreadable };
+}
+
+export function publishBackup(filename: string, text: string): PublishResult {
   parseSnapshot(text);
   // Seal before touching storage: without SESSION_SECRET nothing is published.
   const sealed = sealBackupText(text);
-  // Validate old history before publication; an index write failure after publication
-  // leaves a complete discoverable snapshot, never a false success response.
-  readCatalog();
+  // Classify old history first: a catalog that cannot be inspected fails the
+  // publication (fail-closed), and a damaged file only makes it uncertain.
+  const { unreadable } = classifyCatalog();
+  // Publication never replaces an existing file (link, not rename).
   writeAtomic(backupPath(filename), sealed, false);
+
+  if (unreadable > 0) {
+    // Publication and maintenance are independent decisions. The new snapshot is
+    // complete and discoverable from the files themselves (reads are file
+    // authoritative), so the index and every existing file — including the
+    // unreadable ones — stay untouched, and retention is NOT applied: pruning
+    // from an unverified inventory could delete a file whose role is unknown.
+    // The uncertainty is surfaced to the caller instead of being hidden.
+    logger.warn('BACKUP_CATALOG_UNVERIFIED', { filename, unreadableFiles: unreadable });
+    return { catalogUpdated: false, warning: BACKUP_CATALOG_UNVERIFIED_WARNING };
+  }
+
+  // An index write failure after publication leaves a complete discoverable
+  // snapshot, never a false success response.
   try { writeCatalog(readCatalog()); }
   catch (error) { throw new Error(`Backup file published as ${filename}, but catalog update failed: ${String(error)}`, { cause: error }); }
   // Retention runs at the moment growth happens (every publish, including the
@@ -282,6 +423,7 @@ export function publishBackup(filename: string, text: string): void {
   // retention failure is reported and never turned into a false publish error.
   try { pruneBackups(); }
   catch (error) { logger.warn('BACKUP_RETENTION_SKIPPED', { error: String(error), filename }); }
+  return { catalogUpdated: true, warning: null };
 }
 
 export function removeBackupFile(filename: string): boolean {

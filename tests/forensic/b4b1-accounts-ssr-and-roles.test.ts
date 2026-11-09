@@ -158,6 +158,8 @@ describe('B4B1 — RC3: Accounts write routes require CompanyMember.role company
       data: {
         email,
         passwordHash: 'hashed_password_placeholder',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
         firstName: 'Super',
         lastName: 'Admin',
         platformRole: 'super_admin',

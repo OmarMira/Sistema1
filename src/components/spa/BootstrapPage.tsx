@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { Upload, UserPlus, Loader2, AlertTriangle, CheckCircle2, HardDrive, KeyRound } from 'lucide-react';
+import {
+  Upload, UserPlus, Loader2, AlertTriangle, CheckCircle2, HardDrive, KeyRound, Building2, Mail,
+} from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore, type User } from '@/store/auth-store';
@@ -14,11 +16,45 @@ import { Progress } from '@/components/ui/progress';
 import { ThemeToggle } from '@/components/spa/ThemeToggle';
 import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { formatFileSize } from '@/lib/types/backup';
-import { translateApiError } from '@/i18n/errors';
+import { translateApiError, type ErrorTranslator } from '@/i18n/errors';
 import { InstallationWizard } from '@/components/onboarding/InstallationWizard';
 
 /** Product-wide new-password policy (same rule the backend enforces). */
 const MIN_RECOVERY_PASSWORD = 8;
+/** Same email shape the backend accepts for the owner address. */
+const OWNER_EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Legacy API code for "this portable file cannot be opened" (kept for API
+ * compatibility).
+ *
+ * It is NOT specific to this screen: the source-owner export flow returns the
+ * same code for a genuinely password-only mismatch. The truthful multi-input
+ * guidance (owner password, owner email, exact company name, file integrity) is
+ * therefore a recovery-form context copy mapped HERE — never a global
+ * `errors.<CODE>` entry, so every other surface keeps the shared translator's
+ * fallback to the server message.
+ */
+const RECOVERY_CREDENTIAL_CODE = 'RECOVERY_PASSWORD_MISMATCH';
+
+/**
+ * Locale message for a failed recovery request: the recovery-form guidance for
+ * that one known code, otherwise `translateApiError` exactly as before (so an
+ * unrelated code or a code-less body still shows the server's own detail).
+ */
+function recoveryErrorMessage(data: unknown, t: ErrorTranslator, fallback: string): string {
+  const payload = (data ?? null) as { code?: unknown; details?: unknown } | null;
+  const details = payload?.details;
+  const detailsCode = details !== null && typeof details === 'object'
+    ? (details as { code?: unknown }).code
+    : undefined;
+  // A specific reason carried in details.code wins, exactly like translateApiError.
+  const hasMoreSpecificCode = typeof detailsCode === 'string' && detailsCode !== RECOVERY_CREDENTIAL_CODE;
+  if (!hasMoreSpecificCode && payload?.code === RECOVERY_CREDENTIAL_CODE) {
+    return t('bootstrap.recoveryCredentialMismatch');
+  }
+  return translateApiError(payload, t, fallback);
+}
 
 export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
   const t = useLanguageStore((s) => s.t);
@@ -28,9 +64,44 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
   const [restoreProgress, setRestoreProgress] = useState(0);
   const [recoveryPassword, setRecoveryPassword] = useState('');
+  const [ownerEmail, setOwnerEmail] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [recoveryToken, setRecoveryToken] = useState('');
+  // Two explicit stages. The owner password, the owner email and the company
+  // name are all inputs of the file's key derivation (the password alone cannot
+  // open a portable backup), and only the token emailed to the owner completes it.
+  const [stage, setStage] = useState<'authorize' | 'token'>('authorize');
   // Inline, always-visible error: this page is rendered OUTSIDE the AppShell, so
   // a toast alone could be the only feedback — and it must never be the only one.
+  // It is also the ONLY notice for a failure that stays on this form: raising the
+  // same message as a toast too showed the operator the identical notice twice for
+  // one attempt (see `reportRestoreFailure`).
   const [restoreError, setRestoreError] = useState<string | null>(null);
+
+  /**
+   * Report ONE failed attempt exactly once.
+   *
+   * `role="alert"` banner = the primary notice: it persists after a toast would
+   * have disappeared, screen readers announce it, and it keeps the message next to
+   * the inputs that have to change. The duplicate toast carried no extra
+   * information, so the failure is rendered inline only.
+   *
+   * A failure the page can NOT render inline (it leaves the restore form, e.g. the
+   * installation already contains companies) must still be surfaced — that one
+   * still toasts, so exactly one notice is always visible and none is ever lost.
+   */
+  function reportRestoreFailure(
+    message: string,
+    options: { inline: boolean } = { inline: true },
+  ) {
+    if (options.inline) {
+      setRestoreError(message);
+      return;
+    }
+    // Nothing stays on screen to show it, so the toast IS the single notice.
+    setRestoreError(null);
+    toast.error(message);
+  }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -44,39 +115,82 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
     setRestoreError(null);
   }
 
-  async function handleRestore() {
+  function buildForm(includeToken: boolean) {
+    const formData = new FormData();
+    if (restoreFile) formData.append('file', restoreFile);
+    formData.append('password', recoveryPassword);
+    // Key-derivation inputs: the server cannot recover them from the file.
+    formData.append('ownerEmail', ownerEmail.trim());
+    formData.append('companyName', companyName);
+    if (includeToken) formData.append('token', recoveryToken);
+    return formData;
+  }
+
+  /** Stage 1 — verify the portable envelope and request the owner email token. */
+  async function handleRequestToken() {
     if (!restoreFile) return;
     if (recoveryPassword.trim().length < MIN_RECOVERY_PASSWORD) {
-      setRestoreError(t('bootstrap.recoveryPasswordTooShort'));
-      toast.error(t('bootstrap.recoveryPasswordTooShort'));
+      reportRestoreFailure(t('bootstrap.recoveryPasswordTooShort'));
       return;
     }
-
+    if (companyName.trim().length === 0) {
+      setRestoreError(t('bootstrap.companyNameRequired'));
+      return;
+    }
+    if (!OWNER_EMAIL_PATTERN.test(ownerEmail.trim())) {
+      setRestoreError(t('bootstrap.ownerEmailRequired'));
+      return;
+    }
     setRestoreError(null);
     setMode('restoring');
-    setRestoreProgress(10);
-
+    setRestoreProgress(40);
     try {
-      setRestoreProgress(30);
-      const formData = new FormData();
-      formData.append('file', restoreFile);
-      formData.append('recoveryPassword', recoveryPassword);
-
-      setRestoreProgress(50);
-      // No setup token: the empty-database gate is the endpoint's authorization.
+      setRestoreProgress(70);
       const res = await fetch('/api/bootstrap/restore', {
         method: 'POST',
         credentials: 'include',
-        body: formData,
+        body: buildForm(false),
       });
+      const data = await res.json().catch(() => null);
+      setRestoreProgress(0);
+      if (res.ok && data?.stage === 'challenge_sent') {
+        setStage('token');
+        setMode('restore');
+        toast.success(t('bootstrap.tokenSent'), { description: t('bootstrap.tokenSentDesc') });
+        return;
+      }
+      reportRestoreFailure(recoveryErrorMessage(data, t, t('bootstrap.restoreFailed')));
+      setMode('restore');
+    } catch {
+      reportRestoreFailure(t('bootstrap.restoreFailed'));
+      setMode('restore');
+      setRestoreProgress(0);
+    }
+  }
 
-      setRestoreProgress(80);
+  /** Stage 2 — the token is single use; the restore happens exactly once. */
+  async function handleCompleteRestore() {
+    if (!restoreFile) return;
+    if (recoveryToken.trim().length === 0) {
+      setRestoreError(t('bootstrap.tokenRequired'));
+      return;
+    }
+    setRestoreError(null);
+    setMode('restoring');
+    setRestoreProgress(60);
+    try {
+      setRestoreProgress(85);
+      const res = await fetch('/api/bootstrap/restore', {
+        method: 'POST',
+        credentials: 'include',
+        body: buildForm(true),
+      });
       const data = await res.json().catch(() => null);
 
       if (res.ok) {
         setRestoreProgress(100);
         const totalRecords = (Object.values(data.restoredCounts || {}) as number[]).reduce(
-          (a: number, b) => a + Number(b || 0),
+          (a: number, b: number) => a + Number(b || 0),
           0,
         );
         toast.success(t('bootstrap.restoreSuccess'), {
@@ -93,22 +207,20 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
         }
         setCurrentView('dashboard');
       } else if (res.status === 409) {
-        const message = t('bootstrap.dbNotEmpty');
-        setRestoreError(message);
-        toast.error(message);
+        // The page returns to the chooser, so no inline banner survives: the toast
+        // is this failure's single notice.
+        reportRestoreFailure(translateApiError(data, t, t('bootstrap.dbNotEmpty')), { inline: false });
         setMode('choose');
       } else {
-        // translateApiError: locale-native message for a known code, otherwise
-        // the server's own detail — never a raw key and never a silent failure.
-        const message = translateApiError(data, t, t('bootstrap.restoreFailed'));
-        setRestoreError(message);
-        toast.error(t('bootstrap.restoreFailed'), { description: message });
+        // recoveryErrorMessage: the recovery-form guidance for the one known
+        // portable-file code, otherwise translateApiError — locale-native for a
+        // known code, the server's own detail otherwise. Never a raw key and
+        // never a silent failure.
+        reportRestoreFailure(recoveryErrorMessage(data, t, t('bootstrap.restoreFailed')));
         setMode('restore');
       }
     } catch {
-      const message = t('bootstrap.restoreFailed');
-      setRestoreError(message);
-      toast.error(message);
+      reportRestoreFailure(t('bootstrap.restoreFailed'));
       setMode('restore');
     }
     setRestoreProgress(0);
@@ -277,9 +389,32 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
 
                   <div className="space-y-2">
                     <div className="flex items-center gap-2">
+                      <Mail className="size-4 text-muted-foreground shrink-0" />
+                      <Label htmlFor="bootstrap-owner-email">
+                        {t('bootstrap.ownerEmailLabel')}
+                      </Label>
+                    </div>
+                    <Input
+                      id="bootstrap-owner-email"
+                      type="email"
+                      inputMode="email"
+                      value={ownerEmail}
+                      autoComplete="email"
+                      disabled={stage === 'token'}
+                      placeholder={t('bootstrap.ownerEmailPlaceholder')}
+                      onChange={(e) => {
+                        setOwnerEmail(e.target.value);
+                        setRestoreError(null);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">{t('bootstrap.ownerEmailHint')}</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
                       <KeyRound className="size-4 text-muted-foreground shrink-0" />
                       <Label htmlFor="bootstrap-recovery-password">
-                        {t('bootstrap.recoveryPasswordLabel')}
+                        {t('bootstrap.ownerPasswordLabel')}
                       </Label>
                     </div>
                     <Input
@@ -287,7 +422,8 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                       type="password"
                       value={recoveryPassword}
                       minLength={MIN_RECOVERY_PASSWORD}
-                      autoComplete="new-password"
+                      autoComplete="current-password"
+                      disabled={stage === 'token'}
                       placeholder={t('bootstrap.recoveryPasswordPlaceholder')}
                       onChange={(e) => {
                         setRecoveryPassword(e.target.value);
@@ -295,9 +431,51 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                       }}
                     />
                     <p className="text-xs text-muted-foreground">
-                      {t('bootstrap.recoveryPasswordHint')}
+                      {t('bootstrap.ownerPasswordHint')}
                     </p>
                   </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Building2 className="size-4 text-muted-foreground shrink-0" />
+                      <Label htmlFor="bootstrap-company-name">
+                        {t('bootstrap.companyNameLabel')}
+                      </Label>
+                    </div>
+                    <Input
+                      id="bootstrap-company-name"
+                      value={companyName}
+                      disabled={stage === 'token'}
+                      placeholder={t('bootstrap.companyNamePlaceholder')}
+                      onChange={(e) => {
+                        setCompanyName(e.target.value);
+                        setRestoreError(null);
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">{t('bootstrap.companyNameHint')}</p>
+                  </div>
+
+                  {stage === 'token' && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Mail className="size-4 text-muted-foreground shrink-0" />
+                        <Label htmlFor="bootstrap-recovery-token">
+                          {t('bootstrap.tokenLabel')}
+                        </Label>
+                      </div>
+                      <Input
+                        id="bootstrap-recovery-token"
+                        value={recoveryToken}
+                        autoComplete="one-time-code"
+                        placeholder={t('bootstrap.tokenPlaceholder')}
+                        onChange={(e) => {
+                          setRecoveryToken(e.target.value);
+                          setRestoreError(null);
+                        }}
+                      />
+                      <p className="text-xs text-muted-foreground">{t('bootstrap.tokenHint')}</p>
+                    </div>
+                  )}
 
                   <div className="flex gap-2">
                     <Button
@@ -305,18 +483,35 @@ export function BootstrapPage({ hasUsers }: { hasUsers?: boolean }) {
                       className="flex-1"
                       onClick={() => {
                         setRestoreError(null);
+                        setStage('authorize');
+                        setRecoveryToken('');
                         setMode('choose');
                       }}
                     >
                       {t('common.cancel')}
                     </Button>
-                    <Button
-                      className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                      disabled={!restoreFile || recoveryPassword.trim().length < MIN_RECOVERY_PASSWORD}
-                      onClick={handleRestore}
-                    >
-                      {t('bootstrap.restoreBackup')}
-                    </Button>
+                    {stage === 'authorize' ? (
+                      <Button
+                        className="flex-1"
+                        disabled={
+                          !restoreFile ||
+                          recoveryPassword.trim().length < MIN_RECOVERY_PASSWORD ||
+                          !OWNER_EMAIL_PATTERN.test(ownerEmail.trim()) ||
+                          companyName.trim().length === 0
+                        }
+                        onClick={handleRequestToken}
+                      >
+                        {t('bootstrap.sendToken')}
+                      </Button>
+                    ) : (
+                      <Button
+                        className="flex-1 bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        disabled={!restoreFile || recoveryToken.trim().length === 0}
+                        onClick={handleCompleteRestore}
+                      >
+                        {t('bootstrap.completeRestore')}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

@@ -15,6 +15,8 @@ async function seedTestData() {
     data: {
       email: `review-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`,
       passwordHash: 'hash',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
       firstName: 'Review',
       lastName: 'Tester',
       platformRole: 'user',
@@ -125,6 +127,8 @@ async function seedTwoDuplicatePending() {
     data: {
       email: `review-dupe-${Date.now()}-${Math.random().toString(36).slice(2)}@example.com`,
       passwordHash: 'hash',
+      emailVerifiedAt: new Date(),
+      legacyUser: false,
       firstName: 'Review',
       lastName: 'Duplicate',
       platformRole: 'user',

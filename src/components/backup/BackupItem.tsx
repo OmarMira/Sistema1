@@ -23,14 +23,23 @@ export function BackupItem({ backup, downloading, restoring, onDownload, onResto
   );
 
   return (
-    <div className="flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/30">
+    <div
+      className="flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/30"
+    >
       <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 shrink-0 mt-0.5">
         <ShieldCheck className="size-4 text-primary" />
       </div>
 
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <p className="text-sm font-medium truncate">{backup.companyInfo.legalName}</p>
+        <div className="flex items-center gap-x-3 text-xs text-muted-foreground mb-1 whitespace-nowrap">
+          <span className="text-sm font-medium text-foreground truncate">{backup.companyInfo.legalName}</span>
+          <span>archivo: <span className="font-medium text-foreground">{backup.filename}</span></span>
+          <span>creado: <span className="font-medium text-foreground">{formatDate(backup.createdAt)}</span></span>
+          <span>tamaño: <span className="font-medium text-foreground">{formatFileSize(backup.size)}</span></span>
+          <span>por: <span className="font-medium text-foreground">{backup.createdBy || "system"}</span></span>
+          <span className="ml-auto">destino: <span className="font-medium text-foreground">db/backups/</span></span>
+        </div>
+        <div className="flex items-center gap-2 mt-1">
           <Badge variant="secondary" className="text-[10px] shrink-0">
             {t('settings.backup.manual')}
           </Badge>
@@ -44,6 +53,9 @@ export function BackupItem({ backup, downloading, restoring, onDownload, onResto
             <HardDrive className="size-3" />
             {formatFileSize(backup.size)}
           </span>
+          <span>archivo: <strong className="text-foreground">{backup.filename}</strong></span>
+          {backup.createdBy ? <span>por: <strong className="text-foreground">{backup.createdBy}</strong></span> : null}
+          <span>destino: <strong className="text-foreground">db/backups/</strong></span>
           <span>
             {totalRecords} {t('settings.backup.records')}
           </span>

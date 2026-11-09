@@ -5,6 +5,7 @@ import { validateBackup } from '../../src/lib/backup';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction, createTestJournalEntry, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
+import { hashPassword } from '@/lib/auth';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { createMaintenanceGate } from '@/lib/backup-maintenance.mjs';
@@ -84,12 +85,35 @@ async function createTestFixture(companyId: string) {
   return { gl, bankAccount, statement, entry };
 }
 
+/**
+ * S7: creating a backup requires the administrator to re-enter their password.
+ * These suites keep their original assertions; only the credential the new
+ * contract demands is supplied here.
+ */
+const OWNER_PASSWORD = 'Clave.Backup.2026';
+
+async function createAdministrator(email: string) {
+  const user = await createTestUser(email);
+  await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(OWNER_PASSWORD) } });
+  return user;
+}
+
 describe('POST /api/backup + POST /api/backup/restore', () => {
   const createdBackups: string[] = [];
 
   beforeEach(async () => {
     await clearDatabase();
     createdBackups.length = 0;
+    // The coordinated restore certifies the INSTALLATION-WIDE audit chain before
+    // it replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN, pinned by
+    // tests/backup-company/restore.test.ts): a predecessor another tenant still
+    // needs must never be deleted or re-signed. Other suites leave hashed
+    // AuditLog rows behind (their tenant is gone, or the hash was sealed with a
+    // stubbed HMAC secret) and such a row can never be certified, so the shared
+    // test DB removes ONLY that hashed residue. Unhashed operational rows — the
+    // BACKUP_CREATED / COMPANY_RESTORE_COMMITTED rows asserted below — are
+    // untouched, and the restore assertions stay exactly as they were.
+    await db.auditLog.deleteMany({ where: { hash: { not: null } } });
   });
 
   afterEach(async () => {
@@ -104,7 +128,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
   });
 
   it('debe crear AuditLog (BACKUP_CREATED) al crear backup, cumpliendo Audit Contract v1', async () => {
-    const user = await createTestUser('backup-audit@example.com');
+    const user = await createAdministrator('backup-audit@example.com');
     const company = await createTestCompany('Backup Audit Test');
     await createTestCompanyMember(user.id, company.id);
     const token = await createSession(user.id);
@@ -112,7 +136,8 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
 
     const req = new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId: company.id, password: OWNER_PASSWORD }),
     });
     const res = await backupPOST(req, { params: Promise.resolve({}) });
     expect(res.status).toBe(200);
@@ -138,7 +163,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
   });
 
   it('debe crear backup y restaurar datos (GL accounts, bank accounts, transacciones, asientos) en una empresa existente', async () => {
-    const user = await createTestUser('backup-full@example.com');
+    const user = await createAdministrator('backup-full@example.com');
     const company = await createTestCompany('Backup Full Test');
     await createTestCompanyMember(user.id, company.id);
     const token = await createSession(user.id);
@@ -153,7 +178,8 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     // Create backup
     const backupReq = new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId: company.id, password: OWNER_PASSWORD }),
     });
     const backupRes = await backupPOST(backupReq, { params: Promise.resolve({}) });
     expect(backupRes.status).toBe(200);
@@ -196,7 +222,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ data: backupData }),
+      body: JSON.stringify({ data: backupData, ownerPassword: OWNER_PASSWORD }),
     });
     const restoreRes = await restorePOST(restoreReq, { params: Promise.resolve({}) });
     expect(restoreRes.status).toBe(200);
@@ -255,7 +281,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
   });
 
   it('debe rechazar restauracion con backup de otra empresa', async () => {
-    const user = await createTestUser('backup-cross@example.com');
+    const user = await createAdministrator('backup-cross@example.com');
     const companyA = await createTestCompany('Company A');
     const companyB = await createTestCompany('Company B');
     await createTestCompanyMember(user.id, companyA.id);
@@ -266,7 +292,8 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
 
     const backupReq = new NextRequest(`http://localhost/api/backup?companyId=${companyA.id}`, {
       method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ companyId: companyA.id, password: OWNER_PASSWORD }),
     });
     const backupRes = await backupPOST(backupReq, { params: Promise.resolve({}) });
     const backupBody = await backupRes.json();
@@ -278,7 +305,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ data: backupBody.data }),
+      body: JSON.stringify({ data: backupBody.data, ownerPassword: OWNER_PASSWORD }),
     });
     const restoreRes = await restorePOST(restoreReq, { params: Promise.resolve({}) });
     expect(restoreRes.status).toBe(400);
@@ -318,7 +345,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
   });
 
   it('debe listar backups de una empresa', async () => {
-    const user = await createTestUser('backup-list@example.com');
+    const user = await createAdministrator('backup-list@example.com');
     const company = await createTestCompany('List Backup');
     await createTestCompanyMember(user.id, company.id);
     const token = await createSession(user.id);
@@ -326,7 +353,8 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     for (let i = 0; i < 2; i++) {
       const req = new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId: company.id, password: OWNER_PASSWORD }),
       });
       const res = await backupPOST(req, { params: Promise.resolve({}) });
       const body = await res.json();

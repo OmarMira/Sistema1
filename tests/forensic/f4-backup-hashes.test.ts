@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/db';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import { createSession } from '@/lib/sessions';
 import { hashPassword, verifyPassword } from '@/lib/auth';
 import { POST as backupPOST } from '@/app/api/backup/route';
@@ -15,7 +16,6 @@ import {
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 const createdCompanyIds = new Set<string>();
 const diskTestCompanyIds = new Set<string>();
@@ -79,7 +79,8 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        body: JSON.stringify({}),
+        // S7: creation is sudo-style — the administrator re-enters their password.
+        body: JSON.stringify({ password: 'SuperSecret!2026' }),
       }),
       { params: Promise.resolve({}) },
     );
@@ -112,7 +113,8 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        body: JSON.stringify({}),
+        // S7: creation is sudo-style — the administrator re-enters their password.
+        body: JSON.stringify({ password: 'AnotherSecret!2026' }),
       }),
       { params: Promise.resolve({}) },
     );

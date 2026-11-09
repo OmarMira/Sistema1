@@ -25,7 +25,16 @@ vi.mock('@/lib/db', () => ({ db: database, withCompanyBackupTransaction: async (
 } }));
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn() }));
 vi.mock('@/lib/logger', () => ({ logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
-import { createBackup, listBackups, getBackupFile } from '@/lib/backup';
+import { createBackup as createPublishedBackup, listBackups, getBackupFile } from '@/lib/backup';
+
+/**
+ * S7: creating a backup is sudo-style — it requires the creating administrator's
+ * password and embeds only its verifier. Every assertion below is unchanged;
+ * this helper only supplies the credential the new contract demands.
+ */
+const OWNER_PASSWORD = 'Clave.Catalogo.2026';
+const createBackup = (companyId: string) =>
+  createPublishedBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
 
 const dir = path.join(state.root, 'backups'), index = path.join(dir, 'manifest.json');
 const fault = (code: string) => Object.assign(new Error(`controlled ${code}`), { code, syscall: 'rename' });

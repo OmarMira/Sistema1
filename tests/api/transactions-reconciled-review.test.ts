@@ -170,8 +170,32 @@ function createMockDb() {
         ...data,
         createdAt: new Date(),
       })),
+      // audit.ts seals the inserted row (hash + previousHash) right after create.
+      update: vi.fn(
+        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({
+          id: where.id,
+          ...data,
+        }),
+      ),
     },
     $transaction: async <T,>(fn: (tx: typeof self) => Promise<T>): Promise<T> => fn(self),
+    // audit.ts takes a transaction-scoped advisory lock before reading the
+    // chain tail; an in-memory harness has no PostgreSQL advisory locks.
+    $executeRaw: vi.fn(async () => 1),
+    // Two raw readers share this surface:
+    //  - audit.ts reads the chain tail (SELECT ... FROM "AuditLog"); no rows in
+    //    this in-memory harness means the inserted row starts the chain (head).
+    //  - G8-2 lock contract: acquireCompanyLock runs
+    //    SELECT id FROM "Company" WHERE id = <companyId> FOR UPDATE through a
+    //    Prisma.sql tagged template — the bound companyId travels in .values.
+    //    Echo it back as the locked row (non-empty = company found).
+    $queryRaw: vi.fn(async (query: unknown) => {
+      const text = ((query as { strings?: readonly string[] } | null)?.strings ?? []).join('');
+      if (text.includes('AuditLog')) return [];
+      const values = (query as { values?: unknown[] } | null)?.values;
+      const id = typeof values?.[0] === 'string' ? values[0] : 'company-a';
+      return [{ id }];
+    }),
     reset: () => {
       memStore.clear();
       bankTransactions.length = 0;

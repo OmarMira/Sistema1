@@ -139,8 +139,10 @@ describe('S23b — /api/reports/export printable format', () => {
     expect(source).not.toMatch(/Firmado/);
     expect(source).not.toMatch(/value="pdf"/);
     expect(source).toContain('value="print"');
-    expect(source).toContain('Imprimir / Guardar como PDF');
+    // The print option is labelled through i18n now; the Spanish locale still
+    // reads "Imprimir / Guardar como PDF" (src/i18n/locales/es.ts).
+    expect(source).toContain("t('reports.formatPrint')");
     // The internal-use warning stays, minus the false signing claim.
-    expect(source).toContain('No está firmado digitalmente');
+    expect(source).toContain("t('reports.draftDisclaimer')");
   });
 });

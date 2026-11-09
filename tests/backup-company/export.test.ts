@@ -42,6 +42,15 @@ vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: 
 import { createBackup, listBackups, getBackupFile, deleteBackup, validateBackup, validateBackupForCoordinatedRestore } from '@/lib/backup';
 import { readCompanyCatalog } from '@/lib/backup-storage';
 
+/**
+ * S7: creating a backup is sudo-style, so every creation in this suite supplies
+ * the administrator's re-entered password. The credential is only used to derive
+ * the verifier; these assertions are otherwise unchanged.
+ */
+const OWNER_PASSWORD = 'Clave.Export.2026';
+const createOwnerBackup = (companyId: string) =>
+  createBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
+
 const dir = path.join(state.root, 'backups');
 const config = path.join(state.root, 'company-config.json');
 function files() { return fs.existsSync(dir) ? fs.readdirSync(dir).sort() : []; }
@@ -84,7 +93,7 @@ afterAll(() => fs.rmSync(state.root, { recursive: true, force: true }));
 
 describe('company snapshot and publication', () => {
   it('exports explicit tenant inventory with stable IDs/counts and exact UTF8 in one repeatable-read transaction', async () => {
-    const result = await createBackup('tenant');
+    const result = await createOwnerBackup('tenant');
     const body = payload(result);
     expect(state.transaction).toHaveBeenCalledTimes(1);
     expect(state.transaction.mock.calls[0][1]).toMatchObject({ isolationLevel: 'RepeatableRead' });
@@ -132,7 +141,7 @@ describe('company snapshot and publication', () => {
     state.rows.glAccount = amounts.map((balance, i) => ({ ...state.rows.glAccount[0], id: i === 0 ? 'gl' : `gl-${i}`, balance }));
     state.rows.bankTransaction[0].amount = '9999999999999999.99';
     const before = structuredClone(state.rows);
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     const body = payload(saved);
     expect(body.data.glAccounts.map((row: any) => row.balance)).toEqual([
       '9999999999999999.99', '0.01', '-9999999999999999.99', '-0.01', '0.00',
@@ -161,7 +170,7 @@ describe('company snapshot and publication', () => {
       'KnowledgeAudit:audit-json:beforeValue': false, 'KnowledgeAudit:audit-json:afterValue': true,
     };
     const before = structuredClone(state.rows);
-    const body = payload(await createBackup('tenant'));
+    const body = payload(await createOwnerBackup('tenant'));
     expect(body.manifest.fidelity).toEqual({ monetary: 'decimal-18,2', jsonNulls: [
       { model: 'BankRule', key: { id: 'rule-sql' }, field: 'conditions', kind: 'db-null' },
       { model: 'BankRule', key: { id: 'rule-json' }, field: 'conditions', kind: 'json-null' },
@@ -179,23 +188,23 @@ describe('company snapshot and publication', () => {
 
   it('preserves Company not found and publishes nothing for an absent company', async () => {
     state.rows.company = [];
-    await expect(createBackup('tenant')).rejects.toThrow('Company not found');
+    await expect(createOwnerBackup('tenant')).rejects.toThrow('Company not found');
     expect(files()).toEqual([]);
   });
 
   it('propagates database snapshot failure without publishing any history', async () => {
     state.transaction.mockRejectedValueOnce(new Error('snapshot unavailable'));
-    await expect(createBackup('tenant')).rejects.toThrow('snapshot unavailable');
+    await expect(createOwnerBackup('tenant')).rejects.toThrow('snapshot unavailable');
     expect(files()).toEqual([]);
   });
 
   it('does not make mandatory v2 data silently restorable by the old restore', async () => {
-    const body = payload(await createBackup('tenant'));
+    const body = payload(await createOwnerBackup('tenant'));
     expect(validateBackup(body)).toEqual({ valid: false, errors: ['Backup format 2.1.0 requires the company recovery implementation; legacy restore is not supported'] });
   });
 
   it('admits the company format through the coordinated restore gate while the legacy validator stays fenced', async () => {
-    const body = payload(await createBackup('tenant'));
+    const body = payload(await createOwnerBackup('tenant'));
     expect(validateBackupForCoordinatedRestore(body)).toEqual({ valid: true, errors: [] });
     expect(validateBackup(body).valid).toBe(false);
   });
@@ -209,9 +218,9 @@ describe('company snapshot and publication', () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
     try {
-      const first = await createBackup('tenant');
+      const first = await createOwnerBackup('tenant');
       const before = fs.readFileSync(path.join(dir, first.filename), 'utf8');
-      const second = await createBackup('tenant');
+      const second = await createOwnerBackup('tenant');
       expect(second.filename).not.toBe(first.filename);
       expect(fs.readFileSync(path.join(dir, first.filename), 'utf8')).toBe(before);
       expect(listBackups('tenant')).toHaveLength(2);
@@ -220,7 +229,7 @@ describe('company snapshot and publication', () => {
 
   it('rejects invalid tenant filenames before database or filesystem effects', async () => {
     const before = snapshot();
-    await expect(createBackup('../escape')).rejects.toThrow('Invalid company identifier');
+    await expect(createOwnerBackup('../escape')).rejects.toThrow('Invalid company identifier');
     expect(state.transaction).not.toHaveBeenCalled();
     expect(state.reads).toEqual([]);
     expect(snapshot()).toEqual(before);
@@ -228,7 +237,7 @@ describe('company snapshot and publication', () => {
 
   it('fails rather than omit corrupt company configuration', async () => {
     fs.writeFileSync(config, '{broken');
-    await expect(createBackup('tenant')).rejects.toThrow();
+    await expect(createOwnerBackup('tenant')).rejects.toThrow();
     expect(files()).toEqual([]);
   });
 
@@ -241,7 +250,7 @@ describe('company snapshot and publication', () => {
         return result;
       } finally { state.inTransaction = false; }
     });
-    await expect(createBackup('tenant')).rejects.toThrow('Company configuration changed during snapshot');
+    await expect(createOwnerBackup('tenant')).rejects.toThrow('Company configuration changed during snapshot');
     expect(files()).toEqual([]);
   });
 
@@ -254,7 +263,7 @@ describe('company snapshot and publication', () => {
     state.rows[model as string] = [edge];
     const before = snapshot();
     const rowsBefore = structuredClone(state.rows);
-    await expect(createBackup('tenant')).rejects.toThrow('cross-tenant');
+    await expect(createOwnerBackup('tenant')).rejects.toThrow('cross-tenant');
     expect(snapshot()).toEqual(before);
     expect(state.rows).toEqual(rowsBefore);
   });
@@ -270,7 +279,7 @@ describe('company snapshot and publication', () => {
       { id: 'foreign', sourceId: 'outside', targetId: 'outside' },
     ];
     const rowsBefore = structuredClone(state.rows);
-    const body = payload(await createBackup('tenant'));
+    const body = payload(await createOwnerBackup('tenant'));
     expect(body.data.entityContexts.map((row: any) => row.id)).toEqual(['ctx']);
     expect(body.data.memoryItems.map((row: any) => row.id)).toEqual(['left', 'right']);
     expect(body.data.relationships.map((row: any) => row.id)).toEqual(['owned']);
@@ -279,14 +288,14 @@ describe('company snapshot and publication', () => {
   });
 
   it.each(['write', 'flush'])('preserves history when file %s fails before publication', async failure => {
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     const before = snapshot();
     if (failure === 'write') {
       vi.spyOn(fs, 'writeFileSync').mockImplementationOnce(() => { throw new Error('disk full'); });
     } else {
       vi.spyOn(fs, 'fsyncSync').mockImplementationOnce(() => { throw new Error('flush failed'); });
     }
-    await expect(createBackup('tenant')).rejects.toThrow(failure === 'write' ? 'disk full' : 'flush failed');
+    await expect(createOwnerBackup('tenant')).rejects.toThrow(failure === 'write' ? 'disk full' : 'flush failed');
     expect(snapshot()).toEqual(before);
     expect(getBackupFile(saved.filename)).not.toBeNull();
   });
@@ -294,15 +303,15 @@ describe('company snapshot and publication', () => {
   it('does not publish a partial file when publication is interrupted', async () => {
     const before = snapshot();
     vi.spyOn(fs, 'linkSync').mockImplementationOnce(() => { throw new Error('publication interrupted'); });
-    await expect(createBackup('tenant')).rejects.toThrow('publication interrupted');
+    await expect(createOwnerBackup('tenant')).rejects.toThrow('publication interrupted');
     expect(snapshot()).toEqual(before);
   });
 
   it('never overwrites an existing final file on collision', async () => {
     vi.spyOn(crypto, 'randomUUID').mockReturnValue('11111111-1111-4111-8111-111111111111');
-    const first = await createBackup('tenant');
+    const first = await createOwnerBackup('tenant');
     const before = snapshot();
-    await expect(createBackup('tenant')).rejects.toThrow();
+    await expect(createOwnerBackup('tenant')).rejects.toThrow();
     expect(snapshot()).toEqual(before);
     expect(getBackupFile(first.filename)).not.toBeNull();
   });
@@ -310,7 +319,7 @@ describe('company snapshot and publication', () => {
 
 describe('recoverable catalog and existing read/delete contracts', () => {
   it.each(['missing', 'corrupt'])('recovers stable owned records from files when index is %s', async mode => {
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     if (mode === 'missing') fs.unlinkSync(path.join(dir, 'manifest.json'));
     else fs.writeFileSync(path.join(dir, 'manifest.json'), '{broken');
     const before = snapshot();
@@ -321,7 +330,7 @@ describe('recoverable catalog and existing read/delete contracts', () => {
 
   it('retains a complete discoverable file and reports an index failure truthfully', async () => {
     vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => { throw new Error('index unavailable'); });
-    await expect(createBackup('tenant')).rejects.toThrow('index unavailable');
+    await expect(createOwnerBackup('tenant')).rejects.toThrow('index unavailable');
     expect(listBackups('tenant')).toHaveLength(1);
     expect(files().filter(name => name.endsWith('.tmp'))).toEqual([]);
   });
@@ -333,7 +342,7 @@ describe('recoverable catalog and existing read/delete contracts', () => {
   });
 
   it('rejects corruption and count tampering without rewriting files or index', async () => {
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     const body = payload(saved);
     body.data.company[0].legalName = 'tampered';
     fs.writeFileSync(path.join(dir, saved.filename), JSON.stringify(body));
@@ -346,7 +355,7 @@ describe('recoverable catalog and existing read/delete contracts', () => {
   });
 
   it('preserves get exact string/size and null for missing or escaped paths', async () => {
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     const text = Buffer.from(saved.data, 'base64').toString('utf8');
     expect(getBackupFile(saved.filename)).toEqual({ data: text, size: Buffer.byteLength(text) });
     expect(getBackupFile('missing.json')).toBeNull();
@@ -355,7 +364,7 @@ describe('recoverable catalog and existing read/delete contracts', () => {
   });
 
   it('rejects symlink files for read/delete without following or mutating them', async () => {
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     const before = snapshot();
     const original = fs.lstatSync;
     vi.spyOn(fs, 'lstatSync').mockImplementation(((target: any, ...args: any[]) => {
@@ -368,7 +377,7 @@ describe('recoverable catalog and existing read/delete contracts', () => {
   });
 
   it('preserves delete status and tenant ownership, then removes exactly its file/index entry', async () => {
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     const before = snapshot();
     expect(deleteBackup('../bad.json', 'tenant')).toEqual({ status: 'invalid' });
     expect(deleteBackup(saved.filename, 'other')).toEqual({ status: 'not_found' });
@@ -381,7 +390,7 @@ describe('recoverable catalog and existing read/delete contracts', () => {
   });
 
   it.each(['count', 'section', 'version', 'tenant', 'truncation'])('rejects %s damage without catalog mutation', async damage => {
-    const saved = await createBackup('tenant');
+    const saved = await createOwnerBackup('tenant');
     const body = payload(saved);
     if (damage === 'count') body.manifest.recordCounts.entityContexts = 99;
     if (damage === 'section') delete body.data.csvLayoutProfiles;
@@ -396,7 +405,7 @@ describe('recoverable catalog and existing read/delete contracts', () => {
   });
 
   it('preserves legacy JSON catalog/read/delete and structural validation', async () => {
-    const body = payload(await createBackup('tenant'));
+    const body = payload(await createOwnerBackup('tenant'));
     body.manifest.version = '1.1.0';
     delete body.manifest.integrity;
     fs.writeFileSync(path.join(dir, 'legacy.json'), JSON.stringify(body));

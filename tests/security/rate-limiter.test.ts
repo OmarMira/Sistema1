@@ -168,16 +168,20 @@ describe('checkRateLimit', () => {
     const path = '/api/auth/login';
     const limit = VALID_CONFIG.rateLimit.criticalEndpoints['/api/auth/login'];
     const maxAllowed = Math.floor(limit.requestsPerMinute * limit.burstMultiplier);
+    // Production only writes the violation row for database-backed identities
+    // (RateLimitAuditSubject): an IP or the 'global' placeholder used to break
+    // the AuditLog foreign keys. The bucket owner is the audit subject here.
+    const subject = { userId: 'user1', companyId: 'company1' };
 
     for (let i = 0; i < maxAllowed; i++) {
-      checkRateLimit('user1', 'company1', path);
+      checkRateLimit('user1', 'company1', path, subject);
     }
 
     // Clear any audit calls from the last ALLOWED call
     mockAuditLogCreate.mockClear();
 
     // This call will be the violation (count = 11 > 10)
-    checkRateLimit('user1', 'company1', path);
+    checkRateLimit('user1', 'company1', path, subject);
 
     expect(mockAuditLogCreate).toHaveBeenCalledTimes(1);
     const callArg = mockAuditLogCreate.mock.calls[0][0];

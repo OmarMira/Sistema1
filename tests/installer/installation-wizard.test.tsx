@@ -8,6 +8,8 @@ vi.mock('@/store/auth-store', () => ({ useAuthStore: { getState: () => auth } })
 vi.mock('@/store/language-store', () => ({ useLanguageStore: (select: (value: {language: string}) => unknown) => select({language: 'es'}) }));
 vi.mock('@/components/spa/ThemeToggle', () => ({ ThemeToggle: () => <button>Tema</button> }));
 vi.mock('@/components/spa/LanguageSelector', () => ({ LanguageSelector: () => <span>Español</span> }));
+// The stylesheet goes through PostCSS, which this test environment cannot load.
+vi.mock('@/components/onboarding/InstallationWizard.module.css', () => ({ default: {} }));
 const response = (data: unknown, ok = true) => ({ ok, json: async () => data });
 async function review() {
   fireEvent.click(screen.getByRole('button', {name: 'Comenzar'}));

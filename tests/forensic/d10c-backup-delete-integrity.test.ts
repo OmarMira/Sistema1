@@ -4,8 +4,10 @@ import path from 'path';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { createSession } from '@/lib/sessions';
+import { hashPassword } from '@/lib/auth';
 import { POST as backupPOST, DELETE as backupDELETE } from '@/app/api/backup/route';
 import { createBackup } from '@/lib/backup';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import {
   createTestUser,
   createTestCompany,
@@ -13,7 +15,6 @@ import {
   clearDatabase,
 } from '../helpers/factories';
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE-D10C]', ...args);
@@ -30,6 +31,14 @@ function readManifestFile(): { backups: Array<{ filename: string; companyId: str
 }
 
 const createdFilenames = new Set<string>();
+
+/**
+ * S7 — every backup carries the creating administrator's credential: the HTTP
+ * route verifies the re-entered password, and the library primitive requires it
+ * so a snapshot nobody can prove ownership of is never published. The DELETE
+ * integrity contract under test is unchanged.
+ */
+const ADMIN_PASSWORD = 'Clave.D10C.2026';
 
 function trackCreatedFile(filename: string) {
   createdFilenames.add(filename);
@@ -83,6 +92,10 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
     tenantB = await createTestCompany('D10C Tenant B');
 
     adminA = await createTestUser('admin-a-d10c@example.com');
+    await db.user.update({
+      where: { id: adminA.id },
+      data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
+    });
     await createTestCompanyMember(adminA.id, tenantA.id);
 
     viewerA = await createTestUser('viewer-a-d10c@example.com');
@@ -101,6 +114,9 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
         firstName: 'Super',
         lastName: 'Admin',
         platformRole: 'super_admin',
+        // Verified, non-legacy actor: the sessions resolver rejects pending users.
+        emailVerifiedAt: new Date(),
+        legacyUser: false,
       },
     });
 
@@ -114,7 +130,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
   });
 
   async function materializeBackup(companyId: string, note = ''): Promise<string> {
-    const backup = await createBackup(companyId);
+    const backup = await createBackup(companyId, undefined, { ownerPassword: ADMIN_PASSWORD });
     trackCreatedFile(backup.filename);
     return backup.filename;
   }
@@ -131,6 +147,13 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
     );
   }
 
+  // Counts only unlink calls that targeted the exact stored file; the atomic
+  // writer also removes its own `.<name>.<uuid>.tmp` sibling on every publish.
+  function targetUnlinkCount(fileName: string): number {
+    const target = path.resolve(path.join(BACKUP_DIR, fileName));
+    return unlinkSpy.mock.calls.filter((c) => path.resolve(String(c[0])) === target).length;
+  }
+
   it('1. viewer A + backup A → 403, zero unlink', async () => {
     const fileName = await materializeBackup(tenantA.id, 'v1');
     const token = await createSession(viewerA.id);
@@ -144,7 +167,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    const unlinks = unlinkSpy.mock.calls.filter((c) => String(c[0]).includes(fileName)).length;
+    const unlinks = targetUnlinkCount(fileName);
     log('1 viewer own:', res.status, '| unlinks matching:', unlinks, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(403);
     expect(unlinks).toBe(0);
@@ -164,7 +187,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    const unlinks = unlinkSpy.mock.calls.filter((c) => String(c[0]).includes(fileName)).length;
+    const unlinks = targetUnlinkCount(fileName);
     log('2 employee own:', res.status, '| unlinks matching:', unlinks, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(403);
     expect(unlinks).toBe(0);
@@ -208,7 +231,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    const unlinks = unlinkSpy.mock.calls.filter((c) => String(c[0]).includes(fileNameB)).length;
+    const unlinks = targetUnlinkCount(fileNameB);
     log('4 cross-tenant real:', res.status, '| unlinks matching:', unlinks, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(404);
     expect(unlinks).toBe(0);
@@ -229,7 +252,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    const unlinks = unlinkSpy.mock.calls.filter((c) => String(c[0]).includes(fileNameB)).length;
+    const unlinks = targetUnlinkCount(fileNameB);
     log('5 A_x/../B:', res.status, '| unlinks matching B:', unlinks, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(400);
     expect(unlinks).toBe(0);
@@ -250,7 +273,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    const unlinks = unlinkSpy.mock.calls.filter((c) => String(c[0]).includes(fileNameB)).length;
+    const unlinks = targetUnlinkCount(fileNameB);
     log('6 A_../../B:', res.status, '| unlinks matching B:', unlinks, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(400);
     expect(unlinks).toBe(0);
@@ -272,8 +295,8 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    const manifestUnlink = unlinkSpy.mock.calls.filter((c) =>
-      String(c[0]).includes('manifest.json'),
+    const manifestUnlink = unlinkSpy.mock.calls.filter(
+      (c) => path.resolve(String(c[0])) === path.resolve(MANIFEST_PATH),
     ).length;
     log('7 manifest target:', res.status, '| manifest unlinks:', manifestUnlink, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(400);
@@ -315,7 +338,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       { params: Promise.resolve({}) },
     );
     const body = await res.json();
-    const unlinks = unlinkSpy.mock.calls.filter((c) => String(c[0]).includes(fileNameB)).length;
+    const unlinks = targetUnlinkCount(fileNameB);
     log('9 super ctxA + backupB:', res.status, '| unlinks matching B:', unlinks, '| error:', JSON.stringify(body.error));
     expect(res.status).toBe(404);
     expect(unlinks).toBe(0);
@@ -382,6 +405,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       new NextRequest(`http://localhost/api/backup?companyId=${tenantA.id}`, {
         method: 'POST',
         headers: authHeaders(adminAToken),
+        body: JSON.stringify({ password: ADMIN_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );

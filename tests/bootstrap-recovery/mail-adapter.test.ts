@@ -45,7 +45,7 @@ describe('smtp adapter delivery contract', () => {
   it('refuses to pretend it delivered when SMTP is not configured', async () => {
     setEnv({ SMTP_HOST: undefined, SMTP_USER: undefined, SMTP_PASS: undefined });
     await expect(adapter().send({ type: 'recovery', to: 'owner@example.test', token: 'a'.repeat(64) }))
-      .rejects.toThrow(/not configured/i);
+      .rejects.toThrow(/^SMTP delivery rejected$/);
     // The identity mailer reports the delivery as failed instead of a silent success.
     expect(await new IdentityMailer(adapter()).recovery('owner@example.test', 'a'.repeat(64))).toBe(false);
   });

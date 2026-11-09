@@ -2,9 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/db';
-import { createBackup } from '@/lib/backup';
+import { createBackup as createRawBackup } from '@/lib/backup';
 import { restoreCompanyBackup } from '@/lib/backup-restore';
 import { sealSnapshot } from '@/lib/backup-format';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import {
   createTestUser,
   createTestCompany,
@@ -15,7 +16,15 @@ import {
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
+/**
+ * S1/S2/S7: creating a backup requires the creating administrator's password and
+ * every restore must prove that credential. The FK-break refusals this PoC pins
+ * are untouched — the credential is supplied so the payloads reach those fences.
+ */
+const OWNER_PASSWORD = 'Clave.FkBreak.2026';
+const createBackup = (companyId: string) =>
+  createRawBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
+
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 const diskTestCompanyIds = new Set<string>();
 const createdCompanyIds = new Set<string>();
@@ -142,7 +151,7 @@ describe('C3 — Restore FK integrity with auto-classification artifacts (dynami
 
     // 5. Restore it: the dangling FK is rejected at admission.
     await expect(
-      restoreCompanyBackup(company.id, JSON.stringify(backupData)),
+      restoreCompanyBackup(company.id, JSON.stringify(backupData), { ownerPassword: OWNER_PASSWORD }),
     ).rejects.toThrow(/RESTORE_REFERENCE: JournalEntry\.ruleApplyRecordId/);
 
     // 6. Transaction state after the refusal: no partial data
@@ -204,7 +213,7 @@ describe('C3 — Restore FK integrity with auto-classification artifacts (dynami
 
     // Dangling reference refused before any write.
     await expect(
-      restoreCompanyBackup(company.id, JSON.stringify(backupData)),
+      restoreCompanyBackup(company.id, JSON.stringify(backupData), { ownerPassword: OWNER_PASSWORD }),
     ).rejects.toThrow(/RESTORE_REFERENCE: BankRule\.entityContextId/);
 
     const rulesAfter = await db.bankRule.count({ where: { companyId: company.id } });

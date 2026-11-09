@@ -3,15 +3,40 @@ import { NextRequest } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { db } from '@/lib/db';
+import { BACKUP_DIR } from '@/lib/config/paths';
 import { createSession } from '@/lib/sessions';
+import { hashPassword } from '@/lib/auth';
 import { POST as backupPOST } from '@/app/api/backup/route';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 const diskTestCompanyIds = new Set<string>();
+
+/**
+ * S7 — POST /api/backup is sudo-style: the authenticated administrator re-enters
+ * their own password. This suite is about what a CREATED backup contains, so the
+ * fixture administrator has a real password and the request carries it.
+ */
+const ADMIN_PASSWORD = 'Clave.F4.2026';
+
+async function createBackupAdmin(email: string) {
+  const user = await createTestUser(email);
+  await db.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
+  });
+  return user;
+}
+
+function backupRequest(companyId: string, token: string): NextRequest {
+  return new NextRequest(`http://localhost/api/backup?companyId=${companyId}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: ADMIN_PASSWORD }),
+  });
+}
 
 function readManifestFile(): { backups: Array<Record<string, unknown>> } {
   if (!fs.existsSync(MANIFEST_PATH)) return { backups: [] };
@@ -51,16 +76,13 @@ describe('F-4 — created backups must not export user passwordHash (remediation
   });
 
   it('Q1: POST /api/backup response data does not contain passwordHash for any user', async () => {
-    const user = await createTestUser('f4-q1@example.com');
+    const user = await createBackupAdmin('f4-q1@example.com');
     const company = await createTestCompany('F4 Q1 Co');
     await createTestCompanyMember(user.id, company.id);
     diskTestCompanyIds.add(company.id);
     const token = await createSession(user.id);
 
-    const req = new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const req = backupRequest(company.id, token);
     const res = await backupPOST(req, { params: Promise.resolve({}) });
     const body = await res.json();
 
@@ -75,16 +97,13 @@ describe('F-4 — created backups must not export user passwordHash (remediation
   });
 
   it('Q2 (control): the backup still contains essential user data (email, role)', async () => {
-    const user = await createTestUser('f4-q2@example.com');
+    const user = await createBackupAdmin('f4-q2@example.com');
     const company = await createTestCompany('F4 Q2 Co');
     await createTestCompanyMember(user.id, company.id);
     diskTestCompanyIds.add(company.id);
     const token = await createSession(user.id);
 
-    const req = new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const req = backupRequest(company.id, token);
     const res = await backupPOST(req, { params: Promise.resolve({}) });
     const body = await res.json();
     const backupData = JSON.parse(Buffer.from(body.data, 'base64').toString('utf-8'));
@@ -97,16 +116,13 @@ describe('F-4 — created backups must not export user passwordHash (remediation
   });
 
   it('Q3 (control): the backup manifest still reports user counts', async () => {
-    const user = await createTestUser('f4-q3@example.com');
+    const user = await createBackupAdmin('f4-q3@example.com');
     const company = await createTestCompany('F4 Q3 Co');
     await createTestCompanyMember(user.id, company.id);
     diskTestCompanyIds.add(company.id);
     const token = await createSession(user.id);
 
-    const req = new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const req = backupRequest(company.id, token);
     const res = await backupPOST(req, { params: Promise.resolve({}) });
     const body = await res.json();
     const backupData = JSON.parse(Buffer.from(body.data, 'base64').toString('utf-8'));

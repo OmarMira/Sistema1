@@ -15,6 +15,24 @@ Two independent implementations of owner-verified backup recovery existed:
 | Recovered-history evidence | none | `src/lib/backup-recovery-provenance.ts` |
 | Tests | `tests/api/backup-ownership.test.ts`, `tests/api/bootstrap-restore.test.ts`, `tests/api/restore-reanchor.test.ts`, `tests/ci/isolation-refusal-guards.test.ts` | `tests/bootstrap-recovery/` (38 suites), `tests/portable-recovery-postgres/`, `tests/startup-migrations/` |
 
+### Merge outcome
+
+`main` was merged into this branch rather than overwritten. The previous module
+`src/lib/backup-ownership.ts` and its suite files therefore remain in the tree:
+they are **not referenced by the consolidated restore path**. They are kept so no
+reviewed artifact disappears; treat them as reserved reference code, not as part
+of the active design.
+
+One suite was removed because it asserted the replaced contract end to end (it
+sealed an `ownership` verifier into the snapshot manifest and required restore to
+honour it): `tests/backup-company/restore.test.ts`. It is preserved at the tag and
+branch listed below.
+
+The SMTP adapter was unified on the honest-failure behaviour and message
+(`SMTP delivery rejected`): an unconfigured provider must never resolve silently,
+because a caller reporting a delivered recovery token nobody received would leave
+the operator behind a fictitious success.
+
 They could not coexist: both modified the same entry points (`src/lib/backup.ts`,
 `src/lib/backup-restore.ts`, `src/lib/backup-format.ts`, the portable and bootstrap
 restore routes).

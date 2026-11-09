@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, afterAll } from 'vitest';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { createSession } from '@/lib/sessions';
+import { hashPassword } from '@/lib/auth';
 import { proxy } from '@/proxy';
 import { POST as journalPOST } from '@/app/api/journal/route';
 import { POST as journalActionPOST } from '@/app/api/journal/[id]/route';
@@ -15,15 +16,22 @@ import {
   clearDatabase,
 } from '../helpers/factories';
 import config from '../../rules/rbac-config.json';
+import { BACKUP_DIR } from '@/lib/config/paths';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
-const BACKUP_DIR = 'db/backups';
 const fs = require('fs');
 const path = require('path');
 
 const createdCompanyIds = new Set<string>();
 const diskTestCompanyIds = new Set<string>();
+
+/**
+ * S7 — POST /api/backup is sudo-style: the authenticated company_admin must
+ * re-enter their own password. The RBAC contract under test is unchanged; the
+ * fixture administrator simply has a real password and supplies it.
+ */
+const ADMIN_PASSWORD = 'Clave.RBAC.2026';
 
 function authHeaders(token: string): Headers {
   const h = new Headers();
@@ -716,6 +724,10 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
 
   it('company_admin control: can POST /api/backup (200)', async () => {
     const user = await createTestUser('admin-backup-f3@example.com');
+    await db.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
+    });
     const company = await createTestCompany('RBAC Test Corp');
     await createTestCompanyMember(user.id, company.id);
     createdCompanyIds.add(company.id);
@@ -726,7 +738,7 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        body: JSON.stringify({}),
+        body: JSON.stringify({ password: ADMIN_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );

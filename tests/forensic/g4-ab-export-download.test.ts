@@ -4,7 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { db } from '@/lib/db';
 import { clearDatabase, createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction } from '../helpers/factories';
-import { createBackup } from '@/lib/backup';
+import { createBackup as createRawBackup } from '@/lib/backup';
+import { BACKUP_DIR } from '@/lib/config/paths';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE-G4-AB-EXPORT]', ...args);
 
@@ -27,7 +28,15 @@ vi.mock('@/lib/audit', async (importOriginal) => {
 const createdCompanyIds = new Set<string>();
 const diskTestCompanyIds = new Set<string>();
 
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
+/**
+ * S7 — a published snapshot always carries the creating administrator's
+ * credential (only its verifier, inside the sealed manifest). The export /
+ * download isolation matrix under test is unchanged.
+ */
+const ADMIN_PASSWORD = 'Clave.G4AB.2026';
+const createBackup = (companyId: string) =>
+  createRawBackup(companyId, undefined, { ownerPassword: ADMIN_PASSWORD });
+
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 
 function readManifestFile(): { companies?: Array<{ id?: string; name?: string }> } {

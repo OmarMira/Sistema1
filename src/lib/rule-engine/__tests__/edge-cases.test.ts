@@ -1,4 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// Deterministic audit sink.
+// evaluateRules() persists its audit record fire-and-forget
+// (src/lib/rule-engine/index.ts: `persistRuleExecutionAudit(...).catch(() => {})`).
+// These tests use synthetic rules that do not exist in bankRule, so a real
+// Prisma write fails on RuleExecutionAudit_winnerRuleId_fkey and Prisma emits
+// `prisma:error` on its own logger AFTER the file finished — which Vitest
+// reports as `EnvironmentTeardownError: Closing rpc while "onUserConsoleLog"
+// was pending`. Stubbing the persistence boundary keeps the default
+// (persistAudit !== false) path, leaves every assertion below untouched and
+// makes the file DB-independent, matching tests/unit/rule-engine-index.test.ts.
+const mockPersistAudit = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock('@/lib/rule-engine/audit', () => ({
+  persistRuleExecutionAudit: mockPersistAudit,
+}));
+
 import { evaluateRules } from '../index';
 import { makeRule, makeTransaction, makeCondition } from './fixtures';
 import type { TraceEvent, DecisionTrace, AuditRecord } from '../types';
@@ -6,6 +23,7 @@ import { RULE_ENGINE_VERSION } from '../version';
 
 beforeEach(() => {
   vi.stubEnv('RULE_ENGINE_V2_ENABLED', 'true');
+  mockPersistAudit.mockClear();
 });
 
 describe('Typed error trace', () => {

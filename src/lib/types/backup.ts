@@ -10,6 +10,7 @@ export interface BackupRecord {
     legalName: string;
   };
   createdBy?: string;
+  createdByName?: string;
   destination?: string;
   recordCounts: {
     company: number;

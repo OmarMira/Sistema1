@@ -916,6 +916,12 @@ const en = {
       restoreFailed: 'Failed to restore backup',
       backupHistory: 'Backup History',
       noBackups: 'No previous backups available.',
+      tooltipCompany: 'Company',
+      tooltipCreatedBy: 'Created by',
+      tooltipCreatedByUnknown: 'User unavailable',
+      tooltipWhen: 'Date and time',
+      tooltipWhere: 'Disk location',
+      tooltipWhereUnknown: 'Not recorded',
       unreadableBackupsTitle: 'Some backups cannot be read',
       unreadableBackupsDesc:
         'These files are kept unchanged on disk, but they cannot be listed, downloaded or restored until the cause is fixed.',

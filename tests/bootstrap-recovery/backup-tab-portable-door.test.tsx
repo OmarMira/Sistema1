@@ -2,6 +2,17 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+
+// jsdom implements no ResizeObserver; Radix tooltips measure their content with
+// one. Same inline stub the other component suites use.
+if (!('ResizeObserver' in globalThis)) {
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
 import type { ReactNode } from 'react';
 
 /**
@@ -166,5 +177,62 @@ describe('BackupTab — portable owner flow (S24)', () => {
     });
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('mode=portable'))).toBe(false);
     expect(screen.queryByText('settings.backup.portableDetected')).not.toBeInTheDocument();
+  });
+});
+
+describe('backup history row tooltip', () => {
+  it('states the company once, plus who created it, when, and where it is stored', async () => {
+    const createdAt = '2026-11-09T21:03:22.000Z';
+    fetchMock.mockImplementation(async (url: RequestInfo | URL) => {
+      if (String(url).startsWith('/api/backup?')) {
+        return respond({
+          backups: [{
+            id: 'b1', filename: 'tenant_1.json', size: 32768, createdAt,
+            companyInfo: { id: 'tenant', legalName: 'LQ & OM LLC' },
+            destination: 'C:\instalacion\db\backups',
+            createdBy: 'user-1',
+            createdByName: 'Ana Perez',
+            recordCounts: { company: 1 },
+          }],
+          unreadable: [],
+        });
+      }
+      return respond({});
+    });
+
+    render(<BackupTab />);
+    const row = await screen.findByLabelText(/settings.backup.tooltipCompany/);
+    const summary = row.getAttribute('aria-label') ?? '';
+
+    // The three facts the row must name.
+    expect(summary).toContain('settings.backup.tooltipCompany: LQ & OM LLC');
+    expect(summary).toContain('settings.backup.tooltipCreatedBy: Ana Perez');
+    expect(summary).toContain('C:\instalacion\db\backups');
+    // Exact time, seconds included, so two backups of the same minute differ.
+    expect(summary).toMatch(/\d{1,2}:\d{2}:\d{2}/);
+    // The company is named ONCE: the duplicated line was the reported defect.
+    expect(summary.split('LQ & OM LLC')).toHaveLength(2);
+  });
+
+  it('says the creator is unavailable instead of inventing one', async () => {
+    fetchMock.mockImplementation(async (url: RequestInfo | URL) => {
+      if (String(url).startsWith('/api/backup?')) {
+        return respond({
+          backups: [{
+            id: 'b2', filename: 'tenant_2.json', size: 1024, createdAt: '2026-11-09T20:00:00.000Z',
+            companyInfo: { id: 'tenant', legalName: 'LQ & OM LLC' },
+            recordCounts: { company: 1 },
+          }],
+          unreadable: [],
+        });
+      }
+      return respond({});
+    });
+
+    render(<BackupTab />);
+    const row = await screen.findByLabelText(/settings.backup.tooltipCompany/);
+    const summary = row.getAttribute('aria-label') ?? '';
+    expect(summary).toContain('settings.backup.tooltipCreatedBy: settings.backup.tooltipCreatedByUnknown');
+    expect(summary).toContain('settings.backup.tooltipWhere: settings.backup.tooltipWhereUnknown');
   });
 });

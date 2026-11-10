@@ -99,7 +99,22 @@ export const GET = apiHandler(async (request: NextRequest, context: RouteContext
 
   const { backups, unreadable } = listBackupInventory(companyId);
 
-  return NextResponse.json({ backups, unreadable });
+  // Resolve the creator name for display only. Unknown or deleted accounts stay
+  // unnamed instead of inventing an identity; the id itself is never exposed.
+  const creatorIds = [...new Set(backups.map((b) => b.createdBy).filter((id): id is string => typeof id === 'string' && id.length > 0))];
+  const creators = creatorIds.length > 0
+    ? await db.user.findMany({
+        where: { id: { in: creatorIds } },
+        select: { id: true, firstName: true, lastName: true, email: true },
+      })
+    : [];
+  const nameById = new Map(creators.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(' ').trim() || u.email]));
+  const withCreators = backups.map((backup) => {
+    const name = backup.createdBy ? nameById.get(backup.createdBy) : undefined;
+    return name ? { ...backup, createdByName: name } : backup;
+  });
+
+  return NextResponse.json({ backups: withCreators, unreadable });
 });
 
 /**

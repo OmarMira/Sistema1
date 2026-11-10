@@ -929,6 +929,12 @@ const es = {
       restoreFailed: 'Error al restaurar el respaldo',
       backupHistory: 'Historial de Respaldos',
       noBackups: 'No hay respaldos anteriores.',
+      tooltipCompany: 'Empresa',
+      tooltipCreatedBy: 'Creado por',
+      tooltipCreatedByUnknown: 'Usuario no disponible',
+      tooltipWhen: 'Fecha y hora',
+      tooltipWhere: 'Ubicación en disco',
+      tooltipWhereUnknown: 'No registrada',
       unreadableBackupsTitle: 'Algunos respaldos no se pueden leer',
       unreadableBackupsDesc:
         'Estos archivos se conservan sin cambios en el disco, pero no se pueden listar, descargar ni restaurar hasta corregir la causa.',

@@ -354,6 +354,24 @@ function writeAtomic(target: string, text: string, replaceIndex: boolean): void 
   }
 }
 
+/**
+ * Drop ONE entry from the index without reading any stored file.
+ *
+ * The index is a replaceable cache of ids for legacy filenames; the files are
+ * authoritative. A delete must therefore never decrypt the rest of the inventory:
+ * one unreadable file belonging to another company used to make a healthy
+ * tenant's delete fail. Entries of other companies and other tenants' files are
+ * left exactly as they were.
+ */
+export function removeCatalogEntry(filename: string, companyId: string): void {
+  const index = readIndex();
+  const remaining = index.backups.filter(
+    (entry) => !(entry.filename === filename && entry.companyId === companyId),
+  );
+  if (remaining.length === index.backups.length) return; // nothing to remove
+  writeCatalog({ backups: remaining });
+}
+
 export function writeCatalog(catalog: BackupCatalog): void {
   writeAtomic(path.join(BACKUP_DIR, 'manifest.json'), JSON.stringify(catalog, null, 2), true);
 }

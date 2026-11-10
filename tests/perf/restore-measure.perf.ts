@@ -10,16 +10,18 @@
  *   publishMs   publishBackup(safety filename, sealed safety snapshot text)
  *               (the real restore publishes this inside its own transaction)
  *   restoreMs   the full restoreCompanyBackupCoordinated(companyId, text, mode)
- *   residualMs  restoreMs - validateMs - publishMs
- *               (per-row inserts, the transaction's own safety capture and the
- *               second publication live here; this is where the 20000 ms
- *               interactive-transaction timeout is spent)
+ * The standalone validateMs/publishMs are contextual, not subtracted from the
+ * full run. Test-only wrappers report inclusive spans from that actual run:
+ * validation, capture, publication, transaction and each delegate operation.
+ * Nested spans overlap: never sum them as exclusive buckets. SQL spans measure
+ * client-observed awaits, not database-server CPU. Payload counts are expectations;
+ * committed results are exported again and validated to verify persisted counts.
  *
- * It prints exactly one JSON line per size:
- *   {size, rows, validateMs, publishMs, restoreMs, residualMs, outcome}
- * followed by a `#` comment line with the per-table insert counts and control
- * detail. `outcome` is `committed`, `not_confirmed` or an uppercase error code;
- * a transaction timeout is a RESULT, never a crash of the harness.
+ * It prints one JSON line per size with spansInclusive, expectedPayloadCounts,
+ * persistedCounts and countsVerified. A timeout is an observed result, not a
+ * successful restoration; failed runs cannot establish per-row throughput.
+ * Run each size in a separate process with a fresh scratch root to avoid catalog
+ * growth between sizes. Compare repeated runs before drawing scaling conclusions.
  *
  * Safety: refuses anything but the disposable cluster
  * 127.0.0.1:55432/accountexpress_test (checked in the runner config and here),
@@ -41,7 +43,81 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, it, vi } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
+
+// Test-only interception: real implementations run unchanged. These inclusive
+// spans overlap (transaction includes its SQL and safety capture includes reads).
+// They must never be added together or presented as exclusive phase totals.
+const probe = vi.hoisted(() => ({
+  active: false,
+  spans: {} as Record<string, { calls: number; succeeded: number; failed: number; ms: number }>,
+  async time<T>(name: string, run: () => Promise<T>): Promise<T> {
+    if (!this.active) return run();
+    const span = this.spans[name] ??= { calls: 0, succeeded: 0, failed: 0, ms: 0 };
+    span.calls++;
+    const start = performance.now();
+    try { const value = await run(); span.succeeded++; return value; }
+    catch (error) { span.failed++; throw error; }
+    finally { span.ms += performance.now() - start; }
+  },
+  sync<T>(name: string, run: () => T): T {
+    if (!this.active) return run();
+    const span = this.spans[name] ??= { calls: 0, succeeded: 0, failed: 0, ms: 0 };
+    span.calls++;
+    const start = performance.now();
+    try { const value = run(); span.succeeded++; return value; }
+    catch (error) { span.failed++; throw error; }
+    finally { span.ms += performance.now() - start; }
+  },
+}));
+
+vi.mock('@/lib/backup-validation', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/backup-validation')>();
+  return { ...actual,
+    validateRestoreSource: (...args: Parameters<typeof actual.validateRestoreSource>) =>
+      probe.sync('validateSource', () => actual.validateRestoreSource(...args)),
+    validateRestoreDestination: (...args: Parameters<typeof actual.validateRestoreDestination>) =>
+      probe.sync('validateDestination', () => actual.validateRestoreDestination(...args)),
+  };
+});
+vi.mock('@/lib/backup', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/backup')>();
+  return { ...actual,
+    captureCompanySnapshot: (...args: Parameters<typeof actual.captureCompanySnapshot>) =>
+      probe.time('safetyCapture', () => actual.captureCompanySnapshot(...args)),
+  };
+});
+vi.mock('@/lib/backup-storage', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/backup-storage')>();
+  return { ...actual,
+    publishBackup: (...args: Parameters<typeof actual.publishBackup>) =>
+      probe.sync('safetyPublish', () => actual.publishBackup(...args)),
+  };
+});
+vi.mock('@/lib/db', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/lib/db')>();
+  return { ...actual,
+    withCompanyBackupTransaction: (run: (tx: any) => Promise<unknown>, options: any) =>
+      probe.time('transactionInclusive', () => actual.withCompanyBackupTransaction(async tx => {
+        const wrapped = new Proxy(tx, {
+          get(target, key) {
+            const value = Reflect.get(target, key);
+            if (typeof value === 'function') return value.bind(target);
+            if (!value || typeof value !== 'object') return value;
+            return new Proxy(value, {
+              get(delegate, method) {
+                const call = Reflect.get(delegate, method);
+                if (typeof call !== 'function') return call;
+                return (...args: unknown[]) => probe.time(`sql.${String(key)}.${String(method)}`,
+                  () => call.apply(delegate, args));
+              },
+            });
+          },
+        });
+        return run(wrapped);
+      }, options)),
+  };
+});
 
 vi.mock('@/lib/logger', () => ({ logger: { slowQuery: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } }));
 vi.mock('@/lib/metrics', () => ({ trackQueryDuration: vi.fn() }));
@@ -260,6 +336,8 @@ for (const size of SIZES) {
       let outcome = '';
       let detail = '';
       let operationId: string | null = null;
+      probe.spans = {};
+      probe.active = true;
       const tRestore = performance.now();
       try {
         const result = await restoreCompanyBackupCoordinated(companyId, text, mode);
@@ -273,24 +351,44 @@ for (const size of SIZES) {
         outcome = /^([A-Z][A-Z0-9_]+):/.exec(message)?.[1] ?? 'thrown';
         detail = message;
       }
-      const residualMs = restoreMs - validateMs - publishMs;
+      probe.active = false;
+      // Standalone validation/publication are contextual measurements, NOT spans
+      // subtracted from the restore: the real call repeats them internally.
 
       const inserted = Object.entries(tables).filter(([model]) => !NOT_INSERTED.includes(model));
       const rowsByTable = Object.fromEntries(inserted.map(([model, rows]) => [model, rows.length]));
       const rows = inserted.reduce((total, [, modelRows]) => total + modelRows.length, 0);
 
+      const persistedCounts: Record<string, number> = {};
+      if (outcome === 'committed') {
+        const restored = await buildSnapshotText(companyId);
+        const actualTables = validateRestoreSource(companyId, restored.text, {
+          recovery: 'portable',
+          authenticatedDigest: crypto.createHash('sha256').update(restored.text, 'utf8').digest('hex'),
+        }).tables;
+        for (const [model, sourceRows] of inserted) {
+          // Restore adds an operational audit receipt; source AuditLog is empty
+          // in this synthetic fixture. Report it, but do not call it payload data.
+          persistedCounts[model] = actualTables[model].length;
+          if (model !== 'AuditLog') expect(persistedCounts[model], model).toBe(sourceRows.length);
+        }
+      }
       const settlement = await settleMaintenance(companyId, operationId);
 
       // The one required line: exactly this shape, one per size.
       console.log(JSON.stringify({
         size, rows,
         validateMs: round(validateMs), publishMs: round(publishMs), restoreMs: round(restoreMs),
-        residualMs: round(residualMs), outcome,
+        outcome,
+        spansInclusive: Object.fromEntries(Object.entries(probe.spans).map(([name, span]) =>
+          [name, { ...span, ms: round(span.ms) }])),
+        expectedPayloadCounts: rowsByTable, persistedCounts,
+        countsVerified: outcome === 'committed',
       }));
       console.log(`# size=${size} seeded=${JSON.stringify({ entries: seeded.entries, lines: seeded.lines, glAccounts: seeded.glCount, bankAccounts: seeded.bankCount, bankStatements: seeded.bankCount, members: 1, users: 1 })}`
         + ` rowsByTable=${JSON.stringify(rowsByTable)}`
         + ` payloadBytes=${payloadBytes} safetyBytes=${Buffer.byteLength(safetyText, 'utf8')}`
-        + ` safetyCaptureMs=${round(safetyCaptureMs)} msPerResidualRow=${rows ? round(residualMs / rows) : 0}`
+        + ` standaloneSafetyCaptureMs=${round(safetyCaptureMs)}`
         + ` insertedExtras=journalChainHead+auditReceipt settlement=${settlement} detail=${JSON.stringify(detail)}`);
     } finally {
       await purge(raw, companyId, userId);

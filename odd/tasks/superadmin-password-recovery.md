@@ -161,3 +161,21 @@ L5. Analysis result closing D1: mail configuration is environment-only, there is
 DB-stored mail setting, and no endpoint exposes availability. Detection therefore
 belongs inside the endpoint via the existing factory, not in a separate diagnostic
 and never by reading `.env` from code or tooling.
+
+L6. Implementation and verification (commit f6bb5cc, 15 files, 814 insertions).
+- Token rules covered by tests/bootstrap-recovery/password-reset-token.test.ts
+  (7 cases: eligibility, replacement, single use, replay, expiry, session
+  closure, malformed token).
+- Route contract covered by tests/bootstrap-recovery/password-reset-routes.test.ts
+  (5 cases: S10 no-transport message with no token issued; S3 identical status
+  and body across unknown/ordinary/unverified/owner plus exactly one mail to the
+  owner; S9 discarded and successful requests audited without token material).
+- tsc --noEmit exit 0; bootstrap-recovery suite 43 files / 449 tests exit 0.
+- NOT PROVEN: a real mail delivery and the link click. This installation has no
+  SMTP or relay configured, and no test fabricates one. The flow that sends the
+  message is exercised only through a stubbed transport.
+- Incident during implementation: a delegated worker rewrote prisma/schema.prisma
+  down to 12 lines (43 models lost). Detected before commit and restored from
+  HEAD; the model was re-added as 17 appended lines and `prisma validate` passes
+  with 44 models. Two consecutive worker runs then failed with no report, so the
+  implementation was completed inline under direct supervision.

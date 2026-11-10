@@ -71,6 +71,18 @@ vi.mock('@prisma/client', async importOriginal => {
         findMany: (query: any) => Promise.resolve(read(query)),
         findUnique: (query: any) => Promise.resolve(read(query)[0] ?? null),
         create: async ({ data }: any) => { state.writes.push([model, data]); (state.rows[model] ??= []).push(store(data)); return data; },
+        // The batched restore path inserts JournalEntry/JournalLine with
+        // createMany. Record every row exactly like create so the fidelity
+        // assertions still observe each written value, and report the count the
+        // production code checks.
+        createMany: async ({ data }: any) => {
+          const rows = Array.isArray(data) ? data : [data];
+          for (const row of rows) {
+            state.writes.push([model, row]);
+            (state.rows[model] ??= []).push(store(row));
+          }
+          return { count: rows.length };
+        },
         update: async ({ where, data }: any) => { state.writes.push([model, data]); Object.assign(state.rows[model].find(r => r.id === where.id), store(data)); },
         deleteMany: async ({ where }: any) => { state.writes.push([model, where]); const ids = queryRows(state.rows, model, { where }).map(r => r.id ?? r.companyId); state.rows[model] = state.rows[model].filter(r => !ids.includes(r.id ?? r.companyId)); },
       };

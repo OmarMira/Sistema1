@@ -9,11 +9,9 @@ import { hashPassword } from '@/lib/auth';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { createMaintenanceGate } from '@/lib/backup-maintenance.mjs';
-import { RUNTIME_DIR } from '@/lib/config/paths';
+import { BACKUP_DIR, RUNTIME_DIR } from '@/lib/config/paths';
 import fs from 'fs';
 import path from 'path';
-
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
 
 function cleanTestBackups(filenames: string[]) {
   for (const name of filenames) {

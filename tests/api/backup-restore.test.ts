@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { POST as backupPOST, GET as backupGET, DELETE as backupDELETE } from '../../src/app/api/backup/route';
 import { POST as restorePOST } from '../../src/app/api/backup/restore/route';
-import { validateBackup } from '../../src/lib/backup';
+import { validateBackup, getBackupFile } from '../../src/lib/backup';
 import { appendEntryToJournalChain } from '@/lib/journal-chain';
 import { createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction, createTestJournalEntry, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
@@ -86,16 +86,34 @@ async function createTestFixture(companyId: string) {
 }
 
 /**
- * S7: creating a backup requires the administrator to re-enter their password.
- * These suites keep their original assertions; only the credential the new
- * contract demands is supplied here.
+ * S7: creating a backup requires the administrator to re-enter their password,
+ * and the SERVER resolves the owner from its own records: only an ACTIVE,
+ * VERIFIED `super_admin` of this company can be certified (anything else answers
+ * 409 RECOVERY_OWNER_MISSING). These suites keep their original assertions; only
+ * the credential and the owner identity the new contract demands are supplied
+ * here.
  */
 const OWNER_PASSWORD = 'Clave.Backup.2026';
 
 async function createAdministrator(email: string) {
   const user = await createTestUser(email);
-  await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword(OWNER_PASSWORD) } });
+  await db.user.update({
+    where: { id: user.id },
+    data: { passwordHash: await hashPassword(OWNER_PASSWORD), platformRole: 'super_admin' },
+  });
   return user;
+}
+
+/**
+ * The POST answer carries the encrypted PORTABLE file (the owner-verified
+ * artifact a first installation restores); the in-app restore consumes the
+ * internal snapshot the installation keeps. This reads that stored snapshot
+ * through the production accessor so the fixture never hand-builds a payload.
+ */
+function storedSnapshotBase64(filename: string): string {
+  const stored = getBackupFile(filename);
+  if (!stored) throw new Error(`Backup ${filename} is not stored`);
+  return Buffer.from(stored.data, 'utf-8').toString('base64');
 }
 
 describe('POST /api/backup + POST /api/backup/restore', () => {
@@ -192,7 +210,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     expect(backupBody.recordCounts.journalEntries).toBe(1);
     createdBackups.push(backupBody.filename);
 
-    const backupData = backupBody.data;
+    const backupData = storedSnapshotBase64(backupBody.filename);
 
     // Delete only the child data that restore can recreate (keep company + user for auth)
     // Order matters: FK-sensitive children first
@@ -222,7 +240,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ data: backupData, ownerPassword: OWNER_PASSWORD }),
+      body: JSON.stringify({ data: backupData }),
     });
     const restoreRes = await restorePOST(restoreReq, { params: Promise.resolve({}) });
     expect(restoreRes.status).toBe(200);
@@ -305,7 +323,7 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ data: backupBody.data, ownerPassword: OWNER_PASSWORD }),
+      body: JSON.stringify({ data: storedSnapshotBase64(backupBody.filename) }),
     });
     const restoreRes = await restorePOST(restoreReq, { params: Promise.resolve({}) });
     expect(restoreRes.status).toBe(400);

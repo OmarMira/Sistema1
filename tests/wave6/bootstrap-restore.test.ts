@@ -55,10 +55,42 @@ import {
   createTestUser,
 } from '../helpers/factories';
 import { POST as bootstrapRestorePOST } from '@/app/api/bootstrap/restore/route';
+import { BACKUP_DIR } from '@/lib/config/paths';
 
 const RECOVERY_PASSWORD = 'Recuperacion!2026';
 const OWNER_EMAIL = 'bootstrap.restore.owner@example.com';
-const BACKUP_DIR = path.join(process.cwd(), 'db', 'backups');
+
+/**
+ * The public route's fail-closed refusal is "no mail channel configured". An
+ * ambient developer environment may carry SMTP_* values, which would make the
+ * route send a REAL email (with a live recovery token) and hide exactly the
+ * contract pinned here, so this suite owns the whole mail configuration.
+ */
+const MAIL_ENV_KEYS = [
+  'ACCOUNTEXPRESS_MAIL_MODE',
+  'SMTP_HOST',
+  'SMTP_PORT',
+  'SMTP_SECURE',
+  'SMTP_USER',
+  'SMTP_PASS',
+  'SMTP_FROM',
+  'SMTP_FROM_NAME',
+] as const;
+const savedMailEnv = new Map<string, string | undefined>();
+function clearMailEnv() {
+  for (const key of MAIL_ENV_KEYS) {
+    savedMailEnv.set(key, process.env[key]);
+    delete process.env[key];
+  }
+}
+function restoreMailEnv() {
+  for (const key of MAIL_ENV_KEYS) {
+    const value = savedMailEnv.get(key);
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+  savedMailEnv.clear();
+}
 
 /**
  * The fixture database exists only for these suites, but earlier files in the
@@ -239,6 +271,7 @@ describe('portable owner-verified recovery (first install)', () => {
   let source: Awaited<ReturnType<typeof createSourceBackup>>;
 
   beforeEach(async () => {
+    clearMailEnv();
     await wipeDatabase();
     source = await createSourceBackup();
     currentSourceCompanyId = source.company.id;
@@ -249,6 +282,7 @@ describe('portable owner-verified recovery (first install)', () => {
   afterEach(() => {
     collectPublishedBackups(currentSourceCompanyId);
     forgetPublishedBackups();
+    restoreMailEnv();
   });
 
   it('exports an encrypted portable file and keeps the internal catalog entry', async () => {

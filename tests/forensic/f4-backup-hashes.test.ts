@@ -13,6 +13,10 @@ import {
   createTestCompanyMember,
   clearDatabase,
 } from '../helpers/factories';
+import { openPortableSnapshot, seedVerifiedOwner } from '../helpers/backup-owner';
+
+const OWNER_PASSWORD = 'Clave.F4Hash.2026';
+const OWNER_EMAIL = 'f4-hash-owner@example.com';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
@@ -68,6 +72,9 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
     await db.user.update({ where: { id: user.id }, data: { passwordHash: realHash } });
     const company = await createTestCompany('Backup Hash Corp');
     await createTestCompanyMember(user.id, company.id);
+    // A backup certifies the owner the SERVER resolves: an active, verified
+    // `super_admin` member of this company, whose password the export re-asks.
+    const owner = await seedVerifiedOwner(company.id, { email: OWNER_EMAIL, password: OWNER_PASSWORD });
     createdCompanyIds.add(company.id);
     diskTestCompanyIds.add(company.id);
 
@@ -79,8 +86,8 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        // S7: creation is sudo-style — the administrator re-enters their password.
-        body: JSON.stringify({ password: 'SuperSecret!2026' }),
+        // S7: creation is sudo-style — the owner password is re-entered.
+        body: JSON.stringify({ password: OWNER_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );
@@ -88,11 +95,13 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
     log('POST /api/backup: status =', res.status, '| filename =', body.filename, '| size =', body.size);
     expect(res.status).toBe(200);
 
-    const backupData = JSON.parse(Buffer.from(body.data, 'base64').toString('utf-8'));
-    const backupUser = backupData.data.users.find((u: { id: string }) => u.id === user.id);
+    const payload = openPortableSnapshot(body.data, owner, 'Backup Hash Corp');
+    const backupUser = payload.snapshot.data.users.find((u: { id: string }) => u.id === user.id);
     log('BACKUP PAYLOAD: user passwordHash present =', Boolean(backupUser?.passwordHash));
     expect(backupUser).toBeDefined();
     expect(backupUser.passwordHash).toBeUndefined();
+    // The transported bytes never carry the hash in any form.
+    expect(Buffer.from(body.data, 'base64').toString('utf-8')).not.toContain(realHash);
 
     const dbHashAfter = await db.user.findUnique({ where: { id: user.id }, select: { passwordHash: true } });
     log('DB HASH AFTER EXPORT: unchanged =', dbHashAfter?.passwordHash === realHash);
@@ -105,6 +114,7 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
     await db.user.update({ where: { id: user.id }, data: { passwordHash: realHash } });
     const company = await createTestCompany('Backup Hash Corp');
     await createTestCompanyMember(user.id, company.id);
+    await seedVerifiedOwner(company.id, { email: OWNER_EMAIL, password: OWNER_PASSWORD });
     createdCompanyIds.add(company.id);
     diskTestCompanyIds.add(company.id);
 
@@ -113,8 +123,8 @@ describe('F-4 — Backup no longer exports user passwordHash (remediation)', () 
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        // S7: creation is sudo-style — the administrator re-enters their password.
-        body: JSON.stringify({ password: 'AnotherSecret!2026' }),
+        // S7: creation is sudo-style — the owner password is re-entered.
+        body: JSON.stringify({ password: OWNER_PASSWORD }),
       }),
       { params: Promise.resolve({}) },
     );

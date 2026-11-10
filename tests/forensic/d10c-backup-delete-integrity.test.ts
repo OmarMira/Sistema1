@@ -8,6 +8,7 @@ import { hashPassword } from '@/lib/auth';
 import { POST as backupPOST, DELETE as backupDELETE } from '@/app/api/backup/route';
 import { createBackup } from '@/lib/backup';
 import { BACKUP_DIR } from '@/lib/config/paths';
+import { seedVerifiedOwner } from '../helpers/backup-owner';
 import {
   createTestUser,
   createTestCompany,
@@ -33,10 +34,10 @@ function readManifestFile(): { backups: Array<{ filename: string; companyId: str
 const createdFilenames = new Set<string>();
 
 /**
- * S7 — every backup carries the creating administrator's credential: the HTTP
- * route verifies the re-entered password, and the library primitive requires it
- * so a snapshot nobody can prove ownership of is never published. The DELETE
- * integrity contract under test is unchanged.
+ * S7 — a portable backup certifies the owner the server resolves from its own
+ * records (an active, verified `super_admin` member of the company), and the
+ * HTTP route asks for that owner's password. The DELETE integrity contract under
+ * test is unchanged.
  */
 const ADMIN_PASSWORD = 'Clave.D10C.2026';
 
@@ -97,6 +98,8 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
       data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
     });
     await createTestCompanyMember(adminA.id, tenantA.id);
+    // The proven owner of tenantA's backups (used by the POST control below).
+    await seedVerifiedOwner(tenantA.id, { email: 'owner-a-d10c@example.com', password: ADMIN_PASSWORD });
 
     viewerA = await createTestUser('viewer-a-d10c@example.com');
     await db.companyMember.create({ data: { userId: viewerA.id, companyId: tenantA.id, role: 'viewer' } });
@@ -130,7 +133,7 @@ describe('D10-C — Backup DELETE: path integrity + tenant ownership + role gate
   });
 
   async function materializeBackup(companyId: string, note = ''): Promise<string> {
-    const backup = await createBackup(companyId, undefined, { ownerPassword: ADMIN_PASSWORD });
+    const backup = await createBackup(companyId, undefined);
     trackCreatedFile(backup.filename);
     return backup.filename;
   }

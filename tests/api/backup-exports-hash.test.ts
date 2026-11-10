@@ -8,6 +8,7 @@ import { createSession } from '@/lib/sessions';
 import { hashPassword } from '@/lib/auth';
 import { POST as backupPOST } from '@/app/api/backup/route';
 import { createTestUser, createTestCompany, createTestCompanyMember, clearDatabase } from '../helpers/factories';
+import { openPortableSnapshot, seedVerifiedOwner, type SeededOwner } from '../helpers/backup-owner';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
@@ -16,8 +17,10 @@ const diskTestCompanyIds = new Set<string>();
 
 /**
  * S7 — POST /api/backup is sudo-style: the authenticated administrator re-enters
- * their own password. This suite is about what a CREATED backup contains, so the
- * fixture administrator has a real password and the request carries it.
+ * the password of the backup OWNER, which the server resolves from its own
+ * records (an active, verified `super_admin` of this company). This suite is
+ * about what a CREATED backup contains, so it seeds that proven owner and every
+ * POST /api/backup carries its password.
  */
 const ADMIN_PASSWORD = 'Clave.F4.2026';
 
@@ -28,6 +31,10 @@ async function createBackupAdmin(email: string) {
     data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
   });
   return user;
+}
+
+async function seedOwner(companyId: string): Promise<SeededOwner> {
+  return seedVerifiedOwner(companyId, { email: 'f4-owner@example.com', password: ADMIN_PASSWORD });
 }
 
 function backupRequest(companyId: string, token: string): NextRequest {
@@ -79,6 +86,7 @@ describe('F-4 — created backups must not export user passwordHash (remediation
     const user = await createBackupAdmin('f4-q1@example.com');
     const company = await createTestCompany('F4 Q1 Co');
     await createTestCompanyMember(user.id, company.id);
+    const owner = await seedOwner(company.id);
     diskTestCompanyIds.add(company.id);
     const token = await createSession(user.id);
 
@@ -86,7 +94,10 @@ describe('F-4 — created backups must not export user passwordHash (remediation
     const res = await backupPOST(req, { params: Promise.resolve({}) });
     const body = await res.json();
 
-    const backupData = JSON.parse(Buffer.from(body.data, 'base64').toString('utf-8'));
+    // The response is the encrypted portable file: it is opened the way a
+    // restoring installation does, with the owner password + resolved identity.
+    const payload = openPortableSnapshot(body.data, owner, 'F4 Q1 Co');
+    const backupData = payload.snapshot;
     const leaked = backupData.data.users.filter((u: Record<string, unknown>) => 'passwordHash' in u);
     const stored = await db.user.findUnique({ where: { id: user.id } });
 
@@ -94,19 +105,22 @@ describe('F-4 — created backups must not export user passwordHash (remediation
     log('Q1: users with a passwordHash field in the backup =', leaked.length, '| DB hash exists =', stored?.passwordHash ? 'yes' : 'no');
     expect(res.status).toBe(200);
     expect(leaked).toHaveLength(0);
+    // The transported bytes never carry the hash in any form.
+    expect(Buffer.from(body.data, 'base64').toString('utf-8')).not.toContain(stored!.passwordHash!);
   });
 
   it('Q2 (control): the backup still contains essential user data (email, role)', async () => {
     const user = await createBackupAdmin('f4-q2@example.com');
     const company = await createTestCompany('F4 Q2 Co');
     await createTestCompanyMember(user.id, company.id);
+    const owner = await seedOwner(company.id);
     diskTestCompanyIds.add(company.id);
     const token = await createSession(user.id);
 
     const req = backupRequest(company.id, token);
     const res = await backupPOST(req, { params: Promise.resolve({}) });
     const body = await res.json();
-    const backupData = JSON.parse(Buffer.from(body.data, 'base64').toString('utf-8'));
+    const backupData = openPortableSnapshot(body.data, owner, 'F4 Q2 Co').snapshot;
     const userRecord = backupData.data.users.find((u: Record<string, unknown>) => u.email === 'f4-q2@example.com');
 
     log('Q2: user record in backup -> email =', userRecord?.email, '| role =', userRecord?.role, '| has passwordHash key =', 'passwordHash' in (userRecord ?? {}));
@@ -119,13 +133,14 @@ describe('F-4 — created backups must not export user passwordHash (remediation
     const user = await createBackupAdmin('f4-q3@example.com');
     const company = await createTestCompany('F4 Q3 Co');
     await createTestCompanyMember(user.id, company.id);
+    const owner = await seedOwner(company.id);
     diskTestCompanyIds.add(company.id);
     const token = await createSession(user.id);
 
     const req = backupRequest(company.id, token);
     const res = await backupPOST(req, { params: Promise.resolve({}) });
     const body = await res.json();
-    const backupData = JSON.parse(Buffer.from(body.data, 'base64').toString('utf-8'));
+    const backupData = openPortableSnapshot(body.data, owner, 'F4 Q3 Co').snapshot;
 
     log('Q3: manifest.recordCounts.users =', backupData.manifest.recordCounts.users, '| users array length =', backupData.data.users.length);
     expect(res.status).toBe(200);

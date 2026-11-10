@@ -6,15 +6,25 @@ const mockSystemConfig: Array<{ key: string; value: string }> = [];
 let mockCompany: Record<string, unknown> | null = null;
 let mockUUID = '00000000-0000-0000-0000-000000000000';
 const mockFSFiles: Record<string, string> = {};
-const mockFSSync = {
-  existsSync: false,
-  readFileSync: '',
+
+/** The fixture filesystem is EMPTY: no runtime company config and no stored
+ * backup. A real absence is an ENOENT fault, which is what the storage layer
+ * treats as "not there" (returning an empty string is malformed JSON instead). */
+function enoent(what: string): NodeJS.ErrnoException {
+  const error = new Error(`ENOENT: no such file or directory, ${what}`) as NodeJS.ErrnoException;
+  error.code = 'ENOENT';
+  return error;
+}
+const statResult = {
+  isSymbolicLink: () => false,
+  isFile: () => true,
+  isDirectory: () => true,
 };
 
 // ─── Mocks (hoisted by vitest) ───────────────────────────────────────────
 
 vi.mock('@/lib/db', () => {
-  const db = {
+  const known = {
     company: {
       findUnique: vi.fn(() => Promise.resolve(mockCompany)),
     },
@@ -48,7 +58,22 @@ vi.mock('@/lib/db', () => {
     // head (fully covered against real PostgreSQL by tests/forensic/jh2-*).
     journalChainHead: { findUnique: vi.fn(() => Promise.resolve(null)) },
   };
-  return { db, withCompanyBackupTransaction: (callback: (tx: typeof db) => unknown) => callback(db) };
+  // Every model this fixture does not name explicitly is an empty, read-only
+  // table. The unit under test is the AI-config exclusion of createBackup
+  // (the snapshot itself is covered against real PostgreSQL elsewhere), and
+  // enumerating every Prisma model here only breaks again on the next addition.
+  const db = new Proxy(known as Record<string, unknown>, {
+    get(target, property, receiver) {
+      if (!(property in target)) {
+        target[property as string] = {
+          findMany: vi.fn(() => Promise.resolve([])),
+          findUnique: vi.fn(() => Promise.resolve(null)),
+        };
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  return { db, withCompanyBackupTransaction: (callback: (tx: unknown) => unknown) => callback(db) };
 });
 
 vi.mock('@/lib/logger', () => ({
@@ -61,28 +86,39 @@ vi.mock('@/lib/constants/ai-config', () => ({
   },
 }));
 
-vi.mock('crypto', () => ({
-  default: {
-    randomUUID: vi.fn(() => mockUUID),
-  },
-  randomUUID: vi.fn(() => mockUUID),
-}));
+// Only the UUID is pinned: the snapshot seal is real cryptography in the unit
+// under test, so every other primitive must stay the genuine one.
+vi.mock('crypto', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('crypto')>();
+  const randomUUID = vi.fn(() => mockUUID);
+  return {
+    ...actual,
+    default: { ...actual, randomUUID },
+    randomUUID,
+  };
+});
 
-vi.mock('fs', () => ({
-  default: {
-    existsSync: vi.fn(() => mockFSSync.existsSync),
-    readFileSync: vi.fn(() => mockFSSync.readFileSync),
+vi.mock('fs', () => {
+  const fs = {
+    existsSync: vi.fn(() => false),
+    readFileSync: vi.fn(() => { throw enoent('open'); }),
+    readdirSync: vi.fn(() => { throw enoent('scandir'); }),
     writeFileSync: vi.fn(() => undefined),
     mkdirSync: vi.fn(() => undefined),
-  },
-  existsSync: vi.fn(() => mockFSSync.existsSync),
-  readFileSync: vi.fn(() => mockFSSync.readFileSync),
-  writeFileSync: vi.fn(() => undefined),
-  mkdirSync: vi.fn(() => undefined),
-}));
+    lstatSync: vi.fn(() => statResult),
+    openSync: vi.fn(() => 1),
+    fsyncSync: vi.fn(() => undefined),
+    closeSync: vi.fn(() => undefined),
+    linkSync: vi.fn(() => undefined),
+    renameSync: vi.fn(() => undefined),
+    unlinkSync: vi.fn(() => undefined),
+  };
+  return { default: fs, ...fs };
+});
 
 vi.mock('@/lib/config/paths', () => ({
   RUNTIME_FILES: { companyConfig: '/fake/company-config.json' },
+  BACKUP_DIR: '/fake/backups',
 }));
 
 // ─── Test ────────────────────────────────────────────────────────────────
@@ -98,22 +134,24 @@ describe('createBackup AI config protection', () => {
       { key: 'normal_setting', value: 'keep-me' },
     );
     mockUUID = '11111111-1111-1111-1111-111111111111';
-    mockFSSync.existsSync = false;
-    mockFSSync.readFileSync = '';
     Object.keys(mockFSFiles).forEach((k) => delete mockFSFiles[k]);
     vi.clearAllMocks();
   });
 
-  it('omits AI config keys from backup output systemConfig (createBackup con implementación real, dependencias mockeadas)', async () => {
+  it('never exports systemConfig, so no AI secret can reach the backup file', async () => {
     const { createBackup } = await import('@/lib/backup');
     const result = await createBackup('test-company');
 
     const raw = Buffer.from(result.data, 'base64').toString('utf-8');
     const backupData = JSON.parse(raw);
 
-    expect(backupData.data.systemConfig).toHaveLength(1);
-    expect(backupData.data.systemConfig[0].key).toBe('normal_setting');
-    expect(backupData.data.systemConfig[0].value).toBe('keep-me');
-    expect(result.recordCounts.systemConfig).toBe(1);
+    // Current contract: global configuration is never company-restorable state,
+    // so the whole section is excluded — which subsumes the AI-key exclusion
+    // (the fixture still seeds the secret keys to prove they cannot reappear).
+    expect(backupData.data.systemConfig).toEqual([]);
+    expect(result.recordCounts.systemConfig).toBe(0);
+    const exported = raw.includes('should-be-excluded') || raw.includes('keep-me');
+    expect(exported).toBe(false);
+    expect(raw).not.toContain('ai_encrypted_key');
   });
 });

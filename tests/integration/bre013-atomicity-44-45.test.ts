@@ -140,89 +140,11 @@ describe('4.4 - Apply atomicity on duplicate idempotencyKey (engine integration,
   });
 });
 
-describe('4.5 - Rollback atomicity on nonexistent userId during RULE_REVERTED audit (service integration, accountexpress_test)', () => {
-  beforeEach(async () => {
-    await clearDatabase();
-  });
-
-  afterEach(async () => {
-    await clearDatabase();
-  });
-
-  it('P2003 on auditLog.create rolls back void, recalc, unlink, and CAS; record stays applied', async () => {
-    const { user, company, expenseGl, bankGl, transaction, rule } = await seedJournaledScenario();
-
-    // Build a REAL applied state first: classification + journal + links + balances.
-    const matchResult = await matchTransactions(company.id);
-    expect(matchResult.totalCount).toBe(1);
-
-    const applied = await db.$transaction(async (tx) =>
-      executeApplyAll(company.id, tx, matchResult, {
-        userId: user.id,
-        origin: 'batch',
-      }),
-    );
-    expect(applied.applyRecordId).toBeTruthy();
-    expect(applied.journalEntryCount).toBe(1);
-    const recordId = applied.applyRecordId!;
-
-    const journal = await db.journalEntry.findFirstOrThrow({ where: { ruleApplyRecordId: recordId } });
-    const journalId = journal.id;
-    expect(journal.status).toBe('posted');
-
-    const dbTx = await db.bankTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
-    expect(dbTx.ruleApplyRecordId).toBe(recordId);
-    expect(dbTx.glAccountId).toBe(expenseGl.id);
-    expect(dbTx.matchedRuleId).toBe(rule.id);
-    expect(dbTx.journalEntryId).toBe(journalId);
-
-    const appliedExpense = await db.glAccount.findUniqueOrThrow({ where: { id: expenseGl.id } });
-    const appliedBank = await db.glAccount.findUniqueOrThrow({ where: { id: bankGl.id } });
-    expect(Number(appliedExpense.balance)).not.toBe(0);
-    expect(Number(appliedBank.balance)).not.toBe(0);
-
-    // Revert with a nonexistent userId → P2003 inside the audit step, after
-    // void/recalc/unlink/CAS. The whole transaction must roll back.
-    let thrown: unknown;
-    await revertApplyRecord(company.id, recordId, NONEXISTENT_USER_ID).catch((error) => {
-      thrown = error;
-    });
-
-    // The digest surfaces as the ORIGINAL P2003 (FK violation) on the first
-    // audit attempt, but createAuditLogWithRetry treats P2003 as transient and
-    // retries inside a transaction that is already aborted, so the surfaced
-    // error is the postgres "current transaction is aborted" (25P02) wrapped
-    // as PrismaClientUnknownRequestError. Either way the transaction rolled back.
-    expect(thrown).toBeTruthy();
-    const thrownMessage = (thrown as Error).message ?? '';
-    expect(thrownMessage).toMatch(/current transaction is aborted|Foreign key constraint/);
-
-    // RuleApplyRecord still applied.
-    const recordAfter = await db.ruleApplyRecord.findUniqueOrThrow({ where: { id: recordId } });
-    expect(recordAfter.state).toBe('applied');
-
-    // Journal still posted.
-    const journalAfter = await db.journalEntry.findUniqueOrThrow({ where: { id: journalId } });
-    expect(journalAfter.status).toBe('posted');
-
-    // BankTransaction keeps its classification and links.
-    const txAfter = await db.bankTransaction.findUniqueOrThrow({ where: { id: transaction.id } });
-    expect(txAfter.ruleApplyRecordId).toBe(recordId);
-    expect(txAfter.glAccountId).toBe(expenseGl.id);
-    expect(txAfter.matchedRuleId).toBe(rule.id);
-    expect(txAfter.journalEntryId).toBe(journalId);
-
-    // Balances identical to the applied snapshot (no partial recalc persisted).
-    const expenseAfter = await db.glAccount.findUniqueOrThrow({ where: { id: expenseGl.id } });
-    const bankAfter = await db.glAccount.findUniqueOrThrow({ where: { id: bankGl.id } });
-    expect(Number(expenseAfter.balance)).toBe(Number(appliedExpense.balance));
-    expect(Number(bankAfter.balance)).toBe(Number(appliedBank.balance));
-
-    // No RULE_REVERTED audit events, no partial effects.
-    const revertAudits = await db.auditLog.count({
-      where: { action: 'RULE_REVERTED', entityId: recordId },
-    });
-    expect(revertAudits).toBe(0);
-    expect(await db.journalLine.count({ where: { entry: { companyId: company.id } } })).toBe(2);
-  });
-});
+//
+// 4.5 - removed: it asserted a rollback triggered by a nonexistent AuditLog.userId,
+// which depended on the AuditLog foreign key to User. Migration
+// 20261109010000_immutable_audit_user_reference removed every AuditLog foreign key on
+// purpose (retained history must survive user deletion), so that failure can never
+// occur and the premise is gone. The replacement coverage for audit-write rollback
+// must inject a real database failure instead; tracked in docs/backup-consolidation-record.md.
+//

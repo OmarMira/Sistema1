@@ -17,6 +17,7 @@ import {
 } from '../helpers/factories';
 import config from '../../rules/rbac-config.json';
 import { BACKUP_DIR } from '@/lib/config/paths';
+import { seedVerifiedOwner } from '../helpers/backup-owner';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE]', ...args);
 
@@ -27,9 +28,10 @@ const createdCompanyIds = new Set<string>();
 const diskTestCompanyIds = new Set<string>();
 
 /**
- * S7 — POST /api/backup is sudo-style: the authenticated company_admin must
- * re-enter their own password. The RBAC contract under test is unchanged; the
- * fixture administrator simply has a real password and supplies it.
+ * S7 — POST /api/backup is sudo-style: the password re-entered is the one of the
+ * backup OWNER the server resolves from its own records (an active, verified
+ * `super_admin` of this company). The RBAC contract under test is unchanged; the
+ * fixture seeds that proven owner and supplies its password.
  */
 const ADMIN_PASSWORD = 'Clave.RBAC.2026';
 
@@ -730,6 +732,10 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
     });
     const company = await createTestCompany('RBAC Test Corp');
     await createTestCompanyMember(user.id, company.id);
+    const owner = await seedVerifiedOwner(company.id, {
+      email: 'owner-backup-f3@example.com',
+      password: ADMIN_PASSWORD,
+    });
     createdCompanyIds.add(company.id);
     diskTestCompanyIds.add(company.id);
 
@@ -738,7 +744,7 @@ describe('F-3 — Sensitive routes enforce CompanyMember.role server-side (regre
       new NextRequest(`http://localhost/api/backup?companyId=${company.id}`, {
         method: 'POST',
         headers: authHeaders(token),
-        body: JSON.stringify({ password: ADMIN_PASSWORD }),
+        body: JSON.stringify({ password: owner.password }),
       }),
       { params: Promise.resolve({}) },
     );

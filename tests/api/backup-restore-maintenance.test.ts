@@ -9,6 +9,8 @@ import { createMaintenanceGate } from '@/lib/backup-maintenance.mjs';
 import { RUNTIME_DIR } from '@/lib/config/paths';
 import { createRecoveryJournal } from '@/lib/backup-recovery-journal';
 import { reconcileCompanyBackupRecovery } from '@/lib/backup-restore';
+import { getBackupFile } from '@/lib/backup';
+import { seedVerifiedOwner } from '../helpers/backup-owner';
 import { createSession } from '@/lib/sessions';
 import { hashPassword } from '@/lib/auth';
 import { db } from '@/lib/db';
@@ -41,8 +43,19 @@ const authHeaders = (token: string) => ({
   Authorization: `Bearer ${token}`,
 });
 
-/** Password of the administrator who creates and restores the fixture backups (S1/S2/S7). */
+/** Password of the backup OWNER the server resolves from its own records (S1/S2/S7). */
 const ADMIN_PASSWORD = 'Clave.Mantenimiento.2026';
+
+/**
+ * The POST answer is the encrypted PORTABLE file; the in-app restore consumes
+ * the INTERNAL snapshot the installation keeps, read through the production
+ * accessor instead of hand-building a payload.
+ */
+function storedSnapshotBase64(filename: string): string {
+  const stored = getBackupFile(filename);
+  if (!stored) throw new Error(`Backup ${filename} is not stored`);
+  return Buffer.from(stored.data, 'utf-8').toString('base64');
+}
 
 function listRequest(companyId: string, token: string): NextRequest {
   return new NextRequest(`http://localhost/api/backup?companyId=${companyId}`, {
@@ -52,26 +65,32 @@ function listRequest(companyId: string, token: string): NextRequest {
 }
 
 function restoreRequest(companyId: string, token: string, data: string): NextRequest {
-  // S1/S2 — a restore must prove the credential of the administrator who created
-  // the backup, so the fixture supplies it; the maintenance transition contract
-  // under test is unchanged.
+  // The in-app restore consumes the installation's OWN internal snapshot (the
+  // portable file is the first-install artifact, not this door); the maintenance
+  // transition contract under test is unchanged.
   return new NextRequest(`http://localhost/api/backup/restore?companyId=${companyId}`, {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify({ data, ownerPassword: ADMIN_PASSWORD }),
+    body: JSON.stringify({ data }),
   });
 }
 
 async function seedCompanyWithBackupOwner(email: string) {
   const user = await createTestUser(email);
-  // S7 — creating a backup is sudo-style: the administrator re-enters their own
-  // password, so the fixture owner holds a real hash and supplies it below.
+  // S7 — creating a backup is sudo-style: the re-entered password is the one of
+  // the OWNER the server resolves (an active, verified `super_admin` member of
+  // this company), so the fixture user stays company_admin and the owner is
+  // seeded separately.
   await db.user.update({
     where: { id: user.id },
     data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
   });
   const company = await createTestCompany('Maintenance Transition Co');
   await createTestCompanyMember(user.id, company.id);
+  const owner = await seedVerifiedOwner(company.id, {
+    email: `owner-${email}`,
+    password: ADMIN_PASSWORD,
+  });
   const token = await createSession(user.id);
   await createTestGlAccount({
     companyId: company.id,
@@ -80,7 +99,7 @@ async function seedCompanyWithBackupOwner(email: string) {
     accountType: 'asset',
     normalBalance: 'debit',
   });
-  return { user, company, token };
+  return { user, company, token, owner };
 }
 
 const createdBackups: string[] = [];
@@ -138,9 +157,10 @@ describe('/api/backup/restore — maintenance transition', () => {
     // inside the restore transaction (the snapshot's member no longer matches).
     await db.user.update({ where: { id: user.id }, data: { email: 'maint-failed-changed@example.com' } });
 
-    const restoreRes = await restorePOST(restoreRequest(company.id, token, backup.data), {
-      params: Promise.resolve({}),
-    });
+    const restoreRes = await restorePOST(
+      restoreRequest(company.id, token, storedSnapshotBase64(backup.filename)),
+      { params: Promise.resolve({}) },
+    );
     const restoreBody = await restoreRes.json();
     expect(restoreRes.status).toBe(400);
     expect(restoreBody.code).toBe('VALIDATION_ERROR');
@@ -185,9 +205,10 @@ describe('/api/backup/restore — maintenance transition', () => {
       expect(fenced.status).toBe(503);
 
       // A new restore cannot take over the fence.
-      const retried = await restorePOST(restoreRequest(company.id, token, backup.data), {
-        params: Promise.resolve({}),
-      });
+      const retried = await restorePOST(
+        restoreRequest(company.id, token, storedSnapshotBase64(backup.filename)),
+        { params: Promise.resolve({}) },
+      );
       expect(retried.status).toBe(503);
 
       // Reconciliation without verifiable evidence keeps the fence closed.

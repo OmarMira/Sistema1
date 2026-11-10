@@ -7,6 +7,18 @@ import { SettingsPage } from '@/components/spa/SettingsPage';
 
 afterEach(() => cleanup());
 
+// jsdom implements no ResizeObserver, and the sidebar renders Radix tooltips,
+// which measure their content with one. The other component suites install the
+// same inline stub; without it the click that opens a tooltip throws outside the
+// assertion instead of exercising the tab switch.
+if (!('ResizeObserver' in globalThis)) {
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
+
 /* ── Mock stores ─────────────────────────────────────────────── */
 
 const tFn = (key: string) => key;

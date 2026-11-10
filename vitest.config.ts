@@ -25,6 +25,11 @@ export default defineConfig({
     // frozen review candidate views or other internal directories.
     exclude: ['**/node_modules/**', '**/.next/**', '**/dist/**', '**/.git/**', '**/.worktrees/**',
       'tests/installer/*.test.cjs', 'design/**',
+      // Dedicated harnesses with their own config: they refuse to run unless the
+      // disposable database is named exactly `accountexpress_bootstraptest`, and
+      // that guard must never be weakened to fit this suite's database.
+      'tests/startup-migrations/**',
+      'tests/portable-recovery-postgres/**',
       'tests/identity/challenge-concurrency.integration.test.ts',
       'tests/identity/independent-contract.integration.test.ts',
       'tests/identity/s7-acceptance.integration.test.ts',

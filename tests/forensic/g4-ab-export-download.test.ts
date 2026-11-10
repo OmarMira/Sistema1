@@ -4,7 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { db } from '@/lib/db';
 import { clearDatabase, createTestUser, createTestCompany, createTestCompanyMember, createTestGlAccount, createTestBankAccount, createTestBankStatement, createTestBankTransaction } from '../helpers/factories';
-import { createBackup as createRawBackup } from '@/lib/backup';
+import { createBackup as createRawBackup, portableRecoveryFilename } from '@/lib/backup';
+import { openPortableSnapshot, seedVerifiedOwner } from '../helpers/backup-owner';
 import { BACKUP_DIR } from '@/lib/config/paths';
 
 const log = (...args: unknown[]) => console.log('[EVIDENCE-G4-AB-EXPORT]', ...args);
@@ -29,13 +30,12 @@ const createdCompanyIds = new Set<string>();
 const diskTestCompanyIds = new Set<string>();
 
 /**
- * S7 — a published snapshot always carries the creating administrator's
- * credential (only its verifier, inside the sealed manifest). The export /
- * download isolation matrix under test is unchanged.
+ * S7 — the INTERNAL snapshot needs no credential (it is the installation's own
+ * copy). The portable file a download hands out is the owner-verified artifact,
+ * and that is where the owner password is required.
  */
 const ADMIN_PASSWORD = 'Clave.G4AB.2026';
-const createBackup = (companyId: string) =>
-  createRawBackup(companyId, undefined, { ownerPassword: ADMIN_PASSWORD });
+const createBackup = (companyId: string) => createRawBackup(companyId);
 
 const MANIFEST_PATH = path.join(BACKUP_DIR, 'manifest.json');
 
@@ -414,10 +414,16 @@ describe('G4-AB-EXPORT-DOWNLOAD — Export, download, report and backup matrix (
     expect(body.error).toBe('Forbidden');
   });
 
-  it('B: GET /api/backup/[filename] — owner downloads own backup (200 with base64 data + audit)', async () => {
+  it('B: GET /api/backup/[filename] — owner downloads own portable backup (200, encrypted file + audit)', async () => {
     const { tenantB, ownerB } = await seedTenants();
     const backup = await createBackup(tenantB.id);
     diskTestCompanyIds.add(tenantB.id);
+    // The download re-seals the stored snapshot into the portable container,
+    // which certifies the owner the server resolves from its own records.
+    const owner = await seedVerifiedOwner(tenantB.id, {
+      email: 'g4abex-backup-owner@example.com',
+      password: ADMIN_PASSWORD,
+    });
     mockGetSessionUserId.mockResolvedValue(ownerB.id);
 
     const filename = backup.filename;
@@ -425,18 +431,19 @@ describe('G4-AB-EXPORT-DOWNLOAD — Export, download, report and backup matrix (
     const res = await GET(
       new NextRequest(`http://localhost/api/backup/${filename}?companyId=${tenantB.id}`, {
         method: 'GET',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'x-backup-password': ADMIN_PASSWORD },
       }),
       { params: Promise.resolve({ filename }) },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.filename).toBe(filename);
-    expect(body.size).toBe(backup.size);
+    expect(body.filename).toBe(portableRecoveryFilename(filename));
+    expect(body.size).toBeGreaterThan(0);
     expect(body.data).toBeTruthy();
 
-    const decoded = Buffer.from(body.data, 'base64').toString('utf-8');
-    expect(decoded).toContain(tenantB.legalName);
+    const payload = openPortableSnapshot(body.data, owner, tenantB.legalName);
+    expect(payload.snapshot.manifest.companyInfo.legalName).toBe(tenantB.legalName);
+    expect(payload.snapshot.manifest.companyId).toBe(tenantB.id);
 
     const audit = await db.auditLog.findFirst({
       where: { companyId: tenantB.id, action: 'SECURITY_BACKUP_DOWNLOADED', entityId: filename },
@@ -444,6 +451,6 @@ describe('G4-AB-EXPORT-DOWNLOAD — Export, download, report and backup matrix (
     expect(audit).toBeTruthy();
     const details = JSON.parse(audit?.details ?? '{}');
     expect(details.contractVersion).toBe(1);
-    expect(details.size).toBe(backup.size);
+    expect(details.size).toBe(body.size);
   });
 });

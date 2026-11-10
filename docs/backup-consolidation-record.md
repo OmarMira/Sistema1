@@ -86,3 +86,38 @@ before sizing a new finite budget for the largest supported payload.
 
 Until that is implemented, a large restore can end in
 `RECOVERY_RECONCILIATION_REQUIRED` and leave maintenance closed by design.
+
+## Suites removed as obsolete contract
+
+These suites asserted the replaced design end to end and cannot be adapted without
+asserting something false about the current system. They are recoverable in full at
+the preservation references above.
+
+| Removed suite | Why it cannot survive |
+| --- | --- |
+| `tests/api/backup-ownership.test.ts` | Requires the ownership verifier sealed inside the snapshot manifest and `BACKUP_PASSWORD_REQUIRED`; the credential now lives in the AEAD container. |
+| `tests/api/restore-reanchor.test.ts` | Requires `RESTORE_REBASE` / `RESTORE_CHAIN` re-anchoring of an unrooted segment and `RESTORE_LEGACY_FORMAT`; those codes no longer exist. |
+| `tests/api/bootstrap-restore.test.ts` | Pins `RESTORE_LEGACY_FORMAT` / `RESTORE_CHAIN` messages of the removed sealed-snapshot flow. |
+| `tests/integration/bre013-atomicity-44-45.test.ts` (test `4.5` only) | Triggered a rollback through a nonexistent `AuditLog.userId`; migration `20261109010000_immutable_audit_user_reference` removed every AuditLog foreign key, so that failure is unreachable. Tests `4.4` stays. |
+
+Suites that pin *current* behavior were adapted instead of deleted: download
+authorization, export hashing, restore maintenance, RBAC server-side gates, backup
+delete integrity, bootstrap check, settings diagnostics visibility and the portable
+wave6 flow. A shared fixture helper (`tests/helpers/backup-owner.ts`) now seeds the
+proven owner the current contract requires.
+
+## Dedicated harnesses excluded from the application suite
+
+`tests/startup-migrations/**` and `tests/portable-recovery-postgres/**` refuse to run
+unless the disposable database is named exactly `accountexpress_bootstraptest`. That
+guard is deliberate and was not weakened; both run through their own configs and are
+excluded from the root application suite, which uses `accountexpress_test`.
+
+## Known defects found while adapting the suites (not fixed here)
+
+1. `src/lib/backup.ts` (`deleteBackup` → `readManifest` → `readCatalog`): DELETE reads the
+   **whole** catalog, so one unreadable backup belonging to **any** tenant turns another
+   tenant's DELETE into a 500 instead of the neutral 404 that `GET` already guarantees.
+   It reproduces only when stale residue exists, which is why a fresh CI database hides it.
+2. Audit-write rollback no longer has a database-level failure to inject (see `4.5` above).
+   Replacement coverage needs a genuine injected database failure.

@@ -6,7 +6,7 @@
  * backup, is VALIDATED against the restored members, and a new append continues
  * the RESTORED chain without inventing roots.
  *
- * Contract note (S2 / T1, pinned in tests/backup-company/restore.test.ts:444-448):
+ * Contract note (pinned in tests/bootstrap-recovery/legacy-format-fence.test.ts):
  * the legacy/bootstrap `restoreBackup` refuses 2.x snapshots on purpose — first
  * install ingestion of company archives is not enabled. Commerce with a
  * CURRENT backup therefore goes through the coordinated company recovery path
@@ -133,8 +133,8 @@ describe('JH2.12 — backup/restore chain continuity (BR1–BR12)', () => {
   beforeEach(async () => {
     await clearDatabase();
     // The recovery core certifies the INSTALLATION-WIDE audit chain before it
-    // replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN, pinned by
-    // tests/backup-company/restore.test.ts): a predecessor another tenant still
+    // replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN): a
+    // predecessor another tenant still
     // needs must never be deleted or re-signed. Other suites leave hashed
     // AuditLog rows behind (their tenant is gone, or the hash was sealed with a
     // stubbed HMAC secret) and such a row can never be certified, so the shared

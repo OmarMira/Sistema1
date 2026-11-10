@@ -19,6 +19,7 @@ import { toast } from 'sonner';
 import { downloadBackup } from '@/lib/backup-download';
 import { translateApiError } from '@/i18n/errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -86,6 +87,7 @@ export function portableDoorMessage(data: unknown, t: (key: string) => string): 
 
 export function BackupTab() {
   const t = useLanguageStore((s) => s.t);
+  const language = useLanguageStore((s) => s.language);
   const activeCompany = useAuthStore((s) => s.activeCompany);
   const sessionUser = useAuthStore((s) => s.user);
   const companyId = activeCompany?.id;
@@ -591,16 +593,42 @@ export function BackupTab() {
                     key={backup.id}
                     className="flex items-center justify-between rounded-lg border p-3"
                   >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">
-                        {backup.companyInfo.legalName}
-                      </p>
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                        <span>{formatDate(backup.createdAt)}</span>
-                        <span>·</span>
-                        <span>{formatFileSize(backup.size)}</span>
-                      </div>
-                    </div>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <div
+                          className="min-w-0 cursor-help"
+                          tabIndex={0}
+                          aria-label={backupRowSummary(backup, language, t)}
+                        >
+                          <p className="text-sm font-medium truncate">
+                            {backup.companyInfo.legalName}
+                          </p>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span>{formatDate(backup.createdAt)}</span>
+                            <span>·</span>
+                            <span>{formatFileSize(backup.size)}</span>
+                          </div>
+                        </div>
+                      </TooltipTrigger>
+                      {/* Three facts only: who, when, and where this installation stores it.
+                          The browser never reports where a downloaded copy was saved. */}
+                      <TooltipContent side="top" className="max-w-xs">
+                        <div className="space-y-1">
+                          <p>
+                            {t('settings.backup.tooltipCompany')}: {backup.companyInfo.legalName}
+                          </p>
+                          <p>
+                            {t('settings.backup.tooltipCreatedBy')}: {backup.createdByName ?? t('settings.backup.tooltipCreatedByUnknown')}
+                          </p>
+                          <p>
+                            {t('settings.backup.tooltipWhen')}: {exactBackupTimestamp(backup.createdAt, language)}
+                          </p>
+                          <p className="break-all">
+                            {t('settings.backup.tooltipWhere')}: {backup.destination ?? t('settings.backup.tooltipWhereUnknown')}
+                          </p>
+                        </div>
+                      </TooltipContent>
+                    </Tooltip>
                     <div className="flex items-center gap-1">
                       <Button
                         variant="ghost"
@@ -680,4 +708,27 @@ export function BackupTab() {
       </AlertDialog>
     </motion.div>
   );
+}
+
+/** Exact backup timestamp (seconds included); the row itself shows a short form. */
+function exactBackupTimestamp(createdAt: string, language: string): string {
+  const locale = language === 'en' ? 'en-US' : 'es-AR';
+  return new Date(createdAt).toLocaleString(locale, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  });
+}
+
+/** One-line summary for assistive tech: the same facts the tooltip shows. */
+function backupRowSummary(
+  backup: BackupRecord,
+  language: string,
+  t: (key: string) => string,
+): string {
+  return [
+    `${t('settings.backup.tooltipCompany')}: ${backup.companyInfo.legalName}`,
+    `${t('settings.backup.tooltipCreatedBy')}: ${backup.createdByName ?? t('settings.backup.tooltipCreatedByUnknown')}`,
+    `${t('settings.backup.tooltipWhen')}: ${exactBackupTimestamp(backup.createdAt, language)}`,
+    `${t('settings.backup.tooltipWhere')}: ${backup.destination ?? t('settings.backup.tooltipWhereUnknown')}`,
+  ].join(' · ');
 }

@@ -18,6 +18,8 @@ export interface CatalogEntry {
   createdAt: string;
   companyLegalName: string;
   recordCounts: BackupManifest['recordCounts'];
+  /** Source user id stamped in the manifest at creation time, when present. */
+  createdBy?: string;
 }
 export interface BackupCatalog { backups: CatalogEntry[] }
 
@@ -258,6 +260,7 @@ function inspectCatalogFile(filename: string, index: BackupCatalog, companyId?: 
       filename, companyId: manifest.companyId, size: file.size,
       createdAt: manifest.createdAt, companyLegalName: manifest.companyInfo.legalName,
       recordCounts: manifest.recordCounts,
+      ...(typeof manifest.createdBy === 'string' ? { createdBy: manifest.createdBy } : {}),
     },
   };
 }

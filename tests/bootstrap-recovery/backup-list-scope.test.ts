@@ -217,9 +217,13 @@ describe('unchanged contracts', () => {
     expect(body.unreadable).toEqual([]);
     expect(names(body).sort()).toEqual(['tenant_a.json', 'tenant_huerfano.json']);
     const record = body.backups.find((row: { filename: string }) => row.filename === 'tenant_huerfano.json');
+    // The record shape is a contract: the tooltip adds the directory this
+    // installation stores the file in. `createdBy` appears only when the file
+    // recorded a creator, so it is not part of the unconditional shape.
     expect(Object.keys(record).sort()).toEqual(
-      ['companyInfo', 'createdAt', 'filename', 'id', 'recordCounts', 'size'].sort(),
+      ['companyInfo', 'createdAt', 'destination', 'filename', 'id', 'recordCounts', 'size'].sort(),
     );
+    expect(record.destination).toBe(dir);
     expect(record.size).toBe(Buffer.byteLength(orphan, 'utf8'));
     expect(record.companyInfo).toEqual({ id: 'tenant', legalName: 'Mi Empresa S.A.' });
     expect(fs.readFileSync(path.join(dir, 'tenant_huerfano.json'), 'utf8')).toBe(orphan);

@@ -21,6 +21,7 @@ import { captureCompanyLogo, type CompanyLogoImage } from './backup-assets';
 // Restore-authority contract (role normalization lives there, DB-free, so the
 // portable recovery reuses the SAME rule); re-exported below as before.
 import { normalizeRestoredUserRole } from './backup-validation';
+import { BACKUP_DIR } from './config/paths';
 import {
   PORTABLE_LIMITS, PortableRecoveryError, createPortableContainer, openPortableContainer,
   portableFileDigest, resolvePortableSourceOwner,
@@ -39,6 +40,10 @@ export interface BackupManifest {
   /** Exact external logo bytes, included in the manifest integrity digest. */
   companyLogo?: CompanyLogoImage | null;
   createdAt: string;
+  /** Account stamped at creation time; absent in files written before it existed. */
+  createdBy?: string;
+  /** Storage location recorded by the writing installation. */
+  destination?: string;
   companyId: string;
   companyInfo: {
     id: string;
@@ -145,6 +150,12 @@ export interface BackupRecord {
     legalName: string;
   };
   recordCounts: BackupManifest['recordCounts'];
+  /** Directory of this installation that holds the file (not a download target). */
+  destination?: string;
+  /** Id stamped at creation time. */
+  createdBy?: string;
+  /** Human name of that account, resolved by the route; never stored. */
+  createdByName?: string;
 }
 
 interface ManifestFile {
@@ -892,6 +903,10 @@ function toBackupRecord(entry: CatalogEntry): BackupRecord {
       legalName: entry.companyLegalName,
     },
     recordCounts: entry.recordCounts,
+    // Where this installation keeps the backup on disk. It is NOT where the
+    // operator saved a downloaded copy: a browser never reports that path.
+    destination: BACKUP_DIR,
+    ...(entry.createdBy ? { createdBy: entry.createdBy } : {}),
   };
 }
 

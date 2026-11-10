@@ -154,6 +154,16 @@ async function run(args) {
         delete portableEnv.IDENTITY_TEST_OWNER_PROOF;
         return exec(process.execPath, ['tests/portable-recovery-postgres/run.mjs'], portableEnv);
       }],
+      // The startup self-migration contract was the other suite nothing invoked.
+      // A real boot must find an EMPTY schema and apply every migration itself, so
+      // the disposable database is recreated here: the bootstrap stage left it with
+      // `db push`, which would make the contract a vacuous no-op. WITH (FORCE)
+      // closes Prisma's pooled connections so the drop cannot be blocked.
+      ['startup self-migrations (applies every migration)', async () => {
+        await sql('DROP DATABASE IF EXISTS accountexpress_bootstraptest WITH (FORCE)', 'accountexpress_test', 'identity_test');
+        await sql('CREATE DATABASE accountexpress_bootstraptest OWNER accountexpress_bootstraptest', 'accountexpress_test', 'identity_test');
+        return vitest('tests/startup-migrations/vitest.config.mts', { ...common, DATABASE_URL: url('accountexpress_bootstraptest') });
+      }],
     ];
     for (const [database, config, prefix] of [
       ['registration_test', 'vitest.registration-integration.config.ts', 'REGISTRATION'],

@@ -997,3 +997,20 @@ model BootstrapRecoveryProvenance {
   @@index([companyId])
   @@index([createdAt])
 }
+
+/// Superadministrator password recovery (feat/superadmin-password-recovery).
+/// One outstanding token per user: re-issuing replaces the previous row, which
+/// the unique constraint also enforces. Only the SHA-256 digest is stored, and
+/// consumption is a single-use update of `usedAt`.
+model PasswordResetToken {
+  id        String    @id @db.Uuid
+  userId    String
+  tokenHash String
+  expiresAt DateTime  @db.Timestamptz(3)
+  usedAt    DateTime? @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@unique([userId])
+  @@index([expiresAt])
+  @@index([tokenHash])
+}

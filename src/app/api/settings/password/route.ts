@@ -4,6 +4,7 @@ import { verifyPassword, hashPassword } from '@/lib/auth';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCurrentUserId } from '@/lib/context-storage';
 import { deleteAllUserSessions } from '@/lib/sessions';
+import { passwordSchema } from '@/lib/validations/auth';
 
 /**
  * POST /api/settings/password — Change user password
@@ -23,7 +24,9 @@ export const POST = apiHandler(
       );
     }
 
-    if (newPassword.length < 8) {
+    // Shared password policy reused by registration and superadmin reset.
+    const parsedPassword = passwordSchema.safeParse(newPassword);
+    if (!parsedPassword.success) {
       return NextResponse.json(
         { error: 'New password must be at least 8 characters' },
         { status: 400 },
@@ -49,7 +52,7 @@ export const POST = apiHandler(
     // Hash and save new password, then invalidate ALL sessions (F-8 policy C:
     // the changing session is revoked too, forcing a fresh login). Atomic — if
     // the session invalidation fails, the password change rolls back with it.
-    const newHash = await hashPassword(newPassword);
+    const newHash = await hashPassword(parsedPassword.data);
     await db.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: userId },

@@ -29,6 +29,35 @@ export function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [recoveryOpen, setRecoveryOpen] = useState(false);
+  const [recoveryEmail, setRecoveryEmail] = useState('');
+  const [recoveryMessage, setRecoveryMessage] = useState('');
+  const [recoveryLoading, setRecoveryLoading] = useState(false);
+
+  /**
+   * Ask for a recovery link. The server answers the same way whether or not the
+   * address belongs to the installation owner, so the panel only ever shows
+   * whatever message it returns.
+   */
+  async function handleRecoveryRequest(e: FormEvent) {
+    e.preventDefault();
+    setRecoveryMessage('');
+    setRecoveryLoading(true);
+    try {
+      const res = await fetch('/api/auth/forgot-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email: recoveryEmail || email }),
+      });
+      const data = await res.json().catch(() => ({}));
+      setRecoveryMessage(data.message || data.error || t('common.error'));
+    } catch {
+      setRecoveryMessage(t('common.error'));
+    } finally {
+      setRecoveryLoading(false);
+    }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -122,7 +151,15 @@ export function LoginPage() {
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">{t('auth.password')}</Label>
-                  <button type="button" className="text-xs text-primary hover:underline">
+                  <button
+                    type="button"
+                    className="text-xs text-primary hover:underline"
+                    onClick={() => {
+                      setRecoveryOpen((open) => !open);
+                      setRecoveryMessage('');
+                      setRecoveryEmail(email);
+                    }}
+                  >
                     {t('auth.forgotPassword')}
                   </button>
                 </div>
@@ -145,6 +182,33 @@ export function LoginPage() {
                   </button>
                 </div>
               </div>
+              {recoveryOpen && (
+                <div className="rounded-lg border bg-muted/30 p-3 space-y-2">
+                  <p className="text-sm font-medium">{t('auth.forgotTitle')}</p>
+                  <p className="text-xs text-muted-foreground">{t('auth.forgotHelp')}</p>
+                  <div className="flex gap-2">
+                    <Input
+                      type="email"
+                      value={recoveryEmail}
+                      onChange={(e) => setRecoveryEmail(e.target.value)}
+                      placeholder="correo@ejemplo.com"
+                      className="h-9"
+                    />
+                    <Button
+                      type="button"
+                      className="h-9 shrink-0"
+                      disabled={recoveryLoading}
+                      onClick={handleRecoveryRequest}
+                    >
+                      {recoveryLoading && <Loader2 className="size-4 animate-spin" />}
+                      {t('auth.forgotSend')}
+                    </Button>
+                  </div>
+                  {recoveryMessage && (
+                    <p className="text-xs text-muted-foreground">{recoveryMessage}</p>
+                  )}
+                </div>
+              )}
             </CardContent>
             <CardFooter className="flex flex-col gap-4">
               <Button type="submit" className="w-full" disabled={loading}>

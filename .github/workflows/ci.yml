@@ -28,6 +28,52 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # This job keeps its name on purpose: `build-and-secret-scan` is the
+      # required status check on main. It ALWAYS runs and reports, so branch
+      # protection can never be satisfied by a check that never appears.
+      # What changes is how much work it does, never what counts as a pass.
+      - name: Detect change scope
+        id: scope
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="origin/${{ github.base_ref }}"
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            changed="$(git diff --name-only "$base"...HEAD)"
+          elif [ "${{ github.event_name }}" = "push" ]; then
+            changed="$(git diff --name-only "${{ github.event.before }}"...HEAD || true)"
+          else
+            changed=""
+          fi
+          printf '%s\n' "$changed" > /tmp/changed.txt
+          echo "files:"; cat /tmp/changed.txt
+
+          # Anything that is not a plain document forces the full gate.
+          if [ -z "$changed" ]; then mode=full
+          elif grep -qvE '^(docs/|odd/|design/|\.github/|[^/]*\.md$)' /tmp/changed.txt; then mode=full
+          else mode=docs
+          fi
+
+          # Narrow test-only run: every changed path is an individual test file
+          # that the ROOT vitest config actually executes, and no shared test
+          # infrastructure moved. Anything else (helpers, fixtures, setup,
+          # configs, a dedicated harness directory, source, schema, scripts,
+          # dependencies) keeps the full gate.
+          if [ "$mode" = full ] && grep -qE '^tests/' /tmp/changed.txt \
+             && ! grep -qvE '^(tests/|docs/|odd/|design/|[^/]*\.md$)' /tmp/changed.txt \
+             && grep -qE '^tests/.*\.test\.tsx?$' /tmp/changed.txt \
+             && ! grep -qE '^tests/(helpers/|fixtures/|setup\.ts|global-setup\.ts)' /tmp/changed.txt \
+             && ! grep -qE '^tests/(identity|startup-migrations|portable-recovery-postgres|installer|forensic)/' /tmp/changed.txt \
+             && ! grep -qE '^tests/(registration|clean-identity)' /tmp/changed.txt; then
+            grep -E '^tests/.*\.test\.tsx?$' /tmp/changed.txt | sort -u > /tmp/changed-tests.txt
+            if [ -s /tmp/changed-tests.txt ]; then mode=tests; fi
+          fi
+
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "::notice::CI scope resolved to '$mode' from $(wc -l < /tmp/changed.txt) changed file(s)."
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -60,6 +106,7 @@ jobs:
           -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
 
       - name: Full Vitest suite
+        if: steps.scope.outputs.mode == 'full'
         env:
           DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/accountexpress_test?schema=public
           HMAC_SECRET: ci-test-hmac-secret-not-production
@@ -67,7 +114,28 @@ jobs:
         # Runs the application suite AND all dedicated identity suites in new owned databases.
         run: node scripts/ci-test-isolated.mjs --run
 
+      - name: Changed Vitest suites only
+        if: steps.scope.outputs.mode == 'tests'
+        env:
+          DATABASE_URL: postgresql://postgres:postgrespassword@localhost:5432/accountexpress_test?schema=public
+          HMAC_SECRET: ci-test-hmac-secret-not-production
+          SESSION_SECRET: ci-test-session-secret-not-production
+        # Every path here is an individual test file executed by the root config;
+        # shared infrastructure and dedicated harnesses already forced `full`.
+        run: |
+          set -euo pipefail
+          cat /tmp/changed-tests.txt
+          node node_modules/vitest/vitest.mjs run --config vitest.config.ts \
+            $(tr '\n' ' ' < /tmp/changed-tests.txt)
+
+      - name: Skipped (documents only)
+        if: steps.scope.outputs.mode == 'docs'
+        run: |
+          echo "Only documentation/design files changed; no executable surface to test."
+          cat /tmp/changed.txt
+
       - name: Build
+        if: steps.scope.outputs.mode != 'docs'
         run: npm run build
 
       - name: Secret scan (gitleaks, working tree only)

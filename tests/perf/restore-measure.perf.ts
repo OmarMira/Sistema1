@@ -51,6 +51,8 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 const probe = vi.hoisted(() => ({
   active: false,
   failJournalInsert: 0,
+  failReceipt: false,
+  receiptDatabaseCode: '',
   journalInsertCalls: 0,
   spans: {} as Record<string, { calls: number; succeeded: number; failed: number; ms: number }>,
   async time<T>(name: string, run: () => Promise<T>): Promise<T> {
@@ -116,6 +118,20 @@ vi.mock('@/lib/db', async importOriginal => {
                     if (probe.failJournalInsert === probe.journalInsertCalls) {
                       throw new Error('PERF_INJECTED_JOURNAL_INSERT_FAILURE');
                     }
+                  }
+                  if (probe.active && probe.failReceipt && key === 'auditLog' && method === 'create' &&
+                      (args[0] as { data?: { action?: string } })?.data?.action === 'COMPANY_RESTORE_COMMITTED') {
+                    // Force a genuine PostgreSQL unique-key failure after one
+                    // receipt insert in this SAME transaction, not just a mock
+                    // throw. Both that receipt and all restored rows must roll back.
+                    return (async () => {
+                      await call.apply(delegate, args);
+                      try { return await call.apply(delegate, args); }
+                      catch (error) {
+                        probe.receiptDatabaseCode = (error as { code?: string }).code ?? '';
+                        throw error;
+                      }
+                    })();
                   }
                   return call.apply(delegate, args);
                 });
@@ -423,7 +439,7 @@ for (const size of SIZES) {
   });
 }
 
-it('rolls back replacement after a later journal insert fails and keeps maintenance closed', async () => {
+it.each(['journal', 'receipt'] as const)('rolls back replacement after %s failure and keeps maintenance closed', async failure => {
   const companyId = `perf_rollback_${crypto.randomBytes(4).toString('hex')}`;
   const userId = `${companyId}_usr`;
   let operationId: string | null = null;
@@ -440,7 +456,9 @@ it('rolls back replacement after a later journal insert fails and keeps maintena
     const before = canonical(snapshot.backupData.data);
     probe.spans = {};
     probe.journalInsertCalls = 0;
-    probe.failJournalInsert = 2;
+    probe.failJournalInsert = failure === 'journal' ? 2 : 0;
+    probe.failReceipt = failure === 'receipt';
+    probe.receiptDatabaseCode = '';
     probe.active = true;
     const result = await restoreCompanyBackupCoordinated(companyId, text, {
       recovery: 'portable', authenticatedDigest: crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
@@ -448,7 +466,14 @@ it('rolls back replacement after a later journal insert fails and keeps maintena
     probe.active = false;
     operationId = result.operationId;
     expect(result.status).toBe('reconciliation_required');
-    expect(result.error).toContain('PERF_INJECTED_JOURNAL_INSERT_FAILURE');
+    expect(result.error).toContain(failure === 'journal'
+      ? 'PERF_INJECTED_JOURNAL_INSERT_FAILURE' : 'Unique constraint failed');
+    if (failure === 'receipt') {
+      expect(probe.receiptDatabaseCode).toBe('P2002');
+      expect(probe.spans['sql.journalEntry.createMany'].succeeded).toBe(2);
+      expect(probe.spans['sql.journalLine.createMany'].succeeded).toBe(3);
+      expect(probe.spans['sql.auditLog.create'].failed).toBe(1);
+    }
     expect(probe.journalInsertCalls).toBe(2);
     expect(maintenanceStatus().marked).toBe(true);
     const after = await raw.$transaction(async tx => {
@@ -464,6 +489,7 @@ it('rolls back replacement after a later journal insert fails and keeps maintena
   } finally {
     probe.active = false;
     probe.failJournalInsert = 0;
+    probe.failReceipt = false;
     await settleMaintenance(companyId, operationId);
     await purge(raw, companyId, userId);
   }

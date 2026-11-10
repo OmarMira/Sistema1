@@ -389,7 +389,7 @@ describe('RC2-3 — restore role normalization (actor-gated super_admin)', () =>
     // Other suites leave hashed audit rows behind (their tenant is gone, or the
     // hash was sealed with a stubbed HMAC secret), and such a row can never be
     // certified. The recovery core correctly refuses to delete or re-sign it —
-    // tests/backup-company/restore.test.ts pins that RESTORE_CHAIN contract — so
+    // src/lib/backup-validation.ts enforces that RESTORE_CHAIN contract — so
     // this round trip removes the hashed residue it did not create and certifies
     // the chain it does recreate. No assertion of this suite is relaxed.
     await db.auditLog.deleteMany({ where: { hash: { not: null } } });

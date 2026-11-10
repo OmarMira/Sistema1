@@ -25,7 +25,7 @@ import {
  *  - 2.x company snapshots are admitted ONLY by the company recovery path
  *    (`restoreCompanyBackup` / `restoreCompanyBackupCoordinated`). The legacy
  *    `restoreBackup` deliberately refuses them (fence pinned in
- *    tests/backup-company/restore.test.ts:444-448).
+ *    tests/bootstrap-recovery/legacy-format-fence.test.ts).
  *  - `/api/backup/restore` commits through `restoreCompanyBackupCoordinated`.
  *  - Snapshot integrity is a FIDELITY digest, not authenticity
  *    (`authenticated: false`): an attacker who can edit the file can recompute
@@ -96,8 +96,8 @@ describe('C2 — Restore role escalation (dynamic PoC)', () => {
   beforeEach(async () => {
     await clearDatabase();
     // The recovery core certifies the INSTALLATION-WIDE audit chain before it
-    // replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN, pinned by
-    // tests/backup-company/restore.test.ts): a predecessor another tenant still
+    // replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN): a
+    // predecessor another tenant still
     // needs must never be deleted or re-signed. Other suites leave hashed
     // AuditLog rows behind (their tenant is gone, or the hash was sealed with a
     // stubbed HMAC secret) and such a row can never be certified, so the shared

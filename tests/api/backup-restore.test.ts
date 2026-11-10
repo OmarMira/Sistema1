@@ -123,8 +123,8 @@ describe('POST /api/backup + POST /api/backup/restore', () => {
     await clearDatabase();
     createdBackups.length = 0;
     // The coordinated restore certifies the INSTALLATION-WIDE audit chain before
-    // it replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN, pinned by
-    // tests/backup-company/restore.test.ts): a predecessor another tenant still
+    // it replaces any row (src/lib/backup-validation.ts RESTORE_CHAIN): a
+    // predecessor another tenant still
     // needs must never be deleted or re-signed. Other suites leave hashed
     // AuditLog rows behind (their tenant is gone, or the hash was sealed with a
     // stubbed HMAC secret) and such a row can never be certified, so the shared

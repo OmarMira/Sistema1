@@ -113,11 +113,27 @@ unless the disposable database is named exactly `accountexpress_bootstraptest`. 
 guard is deliberate and was not weakened; both run through their own configs and are
 excluded from the root application suite, which uses `accountexpress_test`.
 
-## Known defects found while adapting the suites (not fixed here)
+## Known defects and follow-up coverage
 
 1. `src/lib/backup.ts` (`deleteBackup` → `readManifest` → `readCatalog`): DELETE reads the
    **whole** catalog, so one unreadable backup belonging to **any** tenant turns another
    tenant's DELETE into a 500 instead of the neutral 404 that `GET` already guarantees.
    It reproduces only when stale residue exists, which is why a fresh CI database hides it.
-2. Audit-write rollback no longer has a database-level failure to inject (see `4.5` above).
-   Replacement coverage needs a genuine injected database failure.
+2. Audit-write rollback coverage was replaced in
+   `tests/perf/restore-measure.perf.ts` (`receipt failure`): the test-only transaction
+   wrapper inserts the commit receipt twice, provoking PostgreSQL's real unique-key
+   error (`P2002`) at `auditLog.create`. It checks complete exported-data rollback,
+   original row counts, absence of a committed receipt, a closed maintenance fence,
+   and explicit reconciliation to `aborted`. This is an opt-in real-PostgreSQL test,
+   not a claim that the root CI runner executes it.
+
+## Restore performance follow-up
+
+Commit `855960a` batches journal entries/lines within the existing transaction and
+indexes repeated admission lookups without removing integrity checks. The deadline
+remains 20 seconds. An independent synthetic run restored 10,000 entries and 20,000
+lines with verified counts/scalars and forced-failure rollback; its transaction took
+8.89 seconds. Timings vary by machine and destination state and are not a capacity
+or latency guarantee. Engine-level proof does not establish both portable entry doors.
+See `odd/tasks/backup-restore-performance.md` for the remaining route-level checks and
+delivery status.

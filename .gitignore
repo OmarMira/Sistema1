@@ -101,6 +101,14 @@ agent-ctx/
 .atl/
 .engram/
 
+# CodeGraph index (.codegraph/.gitignore covers the index itself, but that file is
+# only committed on first init; keep the directory out of the change either way).
+.codegraph/
+
+# Local CI investigation notes. Untracked and previously unignored, so an
+# accidental `git add -A` would have published them.
+.checks/
+
 # Local-only runtime, backups and agent state (never versioned)
 .worktrees/
 .gentle-ai-default-agent.json

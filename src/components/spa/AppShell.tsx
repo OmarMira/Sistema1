@@ -243,7 +243,7 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
                       variant="ghost"
                       size="icon"
                       className="rounded-full"
-                      aria-label={t('common.accountMenuHint')}
+                      aria-label={`${t('common.userMenu')}: ${t('common.accountMenuHint')}`}
                     >
                   <Avatar className="size-7">
                     <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">

@@ -43,6 +43,7 @@ const en = {
     changeCompanyHint: 'Click to return to the menu and choose another company to work with.',
     languageHint: 'Interface language: Spanish or English.',
     themeToggleHint: 'Interface theme: switch between light and dark.',
+    userMenu: 'User menu',
     accountMenuHint: 'Your account: profile, company settings and sign out.',
     viewCompanyStructure: 'View company structure',
     viewCompanyStructureDetail: 'Opens the company structure: its users, their roles and the permissions they operate with.',

@@ -93,7 +93,7 @@ describe('company badge change affordance', () => {
     renderShell();
     expect(screen.getByLabelText('common.languageHint')).toBeInTheDocument();
     expect(screen.getByLabelText('common.themeToggleHint')).toBeInTheDocument();
-    expect(screen.getByLabelText('common.accountMenuHint')).toBeInTheDocument();
+    expect(screen.getByLabelText('common.userMenu: common.accountMenuHint')).toBeInTheDocument();
     expect(screen.getByLabelText('LQ & OM LLC: common.viewCompanyStructureDetail')).toBeInTheDocument();
   });
 });

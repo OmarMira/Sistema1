@@ -43,6 +43,7 @@ const es = {
     changeCompanyHint: 'Pulsá para volver al menú y elegir otra empresa con la que trabajar.',
     languageHint: 'Idioma de la interfaz: español o inglés.',
     themeToggleHint: 'Tema de la interfaz: pasá de claro a oscuro y viceversa.',
+    userMenu: 'Menú de usuario',
     accountMenuHint: 'Tu cuenta: perfil, configuración de la empresa y cerrar sesión.',
     viewCompanyStructure: 'Ver estructura de la empresa',
     viewCompanyStructureDetail: 'Abre la estructura de la empresa: sus usuarios, sus roles y los permisos con los que operan.',    processing: 'Procesando...',

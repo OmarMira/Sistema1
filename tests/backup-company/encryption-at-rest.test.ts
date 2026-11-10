@@ -162,8 +162,12 @@ describe('company backup encryption at rest', () => {
     expect(scoped.backups).toEqual([]);
     expect(scoped.unreadable.map((file) => file.filename)).toEqual([saved.filename]);
     expect(scoped.unreadable[0].error).toMatch(/decrypt/i);
-    // MUTATION stays fail-closed: an unreadable catalog file blocks deletion.
-    expect(() => deleteBackup(saved.filename, 'tenant')).toThrow(/decrypt/i);
+    // MUTATION stays fail-closed: an unreadable catalog file is never attributed
+    // to the caller, so deletion answers the neutral not_found and the file is
+    // preserved. The old contract surfaced a decrypt error here; the scoped
+    // catalog can no longer decrypt the whole history, and a neutral answer
+    // also avoids confirming which filenames exist to a non-owner.
+    expect(deleteBackup(saved.filename, 'tenant')).toEqual({ status: 'not_found' });
     expect(files()).toContain(saved.filename);
   });
 

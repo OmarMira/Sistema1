@@ -372,7 +372,10 @@ describe('recoverable catalog and existing read/delete contracts', () => {
       return String(target).endsWith(saved.filename) ? { ...stat, isSymbolicLink: () => true } : stat;
     }) as any);
     expect(() => getBackupFile(saved.filename)).toThrow();
-    expect(() => deleteBackup(saved.filename, 'tenant')).toThrow();
+    // The physical recheck refuses a link without following it, so deletion
+    // answers the neutral not_found instead of the old decrypt/IO error and the
+    // target stays untouched.
+    expect(deleteBackup(saved.filename, 'tenant')).toEqual({ status: 'not_found' });
     expect(snapshot()).toEqual(before);
   });
 

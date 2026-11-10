@@ -404,7 +404,22 @@ async function replaceRows(
     await modelWriter(tx, model).deleteMany({ where: { [key]: { in: owned[model].map(row => row[key]) } } });
   }
   await tx.company.update({ where: { id: companyId }, data: scalarData('Company', source.Company[0], snapshot) as Prisma.CompanyUncheckedUpdateInput });
+  // Journal rows carry their original scalar ids/timestamps in the validated
+  // snapshot. No nested writes or generated return values are used here. Batch
+  // only these measured hot models; keep other models' create semantics intact.
+  // 500 rows keeps parameters bounded even for the wider JournalEntry schema.
+  const journalBatchSize = 500;
   for (const model of models) {
+    if (model === 'JournalEntry' || model === 'JournalLine') {
+      for (let offset = 0; offset < source[model].length; offset += journalBatchSize) {
+        const data = source[model].slice(offset, offset + journalBatchSize)
+          .map(row => scalarData(model, row, snapshot));
+        // No skipDuplicates: any conflicting row must abort the SAME transaction.
+        const written = await modelWriter(tx, model).createMany({ data });
+        if (written.count !== data.length) throw new Error(`RESTORE_INSERT_COUNT: ${model}`);
+      }
+      continue;
+    }
     for (const row of source[model]) {
       // A retained row already IS this event (certified in the same transaction
       // by validateRestoreDestination): reuse it, never re-insert or rewrite it.
@@ -428,6 +443,7 @@ function modelWriter(tx: CompanySnapshotClient, model: string) {
   return tx[delegate(model) as keyof typeof tx] as unknown as {
     update(query: unknown): Promise<unknown>;
     create(query: unknown): Promise<unknown>;
+    createMany(query: unknown): Promise<{ count: number }>;
     deleteMany(query: unknown): Promise<unknown>;
   };
 }

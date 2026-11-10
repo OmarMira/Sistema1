@@ -50,6 +50,8 @@ import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 // They must never be added together or presented as exclusive phase totals.
 const probe = vi.hoisted(() => ({
   active: false,
+  failJournalInsert: 0,
+  journalInsertCalls: 0,
   spans: {} as Record<string, { calls: number; succeeded: number; failed: number; ms: number }>,
   async time<T>(name: string, run: () => Promise<T>): Promise<T> {
     if (!this.active) return run();
@@ -108,8 +110,15 @@ vi.mock('@/lib/db', async importOriginal => {
               get(delegate, method) {
                 const call = Reflect.get(delegate, method);
                 if (typeof call !== 'function') return call;
-                return (...args: unknown[]) => probe.time(`sql.${String(key)}.${String(method)}`,
-                  () => call.apply(delegate, args));
+                return (...args: unknown[]) => probe.time(`sql.${String(key)}.${String(method)}`, () => {
+                  if (probe.active && key === 'journalEntry' && ['create', 'createMany'].includes(String(method))) {
+                    probe.journalInsertCalls++;
+                    if (probe.failJournalInsert === probe.journalInsertCalls) {
+                      throw new Error('PERF_INJECTED_JOURNAL_INSERT_FAILURE');
+                    }
+                  }
+                  return call.apply(delegate, args);
+                });
               },
             });
           },
@@ -337,6 +346,7 @@ for (const size of SIZES) {
       let detail = '';
       let operationId: string | null = null;
       probe.spans = {};
+      probe.journalInsertCalls = 0;
       probe.active = true;
       const tRestore = performance.now();
       try {
@@ -371,11 +381,17 @@ for (const size of SIZES) {
           // in this synthetic fixture. Report it, but do not call it payload data.
           persistedCounts[model] = actualTables[model].length;
           if (model !== 'AuditLog') expect(persistedCounts[model], model).toBe(sourceRows.length);
+          if (model === 'JournalEntry' || model === 'JournalLine') {
+            const comparable = (values: Row[]) => values.map(({ lines: _nested, ...row }) => row)
+              .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            expect(comparable(actualTables[model]), `${model} original scalar values`).toEqual(comparable(sourceRows));
+          }
         }
       }
       const settlement = await settleMaintenance(companyId, operationId);
-
-      // The one required line: exactly this shape, one per size.
+      // Print diagnostics BEFORE assertions: failure evidence is as important as
+      // successful timings and must survive an expected-outcome mismatch.
+      // Inclusive spans are reported separately from contextual standalone times.
       console.log(JSON.stringify({
         size, rows,
         validateMs: round(validateMs), publishMs: round(publishMs), restoreMs: round(restoreMs),
@@ -390,6 +406,14 @@ for (const size of SIZES) {
         + ` payloadBytes=${payloadBytes} safetyBytes=${Buffer.byteLength(safetyText, 'utf8')}`
         + ` standaloneSafetyCaptureMs=${round(safetyCaptureMs)}`
         + ` insertedExtras=journalChainHead+auditReceipt settlement=${settlement} detail=${JSON.stringify(detail)}`);
+      if (process.env.PERF_EXPECT_BATCH === '1') {
+        expect(outcome).toBe('committed');
+        for (const model of ['journalEntry', 'journalLine']) {
+          expect(probe.spans[`sql.${model}.create`]?.calls ?? 0, `${model} per-row calls`).toBe(0);
+          expect(probe.spans[`sql.${model}.createMany`]?.succeeded ?? 0, `${model} bounded batches`).toBeGreaterThan(0);
+          expect(probe.spans[`sql.${model}.createMany`].calls).toBeLessThan(size);
+        }
+      }
     } finally {
       await purge(raw, companyId, userId);
       const leftovers = await raw.company.count({ where: { id: companyId } });
@@ -398,3 +422,49 @@ for (const size of SIZES) {
     }
   });
 }
+
+it('rolls back replacement after a later journal insert fails and keeps maintenance closed', async () => {
+  const companyId = `perf_rollback_${crypto.randomBytes(4).toString('hex')}`;
+  const userId = `${companyId}_usr`;
+  let operationId: string | null = null;
+  // Ignore ordering only. Export manifests have fresh ids/timestamps; compare
+  // complete exported data, including stored ids, values, hashes and dates.
+  function canonical(value: any): any {
+    if (Array.isArray(value)) return value.map(canonical).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])]));
+    return value;
+  }
+  try {
+    await seedCompany(raw, companyId, userId, 501);
+    const { snapshot, text } = await buildSnapshotText(companyId);
+    const before = canonical(snapshot.backupData.data);
+    probe.spans = {};
+    probe.journalInsertCalls = 0;
+    probe.failJournalInsert = 2;
+    probe.active = true;
+    const result = await restoreCompanyBackupCoordinated(companyId, text, {
+      recovery: 'portable', authenticatedDigest: crypto.createHash('sha256').update(text, 'utf8').digest('hex'),
+    });
+    probe.active = false;
+    operationId = result.operationId;
+    expect(result.status).toBe('reconciliation_required');
+    expect(result.error).toContain('PERF_INJECTED_JOURNAL_INSERT_FAILURE');
+    expect(probe.journalInsertCalls).toBe(2);
+    expect(maintenanceStatus().marked).toBe(true);
+    const after = await raw.$transaction(async tx => {
+      await tx.$executeRawUnsafe('SET TRANSACTION READ ONLY');
+      return captureCompanySnapshot(tx as any, companyId, readCompanyConfig(companyId));
+    }, { isolationLevel: 'RepeatableRead' });
+    expect(canonical(after.backupData.data)).toEqual(before);
+    expect(await raw.journalEntry.count({ where: { companyId } })).toBe(501);
+    expect(await raw.journalLine.count({ where: { entry: { companyId } } })).toBe(1002);
+    expect(await raw.auditLog.count({ where: { companyId } })).toBe(0);
+    expect(await settleMaintenance(companyId, operationId)).toBe('reconciled:aborted');
+    expect(maintenanceStatus().marked).toBe(false);
+  } finally {
+    probe.active = false;
+    probe.failJournalInsert = 0;
+    await settleMaintenance(companyId, operationId);
+    await purge(raw, companyId, userId);
+  }
+});

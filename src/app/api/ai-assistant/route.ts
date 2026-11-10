@@ -740,21 +740,37 @@ async function executeTool(
           where: { companyId },
           take: limitVal,
           orderBy: { createdAt: 'desc' },
-          include: {
-            user: {
-              select: { firstName: true, lastName: true, email: true },
-            },
-          },
         });
-        return logs.map((l) => ({
-          id: l.id,
-          action: l.action,
-          entity: l.entity,
-          entityId: l.entityId,
-          details: l.details,
-          user: l.user ? `${l.user.firstName} ${l.user.lastName} (${l.user.email})` : 'Sistema',
-          createdAt: l.createdAt.toISOString(),
-        }));
+        // T20: AuditLog no longer declares a `user` relation (deleting an account
+        // must never rewrite signed attribution — see migration 20261109010000),
+        // so `include: { user }` no longer exists and a freshly generated client
+        // rejects it. Resolve the author here with ONE batched read for the whole
+        // page (same precedent as GET /api/admin/audit-logs). The tool payload,
+        // order, limit, tenant filter and labels are unchanged: "<first> <last>
+        // (<email>)" for a known account, and 'Sistema' when there is no author —
+        // including a stored userId whose account no longer exists.
+        const userIds = [
+          ...new Set(logs.map((log) => log.userId).filter((id): id is string => !!id)),
+        ];
+        const users = userIds.length > 0
+          ? await db.user.findMany({
+              where: { id: { in: userIds } },
+              select: { id: true, firstName: true, lastName: true, email: true },
+            })
+          : [];
+        const userById = new Map(users.map((user) => [user.id, user]));
+        return logs.map((l) => {
+          const author = l.userId ? userById.get(l.userId) : undefined;
+          return {
+            id: l.id,
+            action: l.action,
+            entity: l.entity,
+            entityId: l.entityId,
+            details: l.details,
+            user: author ? `${author.firstName} ${author.lastName} (${author.email})` : 'Sistema',
+            createdAt: l.createdAt.toISOString(),
+          };
+        });
       }
 
       case 'save_system_memory': {

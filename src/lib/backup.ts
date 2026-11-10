@@ -5,20 +5,27 @@ if (typeof process === 'undefined' || !process.versions?.node) {
 import { db, withCompanyBackupTransaction } from '@/lib/db';
 import type { Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
-import { hashPassword } from './auth';
+import { hashPassword, verifyPassword } from './auth';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { RUNTIME_FILES } from '@/lib/config/paths';
-import { COMPANY_BACKUP_VERSION, isCompanyFormat, sealSnapshot, canonicalizeSnapshotMoney, captureSnapshotFidelity, type SnapshotIntegrity, type SnapshotFidelity } from './backup-format';
-import { buildBackupOwnership, type BackupOwnershipVerifier } from './backup-ownership';
-import { readCatalog, writeCatalog, publishBackup, readBackupText, removeBackupFile, readCompanyConfig, validBackupFilename } from './backup-storage';
+import { COMPANY_BACKUP_VERSION, isCompanyFormat, parseSnapshot, sealSnapshot, canonicalizeSnapshotMoney, captureSnapshotFidelity, type SnapshotIntegrity, type SnapshotFidelity } from './backup-format';
+import { readCatalog, writeCatalog, publishBackup, readBackupText, removeBackupFile, readCompanyConfig, validBackupFilename, readCompanyCatalog, type CatalogEntry, type PublishWarning } from './backup-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
 // JH2: pure chain-verdict (no DB access) — restore certifies the chain head
 // inside its own transaction without touching the global db.
-import { buildChainVerdict, type ChainRow } from './journal-hash';
+import { buildChainVerdict, verifyAuditChain, verifyJournalChain, type ChainRow } from './journal-hash';
 import { captureCompanyLogo, type CompanyLogoImage } from './backup-assets';
+// Restore-authority contract (role normalization lives there, DB-free, so the
+// portable recovery reuses the SAME rule); re-exported below as before.
+import { normalizeRestoredUserRole } from './backup-validation';
+import {
+  PORTABLE_LIMITS, PortableRecoveryError, createPortableContainer, openPortableContainer,
+  portableFileDigest, resolvePortableSourceOwner,
+  type PortableOwnerCandidate, type PortableOwnerStamp,
+} from './backup-portable';
 
 /* ─── Types ───────────────────────────────────────────────────────── */
 
@@ -31,11 +38,6 @@ export interface BackupManifest {
   fidelity?: SnapshotFidelity;
   /** Exact external logo bytes, included in the manifest integrity digest. */
   companyLogo?: CompanyLogoImage | null;
-  /** S1/S2/S7: proof of the creating super-admin's password (scrypt verifier).
-   * Created only inside the sealed manifest, never in a plain data section, and
-   * never the password or its bcrypt hash. Absent in backups that predate the
-   * protection: those are refused by every restore path (RESTORE_OWNERSHIP). */
-  ownership?: BackupOwnershipVerifier;
   createdAt: string;
   companyId: string;
   companyInfo: {
@@ -223,31 +225,14 @@ function sanitizeForRestore(
 
 /* ─── Role Normalization Helpers (RC2-3) ─────────────────────────── */
 
-export type RestoredUserRole = 'user' | 'super_admin';
-export type RestoredMembershipRole = 'company_admin' | 'employee' | 'viewer';
-
 /**
- * Normalize a user role coming from a backup payload to the current global
- * authority contract: 'user' | 'super_admin'.
- *
- * legacy/tenant/unknown values always collapse to 'user' (fail-closed).
- * 'super_admin' is preserved ONLY when there is a trusted authority context:
- * either an authorized bootstrap restore (empty-DB recovery) or a normal
- * restore performed by an actor that is already a global super_admin. The
- * backup payload alone never grants global authority.
+ * The role normalizer lives in `backup-validation` (with the rest of the
+ * restore-authority contract) so the portable recovery can reuse the SAME rule
+ * without importing this DB-bound module. Re-exported here for every existing
+ * importer.
  */
-export function normalizeRestoredUserRole(
-  backupRole: unknown,
-  context: { bootstrap?: boolean; restoringActorIsSuperAdmin?: boolean },
-): RestoredUserRole {
-  if (
-    backupRole === 'super_admin' &&
-    (Boolean(context.bootstrap) || Boolean(context.restoringActorIsSuperAdmin))
-  ) {
-    return 'super_admin';
-  }
-  return 'user';
-}
+export { normalizeRestoredUserRole, type RestoredUserRole } from './backup-validation';
+export type RestoredMembershipRole = 'company_admin' | 'employee' | 'viewer';
 
 /**
  * Normalize a company membership role coming from a backup payload to the
@@ -288,31 +273,18 @@ export function filterSensitiveSystemConfig(
 }
 
 /**
- * Export a versioned company database snapshot and its runtime configuration.
- * Returns identical saved/download bytes; v2 recovery is deliberately gated.
- *
- * S7: creating a backup is sudo-style — `options.ownerPassword` is the password
- * the authenticated administrator just re-entered. Only its scrypt verifier is
- * embedded (inside the sealed manifest); the password itself is never stored,
- * logged or copied into the payload.
+ * Capture the company snapshot and stamp the manifest actor/destination fields.
+ * Shared by the internal seal and the portable owner-verified export, so both
+ * produce the same snapshot state; the caller decides how to seal it.
  */
-export async function createBackup(companyId: string, createdByUserId?: string, options?: {
-  ownerPassword?: string;
-}): Promise<{
-  id: string;
+async function buildCompanyBackup(companyId: string, createdByUserId?: string): Promise<{
+  backupData: BackupData;
+  backupId: string;
   filename: string;
-  size: number;
-  createdAt: string;
-  data: string;
   recordCounts: BackupManifest['recordCounts'];
+  createdAt: string;
 }> {
   if (!/^[a-zA-Z0-9_-]+$/.test(companyId)) throw new Error('Invalid company identifier');
-  // Fail closed BEFORE any database read or file write: an unauthenticated
-  // creation must never publish a snapshot nobody can prove ownership of.
-  const ownerPassword = options?.ownerPassword;
-  if (typeof ownerPassword !== 'string' || ownerPassword.length === 0) {
-    throw new Error('BACKUP_PASSWORD_REQUIRED: the creating administrator password is required');
-  }
   const companyConfig = readCompanyConfig(companyId);
   const snapshot = await withCompanyBackupTransaction(
     (tx) => captureCompanySnapshot(tx, companyId, companyConfig),
@@ -328,14 +300,24 @@ export async function createBackup(companyId: string, createdByUserId?: string, 
     m.createdBy = createdByUserId ? createdByUserId : (m.createdBy as string | undefined || 'system');
     m.destination = 'db/backups/';
   }
-  // The verifier is derived after the snapshot exists but before sealing, so the
-  // digest covers it and the at-rest envelope encrypts it.
-  backupData.manifest.ownership = buildBackupOwnership(ownerPassword);
-  sealSnapshot(backupData);
+  return { backupData, backupId, filename, recordCounts, createdAt };
+}
+
+function publishSnapshot(
+  backupId: string,
+  filename: string,
+  createdAt: string,
+  recordCounts: BackupManifest['recordCounts'],
+  backupData: BackupData,
+): {
+  id: string; filename: string; size: number; createdAt: string; data: string;
+  recordCounts: BackupManifest['recordCounts'];
+  /** Set when the snapshot was stored but catalog/retention maintenance was skipped. */
+  catalogWarning: PublishWarning | null;
+} {
   const jsonString = JSON.stringify(backupData, null, 2);
   const size = Buffer.byteLength(jsonString, 'utf-8');
-  publishBackup(filename, jsonString);
-
+  const published = publishBackup(filename, jsonString);
   return {
     id: backupId,
     filename,
@@ -343,9 +325,219 @@ export async function createBackup(companyId: string, createdByUserId?: string, 
     createdAt,
     data: Buffer.from(jsonString, 'utf-8').toString('base64'),
     recordCounts,
+    catalogWarning: published.warning,
   };
 }
 
+/**
+ * Export a versioned company database snapshot and its runtime configuration.
+ * Returns identical saved/download bytes; v2 recovery is deliberately gated.
+ */
+export async function createBackup(companyId: string, createdByUserId?: string): Promise<{
+  id: string;
+  filename: string;
+  size: number;
+  createdAt: string;
+  data: string;
+  recordCounts: BackupManifest['recordCounts'];
+  /** Explicit uncertainty: the file is stored, catalog/retention were skipped. */
+  catalogWarning: PublishWarning | null;
+}> {
+  const { backupData, backupId, filename, recordCounts, createdAt } =
+    await buildCompanyBackup(companyId, createdByUserId);
+  sealSnapshot(backupData);
+  return publishSnapshot(backupId, filename, createdAt, recordCounts, backupData);
+}
+
+/**
+ * Source owner resolution for the portable export: server records only.
+ * The acting user id comes from the authenticated session, never from a body.
+ */
+async function resolvePortableOwner(companyId: string) {
+  const rows = await db.user.findMany({
+    where: { platformRole: 'super_admin', isActive: true },
+    select: {
+      id: true,
+      email: true,
+      createdAt: true,
+      platformRole: true,
+      isActive: true,
+      emailVerifiedAt: true,
+      legacyUser: true,
+      companyMemberships: { select: { companyId: true } },
+    },
+  });
+  const candidates: PortableOwnerCandidate[] = rows.map((row) => ({
+    id: row.id,
+    email: row.email,
+    createdAt: row.createdAt.toISOString(),
+    isActive: row.isActive,
+    platformRole: row.platformRole,
+    emailVerifiedAt: row.emailVerifiedAt ? row.emailVerifiedAt.toISOString() : null,
+    legacyUser: row.legacyUser === true,
+    companyIds: row.companyMemberships.map((membership) => membership.companyId),
+  }));
+  return resolvePortableSourceOwner({ candidates, companyId });
+}
+
+/**
+ * Re-authentication for the portable export: resolve the PROVEN source owner
+ * from server records and verify the supplied password with the canonical
+ * helper. The password value is never persisted, echoed or logged; only the
+ * boolean verification result is used.
+ */
+async function authorizePortableExport(companyId: string, password: string): Promise<PortableOwnerStamp> {
+  if (password.length < PORTABLE_LIMITS.passwordMin || password.length > PORTABLE_LIMITS.passwordMax) {
+    throw new PortableRecoveryError(
+      'RECOVERY_PASSWORD_REQUIRED',
+      'The source owner password must be between 8 and 256 characters',
+    );
+  }
+  const owner = await resolvePortableOwner(companyId);
+  const ownerRow = await db.user.findUnique({
+    where: { id: owner.ownerUserId },
+    select: { passwordHash: true },
+  });
+  if (!ownerRow?.passwordHash) {
+    throw new PortableRecoveryError('RECOVERY_OWNER_MISSING', 'The source owner account has no local credential');
+  }
+  if (!await verifyPassword(password, ownerRow.passwordHash)) {
+    throw new PortableRecoveryError(
+      'RECOVERY_PASSWORD_MISMATCH',
+      'The password does not match the source owner account',
+    );
+  }
+  return {
+    ownerUserId: owner.ownerUserId,
+    ownerEmail: owner.ownerEmail,
+    emailVerifiedAt: owner.emailVerifiedAt,
+    legacyUser: owner.legacyUser,
+    verifiedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Source-side integrity gate for the portable export.
+ *
+ * The portable file ARCHIVES the source chain values instead of letting a later
+ * machine recompute them, so the source installation must prove them with its
+ * OWN keys before it certifies anything. A broken journal or audit chain aborts
+ * the export: the operator has to reconcile the source installation first.
+ */
+export async function assertPortableSourceIntegrity(companyId: string): Promise<void> {
+  const journal = await verifyJournalChain(companyId);
+  if (journal.valid !== true) {
+    throw new PortableRecoveryError(
+      'RECOVERY_SOURCE_CHAIN_INVALID',
+      `The source journal chain is not verifiable (${journal.reasonCode ?? 'UNKNOWN'}), so this installation cannot certify a portable backup`,
+    );
+  }
+  const audit = await verifyAuditChain({ companyId });
+  if (audit.valid !== true) {
+    throw new PortableRecoveryError(
+      'RECOVERY_SOURCE_CHAIN_INVALID',
+      `The source audit chain is not verifiable (${audit.reasonCode ?? 'UNKNOWN'}), so this installation cannot certify a portable backup`,
+    );
+  }
+}
+
+/** Portable download name derived from the stored internal filename. */
+export function portableRecoveryFilename(filename: string): string {
+  return filename.endsWith('.json') ? filename.replace(/.json$/, '_recovery.json') : `${filename}_recovery.json`;
+}
+
+/**
+ * Portable owner-verified export (S3/S6).
+ *
+ * The password must be the SOURCE owner's application password: it is verified
+ * with the canonical verifyPassword helper against the owner row that the
+ * server resolved, and only a bcrypt verification result (never the password or
+ * the hash) is used afterwards to derive the AEAD envelope key. A wrong
+ * password fails before the file is written; the received value is never logged
+ * or persisted.
+ */
+export async function createPortableBackup(input: {
+  companyId: string;
+  createdByUserId: string;
+  password: string;
+}): Promise<{
+  id: string;
+  filename: string;
+  size: number;
+  createdAt: string;
+  data: string;
+  recoveryFilename: string;
+  portableSize: number;
+  recordCounts: BackupManifest['recordCounts'];
+  /** Explicit uncertainty: the file is stored, catalog/retention were skipped. */
+  catalogWarning: PublishWarning | null;
+}> {
+  const owner = await authorizePortableExport(input.companyId, input.password);
+  // Verify the ORIGINAL chains with the ORIGINAL keys before certifying them.
+  await assertPortableSourceIntegrity(input.companyId);
+  const { backupData, backupId, filename, recordCounts, createdAt } =
+    await buildCompanyBackup(input.companyId, input.createdByUserId);
+  // Internal snapshot keeps its historical catalog/seal contract (used by the
+  // safety journal, retention and same-installation restore).
+  sealSnapshot(backupData);
+  const published = publishSnapshot(backupId, filename, createdAt, recordCounts, backupData);
+  // The file the operator saves NEVER contains plaintext accounting data: the
+  // whole payload is AEAD-encrypted under the source owner password.
+  const container = createPortableContainer({
+    snapshot: backupData,
+    password: input.password,
+    owner,
+    companyLegalName: backupData.manifest.companyInfo.legalName,
+    createdAt: backupData.manifest.createdAt,
+  });
+  return {
+    ...published,
+    data: Buffer.from(container, 'utf8').toString('base64'),
+    recoveryFilename: portableRecoveryFilename(filename),
+    portableSize: Buffer.byteLength(container, 'utf8'),
+  };
+}
+
+/**
+ * Re-encrypt a stored internal snapshot into the portable container for an
+ * authorized download. Reauthentication is required again: the download path
+ * never hands out the internal plaintext snapshot as a file.
+ */
+export async function buildPortableRecoveryFile(input: {
+  companyId: string;
+  filename: string;
+  password: string;
+}): Promise<{ filename: string; data: string; size: number; payloadDigest: string } | null> {
+  const stored = readBackupText(input.filename);
+  if (!stored) return null;
+  const snapshot = parseSnapshot(stored.data);
+  if (snapshot.manifest.companyId !== input.companyId) return null;
+  const owner = await authorizePortableExport(input.companyId, input.password);
+  const companyLegalName = snapshot.manifest.companyInfo.legalName;
+  const container = createPortableContainer({
+    snapshot,
+    password: input.password,
+    owner,
+    companyLegalName,
+    createdAt: snapshot.manifest.createdAt,
+  });
+  // Re-open with the identity the SERVER resolved: a stored snapshot can never
+  // be re-sealed into a container labelled with another owner or company.
+  const opened = openPortableContainer(container, input.password, {
+    ownerUserId: owner.ownerUserId,
+    ownerEmail: owner.ownerEmail,
+    companyLegalName,
+  });
+  return {
+    filename: portableRecoveryFilename(input.filename),
+    data: Buffer.from(container, 'utf8').toString('base64'),
+    size: Buffer.byteLength(container, 'utf8'),
+    payloadDigest: opened.payloadDigest,
+  };
+}
+
+/** Digest of the exact portable bytes an operator uploads (challenge binding). */
+export { portableFileDigest };
 export type CompanySnapshotClient = Prisma.TransactionClient;
 
 /** Shared snapshot builder: callers supply the guarded unextended transaction and config slice. */
@@ -675,23 +867,43 @@ export async function captureCompanySnapshot(
  * List all backups for a specific company.
  */
 export function listBackups(companyId: string): BackupRecord[] {
-  const manifest = readManifest();
-  return manifest.backups
-    .filter((b) => b.companyId === companyId)
-    .map((b) => ({
-      id: b.id,
-      filename: b.filename,
-      size: b.size,
-      createdAt: b.createdAt,
-      createdBy: (b as Record<string, unknown>).createdBy as string | undefined,
-      destination: (b as Record<string, unknown>).destination as string | undefined,
-      companyInfo: {
-        id: b.companyId,
-        legalName: b.companyLegalName,
-      },
-      recordCounts: b.recordCounts,
-    }))
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  return listBackupInventory(companyId).backups;
+}
+
+export interface BackupInventory {
+  backups: BackupRecord[];
+  /**
+   * Files of THIS company that exist on disk but cannot be read or parsed.
+   * They are preserved byte-for-byte and reported, never silently dropped: the
+   * list keeps working while the integrity loss stays visible. Files of other
+   * companies are never inspected here and never influence this answer.
+   */
+  unreadable: Array<{ filename: string; error: string }>;
+}
+
+function toBackupRecord(entry: CatalogEntry): BackupRecord {
+  return {
+    id: entry.id,
+    filename: entry.filename,
+    size: entry.size,
+    createdAt: entry.createdAt,
+    companyInfo: {
+      id: entry.companyId,
+      legalName: entry.companyLegalName,
+    },
+    recordCounts: entry.recordCounts,
+  };
+}
+
+/** Tenant-scoped catalog read: readable history plus this company's unreadable files. */
+export function listBackupInventory(companyId: string): BackupInventory {
+  const catalog = readCompanyCatalog(companyId);
+  return {
+    backups: catalog.backups
+      .map(toBackupRecord)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()),
+    unreadable: catalog.unreadable,
+  };
 }
 
 /**

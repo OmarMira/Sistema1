@@ -14,13 +14,13 @@ import { Prisma } from '@prisma/client';
 import { withCompanyBackupTransaction } from '@/lib/db';
 import { ValidationError } from './api-error';
 import { captureCompanySnapshot, type BackupData, type BackupManifest, type CompanySnapshotClient } from './backup';
-import { sealSnapshot, assertSealedBackupFormat } from './backup-format';
-import { assertBackupOwnership, buildBackupOwnership } from './backup-ownership';
+import { sealSnapshot } from './backup-format';
 import { publishBackup, readCompanyConfig } from './backup-storage';
 import {
   RESTORE_MODELS, delegate, identity, sameConfig, scalarData,
-  validateRestoreSource, validateRestoreDestination, type AuditRebase, type CompanyImport, type Row, type Tables,
+  validateRestoreSource, validateRestoreDestination, type Tables,
 } from './backup-validation';
+import type { RecoveryArchive } from './journal-hash';
 
 export interface CompanyRestorePreview {
   readonly companyId: string;
@@ -87,41 +87,20 @@ function blockers(snapshot: ReturnType<typeof validateRestoreSource>['snapshot']
 }
 
 /**
- * S4 (T5): `importAsNewCompany` lets `companyId` be a company that does NOT own
- * the archive, so a super_admin can restore a backup as a new company inside an
- * installation that keeps running. It never weakens a check: the destination
- * must be an empty shell, the ownership credential is verified first, and every
- * other tenant is left byte-identical. Absent (default) the destination must be
- * the archive's own company, exactly as before.
- */
-export interface CompanyRestoreOptions {
-  /** S1/S2: credential of the super admin who created the backup. */
-  ownerPassword?: string;
-  /** S4: restore the archive as this company (may differ from its companyId). */
-  importAsNewCompany?: boolean;
-}
-
-/**
  * Read-only, destination-aware preview. Does not authorize a later restore:
  * restore repeats every check under its own transaction/locks. Caller must
  * authorize the exact company; this module does not establish sessions/RBAC.
  */
-export async function previewCompanyRestore(companyId: string, text: string,
-  options: CompanyRestoreOptions = {}): Promise<CompanyRestorePreview> {
-  const source = validated(() => validateRestoreSource(companyId, text, options));
-  // Only an admitted NEW-company import (S4) relaxes the destination rule; when
-  // the archive already belongs to this company nothing changes.
-  const importing = options.importAsNewCompany === true && source.snapshot.manifest.companyId !== companyId;
-  const destination = await withCompanyBackupTransaction(async tx => {
+export async function previewCompanyRestore(companyId: string, text: string): Promise<CompanyRestorePreview> {
+  const source = validated(() => validateRestoreSource(companyId, text));
+  const decision = await withCompanyBackupTransaction(async tx => {
     const current = await readDestination(tx);
-    return validated(() => validateRestoreDestination(source.tables, current, companyId, source.snapshot.manifest.id!, {
-      importSourceCompanyId: importing ? source.snapshot.manifest.companyId : null,
-    }).owned);
+    return validated(() => validateRestoreDestination(source.tables, current, companyId));
   }, { isolationLevel: 'RepeatableRead' });
   return frozen({ companyId, checksum: source.snapshot.manifest.integrity!.digest,
     counts: source.snapshot.manifest.recordCounts,
     ids: Object.fromEntries(Object.entries(RESTORE_MODELS).map(([section, model]) => [section, source.tables[model].map(identity)])),
-    blockers: blockers(source.snapshot, readCompanyConfig(companyId), destination),
+    blockers: blockers(source.snapshot, readCompanyConfig(companyId), decision.owned),
     scope: 'database-only; runtime configuration and external assets are not written' as const });
 }
 
@@ -136,27 +115,57 @@ export async function previewCompanyRestore(companyId: string, text: string,
  * from conflicting DB writers; serialization errors are surfaced, never retried.
  * Ordinary runtime file writers do not cooperate: configuration equality is a
  * prerequisite check, NOT proof of a coordinated filesystem snapshot.
- *
- * S1/S2: `options.ownerPassword` is the creating super-admin's credential. It
- * is verified (fail-closed) before the transaction, before any destination
- * validation and before any delete or publication.
  */
-export async function restoreCompanyBackup(companyId: string, text: string, options?: CompanyRestoreOptions): Promise<CompanyRestoreResult> {
-  return restoreDatabase(companyId, text, undefined, options?.ownerPassword, options?.importAsNewCompany);
+export async function restoreCompanyBackup(companyId: string, text: string): Promise<CompanyRestoreResult> {
+  return restoreDatabase(companyId, text);
 }
 
 type PrepareConfiguration = (operationId: string, checksum: string, safetyFilename: string) => void | Promise<void>;
-async function restoreDatabase(companyId: string, text: string, prepareConfiguration?: PrepareConfiguration, ownerPassword?: string,
-  importAsNewCompany = false): Promise<CompanyRestoreResult> {
-  const source = validated(() => validateRestoreSource(companyId, text, { importAsNewCompany }));
-  // Fail-closed ownership proof: the source snapshot is already parsed and its
-  // HMAC verified here, so the verifier cannot be forged. Nothing below this
-  // line runs without it — no lock, no destination validation, no delete.
-  assertBackupOwnership(source.snapshot.manifest, ownerPassword);
-  // S5 (T4): a legacy plain-text file (no sealed current-system format) is
-  // refused here, before the transaction, before any delete and before the
-  // safety snapshot is published. The ownership gate above stays FIRST.
-  assertSealedBackupFormat(source.snapshot);
+
+/** Source-reader mode. Only the portable bootstrap recovery selects 'portable'. */
+export interface RestoreSourceMode {
+  recovery?: 'local' | 'portable';
+  /** Digest of the authenticated container bytes (required in portable mode). */
+  authenticatedDigest?: string;
+  /**
+   * Authenticated archive evidence of earlier portable recoveries (audit id ->
+   * digest, plus the explicit attribution of rows whose reference the legacy FK
+   * erased). Portable mode needs it to certify retained destination audit rows
+   * whose source key this machine never had; those rows are preserved, never
+   * re-signed.
+   */
+  auditArchive?: RecoveryArchive;
+}
+
+/**
+ * Models whose live rows reference a User and must follow an authorized
+ * identity mapping. Historical AuditLog rows keep their stored hash and
+ * previousHash; only the proven owner reference is remapped, and the archive
+ * records exactly which rows changed.
+ */
+const IDENTITY_MAPPED_MODELS = ['CompanyMember', 'ReconciliationPeriod', 'RuleApplyRecord', 'AuditLog'];
+
+function applyIdentityMap(tables: Tables, identityMap: Readonly<Record<string, string>>): Tables {
+  if (Object.keys(identityMap).length === 0) return tables;
+  const mapped: Tables = { ...tables };
+  for (const model of IDENTITY_MAPPED_MODELS) {
+    mapped[model] = (tables[model] ?? []).map((row) => {
+      if (typeof row.userId !== 'string') return row;
+      const destination = identityMap[row.userId];
+      return destination && destination !== row.userId ? { ...row, userId: destination } : row;
+    });
+  }
+  return mapped;
+}
+
+async function restoreDatabase(
+  companyId: string,
+  text: string,
+  prepareConfiguration?: PrepareConfiguration,
+  mode?: RestoreSourceMode,
+  identityMap: Readonly<Record<string, string>> = {},
+): Promise<CompanyRestoreResult> {
+  const source = validated(() => validateRestoreSource(companyId, text, mode));
   const operationId = crypto.randomUUID();
   let safetyFilename = '';
   let mutationStarted = false;
@@ -165,18 +174,14 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       // Parameterized server-side, transaction-scoped lock; no process mutex.
       await tx.$queryRaw(Prisma.sql`SELECT 1 FROM pg_advisory_xact_lock(hashtextextended(${companyId}, 729104))`);
       const companies = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`SELECT id FROM "Company" WHERE id = ${companyId} FOR UPDATE`);
-      // A missing destination is an admission refusal, never a server fault: the
-      // routes answer the documented RESTORE_ contract instead of a generic 500.
-      if (companies.length !== 1) throw new ValidationError('RESTORE_IDENTITY: destination company missing');
+      if (companies.length !== 1) throw new Error('RESTORE_IDENTITY: destination company missing');
       const current = await readDestination(tx);
-      // S4 (T5): only an explicitly admitted new-company import may target a
-      // company that does not own the archive. Everything else keeps the
-      // original rule (destination === archive identity).
-      const importing = importAsNewCompany && source.snapshot.manifest.companyId !== companyId;
-      const { owned, reanchor, imported } = validated(() => validateRestoreDestination(
-        source.tables, current, companyId, source.snapshot.manifest.id!, {
-          importSourceCompanyId: importing ? source.snapshot.manifest.companyId : null,
-        }));
+      const decision = validated(() =>
+        validateRestoreDestination(
+          source.tables, current, companyId, mode?.recovery === 'portable', identityMap,
+          { auditArchive: mode?.auditArchive },
+        ));
+      const owned = decision.owned;
       const config = readCompanyConfig(companyId);
       const refused = blockers(source.snapshot, config, owned).filter(() => !prepareConfiguration);
       if (prepareConfiguration) {
@@ -188,14 +193,38 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       // The same existing snapshot builder enforces export inventory, graph
       // ownership and user-secret exclusion. Every read is in this transaction.
       const safety = await captureCompanySnapshot(tx, companyId, config);
-      // The safety snapshot is the rollback image of THIS operation. It carries
-      // its own fresh verifier for the same credential the restorer just proved,
-      // so a later rollback is possible without weakening S1/S2 (no password is
-      // stored, and a backup created without ownership proof stays impossible).
-      if (ownerPassword) safety.backupData.manifest.ownership = buildBackupOwnership(ownerPassword);
       sealSnapshot(safety.backupData);
       const safetyText = JSON.stringify(safety.backupData, null, 2);
-      validateRestoreSource(companyId, safetyText);
+      // The safety copy is a snapshot of THIS installation, so it may contain a
+      // retained audit row whose user reference the legacy foreign key erased. Its
+      // seal is re-proved with the attribution this transaction already certified
+      // (decision.auditProjections); every other local row is still recomputed.
+      // Its `AuditLog` references are HISTORICAL EVIDENCE in a portable recovery
+      // (the installed schema has no such foreign key): an evidence row may name an
+      // actor or company that no longer exists, and that must not make the safety
+      // copy un-restorable. Local replacement keeps the strict check.
+      //
+      // F4: a portable recovery must ALSO read this snapshot under the portable
+      // historical-evidence contract, exactly like the source file. The snapshot
+      // legitimately carries rows sealed by the SOURCE installation (or by a
+      // previous destination key) — retained audit evidence this key can never
+      // recompute — so the strict local-key reader refused EVERY second recovery
+      // with `RESTORE_CHAIN: audit HMAC/key mismatch`. The bytes are produced in
+      // process by this transaction (sealed and read without any I/O or window), so
+      // the portable reader is given their own SHA-256 as the authenticated digest
+      // instead of a container digest; nothing new is trusted. Local replacement
+      // keeps the strict contract unchanged.
+      const portableSafety = mode?.recovery === 'portable';
+      validateRestoreSource(companyId, safetyText, {
+        auditAttribution: decision.auditProjections,
+        historicalAuditReferences: portableSafety,
+        ...(portableSafety
+          ? {
+              recovery: 'portable' as const,
+              authenticatedDigest: crypto.createHash('sha256').update(safetyText, 'utf8').digest('hex'),
+            }
+          : {}),
+      });
       publishBackup(safety.filename, safetyText);
       safetyFilename = safety.filename;
       // Recheck observed config changes before writes; this is deliberately not
@@ -203,16 +232,10 @@ async function restoreDatabase(companyId: string, text: string, prepareConfigura
       if (!sameConfig(config, readCompanyConfig(companyId))) throw new Error('RESTORE_FILES_REQUIRED: configuration changed during safety publication');
       await prepareConfiguration?.(operationId, source.snapshot.manifest.integrity!.digest, safetyFilename);
       mutationStarted = true;
-      await replaceRows(tx, source.tables, owned, companyId, source.snapshot, reanchor, imported);
+      await replaceRows(tx, applyIdentityMap(source.tables, identityMap), owned, companyId, source.snapshot,
+        mode?.recovery === 'portable', decision.auditReuse);
       const head = source.snapshot.data.journalChainHead;
-      if (head) {
-        // An imported company certifies under ITS destination identity, so the
-        // declared tail is the re-sealed one (documented by
-        // RESTORE_IMPORT_JOURNAL); every other path stores the archive tail.
-        await tx.journalChainHead.create({ data: imported
-          ? { companyId, lastEntryId: imported.journalTail?.lastEntryId ?? null, lastHash: imported.journalTail?.lastHash ?? null }
-          : head });
-      }
+      if (head) await tx.journalChainHead.create({ data: head });
       // Durable commit evidence, atomic with replacement. Unsigned operational
       // event, not a fabricated accounting-chain signature. It is NOT a claim
       // that external files were restored. No auto-recovery replay consumes it.
@@ -239,15 +262,14 @@ export interface CoordinatedRestoreResult extends Omit<CompanyRestoreResult, 'st
 /** Internal service entry point, not HTTP authority. Keeps admission closed on
  * any uncertain commit/file outcome. Logos require exact checksummed archive
  * bytes and a trusted installed target mapping; legacy missing bytes fail closed.
- * The ownership credential is verified before the maintenance gate is acquired,
- * so a refused restore never even publishes a maintenance marker.
  */
-export async function restoreCompanyBackupCoordinated(companyId: string, text: string, options?: CompanyRestoreOptions): Promise<CoordinatedRestoreResult> {
-  const source = validated(() => validateRestoreSource(companyId, text, { importAsNewCompany: options?.importAsNewCompany }));
-  assertBackupOwnership(source.snapshot.manifest, options?.ownerPassword);
-  // S5 (T4): refused before the maintenance gate, so a legacy plain-text file
-  // never even publishes a maintenance marker (the ownership gate stays FIRST).
-  assertSealedBackupFormat(source.snapshot);
+export async function restoreCompanyBackupCoordinated(
+  companyId: string,
+  text: string,
+  mode?: RestoreSourceMode,
+  identityMap: Readonly<Record<string, string>> = {},
+): Promise<CoordinatedRestoreResult> {
+  const source = validated(() => validateRestoreSource(companyId, text, mode));
   validated(() => validateCompanyLogo(source.snapshot.data.company[0].logo, source.snapshot.manifest.companyLogo));
   const runtime = path.dirname(RUNTIME_FILES.companyConfig);
   const journalRoot = path.join(runtime, 'backup-recovery');
@@ -274,7 +296,7 @@ export async function restoreCompanyBackupCoordinated(companyId: string, text: s
         createRecoveryJournal(journalRoot, { operationId, companyId, checksum, maintenanceId: owner.id, safetyFilename,
           ...(source.snapshot.manifest.companyLogo ? { logoUrl: source.snapshot.manifest.companyLogo.url } : {}),
           files: [...(before === after ? [] : [{ key: 'company-config', before, after }]), ...(logo ? [logo.file] : [])] });
-      }, options?.ownerPassword, options?.importAsNewCompany);
+      }, mode, identityMap);
       if (result.status !== 'committed') return { ...result, status: 'reconciliation_required' as const,
         scope: 'database-and-company-config' as const };
       const journal = readRecoveryJournal(journalRoot, result.operationId);
@@ -343,8 +365,26 @@ export async function reconcileCompanyBackupRecovery(companyId: string, operatio
   }
 }
 
-async function replaceRows(tx: CompanySnapshotClient, source: Tables, owned: Tables, companyId: string, snapshot: BackupData,
-  reanchor: AuditRebase | null = null, imported: CompanyImport | null = null): Promise<void> {
+async function replaceRows(
+  tx: CompanySnapshotClient,
+  source: Tables,
+  owned: Tables,
+  companyId: string,
+  snapshot: BackupData,
+  /**
+   * Portable recovery: the destination's audit rows are evidence, not company
+   * state. They are never deleted (not even the rows carrying the restored
+   * company id) and never re-signed; validateRestoreDestination already certified
+   * every id collision as the same authenticated event or refused the restore.
+   */
+  preserveDestinationAudit = false,
+  /**
+   * Portable recovery: incoming audit ids whose event the destination already
+   * retains verbatim. Inserting them again would duplicate history and fail the
+   * primary key, so they are REUSED as stored (byte-identical).
+   */
+  reusedAudit: ReadonlyMap<string, string> = new Map(),
+): Promise<void> {
   // The schema's two nullable self-references need a separate unlink/link pass.
   // Validation has already rejected foreign inbound references and cycles.
   for (const [model, field] of [['GlAccount', 'parentId'], ['CompanyKnowledge', 'mergedIntoId']]) {
@@ -353,38 +393,23 @@ async function replaceRows(tx: CompanySnapshotClient, source: Tables, owned: Tab
     }
   }
   await tx.journalChainHead.deleteMany({ where: { companyId } });
-  const models = Object.values(RESTORE_MODELS).filter(m => !['Company', 'User', 'SystemConfig'].includes(m));
-  for (const model of [...models].reverse()) {
+  const models = Object.values(RESTORE_MODELS).filter(m =>
+    !['Company', 'User', 'SystemConfig'].includes(m));
+  // Deletion and insertion are different sets in portable mode: preserved audit
+  // rows are never deleted, but the incoming source rows are still inserted.
+  const deletable = models.filter(m => !(preserveDestinationAudit && m === 'AuditLog'));
+  for (const model of [...deletable].reverse()) {
     if (!owned[model].length) continue;
     const key = model === 'DetectionConfig' ? 'companyId' : 'id';
     await modelWriter(tx, model).deleteMany({ where: { [key]: { in: owned[model].map(row => row[key]) } } });
   }
-  const companyData = scalarData('Company', source.Company[0], snapshot);
-  // An imported company KEEPS its destination id and takes the archive's
-  // substance; the archive id is never written into the Company row.
-  if (imported) delete companyData.id;
-  await tx.company.update({ where: { id: companyId }, data: companyData as Prisma.CompanyUncheckedUpdateInput });
+  await tx.company.update({ where: { id: companyId }, data: scalarData('Company', source.Company[0], snapshot) as Prisma.CompanyUncheckedUpdateInput });
   for (const model of models) {
-    // S6 (T3): a re-based audit segment is inserted INSTEAD of the archive rows:
-    // the sealed RESTORE_REBASE entry first, then the same segment re-linked
-    // under this installation's secret. Every other model is untouched.
-    // S4 (T5): an imported company inserts its CLOSED HISTORICAL audit records
-    // (never chain members) and its journal entries re-sealed under the
-    // destination identity, in place of the archive's own rows.
-    const rows = model === 'AuditLog' && reanchor ? reanchor.rows
-      : model === 'AuditLog' && imported ? imported.auditRows
-      : model === 'JournalEntry' && imported ? imported.journalEntries
-      : source[model];
-    for (const row of rows) {
+    for (const row of source[model]) {
+      // A retained row already IS this event (certified in the same transaction
+      // by validateRestoreDestination): reuse it, never re-insert or rewrite it.
+      if (model === 'AuditLog' && reusedAudit.has(String(row.id))) continue;
       const data = scalarData(model, row, snapshot);
-      if (imported && data.companyId === imported.sourceCompanyId) data.companyId = companyId;
-      // The approval payload carries the tenant id the action belongs to; a
-      // NEW company must own its pending actions (validated on every later
-      // backup of this company). Only this tenant's own value is rewritten.
-      if (imported && model === 'PendingApproval' && data.payload && typeof data.payload === 'object' &&
-          (data.payload as Row).companyId === imported.sourceCompanyId) {
-        data.payload = { ...(data.payload as Row), companyId };
-      }
       if (model === 'GlAccount') data.parentId = null;
       if (model === 'CompanyKnowledge') data.mergedIntoId = null;
       await modelWriter(tx, model).create({ data });

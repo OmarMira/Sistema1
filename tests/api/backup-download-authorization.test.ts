@@ -5,6 +5,7 @@ import { POST as previewPOST } from '../../src/app/api/backup/restore/preview/ro
 import { createTestUser, createTestCompany, createTestGlAccount, clearDatabase } from '../helpers/factories';
 import { createSession } from '@/lib/sessions';
 import { hashPassword } from '@/lib/auth';
+import { portableRecoveryFilename } from '@/lib/backup';
 import { BACKUP_DIR } from '@/lib/config/paths';
 import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
@@ -13,9 +14,12 @@ import path from 'path';
 
 /**
  * S7 — creating a backup is sudo-style: the route asks the authenticated
- * administrator to re-enter their own password. This suite tests the
- * download/preview ROLE gate, so the fixture owner simply has a real password
- * and every POST /api/backup carries it.
+ * administrator to re-enter their own password. A backup is later the artifact
+ * that authorizes a first-install recovery, so the SERVER resolves its owner
+ * from its own records: only an ACTIVE, VERIFIED `super_admin` of this company
+ * can be certified (a plain `company_admin` answers 409 RECOVERY_OWNER_MISSING).
+ * This suite tests the download/preview ROLE gate, so the fixture owner is that
+ * proven owner and every POST /api/backup carries its password.
  */
 const ADMIN_PASSWORD = 'Clave.Descarga.2026';
 
@@ -23,7 +27,7 @@ async function createBackupAdmin(email: string) {
   const user = await createTestUser(email);
   await db.user.update({
     where: { id: user.id },
-    data: { passwordHash: await hashPassword(ADMIN_PASSWORD) },
+    data: { passwordHash: await hashPassword(ADMIN_PASSWORD), platformRole: 'super_admin' },
   });
   return user;
 }
@@ -105,15 +109,20 @@ describe('backup download/preview authorization', () => {
     const adminToken = await createSession(owner.id);
     const filename = await createBackupAsAdmin(company.id, adminToken);
 
+    // The transport never hands out the internal plaintext snapshot: the answer
+    // is the encrypted portable file, re-sealed after re-authentication.
     const res = await backupFileGET(
       new NextRequest(`http://localhost/api/backup/${filename}?companyId=${company.id}`, {
-        headers: { Authorization: `Bearer ${adminToken}` },
+        headers: {
+          Authorization: `Bearer ${adminToken}`,
+          'x-backup-password': ADMIN_PASSWORD,
+        },
       }),
       { params: Promise.resolve({ filename }) },
     );
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.filename).toBe(filename);
+    expect(body.filename).toBe(portableRecoveryFilename(filename));
     expect(typeof body.data).toBe('string');
   });
 

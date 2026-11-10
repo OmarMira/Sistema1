@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 // Phase B — T4: protected, one-time bootstrap of the first super_admin.

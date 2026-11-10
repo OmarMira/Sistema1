@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef, type ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Building2,
@@ -36,6 +36,7 @@ import {
 import { Label } from '@/components/ui/label';
 import { AddressAutocomplete } from '@/components/ui/address-autocomplete';
 import { logger } from '@/lib/logger';
+import { translateApiError } from '@/i18n/errors';
 import { toast } from 'sonner';
 
 const US_STATES = [
@@ -108,12 +109,61 @@ interface Company {
   createdAt: string;
 }
 
+/**
+ * Outer-envelope format string of the portable owner-verified container.
+ * Duplicated from `PORTABLE_FORMAT` because that module imports `node:crypto`
+ * and cannot be bundled into a client component; the isolated suite pins this
+ * literal against the server constant. Nothing is decrypted here.
+ */
+const PORTABLE_RECOVERY_FORMAT = 'accountexpress-portable-recovery';
+
+function isPortableRecoveryFormat(text: string): boolean {
+  try {
+    const parsed = JSON.parse(text) as { format?: unknown } | null;
+    return !!parsed && typeof parsed === 'object' && parsed.format === PORTABLE_RECOVERY_FORMAT;
+  } catch {
+    return false;
+  }
+}
+
+/** Server code -> locale key, so each refusal names the real situation (S23). */
+const RESTORE_DOOR_MESSAGES: Record<string, string> = {
+  RECOVERY_PASSWORD_MISMATCH: 'adminCompanies.restoreCredentialsInvalid',
+  RECOVERY_SESSION_IDENTITY_MISMATCH: 'adminCompanies.restoreIdentityMismatch',
+  RECOVERY_COMPANY_EXISTS: 'adminCompanies.restoreCompanyExists',
+  RECOVERY_COMPANY_NOT_FOUND: 'adminCompanies.restoreFileUnsupported',
+  RECOVERY_FILE_UNSUPPORTED: 'adminCompanies.restoreFileUnsupported',
+  RECOVERY_FORMAT_UNSUPPORTED: 'adminCompanies.restoreFileUnsupported',
+};
+
+function restoreDoorMessage(data: unknown, t: (key: string) => string): string {
+  const code = (data as { code?: unknown } | null)?.code;
+  const key = typeof code === 'string' ? RESTORE_DOOR_MESSAGES[code] : undefined;
+  if (key) return t(key);
+  return translateApiError(data as { error?: unknown; code?: unknown }, t);
+}
+
 export default function AdminCompaniesPage() {
   const t = useLanguageStore((s) => s.t);
+  const sessionUser = useAuthStore((s) => s.user);
   const { setCurrentView, setAdminSelectedCompanyId } = useAuthStore();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Owner-verified portable recovery (S23). Adding the backup's own company is
+  // the installation owner's action; nothing here promotes an account.
+  const isOwner = sessionUser?.role === 'super_admin';
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoreFile, setRestoreFile] = useState<{ fileName: string; text: string } | null>(null);
+  const [restoreEmail, setRestoreEmail] = useState('');
+  const [restoreCompany, setRestoreCompany] = useState('');
+  const [restorePassword, setRestorePassword] = useState('');
+  const [restoreToken, setRestoreToken] = useState('');
+  const [restoreStage, setRestoreStage] = useState<'form' | 'token'>('form');
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [restoreNotice, setRestoreNotice] = useState<string | null>(null);
+  const restoreFileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Modal state
   const [modalOpen, setModalOpen] = useState(false);
@@ -155,6 +205,74 @@ export default function AdminCompaniesPage() {
       setLoading(false);
     }
   }, []);
+
+  /**
+   * Portable door (S23), two stages: the owner proves the file with password,
+   * owner email and exact company name, receives an emailed code, and only then
+   * the backup's company is created and loaded.
+   */
+  async function submitRestore(stage: 'challenge' | 'complete') {
+    if (!restoreFile) return;
+    setRestoreBusy(true);
+    setRestoreNotice(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', new File([restoreFile.text], restoreFile.fileName, { type: 'application/json' }));
+      formData.append('password', restorePassword);
+      formData.append('ownerEmail', restoreEmail);
+      formData.append('companyName', restoreCompany);
+      if (stage === 'complete') formData.append('token', restoreToken);
+
+      const res = await fetch('/api/backup/restore?mode=portable&door=admin', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setRestoreNotice(restoreDoorMessage(data, t));
+        return;
+      }
+      if (stage === 'challenge') {
+        setRestoreStage('token');
+        return;
+      }
+      toast.success(t('adminCompanies.restoreSuccess'));
+      setRestoreOpen(false);
+      setRestoreFile(null);
+      setRestoreStage('form');
+      setRestoreToken('');
+      // Refresh the list, then let the user select a company through the normal flow.
+      await loadCompanies();
+      setCurrentView('select-company');
+    } catch {
+      setRestoreNotice(t('adminCompanies.restoreFailed'));
+    } finally {
+      setRestoreBusy(false);
+    }
+  }
+
+  async function handleRestoreFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const text = await file.text().catch(() => '');
+    if (!isPortableRecoveryFormat(text)) {
+      // The same refusal the door gives: only the encrypted owner container is
+      // accepted here.
+      setRestoreOpen(true);
+      setRestoreFile(null);
+      setRestoreNotice(t('adminCompanies.restoreFileUnsupported'));
+      return;
+    }
+    setRestoreFile({ fileName: file.name, text });
+    setRestoreOpen(true);
+    setRestoreEmail(sessionUser?.email ?? '');
+    setRestoreCompany('');
+    setRestorePassword('');
+    setRestoreToken('');
+    setRestoreStage('form');
+    setRestoreNotice(null);
+  }
 
   useEffect(() => {
     loadCompanies();
@@ -289,6 +407,133 @@ export default function AdminCompaniesPage() {
           {t('adminCompanies.createBtn')}
         </Button>
       </div>
+
+      {/* Owner-verified portable recovery (S23): available without a company. */}
+      {isOwner && (
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="space-y-1">
+                <p className="text-base font-semibold flex items-center gap-2">
+                  <Upload className="size-4" />
+                  {t('adminCompanies.restoreBackupTitle')}
+                </p>
+                <p className="text-xs text-muted-foreground">{t('adminCompanies.restoreBackupDesc')}</p>
+                {companies.length === 0 && (
+                  <p className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                    {t('adminCompanies.restoreBackupZeroHint')}
+                  </p>
+                )}
+              </div>
+              <Button
+                variant={restoreOpen ? 'ghost' : 'outline'}
+                onClick={() => {
+                  setRestoreOpen(true);
+                  setRestoreNotice(null);
+                  restoreFileInputRef.current?.click();
+                }}
+                className="gap-2 self-start"
+              >
+                <Upload className="size-4" />
+                {t('adminCompanies.restoreBackupTitle')}
+              </Button>
+            </div>
+
+            <input
+              ref={restoreFileInputRef}
+              type="file"
+              accept=".json,.backup"
+              className="hidden"
+              data-testid="admin-restore-file-input"
+              onChange={(event) => void handleRestoreFile(event)}
+            />
+
+            {restoreOpen && (
+              <div className="space-y-3 rounded-lg border border-border bg-muted/30 p-3">
+                {restoreFile && (
+                  <p className="font-mono text-xs text-muted-foreground break-all">{restoreFile.fileName}</p>
+                )}
+                <Input
+                  type="email"
+                  autoComplete="email"
+                  value={restoreEmail}
+                  aria-label={t('adminCompanies.restoreOwnerEmailLabel')}
+                  placeholder={t('adminCompanies.restoreOwnerEmailLabel')}
+                  onChange={(e) => setRestoreEmail(e.target.value)}
+                />
+                <Input
+                  value={restoreCompany}
+                  aria-label={t('adminCompanies.restoreCompanyNameLabel')}
+                  placeholder={t('adminCompanies.restoreCompanyNameLabel')}
+                  onChange={(e) => setRestoreCompany(e.target.value)}
+                />
+                <Input
+                  type="password"
+                  autoComplete="current-password"
+                  value={restorePassword}
+                  aria-label={t('adminCompanies.restoreOwnerPasswordLabel')}
+                  placeholder={t('adminCompanies.restoreOwnerPasswordLabel')}
+                  onChange={(e) => setRestorePassword(e.target.value)}
+                />
+                {restoreStage === 'token' && (
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">{t('adminCompanies.restoreCodeSent')}</p>
+                    <Input
+                      value={restoreToken}
+                      aria-label={t('adminCompanies.restoreCodeLabel')}
+                      placeholder={t('adminCompanies.restoreCodeLabel')}
+                      onChange={(e) => setRestoreToken(e.target.value)}
+                    />
+                  </div>
+                )}
+                {restoreNotice && (
+                  <p
+                    role="alert"
+                    className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive"
+                  >
+                    {restoreNotice}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    onClick={() => void submitRestore(restoreStage === 'token' ? 'complete' : 'challenge')}
+                    disabled={
+                      restoreBusy ||
+                      !restoreFile ||
+                      restoreEmail.trim().length === 0 ||
+                      restoreCompany.trim().length === 0 ||
+                      restorePassword.trim().length === 0 ||
+                      (restoreStage === 'token' && restoreToken.trim().length === 0)
+                    }
+                  >
+                    {restoreBusy ? (
+                      <>
+                        <Loader2 className="size-4 mr-1 animate-spin" />
+                        {t('adminCompanies.loading')}
+                      </>
+                    ) : restoreStage === 'token' ? (
+                      t('adminCompanies.restoreConfirm')
+                    ) : (
+                      t('adminCompanies.restoreSendCode')
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setRestoreOpen(false);
+                      setRestoreFile(null);
+                      setRestoreNotice(null);
+                      setRestoreStage('form');
+                    }}
+                  >
+                    {t('common.cancel')}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Search Filter */}
       <div className="relative">

@@ -3,57 +3,48 @@ import { db } from '@/lib/db';
 import { apiHandler, type RouteContext } from '@/lib/api-handler';
 import { requireCompanyContext } from '@/lib/context-storage';
 import { requireCompanyRole } from '@/lib/rbac';
-import { createBackup, listBackups, deleteBackup } from '@/lib/backup';
+import { createPortableBackup, listBackupInventory, deleteBackup } from '@/lib/backup';
+import { PortableRecoveryError } from '@/lib/backup-portable';
 import { createAuditLogWithRetry } from '@/lib/audit';
-import { verifyPassword } from '@/lib/auth';
 
 /**
- * S7 — sudo-style creation. The authenticated administrator must re-enter their
- * own password; only the derived verifier (scrypt, inside the sealed manifest)
- * is written into the backup. The received password is used for the bcrypt
- * comparison and the verifier derivation, then discarded: it is never stored,
- * never audited and never echoed.
- */
-async function requestedPassword(request: NextRequest): Promise<unknown> {
-  const contentType = request.headers.get('content-type') ?? '';
-  try {
-    if (contentType.includes('multipart/form-data')) {
-      return (await request.formData()).get('password');
-    }
-    const body = (await request.json()) as { password?: unknown } | null;
-    return body?.password;
-  } catch {
-    // No readable body: treated as a missing password, never as success.
-    return undefined;
-  }
-}
-
-/**
- * POST /api/backup — Create a full backup for a company
- * Body: { password: string } — the caller's own password (re-entered).
+ * POST /api/backup — Create a full backup for a company.
+ *
+ * A backup is the artifact that later authorizes a first-install recovery, so it
+ * is created WITH its portable owner-verified credential (S3). The password must
+ * be the SOURCE owner account password: the server resolves the owner from its
+ * own records, verifies the password with the canonical helper and only then
+ * writes the AEAD envelope. The received password is never echoed or stored.
  */
 export const POST = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { userId, companyId } = requireCompanyContext();
 
   await requireCompanyRole(companyId, ['company_admin']);
 
-  const password = await requestedPassword(request);
-  if (typeof password !== 'string' || password.length === 0) {
+  const body = await request.json().catch(() => null) as { password?: unknown } | null;
+  const password = typeof body?.password === 'string' ? body.password : '';
+  if (!password) {
     return NextResponse.json(
-      { error: 'Ingresá tu contraseña para crear el respaldo.', code: 'BACKUP_PASSWORD_REQUIRED' },
+      {
+        error: 'Se requiere la contraseña del propietario (superadministrador) para proteger el respaldo.',
+        code: 'RECOVERY_PASSWORD_REQUIRED',
+      },
       { status: 400 },
     );
   }
 
-  const actor = await db.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
-  if (!actor?.passwordHash || !(await verifyPassword(password, actor.passwordHash))) {
-    return NextResponse.json(
-      { error: 'La contraseña no es correcta. No se creó el respaldo.', code: 'INVALID_BACKUP_PASSWORD' },
-      { status: 400 },
-    );
+  let result: Awaited<ReturnType<typeof createPortableBackup>>;
+  try {
+    result = await createPortableBackup({ companyId, createdByUserId: userId, password });
+  } catch (error) {
+    if (error instanceof PortableRecoveryError) {
+      const status = error.code === 'RECOVERY_OWNER_MISSING' || error.code === 'RECOVERY_OWNER_AMBIGUOUS'
+        ? 409
+        : 400;
+      return NextResponse.json({ error: error.message, code: error.code }, { status });
+    }
+    throw error;
   }
-
-  const result = await createBackup(companyId, undefined, { ownerPassword: password });
 
   // Audit Contract v1 — BACKUP_CREATED
   await createAuditLogWithRetry({
@@ -67,29 +58,48 @@ export const POST = apiHandler(async (request: NextRequest, context: RouteContex
       filename: result.filename,
       size: result.size,
       recordCounts: result.recordCounts,
+      recoveryProtected: true,
+      portable: true,
+      catalogVerified: !result.catalogWarning,
     }),
   });
 
-  return NextResponse.json({
+  // `data` is the encrypted portable file (the whole accounting payload is
+  // AEAD-sealed under the owner password); `filename` stays the internal catalog
+  // entry used for history/retention. The owner email is never echoed.
+  // `catalogWarning` is present only when the snapshot was stored but the
+  // catalog/retention maintenance had to be skipped (uncertain inventory): the
+  // operator sees the uncertainty instead of a silent partial success, and no
+  // other tenant's file name is ever included.
+  const payload: Record<string, unknown> = {
     id: result.id,
     filename: result.filename,
+    recoveryFilename: result.recoveryFilename,
     size: result.size,
+    portableSize: result.portableSize,
     createdAt: result.createdAt,
     data: result.data,
     recordCounts: result.recordCounts,
-  });
+    recoveryProtected: true,
+  };
+  if (result.catalogWarning) payload.catalogWarning = result.catalogWarning;
+  return NextResponse.json(payload);
 });
 
 /**
  * GET /api/backup — List backups for a company
- * Query: ?companyId=xxx
+ * Query: ?companyId=xxx (informational; the tenant comes from the session context)
+ *
+ * The answer is scoped to the caller company: another company's unreadable file
+ * can no longer fail this request, and this company's own unreadable files are
+ * listed under `unreadable` so the loss stays visible instead of becoming a 500.
  */
 export const GET = apiHandler(async (request: NextRequest, context: RouteContext) => {
   const { companyId } = requireCompanyContext();
 
-  const backups = listBackups(companyId);
+  const { backups, unreadable } = listBackupInventory(companyId);
 
-  return NextResponse.json({ backups });
+  return NextResponse.json({ backups, unreadable });
 });
 
 /**

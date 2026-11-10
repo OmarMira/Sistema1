@@ -1,4 +1,4 @@
-/* ─── Types ───────────────────────────────────────────────────────── */
+/* --- Types --- */
 
 export interface BackupRecord {
   id: string;
@@ -9,6 +9,8 @@ export interface BackupRecord {
     id: string;
     legalName: string;
   };
+  createdBy?: string;
+  destination?: string;
   recordCounts: {
     company: number;
     glAccounts: number;
@@ -24,7 +26,7 @@ export interface BackupRecord {
   };
 }
 
-/* ─── Animation Variants ──────────────────────────────────────────── */
+/* --- Animation Variants --- */
 
 export const containerVariants = {
   hidden: { opacity: 0 },
@@ -36,7 +38,7 @@ export const itemVariants = {
   visible: { opacity: 1, y: 0 },
 };
 
-/* ─── Helpers ─────────────────────────────────────────────────────── */
+/* --- Helpers --- */
 
 export function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;

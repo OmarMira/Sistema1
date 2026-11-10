@@ -126,7 +126,6 @@ model User {
   avatar                String                 @default("")
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
-  auditLogs             AuditLog[]
   companyMemberships    CompanyMember[]
   reconciliationPeriods ReconciliationPeriod[] @relation("ReconUser")
   sessions              Session[]
@@ -544,7 +543,16 @@ model AuditLog {
   hash         String?
   previousHash String?
   createdAt    DateTime @default(now())
-  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// S18/T19 — evidence rule: audit rows OUTLIVE the account they name. 'userId'
+  /// is a historical attribution, NOT a foreign key: the former
+  /// AuditLog_userId_fkey (ON DELETE SET NULL) was dropped in migration
+  /// 20261109010000. The referential action erased the reference on deletion
+  /// while the stored HMAC kept covering the original payload (userId is part of
+  /// computeAuditHash), so deleting an account invalidated its own evidence and
+  /// blocked recovery. The column keeps its values and its index; the relation is
+  /// intentionally NOT declared here, exactly like 'companyId' after
+  /// 20261105000000. ON DELETE NO ACTION was rejected: it would block deleting an
+  /// account forever. API responses resolve the author explicitly, in one batch.
   /// S19(c) — evidence rule: audit rows OUTLIVE their company. 'companyId' is a
   /// historical scope, NOT a foreign key: the former AuditLog_companyId_fkey
   /// (ON DELETE SET NULL) was dropped in migration 20261105000000. Nulling the
@@ -946,5 +954,46 @@ model IdentitySecurityEvent {
   subject   String
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
+  @@index([createdAt])
+}
+
+/// Portable owner-verified bootstrap recovery (S3). One draft challenge per
+/// exact backup file digest; the token is stored only as its SHA-256 digest and
+/// consumption is an atomic single-use CAS on `usedAt`.
+model BootstrapRecoveryChallenge {
+  /// SHA-256 of the canonical snapshot payload (the exact backup file digest).
+  fileDigest  String    @id
+  ownerUserId String
+  companyId   String
+  tokenDigest String
+  generation  Int       @default(1)
+  attempts    Int       @default(0)
+  expiresAt   DateTime  @db.Timestamptz(3)
+  usedAt      DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+
+  @@index([expiresAt])
+}
+
+/// Single-slot cross-request lease serializing portable recovery attempts.
+model BootstrapRecoveryLock {
+  id        String   @id
+  holder    String
+  expiresAt DateTime @db.Timestamptz(3)
+}
+
+/// Provenance archive for a restored portable backup. Values are evidence, not
+/// a locally re-signed chain: the source installation key is unavailable here.
+model BootstrapRecoveryProvenance {
+  id                 String   @id
+  companyId          String
+  ownerUserId        String
+  sourceDigest       String
+  credentialDigest   String
+  sourceSealAlgorithm String
+  provenance         Json
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([companyId])
   @@index([createdAt])
 }

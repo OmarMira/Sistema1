@@ -1,3 +1,6 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('init-runtime.ts requires Node.js runtime (not Edge)');
+}
 import fs from 'fs';
 import path from 'path';
 import { DATA_ROOT, RUNTIME_DIR, RUNTIME_FILES, LEGACY_FILES, DEFAULT_TEMPLATES } from '@/lib/config/paths';

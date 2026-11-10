@@ -20,6 +20,7 @@ import { previewCompanyRestore } from '@/lib/backup-restore';
 import { translateApiError } from '@/i18n/errors';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -33,8 +34,6 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { containerVariants, itemVariants, formatFileSize, formatDate, type BackupRecord } from '@/lib/types/backup';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { BackupItem } from '@/components/backup/BackupItem';
 import { RestoreDropZone } from '@/components/backup/RestoreDropZone';
 
@@ -43,17 +42,19 @@ import { RestoreDropZone } from '@/components/backup/RestoreDropZone';
 export function BackupPage() {
   const t = useLanguageStore((s) => s.t);
   const activeCompany = useAuthStore((s) => s.activeCompany);
-  const user = useAuthStore((s) => s.user);
   const companyId = activeCompany?.id;
-  // S4 (T5): restoring an archive as a NEW company is a platform operation, so
-  // the optional destination selector exists only for a global super_admin.
-  const isSuperAdmin = user?.role === 'super_admin';
 
   // State
   const [backups, setBackups] = useState<BackupRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  // The backup is protected with the SOURCE owner password (S3): without it the
+  // file cannot be recovered on a new machine, so it is required here.
+  const [ownerPassword, setOwnerPassword] = useState('');
   const [restoreFile, setRestoreFile] = useState<File | null>(null);
+  // S11: history restores name a stored backup; the server resolves the snapshot
+  // so its plaintext never reaches the browser.
+  const [restoreFilename, setRestoreFilename] = useState<string | null>(null);
   const [restoring, setRestoring] = useState(false);
   const [restoreProgress, setRestoreProgress] = useState(0);
   const [showRestoreConfirm, setShowRestoreConfirm] = useState(false);
@@ -63,15 +64,6 @@ export function BackupPage() {
   const [restoringFromList, setRestoringFromList] = useState<string | null>(null);
   const [showRestoreHistoryConfirm, setShowRestoreHistoryConfirm] = useState<BackupRecord | null>(null);
   const [restorePreview, setRestorePreview] = useState<{ checksum: string; counts: BackupRecord; ids: object; blockers: string[] } | null>(null);
-  // S7/S1: creating a backup and restoring one both require the administrator's
-  // own password (sudo style). Kept in component state only: never persisted,
-  // never logged, and cleared as soon as the operation finishes.
-  const [createPassword, setCreatePassword] = useState('');
-  const [restorePassword, setRestorePassword] = useState('');
-  // S4 (T5) — optional destination of a super_admin restore. Empty means "the
-  // caller's own company", which is the unchanged default contract.
-  const [restoreTargets, setRestoreTargets] = useState<{ id: string; legalName: string }[]>([]);
-  const [restoreTargetCompanyId, setRestoreTargetCompanyId] = useState('');
   const mountedRef = useRef(true);
 
   // Fetch backups
@@ -97,63 +89,27 @@ export function BackupPage() {
     };
   }, [fetchBackups]);
 
-  // S4: the destination list comes from the same admin endpoint the admin
-  // screens use. A non-super_admin never asks for it and never sees the option.
-  useEffect(() => {
-    if (!isSuperAdmin) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/admin/companies');
-        if (res.ok && !cancelled) {
-          const data = await res.json();
-          setRestoreTargets(
-            (data.companies ?? []).map((row: { id: string; legalName: string }) => ({
-              id: row.id,
-              legalName: row.legalName,
-            })),
-          );
-        }
-      } catch {
-        /* the selector simply stays on the current company */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [isSuperAdmin]);
-
-  /** Sent only when a super_admin picked a company other than the current one. */
-  const selectedTargetCompanyId =
-    isSuperAdmin && restoreTargetCompanyId && restoreTargetCompanyId !== companyId
-      ? restoreTargetCompanyId
-      : undefined;
-
   // Create backup
   async function handleCreateBackup() {
     if (!companyId) return;
-    if (createPassword.length === 0) {
-      toast.error('Ingresá tu contraseña para crear el respaldo.');
-      return;
-    }
     setCreating(true);
     try {
       const res = await fetch('/api/backup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, password: createPassword }),
+        body: JSON.stringify({ companyId, password: ownerPassword }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        setCreatePassword('');
         toast.success(t('settings.backup.backupCreated'), {
           description: `${formatFileSize(data.size)} — ${(Object.values(data.recordCounts) as number[]).reduce((a, b) => a + b, 0)} ${t('settings.backup.records')}`,
         });
 
-        // Auto-download the backup
+        // Auto-download the ENCRYPTED portable file (the server never hands out
+        // the internal plaintext snapshot as a saved file).
         if (data.data) {
-          downloadBackup(data.data, data.filename);
+          downloadBackup(data.data, data.recoveryFilename || data.filename);
         }
 
         await fetchBackups();
@@ -169,21 +125,28 @@ export function BackupPage() {
     setCreating(false);
   }
 
-  // Download existing backup
+  // Download an existing backup as the encrypted portable file.
   async function handleDownload(backup: BackupRecord) {
     if (!companyId) return;
+    if (ownerPassword.trim().length === 0) {
+      toast.error(t('settings.backup.recoveryPasswordRequired'));
+      return;
+    }
     setDownloading(backup.id);
     try {
-      const res = await fetch(
-        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
-      );
+      const res = await fetch(`/api/backup/${encodeURIComponent(backup.filename)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ companyId, password: ownerPassword }),
+      });
       if (res.ok) {
         const data = await res.json();
         if (data.data) {
-          downloadBackup(data.data, backup.filename);
+          downloadBackup(data.data, data.filename || backup.filename);
         }
       } else {
-        toast.error(t('common.error'));
+        const data = await res.json().catch(() => null);
+        toast.error(t('common.error'), { description: translateApiError(data, t) });
       }
     } catch {
       toast.error(t('common.error'));
@@ -217,10 +180,6 @@ export function BackupPage() {
   // Restore from file
   async function handleRestore() {
     if (!companyId || !restoreFile) return;
-    if (restorePassword.length === 0) {
-      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
-      return;
-    }
 
     try {
       setRestoring(true);
@@ -231,16 +190,6 @@ export function BackupPage() {
       const jsonString = new TextDecoder().decode(fileBuffer);
       const parsed = JSON.parse(jsonString);
       const previewData = JSON.stringify({ data: parsed.data ?? parsed });
-
-      // S4: a destination other than the current company is certified by the
-      // restore route itself, not by this preview (which is bound to the
-      // caller's company). Go straight to the confirmation.
-      if (selectedTargetCompanyId) {
-        setRestoring(false);
-        setRestoreProgress(0);
-        setShowRestoreConfirm(true);
-        return;
-      }
 
       setRestoreProgress(30);
       const previewRes = await fetch('/api/backup/restore/preview', {
@@ -272,11 +221,7 @@ export function BackupPage() {
   }
 
   async function executeRestore() {
-    if (!companyId || !restoreFile) return;
-    if (restorePassword.length === 0) {
-      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
-      return;
-    }
+    if (!companyId || (!restoreFile && !restoreFilename)) return;
     setShowRestoreConfirm(false);
     setRestorePreview(null);
 
@@ -284,19 +229,22 @@ export function BackupPage() {
       setRestoring(true);
       setRestoreProgress(30);
 
-      const fileBuffer = await restoreFile.arrayBuffer();
-      const jsonString = new TextDecoder().decode(fileBuffer);
-      const parsed = JSON.parse(jsonString);
-      const data = parsed.data ?? parsed;
+      // Either the browser names a stored backup (server-side lookup) or an
+      // uploaded file is sent inline.
+      let payload: { filename: string } | { data: unknown };
+      if (restoreFile) {
+        const fileBuffer = await restoreFile.arrayBuffer();
+        const jsonString = new TextDecoder().decode(fileBuffer);
+        const parsed = JSON.parse(jsonString);
+        payload = { data: parsed.data ?? parsed };
+      } else {
+        payload = { filename: restoreFilename as string };
+      }
 
       const res = await fetch('/api/backup/restore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data,
-          ownerPassword: restorePassword,
-          ...(selectedTargetCompanyId ? { targetCompanyId: selectedTargetCompanyId } : {}),
-        }),
+        body: JSON.stringify(payload),
       });
 
       setRestoreProgress(80);
@@ -304,8 +252,6 @@ export function BackupPage() {
 
       if (res.ok) {
         setRestoreProgress(100);
-        setRestorePassword('');
-        setRestoreTargetCompanyId('');
         const totalRecords = (Object.values(result.counts ?? {} ) as number[]).reduce(
           (a, b) => a + b,
           0,
@@ -314,6 +260,7 @@ export function BackupPage() {
           description: `${totalRecords} ${t('settings.backup.records')}`,
         });
         setRestoreFile(null);
+        setRestoreFilename(null);
         await fetchBackups();
         window.location.href = '/';
       } else {
@@ -325,16 +272,13 @@ export function BackupPage() {
       toast.error(t('settings.backup.restoreFailed'));
     }
     setRestoring(false);
+    setRestoringFromList(null);
     setRestoreProgress(0);
   }
 
   // Restore from history
   async function handleRestoreFromHistory(backup: BackupRecord) {
     if (!companyId) return;
-    if (restorePassword.length === 0) {
-      toast.error('Ingresá la contraseña del super administrador que creó este respaldo.');
-      return;
-    }
 
     try {
       setRestoringFromList(backup.id);
@@ -342,20 +286,12 @@ export function BackupPage() {
       setShowRestoreHistoryConfirm(null);
 
       setRestoreProgress(30);
-      const res = await fetch(
-        `/api/backup/${encodeURIComponent(backup.filename)}?companyId=${companyId}`,
-      );
-      if (!res.ok) throw new Error('Failed to fetch backup');
-
-      setRestoreProgress(50);
-      const data = await res.json();
-      if (!data.data) throw new Error('No backup data');
-
-      setRestoreProgress(60);
+      // S11: preview resolves the stored snapshot on the server; the response is
+      // counts/checksum/ids only and never echoes the file content.
       const previewRes = await fetch('/api/backup/restore/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: data.data }),
+        body: JSON.stringify({ filename: backup.filename }),
       });
 
       if (!previewRes.ok) {
@@ -367,6 +303,7 @@ export function BackupPage() {
       }
 
       const preview = await previewRes.json();
+      setRestoreFilename(backup.filename);
       setRestorePreview({
         checksum: preview.checksum,
         counts: preview.counts,
@@ -450,21 +387,21 @@ export function BackupPage() {
               <CardDescription>{t('settings.backup.createBackupDesc')}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="space-y-2">
-                <Label htmlFor="backup-create-password">Tu contraseña de administrador</Label>
-                <Input
-                  id="backup-create-password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={createPassword}
-                  onChange={(event) => setCreatePassword(event.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  El respaldo queda protegido con tu contraseña: sin ella nadie puede restaurarlo.
-                </p>
-              </div>
-              <Button onClick={handleCreateBackup} disabled={creating} className="w-full sm:w-auto">
+              <Input
+                type="password"
+                value={ownerPassword}
+                autoComplete="current-password"
+                placeholder={t('settings.backup.recoveryPasswordLabel')}
+                onChange={(e) => setOwnerPassword(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                {t('settings.backup.recoveryPasswordHint')}
+              </p>
+              <Button
+                onClick={handleCreateBackup}
+                disabled={creating || ownerPassword.trim().length === 0}
+                className="w-full sm:w-auto"
+              >
                 {creating ? (
                   <>
                     <Loader2 className="size-4 mr-2 animate-spin" />
@@ -498,27 +435,13 @@ export function BackupPage() {
                 </p>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="backup-restore-password">
-                  Contraseña del super administrador que creó el respaldo
-                </Label>
-                <Input
-                  id="backup-restore-password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  value={restorePassword}
-                  onChange={(event) => setRestorePassword(event.target.value)}
-                />
-                <p className="text-xs text-muted-foreground">
-                  La restauración exige la contraseña del super administrador que creó este respaldo, no la
-                  de cualquier otra cuenta.
-                </p>
-              </div>
-
               <RestoreDropZone
                 restoreFile={restoreFile}
-                onFileSelect={setRestoreFile}
+                onFileSelect={(file) => {
+                  // An uploaded file supersedes a pending history selection.
+                  setRestoreFile(file);
+                  setRestoreFilename(null);
+                }}
                 onRestoreClick={() => setShowRestoreConfirm(true)}
               />
             </CardContent>
@@ -586,42 +509,6 @@ export function BackupPage() {
               <p className="text-xs text-muted-foreground">{formatFileSize(restoreFile.size)}</p>
             </div>
           )}
-          <div className="space-y-2">
-            <Label htmlFor="backup-confirm-password">Contraseña del super administrador que creó el respaldo</Label>
-            <Input
-              id="backup-confirm-password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={restorePassword}
-              onChange={(event) => setRestorePassword(event.target.value)}
-            />
-          </div>
-          {isSuperAdmin && (
-            <div className="space-y-2">
-              <Label htmlFor="backup-confirm-target-company">
-                {t('settings.backup.restoreAsNewCompany')}
-              </Label>
-              <select
-                id="backup-confirm-target-company"
-                value={restoreTargetCompanyId}
-                onChange={(event) => setRestoreTargetCompanyId(event.target.value)}
-                className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-              >
-                <option value="">{t('settings.backup.restoreTargetCurrent')}</option>
-                {restoreTargets
-                  .filter((target) => target.id !== companyId)
-                  .map((target) => (
-                    <option key={target.id} value={target.id}>
-                      {target.legalName}
-                    </option>
-                  ))}
-              </select>
-              <p className="text-xs text-muted-foreground">
-                {t('settings.backup.restoreAsNewCompanyHint')}
-              </p>
-            </div>
-          )}
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction
@@ -661,17 +548,6 @@ export function BackupPage() {
               </p>
             </div>
           )}
-          <div className="space-y-2">
-            <Label htmlFor="backup-history-password">Contraseña del super administrador que creó el respaldo</Label>
-            <Input
-              id="backup-history-password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={restorePassword}
-              onChange={(event) => setRestorePassword(event.target.value)}
-            />
-          </div>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction

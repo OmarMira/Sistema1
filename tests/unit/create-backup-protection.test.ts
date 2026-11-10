@@ -6,15 +6,25 @@ const mockSystemConfig: Array<{ key: string; value: string }> = [];
 let mockCompany: Record<string, unknown> | null = null;
 let mockUUID = '00000000-0000-0000-0000-000000000000';
 const mockFSFiles: Record<string, string> = {};
-const mockFSSync = {
-  existsSync: false,
-  readFileSync: '',
+
+/** The fixture filesystem is EMPTY: no runtime company config and no stored
+ * backup. A real absence is an ENOENT fault, which is what the storage layer
+ * treats as "not there" (returning an empty string is malformed JSON instead). */
+function enoent(what: string): NodeJS.ErrnoException {
+  const error = new Error(`ENOENT: no such file or directory, ${what}`) as NodeJS.ErrnoException;
+  error.code = 'ENOENT';
+  return error;
+}
+const statResult = {
+  isSymbolicLink: () => false,
+  isFile: () => true,
+  isDirectory: () => true,
 };
 
 // ─── Mocks (hoisted by vitest) ───────────────────────────────────────────
 
 vi.mock('@/lib/db', () => {
-  const db = {
+  const known = {
     company: {
       findUnique: vi.fn(() => Promise.resolve(mockCompany)),
     },
@@ -47,18 +57,23 @@ vi.mock('@/lib/db', () => {
     // under test is the AI-config exclusion of createBackup — not the chain
     // head (fully covered against real PostgreSQL by tests/forensic/jh2-*).
     journalChainHead: { findUnique: vi.fn(() => Promise.resolve(null)) },
-    // D10-E + operational capture batches: these tenants hold no rows here, so
-    // the snapshot stays empty and the assertion targets systemConfig only.
-    entityContext: { findMany: vi.fn(() => Promise.resolve([])) },
-    detectionConfig: { findMany: vi.fn(() => Promise.resolve([])) },
-    companyModuleEntitlement: { findMany: vi.fn(() => Promise.resolve([])) },
-    csvLayoutProfile: { findMany: vi.fn(() => Promise.resolve([])) },
-    ruleApplyRecord: { findMany: vi.fn(() => Promise.resolve([])) },
-    ruleExecutionAudit: { findMany: vi.fn(() => Promise.resolve([])) },
-    auditLog: { findMany: vi.fn(() => Promise.resolve([])) },
-    pendingApproval: { findMany: vi.fn(() => Promise.resolve([])) },
   };
-  return { db, withCompanyBackupTransaction: (callback: (tx: typeof db) => unknown) => callback(db) };
+  // Every model this fixture does not name explicitly is an empty, read-only
+  // table. The unit under test is the AI-config exclusion of createBackup
+  // (the snapshot itself is covered against real PostgreSQL elsewhere), and
+  // enumerating every Prisma model here only breaks again on the next addition.
+  const db = new Proxy(known as Record<string, unknown>, {
+    get(target, property, receiver) {
+      if (!(property in target)) {
+        target[property as string] = {
+          findMany: vi.fn(() => Promise.resolve([])),
+          findUnique: vi.fn(() => Promise.resolve(null)),
+        };
+      }
+      return Reflect.get(target, property, receiver);
+    },
+  });
+  return { db, withCompanyBackupTransaction: (callback: (tx: unknown) => unknown) => callback(db) };
 });
 
 vi.mock('@/lib/logger', () => ({
@@ -71,69 +86,35 @@ vi.mock('@/lib/constants/ai-config', () => ({
   },
 }));
 
-// Deterministic UUIDs only: sealing a backup still needs real crypto
-// (pbkdf2Sync/createHmac/AES-GCM), so the rest of the module stays genuine.
+// Only the UUID is pinned: the snapshot seal is real cryptography in the unit
+// under test, so every other primitive must stay the genuine one.
 vi.mock('crypto', async (importOriginal) => {
   const actual = await importOriginal<typeof import('crypto')>();
-  const actualDefault = (actual as unknown as { default?: Record<string, unknown> }).default ?? actual;
   const randomUUID = vi.fn(() => mockUUID);
   return {
     ...actual,
-    default: { ...actualDefault, randomUUID },
+    default: { ...actual, randomUUID },
     randomUUID,
   };
 });
 
-// The virtual filesystem has exactly one knob per file: existence and content.
-// Real fs.readFileSync on a path that does not exist throws ENOENT (backup
-// storage treats that as "no company config"); returning '' would instead feed
-// an empty payload to JSON.parse.
-function enoent(file: unknown): NodeJS.ErrnoException {
-  return Object.assign(
-    new Error(`ENOENT: no such file or directory, open '${String(file)}'`),
-    { code: 'ENOENT' },
-  );
-}
-
-function mockReadFileSync(file?: unknown): string {
-  if (!mockFSSync.existsSync) throw enoent(file);
-  return mockFSSync.readFileSync;
-}
-
-vi.mock('fs', () => ({
-  default: {
-    existsSync: vi.fn(() => mockFSSync.existsSync),
-    readFileSync: vi.fn(mockReadFileSync),
+vi.mock('fs', () => {
+  const fs = {
+    existsSync: vi.fn(() => false),
+    readFileSync: vi.fn(() => { throw enoent('open'); }),
+    readdirSync: vi.fn(() => { throw enoent('scandir'); }),
     writeFileSync: vi.fn(() => undefined),
     mkdirSync: vi.fn(() => undefined),
-    // backup-storage.assertNoLinks walks every component with lstatSync;
-    // ensureDirectory then checks the leaf really is a directory. The mock
-    // paths are never symlinks.
-    lstatSync: vi.fn(() => ({ isSymbolicLink: () => false, isFile: () => true, isDirectory: () => true })),
-    // Publication writes through an exclusive temp file and then links it into
-    // place (see backup-storage.writeAtomic). Storage side effects are no-ops
-    // here — the assertion targets the returned snapshot payload.
-    readdirSync: vi.fn(() => { throw enoent('/fake/backups'); }),
+    lstatSync: vi.fn(() => statResult),
     openSync: vi.fn(() => 1),
     fsyncSync: vi.fn(() => undefined),
     closeSync: vi.fn(() => undefined),
     linkSync: vi.fn(() => undefined),
     renameSync: vi.fn(() => undefined),
     unlinkSync: vi.fn(() => undefined),
-  },
-  existsSync: vi.fn(() => mockFSSync.existsSync),
-  readFileSync: vi.fn(mockReadFileSync),
-  writeFileSync: vi.fn(() => undefined),
-  mkdirSync: vi.fn(() => undefined),
-  lstatSync: vi.fn(() => ({ isSymbolicLink: () => false, isFile: () => true, isDirectory: () => true })),
-  readdirSync: vi.fn(() => { throw enoent('/fake/backups'); }),
-  openSync: vi.fn(() => 1),
-  fsyncSync: vi.fn(() => undefined),
-  closeSync: vi.fn(() => undefined),
-  linkSync: vi.fn(() => undefined),
-  renameSync: vi.fn(() => undefined),
-  unlinkSync: vi.fn(() => undefined),
-}));
+  };
+  return { default: fs, ...fs };
+});
 
 vi.mock('@/lib/config/paths', () => ({
   RUNTIME_FILES: { companyConfig: '/fake/company-config.json' },
@@ -153,28 +134,24 @@ describe('createBackup AI config protection', () => {
       { key: 'normal_setting', value: 'keep-me' },
     );
     mockUUID = '11111111-1111-1111-1111-111111111111';
-    mockFSSync.existsSync = false;
-    mockFSSync.readFileSync = '';
     Object.keys(mockFSFiles).forEach((k) => delete mockFSFiles[k]);
     vi.clearAllMocks();
   });
 
-  it('excludes global systemConfig from backups entirely, so AI config keys can never leak (createBackup con implementación real, dependencias mockeadas)', async () => {
+  it('never exports systemConfig, so no AI secret can reach the backup file', async () => {
     const { createBackup } = await import('@/lib/backup');
-    // S7: creating a backup is sudo-style — the creating administrator's password
-    // is required and only its verifier is embedded. This assertion (AI config
-    // exclusion) is unchanged; only the credential is supplied.
-    const result = await createBackup('test-company', undefined, {
-      ownerPassword: 'Clave.Unit.2026',
-    });
+    const result = await createBackup('test-company');
 
     const raw = Buffer.from(result.data, 'base64').toString('utf-8');
     const backupData = JSON.parse(raw);
 
-    // captureCompanySnapshot hardcodes systemConfig = [] ("global configuration
-    // is never company-restorable state"), which subsumes the AI-config
-    // exclusion: no key — secret or ordinary — may reach a company backup.
-    expect(backupData.data.systemConfig).toHaveLength(0);
+    // Current contract: global configuration is never company-restorable state,
+    // so the whole section is excluded — which subsumes the AI-key exclusion
+    // (the fixture still seeds the secret keys to prove they cannot reappear).
+    expect(backupData.data.systemConfig).toEqual([]);
     expect(result.recordCounts.systemConfig).toBe(0);
+    const exported = raw.includes('should-be-excluded') || raw.includes('keep-me');
+    expect(exported).toBe(false);
+    expect(raw).not.toContain('ai_encrypted_key');
   });
 });

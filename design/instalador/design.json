@@ -1,0 +1,13 @@
+{
+  "title": "AccountExpress Next Gen — Instalación",
+  "brief": "Prototipo del asistente de instalación para usuarios sin conocimientos técnicos, con los temas y selector Español/English del sistema original.",
+  "artboards": [
+    {
+      "file": "01-wizard.html",
+      "title": "Recorrido de instalación simulado",
+      "tradeoff": "Explicaciones y campos en dos columnas con la imagen original de la portada de Sistema1, difuminada y tenue según el tema. Texto nítido con contraste verificado; sin scroll en cinco tamaños de escritorio, ambos idiomas y temas. Conserva datos, reintentos y tipografía. Todo es simulado.",
+      "width": 1280,
+      "height": 720
+    }
+  ]
+}

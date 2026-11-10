@@ -5,9 +5,7 @@ if (typeof process === 'undefined' || !process.versions?.node) {
 import crypto from 'node:crypto';
 import type { BackupData } from './backup';
 import { Prisma } from '@prisma/client';
-import { AppError } from './api-error';
 import { validateCompanyLogo } from './backup-assets';
-import { isBackupOwnershipVerifier } from './backup-ownership';
 
 export const COMPANY_BACKUP_VERSION = '2.1.0';
 export const isCompanyFormat = (version: string) => ['2.0.0', COMPANY_BACKUP_VERSION].includes(version);
@@ -238,7 +236,10 @@ function sealKey(): Buffer {
   return sealKeyCache.key;
 }
 
-/** Canonical bytes both seal modes cover, with `integrity` removed. */
+/** Canonical bytes the local seal covers, with `integrity` removed.
+ * The portable container encrypts the whole snapshot, so it does not need to
+ * re-derive this payload; it is kept here as the single local contract.
+ */
 function integrityPayload(snapshot: BackupData): string {
   const { integrity: _integrity, ...manifest } = snapshot.manifest;
   return JSON.stringify({ manifest, data: snapshot.data });
@@ -277,45 +278,25 @@ function integrityVerified(snapshot: BackupData, integrity: SnapshotIntegrity): 
   return false;
 }
 
-/* ─── S5 (T4): only CURRENT, sealed backups are restorable ─────────────
- * Older installations wrote the whole snapshot as plain JSON on disk (no
- * ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 envelope) and sealed it with an UNKEYED
- * sha256 digest. That shape proves nothing about authorship and cannot be
- * carried into the current certified pipeline (typed fidelity, keyed seal,
- * ownership credential), so it is refused instead of silently accepted. The
- * refusal is a client error with its own machine code and a Spanish
- * explanation, thrown BEFORE any row, file or maintenance marker is written.
+export interface SnapshotReadOptions {
+  recovery?: 'local' | 'portable';
+  /**
+   * Required in portable mode: the SHA-256 of the exact container bytes the
+   * caller already authenticated with the portable AEAD envelope. Without it the
+   * portable reader refuses, so it is never a blanket "skip the seal" switch.
+   */
+  authenticatedDigest?: string;
+}
+
+/** Catalog validation is NOT restore authorization or authenticity verification.
  *
- * The at-rest envelope never reaches this layer: restore receives the already
- * unsealed snapshot JSON (the download payload), so the readable equivalent of
- * "no ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 envelope" is "no keyed HMAC seal from
- * the current writer". Read-legacy seals still PARSE (the catalog and the
- * download keep working); only RESTORE refuses them.
+ * `recovery: 'portable'` is the only reader that accepts a snapshot sealed by
+ * another installation. It cannot verify the source key, so it relies on the
+ * caller having authenticated the exact bytes (portable AEAD container) and
+ * requires the digest of those bytes as proof. Every other caller keeps the
+ * local-seal contract.
  */
-export const LEGACY_BACKUP_MESSAGE =
-  'No se puede restaurar este respaldo: es un archivo de texto plano anterior a los respaldos sellados, ' +
-  'sin el sobre ACCOUNTEXPRESS-ENCRYPTED-BACKUP/1 con el que la versión actual protege cada archivo. ' +
-  'Hay que volver a generar un respaldo nuevo desde el sistema actual y restaurar ese archivo.';
-
-export class LegacyBackupFormatError extends AppError {
-  constructor() {
-    super(400, LEGACY_BACKUP_MESSAGE, 'RESTORE_LEGACY_FORMAT');
-    this.name = 'LegacyBackupFormatError';
-  }
-}
-
-/** TRUE only for the current writer's keyed seal (`hmac-sha256`, authenticated). */
-export function isSealedBackupFormat(integrity: SnapshotIntegrity | undefined): boolean {
-  return integrity?.algorithm === 'hmac-sha256' && integrity.authenticated === true;
-}
-
-/** Fail closed on a legacy plain-text file; never downgrade to the legacy seal. */
-export function assertSealedBackupFormat(snapshot: BackupData): void {
-  if (!isSealedBackupFormat(snapshot.manifest.integrity)) throw new LegacyBackupFormatError();
-}
-
-/** Catalog validation is NOT restore authorization or authenticity verification. */
-export function parseSnapshot(text: string): BackupData {
+export function parseSnapshot(text: string, options?: SnapshotReadOptions): BackupData {
   const snapshot = JSON.parse(text) as BackupData;
   const { manifest, data } = snapshot ?? {};
   if (!manifest || !data || !['1.0.0', '1.1.0', '2.0.0', COMPANY_BACKUP_VERSION].includes(manifest.version)) {
@@ -357,18 +338,23 @@ export function parseSnapshot(text: string): BackupData {
       : integrity?.algorithm === 'sha256' && integrity.authenticated === false;
     if (typeof manifest.id !== 'string' || !/^[a-f0-9-]{36}$/i.test(manifest.id) ||
         !integrity || !authenticatedShape || integrity.encoding !== 'utf8' ||
-        integrity.scope !== INTEGRITY_SCOPE || !integrityVerified(snapshot, integrity)) {
+        integrity.scope !== INTEGRITY_SCOPE) {
+      throw new Error('Backup checksum or metadata mismatch');
+    }
+    if (options?.recovery === 'portable') {
+      // Source installations seal with a key this machine does not hold. The
+      // portable container AEAD authenticated these exact bytes, and the caller
+      // must prove it by presenting the digest it authenticated.
+      if (typeof options.authenticatedDigest !== 'string' ||
+          !/^[a-f0-9]{64}$/.test(options.authenticatedDigest)) {
+        throw new Error('PORTABLE_RECOVERY_UNAUTHENTICATED: portable reading requires an authenticated file digest');
+      }
+    } else if (!integrityVerified(snapshot, integrity)) {
       throw new Error('Backup checksum or metadata mismatch');
     }
     if (data.systemConfig.length !== 0 || manifest.recordCounts.companyConfig !== (data.companyConfig !== null)) {
       throw new Error('Invalid company snapshot configuration');
     }
-  }
-  // S1/S2: the ownership verifier travels inside the sealed manifest. A present
-  // but malformed verifier is never trusted (it cannot protect anything), and
-  // the HMAC seal above already rejects a transplanted/edited one.
-  if (manifest.ownership !== undefined && !isBackupOwnershipVerifier(manifest.ownership)) {
-    throw new Error('Invalid backup ownership verifier');
   }
   if (manifest.companyLogo !== undefined) validateCompanyLogo(data.company[0].logo, manifest.companyLogo);
   // Catalogs retain legacy ambiguous files; only the new format promises this

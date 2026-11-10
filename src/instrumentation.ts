@@ -33,6 +33,14 @@ async function registerNodeRuntime() {
   const { validateEnv } = await import('./lib/env/server');
   validateEnv();
 
+  // S2/S9 (T14): the installed system upgrades its own schema. Pending Prisma
+  // migrations are applied here, before any runtime service opens the database;
+  // `migrate deploy` only applies pending migrations (never resets/drops data),
+  // concurrent boots serialize, and a failure is logged loudly while boot
+  // continues so read paths that need missing tables still fail closed.
+  const { ensureStartupMigrations } = await import('./lib/startup-migrations');
+  await ensureStartupMigrations();
+
   // Sentry Server Config
   Sentry.init({
     dsn: process.env.SENTRY_DSN,

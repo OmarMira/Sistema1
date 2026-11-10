@@ -34,19 +34,10 @@ const database = vi.hoisted(() => new Proxy({}, {
 vi.mock('@/lib/db', () => ({ db: database, withCompanyBackupTransaction: (callback: any, options: any) => state.transaction(callback, options) }));
 vi.mock('@/lib/auth', () => ({ hashPassword: vi.fn(() => { throw new Error('auth must not run'); }) }));
 vi.mock('@/lib/logger', () => ({ logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() } }));
-import { createBackup as createSealedBackup, getBackupFile, listBackups, deleteBackup } from '@/lib/backup';
+import { createBackup, getBackupFile, listBackups, deleteBackup } from '@/lib/backup';
+import { readCompanyCatalog } from '@/lib/backup-storage';
 import { decrypt } from '@/lib/crypto';
 import { parseSnapshot, SEAL_KEY_DERIVATION } from '@/lib/backup-format';
-
-/**
- * S7: creating a backup is sudo-style — it requires the creating administrator's
- * password and embeds only its verifier inside the sealed manifest. Every
- * envelope/seal assertion below is unchanged; this helper only supplies the
- * credential the new contract demands.
- */
-const OWNER_PASSWORD = 'Clave.AtRest.2026';
-const createBackup = (companyId: string) =>
-  createSealedBackup(companyId, undefined, { ownerPassword: OWNER_PASSWORD });
 
 const dir = path.join(state.root, 'backups');
 const config = path.join(state.root, 'company-config.json');
@@ -163,7 +154,17 @@ describe('company backup encryption at rest', () => {
     fs.writeFileSync(file, onDisk.replace(`"ciphertext":"${ivHex}:${encoded}"`, `"ciphertext":"${ivHex}:${bytes.toString('base64')}"`));
 
     expect(() => getBackupFile(saved.filename)).toThrow(/decrypt/i);
-    expect(() => listBackups('tenant')).toThrow(/decrypt/i);
+    // The READ contract for one company: the listing keeps working and reports
+    // the preserved file as unreadable — integrity loss is surfaced, never
+    // hidden and never turned into a failing history for the whole tenant.
+    expect(listBackups('tenant')).toEqual([]);
+    const scoped = readCompanyCatalog('tenant');
+    expect(scoped.backups).toEqual([]);
+    expect(scoped.unreadable.map((file) => file.filename)).toEqual([saved.filename]);
+    expect(scoped.unreadable[0].error).toMatch(/decrypt/i);
+    // MUTATION stays fail-closed: an unreadable catalog file blocks deletion.
+    expect(() => deleteBackup(saved.filename, 'tenant')).toThrow(/decrypt/i);
+    expect(files()).toContain(saved.filename);
   });
 
   it('refuses to publish plaintext when no SESSION_SECRET is available', async () => {

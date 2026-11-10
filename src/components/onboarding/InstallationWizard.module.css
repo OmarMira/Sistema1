@@ -17,7 +17,7 @@
 .steps li[aria-current] { color:var(--text); font-weight:600; }
 .steps li[aria-current]::before { background:var(--action); }
 .card { position:relative; isolation:isolate; flex:1; min-width:0; border:1px solid var(--border); border-radius:14px; padding:20px; background:var(--card); display:flex; flex-direction:column; gap:12px; }
-.card::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:url('/hero-dashboard.png') center/cover no-repeat; opacity:.08; pointer-events:none; }
+.card::before { content:''; position:absolute; inset:0; z-index:-1; border-radius:inherit; background:url('/hero-dashboard.png') center/cover no-repeat; opacity:.08; pointer-events:none; filter:blur(4px) saturate(.8); clip-path:inset(0 round 14px); }
 :global(.dark) .card::before { opacity:.18; }
 .card h2 { font-size:18px; line-height:1.4; color:var(--primary); margin:0 0 8px; }
 .card p { margin:4px 0; }
@@ -27,6 +27,10 @@
 .field { display:flex; flex-direction:column; gap:4px; min-width:0; margin:0 0 8px; font-weight:600; }
 .field input,.field select { width:100%; min-width:0; min-height:44px; padding:8px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font:inherit; font-weight:400; }
 .card button { min-height:44px; padding:8px 16px; border:1px solid var(--border); border-radius:10px; background:var(--card); color:var(--text); font:inherit; cursor:pointer; }
+.fullWidth { grid-column:1 / -1; }
+.passwordControl { position:relative; }
+.passwordControl input { padding-right:52px; }
+.card .passwordToggle { position:absolute; right:1px; top:1px; width:42px; min-height:42px; padding:0; border:0; background:transparent; display:grid; place-items:center; }
 .card .primary { background:var(--action); color:var(--actionText); border-color:transparent; font-weight:600; }
 .card button:disabled { opacity:.55; cursor:default; }
 .card input:focus-visible,.card select:focus-visible,.card button:focus-visible { outline:2px solid var(--primary); outline-offset:3px; }

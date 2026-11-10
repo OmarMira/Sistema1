@@ -442,7 +442,12 @@ describe('recordEntityRoleKnowledge — T6 role contradiction semantics', () => 
       claimInput({ role: 'PROVEEDOR' }),
     );
     expect(re.status).toBe('UNCHANGED');
-    expect((await getEntityRoleKnowledge(adapter, 'comp_a'))[0].confidence).toBe('certain');
+    // Select the human claim by its item id: the returned list has no guaranteed
+    // order, and an index-based assertion read the system claim on a loaded CI
+    // runner (expected 'tentative' to be 'certain').
+    const afterReconfirm = await getEntityRoleKnowledge(adapter, 'comp_a');
+    expect(afterReconfirm.find((i) => i.itemId === humanId)?.confidence).toBe('certain');
+    expect(afterReconfirm.filter((i) => i.confidence === 'certain')).toHaveLength(1);
     expect(await getPendingRoleConflicts(adapter, 'comp_a')).toHaveLength(1);
   });
 

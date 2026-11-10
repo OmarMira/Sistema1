@@ -7,7 +7,7 @@
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render, screen, cleanup, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsPage } from '@/components/spa/SettingsPage';
 
@@ -108,7 +108,9 @@ describe('KE-NAV-INTEGRATION-001 — Settings → Knowledge Engine (T1–T6)', (
     const user = userEvent.setup();
     const first = renderSettings();
     await user.click(screen.getByText(keNavLabel));
-    expect(setActiveTab).toHaveBeenCalledWith('knowledge-engine');
+    // The click is async in jsdom: assert through waitFor so a slow CI runner
+    // cannot report "0 calls" before the handler dispatched.
+    await waitFor(() => expect(setActiveTab).toHaveBeenCalledWith('knowledge-engine'));
     first.unmount();
     // Re-render with the tab active (store-driven navigation).
     mockActiveTab = 'knowledge-engine';
@@ -159,7 +161,7 @@ describe('KE-NAV-INTEGRATION-001 — Settings → Knowledge Engine (T1–T6)', (
     const user = userEvent.setup();
     const first = renderSettings();
     await user.click(screen.getByText('settings.fiscalPeriodsTab'));
-    expect(setActiveTab).toHaveBeenCalledWith('periods');
+    await waitFor(() => expect(setActiveTab).toHaveBeenCalledWith('periods'));
     first.unmount();
     mockActiveTab = 'periods';
     renderSettings();

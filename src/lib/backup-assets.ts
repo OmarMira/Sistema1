@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import crypto from 'node:crypto';
 export const companyLogoRecoveryTarget = async (url: string) =>
   (await import('./uploads/logo-service')).companyLogoArchiveTarget(url);

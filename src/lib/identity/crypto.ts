@@ -1,3 +1,7 @@
+if (typeof process === 'undefined' || !process.versions?.node) {
+  throw new Error('Requires Node.js runtime (not Edge)');
+}
+
 import { createHash, createHmac, randomBytes, randomInt } from 'node:crypto';
 
 export function createCode(): string {

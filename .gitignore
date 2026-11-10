@@ -101,5 +101,24 @@ agent-ctx/
 .atl/
 .engram/
 
-# Local test scratch state produced by backup-company suites
-tests/backup-company/.scratch/
+# Local-only runtime, backups and agent state (never versioned)
+.worktrees/
+.gentle-ai-default-agent.json
+audit-reseal-backup-*.json
+opencode.json
+docker-compose.yml
+tests/diag/
+vitest.diag.config.mts
+prisma/seed.ts
+
+# Test scratch output and design capture artifacts
+.scratch/
+**/.scratch/
+design/**/.screenshots/
+design/**/.layout-browser-*/
+
+# Accidentally created Windows filesystem artifacts
+nul
+
+# Machine-specific local build script
+build.bat

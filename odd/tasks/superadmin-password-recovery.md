@@ -45,24 +45,50 @@ S8. The new password must satisfy the same policy the registration path enforces
 S9. Every request is audited, including the ones discarded because the account is
 not a superadministrator. The token value is never written to the audit row.
 
-S10. No SMTP transport configured: the request must not claim an email was sent.
-The response says the installation has no mail delivery and points at the
-installation recovery path.
+S10. No mail transport available: the request must not claim an email was sent.
+The endpoint decides this at runtime by calling `createRecoveryMailTransport(process.env)`
+(`src/lib/backup-recovery-mail.ts:44`), the same single decision point both restore
+routes already use. It returns `null` when nothing is configured, a transport
+otherwise. A `null` result is an INSTALLATION property, not a per-account one, so
+answering it explicitly reveals nothing about any account: the response says the
+installation has no mail delivery and points at the installation recovery path.
+If a transport exists but `deliverRecoveryToken` (`:21`) does not return `sent`,
+the token must not remain usable and the answer is the same honest one, with the
+failure audited.
 
 S11. The reset page never authenticates the user automatically; it returns to the
 login form.
 
 ## Open decisions
 
-D1. Recovery when there is no SMTP transport. Recommendation: dedicated honest
-message (S10), because the alternative — "check your email" for a mail that was
-never sent — strands the owner.
+D1. CLOSED. No mail transport: detected at runtime through
+`createRecoveryMailTransport(process.env)` (`src/lib/backup-recovery-mail.ts:44`).
+`null` means the installation has no channel; the response says so and points at
+the installation recovery path. Nothing is read from `.env` directly and the
+answer is identical for every address, so it can never identify an account.
+Note the relay caveat: `ACCOUNTEXPRESS_MAIL_MODE=relay` returns a transport
+without validating `relay.json` (`src/lib/identity/relay-transport.ts:12-26`), so
+a send-time failure must follow the same honest branch as `mail_unavailable`.
 
-D2. A superadministrator whose email is unverified cannot use this path. Verifying
-the address inside the reset flow is rejected: the requester may not be the owner.
+D2. CLOSED (user, verbatim "2 de acuerdo"). A superadministrator whose email is
+unverified cannot use this path. Verifying the address inside the reset flow is
+rejected: the requester may not be the owner.
 
-D3. Several superadministrators each recover their own account; the filter is by
-role, not by "the" owner.
+D3. CLOSED (user, verbatim "3 correcto"). Several superadministrators each
+recover their own account; the filter is by role, not by "the" owner.
+
+## Reusable pieces (verified)
+
+| Need | Existing piece |
+| --- | --- |
+| Transport detection | `createRecoveryMailTransport` `src/lib/backup-recovery-mail.ts:44`; outcome vocabulary `sent`/`mail_unavailable`/`delivery_failed` at `:15,:21` |
+| Rate limit | `authRateLimiter` `src/lib/rate-limiter.ts:9,145`; `check`/`increment` at `:65,:95`; precedent `src/app/api/auth/resend-verification/route.ts:18-26` |
+| Password policy | `registerSchema.password` `src/lib/validations/auth.ts:16` (no shared validator exists; extract one instead of duplicating a third copy) |
+| Close sessions | `deleteAllUserSessions(userId, tx?)` `src/lib/sessions.ts:80`; transaction precedent `src/app/api/settings/password/route.ts:52-71` |
+| Audit with chain | `createAuditLogWithRetry` `src/lib/audit.ts:79` |
+| One-time token pattern | `IdentityChallenge` `prisma/schema.prisma:925-938` (purpose, digest, expiresAt, usedAt, unique subject+purpose); `randomBytes(32).toString('hex')` `src/lib/identity/crypto.ts:11`; `sha256` digest `:15` |
+| Route guard | `apiHandler(..., { allowAnonymous })` `src/lib/api-handler.ts:54-58` |
+| Client IP | `getClientIp` `src/lib/security/client-ip.ts:24` |
 
 ## Surface
 
@@ -127,3 +153,11 @@ L3. Finding that opened this feature, verbatim request: "decime que hace el boto
 de me olvide la contraseña". The button at `src/components/spa/LoginPage.tsx:125-127`
 has no `onClick`, and no `forgot-password` or `reset-password` route exists in
 `src/app/api/auth/`.
+
+L4. User, verbatim: "para el 1 sin smtp primero tenes que analizar si no hay smtp y
+si existe lo manejamos como esta previsto. 2 de acuerdo. 3 correcto."
+
+L5. Analysis result closing D1: mail configuration is environment-only, there is no
+DB-stored mail setting, and no endpoint exposes availability. Detection therefore
+belongs inside the endpoint via the existing factory, not in a separate diagnostic
+and never by reading `.env` from code or tooling.

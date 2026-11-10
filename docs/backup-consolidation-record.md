@@ -68,7 +68,7 @@ configuration targets a real local database, and no disposable PostgreSQL runtim
 was available in this environment. Repository policy forbids running those suites
 against operator data.
 
-## Known open defect (documented, not fixed here)
+## Restore transaction deadline (fixed)
 
 An operator restore was observed failing with:
 
@@ -77,15 +77,21 @@ Transaction already closed: A query cannot be executed on an expired transaction
 The timeout for this transaction was 20000 ms, however 20001 ms passed
 ```
 
-Cause: the restore transaction performs per-row inserts, whole-installation
+Cause: the restore transaction performed per-row inserts, whole-installation
 destination reads, repeated snapshot validation and stored-backup inventory work
-inside a fixed 20-second Prisma transaction budget. Raising the timeout alone
-masks the growth; the planned order is bounded per-table batches, moving backup
-catalog maintenance out of the critical section, and removing repeated scans
-before sizing a new finite budget for the largest supported payload.
+inside a fixed 20-second Prisma transaction budget.
 
-Until that is implemented, a large restore can end in
-`RECOVERY_RECONCILIATION_REQUIRED` and leave maintenance closed by design.
+Status: **fixed at engine level and merged to `main`.** Commit `855960a` (as
+`7cd737c`, PR #127 `4427021`) batches the measured hot models and indexes the
+repeated admission lookups without removing any integrity check. The 20-second
+budget was deliberately **not** raised. See "Restore performance follow-up" below
+for the measured evidence and for what that evidence does not claim.
+
+What remains open is narrower than the original defect: the same workload has not
+been proven through every portable entry door, and no capacity guarantee exists for
+payloads larger than the measured one. A restore that does hit a real deadline still
+ends in `RECOVERY_RECONCILIATION_REQUIRED` with maintenance closed by design — that
+behaviour is intentional and unchanged.
 
 ## Suites removed as obsolete contract
 
@@ -115,10 +121,16 @@ excluded from the root application suite, which uses `accountexpress_test`.
 
 ## Known defects and follow-up coverage
 
-1. `src/lib/backup.ts` (`deleteBackup` → `readManifest` → `readCatalog`): DELETE reads the
-   **whole** catalog, so one unreadable backup belonging to **any** tenant turns another
-   tenant's DELETE into a 500 instead of the neutral 404 that `GET` already guarantees.
-   It reproduces only when stale residue exists, which is why a fresh CI database hides it.
+1. `deleteBackup` cross-tenant dependency — **fixed and merged** (PR #124, commit
+   `b2a1ef9`). `deleteBackup` now reads the caller's own company catalog instead of the
+   whole installation catalog, and updates the index without decrypting every stored
+   backup. A file that cannot be attributed to the caller is never deleted and answers
+   the same neutral `not_found` as `GET`, so one tenant's unreadable residue can no
+   longer turn another tenant's DELETE into a 500.
+
+   The two suites that pinned the previous contract now assert the neutral status:
+   the file is preserved and nothing is mutated. They had expected a thrown decrypt or
+   IO error that the scoped read can no longer produce (`b5381e7`).
 2. Audit-write rollback coverage was replaced in
    `tests/perf/restore-measure.perf.ts` (`receipt failure`): the test-only transaction
    wrapper inserts the commit receipt twice, provoking PostgreSQL's real unique-key
@@ -137,3 +149,9 @@ lines with verified counts/scalars and forced-failure rollback; its transaction 
 or latency guarantee. Engine-level proof does not establish both portable entry doors.
 See `odd/tasks/backup-restore-performance.md` for the remaining route-level checks and
 delivery status.
+
+Delivery status: the engine unit and its coverage are on `main` (#127 `4427021`,
+#128 `7680aa9`, #129 `a3d85f2`). The properties that remain unproven are listed
+explicitly in `docs/ci-verification.md` and in the dedicated-harness section above:
+the portable/bootstrap suites against a migrations-built database never ran in CI, and
+that is not equivalent to having proven those doors.

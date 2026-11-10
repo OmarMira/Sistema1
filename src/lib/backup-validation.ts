@@ -120,14 +120,29 @@ function checkUnique(model: string, rows: Row[]): void {
  * the installed schema does not have. The non-portable contract never passes it.
  */
 export function checkReferences(tables: Tables, skipModels: readonly string[] = []): void {
+  // Operation-local indexes preserve scalar identity (no string coercion). Keep
+  // composite-key relations on their existing exact comparison path.
+  const references = new Map<string, Set<unknown>>();
   for (const [model, rows] of Object.entries(tables)) {
     if (skipModels.includes(model)) continue;
     for (const relation of foreignKeys(model)) {
       const from = relation.relationFromFields!;
       const to = relation.relationToFields!;
+      let index: Set<unknown> | undefined;
+      if (from.length === 1 && to.length === 1) {
+        const key = `${relation.type}.${to[0]}`;
+        index = references.get(key);
+        if (!index) {
+          index = new Set((tables[relation.type] ?? []).map(parent => parent[to[0]]));
+          references.set(key, index);
+        }
+      }
       for (const row of rows) {
         if (from.some(k => row[k] == null)) continue;
-        if (!(tables[relation.type] ?? []).some(parent => from.every((k, i) => row[k] === parent[to[i]]))) {
+        const found = index
+          ? !Number.isNaN(row[from[0]]) && index.has(row[from[0]])
+          : (tables[relation.type] ?? []).some(parent => from.every((k, i) => row[k] === parent[to[i]]));
+        if (!found) {
           fail('RESTORE_REFERENCE', `${model}.${from.join(',')}`);
         }
       }
@@ -153,14 +168,28 @@ export function checkReferences(tables: Tables, skipModels: readonly string[] = 
     }
   }
 }
+// Preserve input order and complete row objects; grouping changes lookup cost,
+// not equality, field validation or chain certification.
+function groupRows(rows: Row[], field: string): Map<unknown, Row[]> {
+  const grouped = new Map<unknown, Row[]>();
+  for (const row of rows) {
+    const key = row[field];
+    const bucket = grouped.get(key);
+    if (bucket) bucket.push(row);
+    else grouped.set(key, [row]);
+  }
+  return grouped;
+}
+
 function checkNested(tables: Tables): void {
   for (const [parent, field, child, fk] of [
     ['JournalEntry', 'lines', 'JournalLine', 'entryId'],
     ['BankStatement', 'transactions', 'BankTransaction', 'statementId'],
   ]) {
+    const children = groupRows(tables[child], fk);
     for (const row of tables[parent]) {
       if (!Object.hasOwn(row, field)) continue;
-      const expected = tables[child].filter(r => r[fk] === row.id);
+      const expected = children.get(row.id) ?? [];
       const value = row[field];
       if (!Array.isArray(value) || value.length !== expected.length ||
           !value.every(r => expected.some(e => equal(e, r)))) fail('RESTORE_NESTED', `${parent}.${field}`);
@@ -200,8 +229,9 @@ function checkChain(
   if (head === undefined || (head !== null && (head.companyId !== snapshot.manifest.companyId ||
       Object.keys(head).sort().join(',') !== 'companyId,lastEntryId,lastHash' ||
       ![head.lastEntryId, head.lastHash].every(v => v === null || typeof v === 'string')))) fail('RESTORE_CHAIN', 'invalid/missing head');
+  const linesByEntry = groupRows(tables.JournalLine, 'entryId');
   const entries = tables.JournalEntry.map(row => ({ ...row, date: new Date(row.date as string),
-    lines: tables.JournalLine.filter(line => line.entryId === row.id) })) as unknown as ChainRow[];
+    lines: linesByEntry.get(row.id) ?? [] })) as unknown as ChainRow[];
   if (!portable) {
     const verdict = buildChainVerdict(snapshot.manifest.companyId, entries, head);
     if (verdict.valid !== true) fail('RESTORE_CHAIN', `${verdict.reasonCode}; destination key must certify source hashes; no re-signing`);
@@ -235,7 +265,8 @@ function checkChain(
   if (verdict.valid !== true && !tolerated) fail('RESTORE_CHAIN', `${verdict.reasonCode}; portable topology`);
   const members = entries.filter(entry => entry.hash != null);
   if (members.length > 0) {
-    const tail = members.find(entry => !members.some(other => other.previousHash === entry.hash));
+    const predecessors = new Set(members.map(entry => entry.previousHash));
+    const tail = members.find(entry => !predecessors.has(entry.hash));
     if (!tail) fail('RESTORE_CHAIN', 'portable chain tail is not unique');
     if (head && (head.lastHash !== tail.hash || head.lastEntryId !== tail.id)) {
       fail('RESTORE_CHAIN', 'portable chain head does not match the certified tail');
@@ -336,12 +367,16 @@ export function ownedRows(companyId: string, all: Tables): Tables {
     ['BankTransaction', 'BankStatement', 'statementId'], ['JournalLine', 'JournalEntry', 'entryId'],
     ['KnowledgeAudit', 'CompanyKnowledge', 'knowledgeId'], ['MemoryVersion', 'MemoryItem', 'itemId'],
     ['TraceabilityLog', 'MemoryItem', 'itemId'], ['ConfidenceLog', 'MemoryItem', 'itemId'],
-  ]) owned[child] = all[child].filter(row => owned[parent].some(p => p.id === row[fk]));
+  ]) {
+    const parentIds = new Set(owned[parent].map(row => row.id));
+    owned[child] = all[child].filter(row => parentIds.has(row[fk]));
+  }
+  const memoryIds = new Set(owned.MemoryItem.map(row => row.id));
   for (const [model, left, right] of [
     ['Relationship', 'sourceId', 'targetId'], ['Contradiction', 'itemAId', 'itemBId'],
     ['EvolutionLink', 'supersededId', 'supersededById'],
   ]) {
-    owned[model] = all[model].filter(row => owned.MemoryItem.some(i => i.id === row[left] || i.id === row[right]));
+    owned[model] = all[model].filter(row => memoryIds.has(row[left]) || memoryIds.has(row[right]));
   }
   return owned;
 }
@@ -403,6 +438,7 @@ export function validateRestoreDestination(
   options: { auditArchive?: RecoveryArchive } = {},
 ): RestoreDestinationDecision {
   const owned = ownedRows(companyId, all);
+  const ownedSets = Object.fromEntries(Object.entries(owned).map(([model, rows]) => [model, new Set(rows)]));
   const auditReuse = new Map<string, string>();
   const auditProjections = new Map<string, AuditAttributionProjection>();
   const auditActorCertifications = new Map<string, AuditSealReference>();
@@ -438,7 +474,7 @@ export function validateRestoreDestination(
     // HMAC could ever be proved — the reported RESTORE_ID_CONFLICT after the
     // migration, where the row is UNOWNED and only the planner can certify it.
     if (portable && model === 'AuditLog') continue;
-    const foreign = all[model].filter(row => !owned[model].includes(row));
+    const foreign = all[model].filter(row => !ownedSets[model].has(row));
     for (const row of rows) {
       if (foreign.some(r => identity(r) === identity(row))) fail('RESTORE_ID_CONFLICT', model);
       for (const key of uniqueKeys(model)) {
@@ -454,7 +490,7 @@ export function validateRestoreDestination(
       if (['User', 'Company'].includes(relation.type)) continue;
       const from = relation.relationFromFields!, to = relation.relationToFields!;
       for (const row of rows) {
-        if (owned[model].includes(row) || from.some(k => row[k] == null)) continue;
+        if (ownedSets[model].has(row) || from.some(k => row[k] == null)) continue;
         if ((owned[relation.type] ?? []).some(parent => from.every((k, i) => row[k] === parent[to[i]]))) fail('RESTORE_INBOUND', `${model}.${from.join(',')}`);
       }
     }
@@ -615,7 +651,7 @@ export function validateRestoreDestination(
   // AuditLog is an installation-wide chain, unlike the per-company journal.
   // Certifying isolated HMACs alone would allow deletion of a predecessor still
   // needed by another tenant. Certify the proposed merged timeline as well.
-  const mergedAudit = [...all.AuditLog.filter(row => !owned.AuditLog.includes(row)), ...source.AuditLog]
+  const mergedAudit = [...all.AuditLog.filter(row => !ownedSets.AuditLog.has(row)), ...source.AuditLog]
     .filter(row => row.hash != null)
     .sort((a, b) => new Date(a.createdAt as string).getTime() - new Date(b.createdAt as string).getTime());
   let previousHash: string | null = null;

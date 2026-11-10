@@ -141,6 +141,19 @@ async function run(args) {
         const schema = await tool('prisma/build/index.js', ['db', 'push', '--skip-generate'], bootstrapEnv);
         return schema.code === 0 ? vitest('vitest.forensic-f9.config.ts', bootstrapEnv) : schema;
       }],
+      // The portable/bootstrap recovery suite used to be invisible to CI: nothing
+      // invoked its runner and the root suite excludes it by design. It builds its
+      // OWN disposable PostgreSQL from the repository migrations (not db push) and
+      // proves the portable entry doors against that schema. It therefore gets an
+      // environment without the shared application DATABASE_URL or the shared
+      // runtime directory, which would otherwise aim it at this runner's database.
+      ['portable recovery (migrations-built PostgreSQL)', () => {
+        const portableEnv = { ...common };
+        delete portableEnv.ACCOUNTEXPRESS_DATA_DIR;
+        delete portableEnv.IDENTITY_TEST_CONTAINER_ID;
+        delete portableEnv.IDENTITY_TEST_OWNER_PROOF;
+        return exec(process.execPath, ['tests/portable-recovery-postgres/run.mjs'], portableEnv);
+      }],
     ];
     for (const [database, config, prefix] of [
       ['registration_test', 'vitest.registration-integration.config.ts', 'REGISTRATION'],

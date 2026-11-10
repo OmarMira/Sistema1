@@ -11,7 +11,7 @@ import fs from 'fs';
 import path from 'path';
 import { RUNTIME_FILES } from '@/lib/config/paths';
 import { COMPANY_BACKUP_VERSION, isCompanyFormat, parseSnapshot, sealSnapshot, canonicalizeSnapshotMoney, captureSnapshotFidelity, type SnapshotIntegrity, type SnapshotFidelity } from './backup-format';
-import { readCatalog, writeCatalog, publishBackup, readBackupText, removeBackupFile, readCompanyConfig, validBackupFilename, readCompanyCatalog, type CatalogEntry, type PublishWarning } from './backup-storage';
+import { readCatalog, writeCatalog, publishBackup, readBackupText, removeBackupFile, readCompanyConfig, validBackupFilename, readCompanyCatalog, removeCatalogEntry, type CatalogEntry, type PublishWarning } from './backup-storage';
 import { AI_CONFIG } from '@/lib/constants/ai-config';
 import { logger } from './logger';
 // JH2: pure chain-verdict (no DB access) — restore certifies the chain head
@@ -946,21 +946,20 @@ export function deleteBackup(filename: string, companyId: string): DeleteBackupR
     return { status: 'invalid' };
   }
 
-  // B. Ownership — exact manifest entry for this tenant.
-  const manifest = readManifest();
-  const entry = manifest.backups.find(
-    (b) => b.filename === filename && b.companyId === companyId,
-  );
+  // B. Ownership — exact entry for THIS tenant, from the tenant-scoped catalog.
+  // A file that cannot be decrypted (including another company's) is never
+  // attributed to the caller, so the answer stays the neutral not_found instead
+  // of an error the caller cannot act on.
+  const { backups } = readCompanyCatalog(companyId);
+  const entry = backups.find((b) => b.filename === filename);
   if (!entry) {
     return { status: 'not_found' };
   }
 
   // Physical ownership is rechecked without following links.
   if (!removeBackupFile(entry.filename)) return { status: 'not_found' };
-  manifest.backups = manifest.backups.filter(
-    (b) => !(b.filename === entry.filename && b.companyId === entry.companyId),
-  );
-  writeManifest(manifest);
+  // Index-only cache update: no stored file is read or re-decrypted here.
+  removeCatalogEntry(entry.filename, companyId);
 
   return { status: 'deleted' };
 }

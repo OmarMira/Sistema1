@@ -29,4 +29,5 @@ stopwords = [
   '''Clave.RBAC.2026''',
   '''Clave.G4AB.2026''',
   '''Clave.JournalChain.2026''',
+  '''Clave.Owner.Respaldo.2026''',
 ]

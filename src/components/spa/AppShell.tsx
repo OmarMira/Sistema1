@@ -25,6 +25,7 @@ import { LanguageSelector } from '@/components/spa/LanguageSelector';
 import { AIAssistantModal } from '@/components/spa/AIAssistantModal';
 import { useLanguageStore } from '@/store/language-store';
 import { useAuthStore } from '@/store/auth-store';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { SidebarNav } from '@/components/app/SidebarNav';
 import { DesktopSidebar } from '@/components/app/DesktopSidebar';
 import { PlaceholderView } from '@/components/app/PlaceholderView';
@@ -68,6 +69,9 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
     setCurrentView('company-structure');
   }, [setCurrentView]);
 
+  // Only the installation owner actually switches between companies; the hint is
+  // therefore shown to that account alone.
+  const canChangeCompany = user?.role === 'super_admin';
   const isProcessing = useAuthStore((s) => s.isProcessing);
   const processingMessage = useAuthStore((s) => s.processingMessage);
 
@@ -176,19 +180,44 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
               <span className="text-[10px] font-semibold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
                 {t('common.companyActive')}
               </span>
-              <button
-                onClick={handleOpenCompanyStructure}
-                className="text-sm font-medium truncate max-w-[140px] hover:text-primary transition-colors"
-                title={t('common.viewCompanyStructure')}
-              >
-                {activeCompany.legalName}
-              </button>
-              <button
-                onClick={handleChangeCompany}
-                className="text-xs text-primary hover:underline font-medium"
-              >
-                {t('common.change')}
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={handleOpenCompanyStructure}
+                    className="text-sm font-medium truncate max-w-[140px] hover:text-primary transition-colors"
+                    aria-label={`${activeCompany.legalName}: ${t('common.viewCompanyStructureDetail')}`}
+                  >
+                    {activeCompany.legalName}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <div className="space-y-1">
+                    <p className="font-medium">{t('common.viewCompanyStructure')}</p>
+                    <p>{t('common.viewCompanyStructureDetail')}</p>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
+              {canChangeCompany ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={handleChangeCompany}
+                      className="text-xs text-primary hover:underline font-medium"
+                      aria-label={`${t('common.change')}: ${t('common.changeCompanyHint')}`}
+                    >
+                      {t('common.change')}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">{t('common.changeCompanyHint')}</TooltipContent>
+                </Tooltip>
+              ) : (
+                <button
+                  onClick={handleChangeCompany}
+                  className="text-xs text-primary hover:underline font-medium"
+                >
+                  {t('common.change')}
+                </button>
+              )}
             </div>
           )}
 
@@ -207,20 +236,25 @@ export function AppShell({ children }: { children?: React.ReactNode }) {
 
             {/* User menu */}
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="rounded-full"
-                  aria-label="Menú de usuario"
-                >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="rounded-full"
+                      aria-label={t('common.accountMenuHint')}
+                    >
                   <Avatar className="size-7">
                     <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
                       {initials}
                     </AvatarFallback>
                   </Avatar>
-                </Button>
-              </DropdownMenuTrigger>
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{t('common.accountMenuHint')}</TooltipContent>
+              </Tooltip>
               <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col gap-1">

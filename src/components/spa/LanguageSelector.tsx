@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useLanguageStore } from '@/store/language-store';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import type { Locale } from '@/lib/i18n';
 
 const languages: { code: Locale; flag: string; label: string }[] = [
@@ -17,20 +18,25 @@ const languages: { code: Locale; flag: string; label: string }[] = [
 ];
 
 export function LanguageSelector() {
-  const { language, setLanguage } = useLanguageStore();
+  const { language, setLanguage, t } = useLanguageStore();
   const current = languages.find((l) => l.code === language) ?? languages[0];
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="gap-1.5">
-          <Globe className="size-4" />
-          <span className="hidden sm:inline">
-            {current.flag} {current.label}
-          </span>
-          <span className="sm:hidden">{current.flag}</span>
-        </Button>
-      </DropdownMenuTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="sm" className="gap-1.5" aria-label={t('common.languageHint')}>
+              <Globe className="size-4" />
+              <span className="hidden sm:inline">
+                {current.flag} {current.label}
+              </span>
+              <span className="sm:hidden">{current.flag}</span>
+            </Button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{t('common.languageHint')}</TooltipContent>
+      </Tooltip>
       <DropdownMenuContent align="end">
         {languages.map((lang) => (
           <DropdownMenuItem

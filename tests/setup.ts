@@ -111,3 +111,13 @@ vi.mock('z-ai-web-dev-sdk', () => {
 // Invalidate critical module caches to avoid stale Prisma client instances
 // Database schema and global bank-profile fixtures are prepared once by
 // global-setup.ts, outside per-file mocks of @/lib/db and @prisma/client.
+
+// jsdom implements no ResizeObserver and Radix tooltips measure their content
+// with one. Installing it once avoids each component suite repeating the stub.
+if (typeof globalThis !== 'undefined' && !('ResizeObserver' in globalThis)) {
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}
